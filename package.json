@@ -1,0 +1,29 @@
+{
+  "name": "tumblekin",
+  "version": "1.0.0",
+  "description": "Mobile-first local multiplayer board game with three living 3D worlds and 24 touch-first challenges.",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js",
+    "test": "node --test server/*.test.js"
+  },
+  "keywords": [
+    "party-game",
+    "threejs",
+    "socket.io",
+    "pwa",
+    "mobile"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.5",
+    "three": "^0.166.1"
+  }
+}
