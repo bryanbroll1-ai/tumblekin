@@ -4591,12 +4591,32 @@ function getLocalAddresses() {
 }
 
 if (require.main === module) {
+  // Last-resort net. Adversarial payloads are already handled defensively in
+  // the handlers, but a logic bug in the 90 ms minigame tick would otherwise
+  // take the process down and end every party on this server at once. Staying
+  // up with one broken room beats dropping all of them.
+  process.on("uncaughtException", (error) => {
+    console.error("[tumblekin] Unerwarteter Fehler — Server läuft weiter:", error);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[tumblekin] Unbehandelte Promise-Ablehnung:", reason);
+  });
+
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Tumblekin server running at http://localhost:${PORT}`);
     getLocalAddresses().forEach((address) => {
       console.log(`WLAN URL: http://${address}:${PORT}`);
     });
   });
+
+  // Container und Ctrl-C sollen die offenen Sockets sauber schließen.
+  const shutdown = (signal) => () => {
+    console.log(`[tumblekin] ${signal} empfangen — fahre herunter.`);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  };
+  process.on("SIGTERM", shutdown("SIGTERM"));
+  process.on("SIGINT", shutdown("SIGINT"));
 }
 
 module.exports = {

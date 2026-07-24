@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -16,7 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
@@ -349,7 +350,7 @@ export class RopeSkip {
     this.floaters.update(dt);
 
     this.shake *= 0.9;
-    const shakeX = Math.sin(now / 16) * this.shake * 0.24;
+    const shakeX = Math.sin(now / 16) * this.shake * 0.24 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.4, this.baseCamZ || 8.6);
     this.camera.position.lerp(desired, 0.1);
     this.camera.lookAt(0, 1.2, 0);

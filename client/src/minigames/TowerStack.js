@@ -6,8 +6,9 @@ import {
   createNameLabel,
   createOwnMarker,
   updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin65";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -290,7 +291,7 @@ export class TowerStack {
     // Bias slightly toward the own tower so it's never cut off, while all four
     // stay in frame.
     const ownX = (this.towers.get(controlledId)?.x || 0) * 0.3;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 2.6) + this.smoothTop * BLOCK_H * 0.45, this.baseCamZ || 8);
     this.camera.position.lerp(desired, 0.12);
     this.camera.lookAt(ownX, focusY, 0);

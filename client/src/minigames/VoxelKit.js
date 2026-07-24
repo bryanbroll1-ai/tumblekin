@@ -1,4 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
+import { fxScale } from "./Quality.js?v=tumblekin66";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 
@@ -395,7 +396,11 @@ export class CubeBurst {
   // out); `spin` scales the tumble speed. All optional and backward compatible.
   spawn(position, colors, { count = 10, speed = 1.9, up = 2.1, size = 0.075, gravity = 5.4, life = 0.7, drag = 0, fadePow = 1, spin = 12 } = {}) {
     const palette = Array.isArray(colors) ? colors : [colors];
-    for (let index = 0; index < count; index += 1) {
+    // Thinned for reduced-motion players and low-tier GPUs. Scaling here covers
+    // every spawn call in every minigame; at least one shard always survives so
+    // the event stays readable.
+    const total = Math.max(1, Math.round(count * fxScale()));
+    for (let index = 0; index < total; index += 1) {
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(size * (0.7 + Math.random() * 0.6), size, size),
         new THREE.MeshBasicMaterial({ color: palette[index % palette.length], transparent: true })

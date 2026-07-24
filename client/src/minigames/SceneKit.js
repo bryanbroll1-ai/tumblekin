@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin65";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin66";
+import { qualityTier } from "./Quality.js?v=tumblekin66";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -30,12 +31,18 @@ export function mountStage(host, {
   host.canvas.insertAdjacentElement("afterend", webglCanvas);
   host.webglCanvas = webglCanvas;
 
-  const renderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO));
+  const low = qualityTier() === "low";
+  const renderer = new THREE.WebGLRenderer({
+    canvas: webglCanvas,
+    antialias: !low,
+    powerPreference: "high-performance"
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1.5 : MAX_PIXEL_RATIO));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // PCFSoft is noticeably pricier; basic PCF keeps shadows without the cost.
+  renderer.shadowMap.type = low ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
   host.renderer = renderer;
 
   const scene = new THREE.Scene();
@@ -73,7 +80,9 @@ export function addStageLights(scene, {
   const sun = new THREE.DirectionalLight(sunColor, sunIntensity);
   sun.position.set(sunPosition[0], sunPosition[1], sunPosition[2]);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+  // Halved on low-tier devices: a 512 map is the single biggest cheap saving.
+  const mapSize = qualityTier() === "low" ? Math.max(256, shadowMapSize / 2) : shadowMapSize;
+  sun.shadow.mapSize.set(mapSize, mapSize);
   sun.shadow.camera.left = shadow.left ?? -8;
   sun.shadow.camera.right = shadow.right ?? 8;
   sun.shadow.camera.top = shadow.top ?? 8;
@@ -91,7 +100,9 @@ export function resizeStage(host, tune, { minWidth = 320, minHeight = 240 } = {}
   const rect = canvas.getBoundingClientRect();
   const width = Math.max(minWidth, Math.floor(rect.width));
   const height = Math.max(minHeight, Math.floor(rect.height));
-  const ratio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
+  // Must match the ratio mountStage gave the renderer, or the size check below
+  // never settles and every frame triggers a needless resize.
+  const ratio = Math.min(window.devicePixelRatio || 1, qualityTier() === "low" ? 1.5 : MAX_PIXEL_RATIO);
   if (canvas.width === Math.floor(width * ratio) && canvas.height === Math.floor(height * ratio)) return false;
   host.renderer.setSize(width, height, false);
   host.camera.aspect = width / height;

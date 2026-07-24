@@ -82,6 +82,24 @@ input:focus {
   background: #fff;
 }
 
+/* Keyboard and switch access: every interactive control needs a visible focus
+   ring. :focus-visible keeps it off for pointer/touch taps, so the mobile look
+   is unchanged. The double ring (dark core + light halo) stays legible on both
+   the pale panels and the saturated buttons. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.85);
+  border-radius: var(--radius-sm);
+}
+
+/* On the 3D stages the page behind is dark and saturated — invert the ring. */
+.kinetic-hud :where(button, [tabindex]):focus-visible,
+#minigame-controls :where(button, [tabindex]):focus-visible {
+  outline-color: #ffffff;
+  box-shadow: 0 0 0 6px rgba(20, 30, 38, 0.75);
+}
+
 label {
   display: grid;
   gap: 7px;

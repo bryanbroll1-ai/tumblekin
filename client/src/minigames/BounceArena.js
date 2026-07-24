@@ -11,9 +11,10 @@ import {
   updateCountdownSprite,
   setKinOpacity,
   noise
-} from "./VoxelKit.js?v=tumblekin65";
-import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin65";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
+import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin66";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -444,7 +445,7 @@ export class BounceArena {
     const followX = controlledKin && this.kins.size ? controlledKin.position.x * 0.22 : 0;
     const followZ = controlledKin ? controlledKin.position.z * 0.14 : 0;
     this.lookTarget.lerp(new THREE.Vector3(followX, 0.18, followZ), 0.06);
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.12;
     this.camera.position.x = this.baseCamera.x + Math.sin(now / 3600) * 0.1 + shakeX;
     this.camera.position.y = this.baseCamera.y + shakeY;

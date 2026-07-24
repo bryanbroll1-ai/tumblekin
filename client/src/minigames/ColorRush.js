@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -16,7 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
@@ -373,7 +374,7 @@ export class ColorRush {
     this.shake *= 0.9;
     const focusX = controlledKin ? controlledKin.position.x : 0;
     const focusZ = controlledKin ? controlledKin.position.z : 0;
-    const shakeX = Math.sin(now / 16) * this.shake * 0.28;
+    const shakeX = Math.sin(now / 16) * this.shake * 0.28 * shakeScale();
     const shakeY = Math.cos(now / 13) * this.shake * 0.2;
     const desired = new THREE.Vector3(focusX * 0.25 + shakeX, this.baseCamera.y + shakeY, focusZ * 0.25 + this.baseCamera.z);
     this.camera.position.lerp(desired, 0.12);

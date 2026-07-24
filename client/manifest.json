@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#a8ddf5",
   "theme_color": "#a8ddf5",
-  "description": "Mobile-first Partyspiel: drei lebendige 3D-Welten und 19 Touch-Challenges im gleichen WLAN.",
+  "description": "Mobile-first Partyspiel: drei lebendige 3D-Welten und 15 Touch-Challenges im gleichen WLAN.",
   "icons": [
     {
       "src": "/assets/icon.svg",

@@ -1,6 +1,6 @@
 # Tumblekin
 
-Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 22 touch-optimierten Challenges gegeneinander an.
+Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 15 touch-optimierten Challenges gegeneinander an.
 
 ## Start
 
@@ -42,38 +42,41 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 - Stupser bremsen vor dem Würfeln automatisch den in der Gesamtwertung führenden Rivalen.
 - Nach fünf Runden gewinnen die meisten Münzen.
 
-## 21 Challenges
+## 15 Challenges
 
-Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden und setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks und Klacks über Web Audio).
+Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden und setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks und Klacks über Web Audio). Jede läuft als eigene Three.js-Szene mit den gemeinsamen Voxel-Figuren.
 
-### Physik
+`client/src/minigames/catalog.js` ist die maßgebliche Liste — Titel, Geste und Kurzhilfe stammen von dort.
 
-- **Bumper Bloom:** Elastische 3D-Kugelkollisionen auf einer klar begrenzten Platte.
-- **Plinko Falls:** Kugeln in die Peg-Kaskade fallen lassen — die Mitte zahlt am meisten.
-- **Slide Stones:** Steine mit einem Wisch ins Ringziel schlittern lassen, Rempler erlaubt.
-- **Bubble Bay:** Aufsteigende, wabbelnde Blasen im richtigen Moment zerplatzen.
-- **Vine Vault:** Links/Rechts-Sprünge über tragende Blätter.
-- **Glow Grid:** Gemeinsame Arena färben und Rivalen verdrängen.
-- **Cloudbreak:** Warnsignale lesen und ausweichen.
-- **Pulse Pin:** Einen Energiepuls im Zielsektor stoppen.
+### Stick
 
-### Ein Tap
+- **Bumper Bloom:** Drängen, rammen, auf der Platte bleiben.
 
-- **Orbit Drop** und **Tide Tap** erlauben genau einen Versuch pro Umlauf. Bei Tide Tap wechselt der Zielkamm.
+### Wischen
 
-### Ein Joystick
+- **Zielgerade:** Hürden ausweichen, Boosts sammeln, Stachelkugeln nach vorn werfen.
+- **Farbflucht:** Auf der angesagten Farbe stehen, bevor der Boden wegbricht.
+- **Münzregen:** Spur wechseln, goldene Münzen fangen, schwarzen Bomben ausweichen.
 
-- **Coin Sweep**, **Ice Drift**, **Magnet Mates**, **Gravity Garden** und **Drift Docks** verwenden nur den mittigen Stick.
+### Tippen
 
-### Direktes Berühren
+- **Nervenprobe:** Die Uhr versteckt sich nach zwei Sekunden — so nah wie möglich an der Zielzeit stoppen.
+- **Zündstoff:** Zündzeit merken und die Bombe rechtzeitig weitergeben.
+- **Blob-Klopfe:** Blobs treffen, bevor sie abtauchen — die stacheligen auslassen.
+- **Seilspringen:** Im richtigen Moment über das immer schnellere Riesenseil springen.
+- **Messerwurf:** Ins drehende Scheibenholz treffen, ohne ein fremdes Messer zu erwischen.
+- **Turmbau:** Den gleitenden Block im richtigen Moment stapeln.
 
-- **Coin Sort** und **Bubble Bay** werden direkt im Vollbild-Spielfeld angetippt, **Lantern Lift** und **Balance Brew** per horizontalem Ziehen gesteuert.
+### Schnell tippen
 
-### Vertical-Slice-Neuzugänge
+- **Pump-Panik:** Jeder Tap pumpt den Ballon größer — der dickste gewinnt.
+- **Kanonenflug:** Erst die Kraft stoppen, dann den Winkel; volle Power bei 45° fliegt am weitesten.
+- **Bergsteiger:** Abwechselnd links und rechts tippen und die Wand hochklettern.
 
-- **Sekundenjäger:** Zeit merken, dann die verhüllte Uhr blind im richtigen Moment stoppen — die kleinste Abweichung gewinnt.
-- **Zielgerade:** Ein 3D-Sprint über drei Spuren; per Wisch die Spur wechseln, Hürden ausweichen, Boostfelder mitnehmen, als Erster ins Ziel.
-- **Farbflucht:** Ein 3D-Farbfeld-Duell; auf der angesagten Farbe stehen, bevor der Boden wegbricht — die meisten überlebten Runden gewinnen.
+### Halten
+
+- **Lichtwächter:** Laufen, solange der Knopf gehalten wird — sofort stoppen, wenn der Wächter sich umdreht.
+- **Fassrolle:** Gegen das immer schnellere Riesenfass anlaufen, ohne abzurutschen.
 
 Die Spiellogik und Wertung sind serverautoritativ. Sounds entstehen ohne Audiodateien über Web Audio; unterstützte Smartphones erhalten zusätzlich begrenztes Feedback über `navigator.vibrate`.
 
@@ -85,7 +88,7 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 ## Dev-Testmodus
 
-Der Dev-Testmodus ist im normalen Spiel ausgeblendet. Mit `http://localhost:3000/?dev=1` erscheint in der Lobby der Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 21 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
+Der Dev-Testmodus ist im normalen Spiel ausgeblendet. Mit `http://localhost:3000/?dev=1` erscheint in der Lobby der Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 15 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
 
 ## Lokal testen
 
@@ -116,9 +119,14 @@ Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIU
 
 - Express liefert PWA, Three.js und Clientmodule aus.
 - Socket.io synchronisiert Raum, Board, Challenge-Inputs, Resultate und Reconnects.
-- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und Bumper Bloom.
-- Responsive Canvas-Renderer zeichnen die restlichen Challenges im Vollbild.
-- `PocketArcade.js` stellt gemeinsame Eingabe- und Renderpfade für 12 kompakte Spiele bereit.
+- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und alle 15 Challenges.
 - Service Worker, Manifest und App-Icon erlauben die Installation auf dem Homescreen.
+
+Gemeinsame Bausteine der Minispiele:
+
+- `minigames/catalog.js` — maßgebliche Liste aller Challenges samt Geste und Hilfetext.
+- `minigames/VoxelKit.js` — Voxel-Figuren, `KinAnimator`, Partikel (`CubeBurst`) und Pop-up-Texte (`FloatingText`).
+- `minigames/SceneKit.js` — Renderer, Kamera, Licht, Resize und Teardown; jedes Minispiel baut nur noch seine eigene Welt.
+- `minigames/Quality.js` — Bewegungspräferenz (`prefers-reduced-motion`) und Gerätestufe; steuert Kamera-Shake, Partikelmenge, Schattenauflösung und Pixelratio.
 
 Alle Namen, Figuren, Regeln und visuellen Motive sind eigenständige Entwürfe für Tumblekin.

@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -15,7 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
@@ -311,7 +312,7 @@ export class CliffClimb {
     this.shake *= 0.9;
     if (minigame.finaleAt) {
       // Pull back to frame the whole summit deck and the celebration.
-      const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+      const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
       const desired = new THREE.Vector3(shakeX, this.summitY + 0.6, (this.baseCamZ || 7.4) + 1.8);
       this.camera.position.lerp(desired, 0.08);
       this.camera.lookAt(0, this.summitY + 0.2, 0);
@@ -319,7 +320,7 @@ export class CliffClimb {
       // Follow the own climber in x (portrait is too narrow for all four lanes)
       // and in y as it rises.
       const followX = (this.ownX || 0) * 0.7;
-      const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+      const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
       const desired = new THREE.Vector3(followX + shakeX, Math.max(2.4, ownY) + (this.baseCamLift || 0.4), this.baseCamZ || 7.4);
       this.camera.position.lerp(desired, 0.1);
       this.camera.lookAt(followX, Math.max(2.4, ownY) + 0.4, 0);

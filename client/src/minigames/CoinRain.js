@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -15,7 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -322,7 +323,7 @@ export class CoinRain {
     this.floaters.update(dt);
 
     this.shake *= 0.9;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.22;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.22 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.2, this.baseCamZ || 7.2);
     this.camera.position.lerp(desired, 0.1);
     this.camera.lookAt(0, 2, 0);

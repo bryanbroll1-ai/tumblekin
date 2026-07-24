@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -15,7 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -375,7 +376,7 @@ export class KnifeThrow {
     this.floaters.update(dt);
 
     this.shake *= 0.9;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.22;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.22 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 2.9, this.baseCamZ || 7.4);
     this.camera.position.lerp(desired, 0.1);
     this.camera.lookAt(0, 2.7, LOG_Z);

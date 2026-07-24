@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -15,7 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Lichtwächter — hold the button to sprint towards the gate while the
 // giant guard looks away. When the light flips to red he whirls around:
@@ -346,7 +347,7 @@ export class RedLightGate {
     this.floaters.update(dt);
 
     this.shake *= 0.9;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.24;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.24 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.18;
     if (minigame.finaleAt) {
       // Time's up: zoom in on the winner(s) — the runner(s) furthest along.

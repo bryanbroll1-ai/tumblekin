@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -15,7 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -691,7 +692,7 @@ export class RunnerDerby {
     // Chase camera behind the controlled kin, with impact shake + boost FOV kick.
     this.shake *= 0.88;
     this.fovKick *= 0.9;
-    const shakeX = Math.sin(now / 18) * this.shake * 0.16;
+    const shakeX = Math.sin(now / 18) * this.shake * 0.16 * shakeScale();
     const shakeY = Math.cos(now / 15) * this.shake * 0.1;
     const desired = new THREE.Vector3(focusX * 0.35 + shakeX, this.baseCamera.y + shakeY, focusZ + this.baseCamera.z);
     this.camera.position.lerp(desired, 0.16);

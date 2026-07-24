@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin65";
+} from "./VoxelKit.js?v=tumblekin66";
 import {
   mountStage,
   mountHud,
@@ -16,7 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin65";
+} from "./SceneKit.js?v=tumblekin66";
+import { shakeScale } from "./Quality.js?v=tumblekin66";
 
 // Zündstoff — hot-potato with a blocky bomb. The fuse length is secret:
 // tap to pass the bomb on before it blows. Whoever holds it when it pops
@@ -381,7 +382,7 @@ export class BombPass {
     this.floaters.update(dt);
 
     this.shake *= 0.88;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.3;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.3 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.22;
     const desired = new THREE.Vector3(shakeX, (this.baseCamY || 4.6) + shakeY, this.baseCamZ || 7.8);
     this.camera.position.lerp(desired, 0.1);
