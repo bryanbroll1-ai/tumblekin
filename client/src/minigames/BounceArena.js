@@ -1,7 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin36";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin62";
 import {
   CubeBurst,
+  KinAnimator,
   createCloud,
   createCountdownSprite,
   createNameLabel,
@@ -11,7 +12,8 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin36";
+} from "./VoxelKit.js?v=tumblekin62";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -35,6 +37,7 @@ export class BounceArena {
     this.camera = null;
     this.webglCanvas = null;
     this.kins = new Map();
+    this.animators = new Map();
     this.lastAlive = new Map();
     this.lastCollisions = new Map();
     this.splashed = new Set();
@@ -44,6 +47,9 @@ export class BounceArena {
     this.countdownValue = null;
     this.lookTarget = new THREE.Vector3(0, 0.2, 0);
     this.lastFrameAt = performance.now();
+    this.lastServerAt = performance.now();
+    this.fxStamp = new Map();
+    this.ownFxAt = 0;
   }
 
   start(minigame) {
@@ -64,29 +70,32 @@ export class BounceArena {
 
     this.joystick = new VirtualJoystick({
       root: this.controls.querySelector(".joystick-slot"),
-      label: "Bumper Bloom bewegen und rammen",
-      intervalMs: 92,
+      label: "Bumper Bloom lenken und rammen",
+      intervalMs: 70,
       feedback: this.feedback,
-      onDirection: (action) => this.sendInput({ action }).catch(() => {}),
+      onVector: (x, y) => this.sendInput({ action: "thrust", x, y }).catch(() => {}),
       onEngage: () => {
-        this.bumpPulse = 1;
-        this.feedback?.sound("impact");
-        this.feedback?.vibrate([14, 18, 36]);
-        this.sendInput({ action: "bump" }).catch(() => {});
+        this.feedback?.sound("move");
+        this.feedback?.vibrate(10);
       }
     });
     this.loop();
   }
 
   handleUpdate(update) {
-    const controlled = update.arena?.players?.[this.getControlledPlayerId()];
-    if ((controlled?.collisionCount || 0) > (this.lastCollisions.get(this.getControlledPlayerId()) || 0)) {
+    const controlledId = this.getControlledPlayerId();
+    const controlled = update.arena?.players?.[controlledId];
+    const nowP = performance.now();
+    // Throttled: rapid bump chains give one strong pulse, not a strobe.
+    if ((controlled?.collisionCount || 0) > (this.lastCollisions.get(controlledId) || 0) && nowP - this.ownFxAt > 200) {
+      this.ownFxAt = nowP;
       this.bumpPulse = 1;
-      this.shake = 1;
+      this.shake = Math.max(this.shake, 0.8);
       this.feedback?.sound("collision");
       this.feedback?.vibrate(18);
     }
     this.update = update;
+    this.lastServerAt = nowP;
   }
 
   destroy() {
@@ -104,6 +113,7 @@ export class BounceArena {
     this.renderer = null;
     this.scene = null;
     this.kins.clear();
+    this.animators.clear();
   }
 
   createScene() {
@@ -220,6 +230,20 @@ export class BounceArena {
 
     this.bursts = new CubeBurst(this.scene);
 
+    // Pool of flat shockwave rings that flash out from every hard bump.
+    this.rings = [];
+    for (let i = 0; i < 6; i += 1) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.4, 0.06, 6, 20),
+        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0 })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.visible = false;
+      ring.userData = { age: 0, life: 0.5 };
+      this.scene.add(ring);
+      this.rings.push(ring);
+    }
+
     this.countdownSprite = createCountdownSprite();
     this.countdownSprite.position.set(0, 1.75, 0);
     this.countdownSprite.scale.set(1.7, 1.06, 1);
@@ -228,6 +252,27 @@ export class BounceArena {
     const state = this.getState();
     state?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
+  }
+
+  spawnRing(x, z) {
+    const ring = this.rings.find((candidate) => !candidate.visible);
+    if (!ring) return;
+    ring.position.set(x, PLATFORM_TOP_Y + 0.04, z);
+    ring.scale.setScalar(0.3);
+    ring.material.opacity = 0.85;
+    ring.visible = true;
+    ring.userData.age = 0;
+  }
+
+  updateRings(dt) {
+    this.rings.forEach((ring) => {
+      if (!ring.visible) return;
+      ring.userData.age += dt;
+      const t = ring.userData.age / ring.userData.life;
+      if (t >= 1) { ring.visible = false; return; }
+      ring.scale.setScalar(0.3 + t * 2.4);
+      ring.material.opacity = 0.85 * (1 - t);
+    });
   }
 
   ensureKin(player, index = 0) {
@@ -245,9 +290,14 @@ export class BounceArena {
     kin.userData.shadow = shadow;
     kin.userData.target = new THREE.Vector3(0, KIN_REST_Y, 0);
     kin.userData.fallSpin = 0;
+    kin.userData.wasInPlay = true;
+    kin.userData.fallY = KIN_REST_Y;
     kin.position.set(0, KIN_REST_Y, 0);
     this.scene.add(kin);
     this.kins.set(player.id, kin);
+    const animator = new KinAnimator(kin);
+    animator.groundY = KIN_REST_Y;
+    this.animators.set(player.id, animator);
     return kin;
   }
 
@@ -273,33 +323,49 @@ export class BounceArena {
       const entry = minigame.arena?.players?.[player.id];
       if (!entry) return;
       const data = kin.userData;
+      const invulnerable = entry.inPlay && now < entry.invulnUntil;
 
-      // Sounds + burst on knock-out of the controlled player.
-      const wasAlive = this.lastAlive.get(player.id);
-      if (wasAlive === true && entry.alive === false && player.id === controlledId) {
-        this.feedback?.sound("fall");
-        this.feedback?.vibrate([35, 35, 48]);
+      // Transition edges: knocked off (fall) and respawn (pop).
+      if (data.wasInPlay && !entry.inPlay) {
+        data.fallY = KIN_REST_Y;
+        data.fallSpin = 0;
+        this.splashed.delete(player.id);
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0)), ["#ffffff", player.color], { count: 10, speed: 2.1, up: 2.2, size: 0.08, life: 0.6 });
+        if (player.id === controlledId) {
+          this.feedback?.sound("fall");
+          this.feedback?.vibrate([35, 35, 48]);
+        }
       }
-      this.lastAlive.set(player.id, entry.alive);
+      if (!data.wasInPlay && entry.inPlay) {
+        kin.position.set(entry.x * WORLD_SCALE, KIN_REST_Y, entry.y * WORLD_SCALE);
+        setKinOpacity(kin, 1);
+        this.splashed.delete(player.id);
+        this.bursts.spawn(new THREE.Vector3(entry.x * WORLD_SCALE, KIN_REST_Y, entry.y * WORLD_SCALE), ["#ffffff", player.color], { count: 8, speed: 1.4, up: 1.8, size: 0.07, life: 0.5 });
+        if (player.id === controlledId) this.feedback?.sound("pop");
+      }
+      data.wasInPlay = entry.inPlay;
 
-      // Collision juice for every player, not just your own.
+      // Collision juice for every player — but rate-limited per player so
+      // grinding against someone doesn't spam rings, bursts and shakes.
+      const animator = this.animators.get(player.id);
       const collisions = entry.collisionCount || 0;
       if (collisions > (this.lastCollisions.get(player.id) || 0)) {
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0)), ["#ffffff", player.color], { count: 7, speed: 1.6, up: 1.6, size: 0.06, life: 0.5 });
+        const stamp = this.fxStamp.get(player.id) || 0;
+        if (frameNow - stamp > 240) {
+          this.fxStamp.set(player.id, frameNow);
+          this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0)), ["#ffffff", player.color], { count: 5, speed: 1.6, up: 1.6, size: 0.06, life: 0.45 });
+          this.spawnRing(kin.position.x, kin.position.z);
+          this.shake = Math.max(this.shake, 0.45);
+          animator?.trigger("hit");
+        }
       }
       this.lastCollisions.set(player.id, collisions);
 
-      const outAge = entry.outAt ? Math.max(0, now - entry.outAt) : 0;
-      data.target.set(
-        entry.x * WORLD_SCALE,
-        entry.alive ? KIN_REST_Y : Math.max(WATER_Y - 1.2, KIN_REST_Y - (outAge / 1000) * (outAge / 1000) * 8),
-        entry.y * WORLD_SCALE
-      );
-      kin.position.lerp(data.target, entry.alive ? 0.42 : 0.2);
-
-      if (!entry.alive) {
-        // Tumble, splash once, then sink away.
+      if (!entry.inPlay) {
+        // Off the plate: tumble down toward the water, splash once, sink out.
         data.fallSpin += dt * 7;
+        data.fallY = Math.max(WATER_Y - 1.4, data.fallY - dt * (1.6 + (KIN_REST_Y - data.fallY) * 0.9) - dt * 2.2);
+        kin.position.set(entry.x * WORLD_SCALE, data.fallY, entry.y * WORLD_SCALE);
         data.body.rotation.x = data.fallSpin;
         if (!this.splashed.has(player.id) && kin.position.y < WATER_Y + 0.3) {
           this.splashed.add(player.id);
@@ -308,31 +374,65 @@ export class BounceArena {
         }
         setKinOpacity(kin, Math.max(0, 1 - Math.max(0, WATER_Y + 0.3 - kin.position.y) * 1.4));
         data.shadow.visible = false;
-        data.label.material.opacity = Math.max(0, 0.9 - outAge / 900);
-      } else {
-        // Juicy locomotion: squash by speed, lean into the direction of travel.
-        const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
-        const stretch = Math.min(0.16, speed * 0.07);
-        data.body.scale.set(1 + stretch, 1 - stretch * 0.7, 1 + stretch * 0.4);
-        data.body.rotation.x = Math.min(0.3, speed * 0.14);
-        kin.rotation.y = speed > 0.05 ? Math.atan2(entry.vx || 0, entry.vy || 0) : kin.rotation.y;
-        const bounce = Math.abs(Math.sin(now / 130 + data.phase)) * Math.min(0.08, speed * 0.05);
-        kin.position.y = KIN_REST_Y + bounce;
-        setKinOpacity(kin, 1);
-        data.label.material.opacity = player.id === controlledId ? 1 : 0.85;
-
-        data.shadow.visible = true;
-        data.shadow.position.set(kin.position.x, PLATFORM_TOP_Y + 0.012, kin.position.z);
-        const height = kin.position.y - KIN_REST_Y;
-        data.shadow.scale.setScalar(Math.max(0.6, 1 - height * 1.5));
+        data.label.material.opacity = 0.25;
+        return;
       }
+
+      // On the plate: extrapolate the last server snapshot by its velocity and
+      // the snapshot's age — the target then GLIDES between 90ms ticks instead
+      // of stair-stepping at tick rate ("10fps feel"), and a time-based lerp
+      // smooths the correction.
+      const snapshotAge = Math.min(0.22, (frameNow - this.lastServerAt) / 1000);
+      const lead = 0.05;
+      data.target.set(
+        (entry.x + (entry.vx || 0) * (snapshotAge + lead)) * WORLD_SCALE,
+        KIN_REST_Y,
+        (entry.y + (entry.vy || 0) * (snapshotAge + lead)) * WORLD_SCALE
+      );
+      kin.position.lerp(data.target, 1 - Math.pow(0.0004, dt));
+
+      const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
+      if (speed > 0.05) {
+        // Turn smoothly toward the travel direction instead of snapping.
+        const targetRot = Math.atan2(entry.vx || 0, entry.vy || 0);
+        const delta = Math.atan2(Math.sin(targetRot - kin.rotation.y), Math.cos(targetRot - kin.rotation.y));
+        kin.rotation.y += delta * Math.min(1, dt * 14);
+      }
+
+      // Full animation state machine: sprint stride, breathing idle, hit
+      // shock, and a victory dance during the finale.
+      if (minigame.finaleAt && entry.inPlay) {
+        animator?.set("cheer", { base: true });
+        kin.rotation.y += dt * 5;
+        if (!this.finaleCelebrated) {
+          this.finaleCelebrated = true;
+          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 24, speed: 2.8, up: 3.2, size: 0.1, life: 1 });
+          this.feedback?.sound("win");
+          this.feedback?.vibrate([20, 24, 40]);
+        }
+      } else {
+        animator?.set(speed > 0.3 ? "run" : "idle", { base: true });
+      }
+      animator?.update(now);
+      // Extra lean into the direction of travel on top of the run cycle.
+      data.body.rotation.x += Math.min(0.22, speed * 0.1);
+
+      // Spawn grace: gently pulse translucent so it reads as "protected".
+      const opacity = invulnerable ? 0.45 + Math.abs(Math.sin(now / 120)) * 0.4 : 1;
+      setKinOpacity(kin, opacity);
+      data.label.material.opacity = player.id === controlledId ? 1 : 0.85;
+
+      data.shadow.visible = true;
+      data.shadow.position.set(kin.position.x, PLATFORM_TOP_Y + 0.012, kin.position.z);
+      const height = kin.position.y - KIN_REST_Y;
+      data.shadow.scale.setScalar(Math.max(0.6, 1 - height * 1.5));
     });
 
     // Pulse pack: rim glow reacts to bumps and to anyone close to the edge.
     let edgeDanger = 0;
     state.players.forEach((player) => {
       const entry = minigame.arena?.players?.[player.id];
-      if (!entry?.alive) return;
+      if (!entry?.inPlay) return;
       edgeDanger = Math.max(edgeDanger, Math.min(1, Math.max(0, Math.hypot(entry.x, entry.y) - 0.62) / 0.4));
     });
     this.bumpPulse *= 0.85;
@@ -350,17 +450,25 @@ export class BounceArena {
     this.water.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.04;
 
     this.bursts.update(dt);
+    this.updateRings(dt);
 
-    // Camera: gentle follow of your kin plus impact shake.
+    // Camera: gentle follow of your kin plus a punchy impact shake.
     const followX = controlledKin && this.kins.size ? controlledKin.position.x * 0.22 : 0;
     const followZ = controlledKin ? controlledKin.position.z * 0.14 : 0;
     this.lookTarget.lerp(new THREE.Vector3(followX, 0.18, followZ), 0.06);
-    const shakeX = Math.sin(now / 26) * this.shake * 0.06;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+    const shakeY = Math.cos(now / 12) * this.shake * 0.12;
     this.camera.position.x = this.baseCamera.x + Math.sin(now / 3600) * 0.1 + shakeX;
-    this.camera.position.y = this.baseCamera.y + this.shake * 0.03;
+    this.camera.position.y = this.baseCamera.y + shakeY;
     this.camera.lookAt(this.lookTarget);
 
-    this.updateCountdown(minigame, now);
+    // The 3-2-1 countdown is shown once by the shared intro card, not here.
+    // Global: a downward arrow marks your own kin so you never lose yourself.
+    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
+      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
+        this.ownMarker.visible = ok.visible !== false;
+        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
+        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
     this.renderer.render(this.scene, this.camera);
   }
 

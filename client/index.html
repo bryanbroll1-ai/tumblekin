@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin36">
+    <link rel="stylesheet" href="/style.css?v=tumblekin62">
   </head>
   <body>
     <main id="app">
@@ -22,6 +22,29 @@
         <span></span>
         <span></span>
         <span></span>
+      </div>
+
+      <button id="game-menu-button" class="game-menu-button" type="button" aria-label="Menü öffnen" hidden>☰</button>
+      <div id="game-menu" class="game-menu" hidden>
+        <div class="game-menu-card" data-menu-view="main">
+          <h3>Menü</h3>
+          <div class="menu-toggle-row">
+            <span>🔊 Sound</span>
+            <button id="menu-toggle-sound" class="menu-toggle" type="button" aria-pressed="true">An</button>
+          </div>
+          <div class="menu-toggle-row">
+            <span>📳 Vibration</span>
+            <button id="menu-toggle-vibration" class="menu-toggle" type="button" aria-pressed="true">An</button>
+          </div>
+          <button id="menu-resume" class="primary-btn" type="button">Weiterspielen</button>
+          <button id="menu-leave" class="menu-danger-btn" type="button">Spiel verlassen</button>
+        </div>
+        <div class="game-menu-card" data-menu-view="confirm" hidden>
+          <h3>Wirklich verlassen?</h3>
+          <p>Du verlässt den Raum und dein Kin fliegt aus der Partie.</p>
+          <button id="menu-leave-cancel" class="primary-btn" type="button">Abbrechen</button>
+          <button id="menu-leave-confirm" class="menu-danger-btn" type="button">Ja, verlassen</button>
+        </div>
       </div>
 
       <section id="screen-start" class="screen active" aria-labelledby="start-title">
@@ -93,6 +116,33 @@
             </div>
             <ul id="lobby-players" class="player-list"></ul>
           </div>
+          <div class="panel mode-picker-panel">
+            <div class="panel-heading">
+              <h3>Spielmodus</h3>
+              <span id="selected-mode-label">Brettspiel</span>
+            </div>
+            <div id="mode-options" class="mode-options">
+              <button type="button" data-mode="board" class="mode-option is-active">
+                <strong>🎲 Brettspiel</strong>
+                <span>Würfeln, Felder, Minispiele – die meisten Münzen gewinnen.</span>
+              </button>
+              <button type="button" data-mode="arcade" class="mode-option">
+                <strong>🏆 Minispiel-Marathon</strong>
+                <span>5 Minispiele direkt hintereinander – die meisten Siege gewinnen.</span>
+              </button>
+              <button type="button" data-mode="single" class="mode-option">
+                <strong>🎯 Einzelspiel</strong>
+                <span>Sucht euch EIN Minispiel aus – danach geht's zurück in die Lobby.</span>
+              </button>
+            </div>
+          </div>
+          <div class="panel single-picker-panel" hidden>
+            <div class="panel-heading">
+              <h3>Minispiel</h3>
+              <span id="selected-single-label">Zufällig</span>
+            </div>
+            <div id="single-options" class="single-options"></div>
+          </div>
           <div class="panel board-picker-panel">
             <div class="panel-heading">
               <h3>Spielwelt</h3>
@@ -130,12 +180,7 @@
               <p id="board-message">Warte auf den nächsten Zug.</p>
               <strong id="dice-label">Würfel bereit</strong>
             </div>
-            <div id="route-choice" class="route-choice" role="group" aria-label="Weg wählen">
-              <button id="route-scenic" type="button">Rundweg</button>
-              <button id="route-shortcut" type="button">Abkürzung −2</button>
-            </div>
             <div class="turn-actions">
-              <button id="use-sabotage" class="sabotage-btn" type="button">Stupser</button>
               <button id="roll-dice" class="primary-btn dice-btn" type="button">Würfeln</button>
             </div>
           </div>
@@ -194,6 +239,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin36"></script>
+    <script type="module" src="/src/main.js?v=tumblekin62"></script>
   </body>
 </html>

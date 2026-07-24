@@ -1,0 +1,385 @@
+import * as THREE from "/vendor/three/three.module.js";
+import {
+  CubeBurst,
+  KinAnimator,
+  createCloud,
+  createNameLabel,
+  createShadowBlob,
+  createVoxelKin,
+  disposeScene
+} from "./VoxelKit.js?v=tumblekin62";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
+
+// Münzregen — coins and bombs rain into three lanes; hop lanes to catch
+// the gold and dodge the black fizzers.
+const LANE_WIDTH = 1.5;
+const KIN_Y = 0.62;
+const DROP_TOP_Y = 4.4;
+
+export class CoinRain {
+  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
+    this.canvas = canvas;
+    this.controls = controls;
+    this.sendInput = sendInput;
+    this.now = now;
+    this.getState = getState;
+    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
+    this.feedback = feedback;
+    this.minigame = null;
+    this.update = null;
+    this.frame = null;
+    this.renderer = null;
+    this.scene = null;
+    this.camera = null;
+    this.webglCanvas = null;
+    this.hud = null;
+    this.kins = new Map();
+    this.animators = new Map();
+    this.dropMeshes = new Map();
+    this.lastCatches = new Map();
+    this.lastBombs = new Map();
+    this.lastFrameAt = performance.now();
+    this.swipe = null;
+    this.shake = 0;
+    this.finaleDone = false;
+  }
+
+  start(minigame) {
+    this.minigame = minigame;
+    this.update = minigame;
+    this.canvas.hidden = true;
+    this.webglCanvas = document.createElement("canvas");
+    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
+    this.webglCanvas.setAttribute("aria-label", "3D Münzregen");
+    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+
+    this.hud = document.createElement("div");
+    this.hud.className = "kinetic-hud";
+    this.hud.innerHTML = `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+    `;
+    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    this.createScene();
+
+    this.controls.innerHTML = `
+      <div class="runner-lane-controls">
+        <button type="button" data-lane="-1" aria-label="Nach links">◀</button>
+        <button type="button" data-lane="1" aria-label="Nach rechts">▶</button>
+      </div>
+    `;
+    this.controls.querySelectorAll("[data-lane]").forEach((button) => {
+      button.addEventListener("pointerdown", () => this.sendLane(Number(button.dataset.lane)));
+    });
+    this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
+    this.onCanvasPointerUp = (event) => {
+      if (!this.swipe) return;
+      const dx = event.clientX - this.swipe.x;
+      this.swipe = null;
+      if (Math.abs(dx) < 24) return;
+      this.sendLane(dx > 0 ? 1 : -1);
+    };
+    this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
+    this.webglCanvas.addEventListener("pointerup", this.onCanvasPointerUp);
+    this.loop();
+  }
+
+  sendLane(dir) {
+    this.feedback?.sound("move");
+    this.feedback?.vibrate(8);
+    this.sendInput({ action: "lane", dir }).catch(() => {});
+  }
+
+  handleUpdate(update) {
+    this.update = update;
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.frame);
+    this.controls.innerHTML = "";
+    this.canvas.hidden = false;
+    if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
+    if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
+    this.bursts?.dispose();
+    if (this.scene) disposeScene(this.scene);
+    this.renderer?.dispose();
+    this.renderer?.forceContextLoss?.();
+    this.webglCanvas?.remove();
+    this.hud?.remove();
+    this.webglCanvas = null;
+    this.hud = null;
+    this.scene = null;
+    this.renderer = null;
+    this.kins.clear();
+    this.animators.clear();
+    this.dropMeshes.clear();
+  }
+
+  createScene() {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color("#9adcf2");
+    this.scene.fog = new THREE.Fog("#a8e2f4", 18, 42);
+    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80);
+
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
+    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
+    sun.position.set(-4, 11, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = -8;
+    sun.shadow.camera.right = 8;
+    sun.shadow.camera.top = 10;
+    sun.shadow.camera.bottom = -8;
+    this.scene.add(sun);
+
+    // Meadow with three catch lanes.
+    const meadow = new THREE.Mesh(
+      new THREE.BoxGeometry(24, 0.5, 16),
+      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+    );
+    meadow.position.y = -0.25;
+    meadow.receiveShadow = true;
+    this.scene.add(meadow);
+    for (let lane = 0; lane < 3; lane += 1) {
+      const strip = new THREE.Mesh(
+        new THREE.BoxGeometry(LANE_WIDTH - 0.12, 0.3, 2.8),
+        new THREE.MeshLambertMaterial({ color: lane === 1 ? "#ffdd8a" : "#f4cd6e" })
+      );
+      strip.position.set(this.laneX(lane), -0.08, 0.4);
+      strip.receiveShadow = true;
+      this.scene.add(strip);
+      // Bright catch marker so the landing spot is obvious.
+      const marker = new THREE.Mesh(
+        new THREE.BoxGeometry(LANE_WIDTH - 0.3, 0.04, 0.16),
+        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7 })
+      );
+      marker.position.set(this.laneX(lane), 0.09, 0);
+      this.scene.add(marker);
+    }
+    // A giant cloud machine hangs above the lanes and spits the drops.
+    const machine = new THREE.Group();
+    const hopper = new THREE.Mesh(
+      new THREE.BoxGeometry(5.2, 0.7, 1.2),
+      new THREE.MeshLambertMaterial({ color: "#8f6ae0" })
+    );
+    machine.add(hopper);
+    for (let lane = 0; lane < 3; lane += 1) {
+      const spout = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.45, 0.55),
+        new THREE.MeshLambertMaterial({ color: "#7a4ddb" })
+      );
+      spout.position.set(this.laneX(lane), -0.55, 0.3);
+      machine.add(spout);
+    }
+    machine.position.set(0, DROP_TOP_Y + 0.85, -0.9);
+    this.scene.add(machine);
+    this.machine = machine;
+
+    [[-7, 5.2, -5, 5], [7, 6, -3, 6]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      this.scene.add(cloud);
+    });
+
+    this.bursts = new CubeBurst(this.scene);
+    this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
+    this.resizeRenderer();
+    this.camera.position.set(0, this.baseCamY || 3.2, this.baseCamZ || 7.2);
+    this.camera.lookAt(0, 2, 0);
+  }
+
+  laneX(lane) {
+    return (lane - 1) * LANE_WIDTH;
+  }
+
+  buildDropMesh(kind) {
+    if (kind === "coin") {
+      const coin = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.3, 0.12, 8),
+        new THREE.MeshLambertMaterial({ color: "#ffc400", emissive: "#c98f1e", emissiveIntensity: 0.4 })
+      );
+      body.rotation.x = Math.PI / 2;
+      coin.add(body);
+      return coin;
+    }
+    if (kind === "gem") {
+      // A sparkly triple-value gem — two stacked pyramids.
+      const gem = new THREE.Group();
+      const mat = new THREE.MeshLambertMaterial({ color: "#12d0ff", emissive: "#12aaff", emissiveIntensity: 0.6 });
+      const top = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.3, 6), mat);
+      top.position.y = 0.12;
+      gem.add(top);
+      const bottom = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.24, 6), mat);
+      bottom.rotation.x = Math.PI;
+      bottom.position.y = -0.11;
+      gem.add(bottom);
+      return gem;
+    }
+    const bomb = new THREE.Group();
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.42, 0.42),
+      new THREE.MeshLambertMaterial({ color: "#1b2530" })
+    );
+    bomb.add(core);
+    const spark = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.12, 0.12),
+      new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#ff8b2e", emissiveIntensity: 1 })
+    );
+    spark.position.y = 0.32;
+    bomb.add(spark);
+    return bomb;
+  }
+
+  ensureKin(player, index = 0) {
+    if (this.kins.has(player.id)) return this.kins.get(player.id);
+    const kin = createVoxelKin(player.color, index);
+    const label = createNameLabel(player.name.slice(0, 7), player.color);
+    label.position.y = 0.62;
+    kin.add(label);
+    const shadow = createShadowBlob(0.5);
+    this.scene.add(shadow);
+    kin.userData.label = label;
+    kin.userData.shadow = shadow;
+    kin.userData.stagger = (index - 1.5) * 0.3;
+    kin.position.set(this.laneX(1), KIN_Y, 1 + kin.userData.stagger);
+    this.scene.add(kin);
+    const animator = new KinAnimator(kin);
+    animator.groundY = KIN_Y;
+    this.kins.set(player.id, kin);
+    this.animators.set(player.id, animator);
+    return kin;
+  }
+
+  loop = () => {
+    this.draw();
+    this.frame = requestAnimationFrame(this.loop);
+  };
+
+  draw() {
+    const minigame = this.update || this.minigame;
+    const state = this.getState();
+    const arcade = minigame?.arcade;
+    if (!minigame || !state || !arcade || !this.renderer) return;
+    this.resizeRenderer();
+
+    const now = this.now();
+    const frameNow = performance.now();
+    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
+    this.lastFrameAt = frameNow;
+    const controlledId = this.getControlledPlayerId();
+    const elapsed = Math.max(0, now - minigame.startedAt);
+
+    this.machine.position.x = Math.sin(now / 1600) * 0.2;
+
+    // Falling drops: spawn a mesh during the fall window, land at catchAt.
+    const active = new Set();
+    (arcade.drops || []).forEach((drop) => {
+      const fallFrom = drop.catchAt - (arcade.fallMs || 1400);
+      if (elapsed < fallFrom || elapsed > drop.catchAt + 120) return;
+      active.add(drop.id);
+      let mesh = this.dropMeshes.get(drop.id);
+      if (!mesh) {
+        mesh = this.buildDropMesh(drop.kind);
+        mesh.userData = { kind: drop.kind };
+        this.scene.add(mesh);
+        this.dropMeshes.set(drop.id, mesh);
+      }
+      const t = Math.min(1, (elapsed - fallFrom) / (arcade.fallMs || 1400));
+      mesh.position.set(this.laneX(drop.lane), DROP_TOP_Y - t * (DROP_TOP_Y - 0.5), 0);
+      mesh.rotation.y = now / 300 + drop.id;
+      if (drop.kind === "bomb") mesh.rotation.z = Math.sin(now / 120) * 0.2;
+    });
+    this.dropMeshes.forEach((mesh, id) => {
+      if (active.has(id)) return;
+      this.scene.remove(mesh);
+      this.dropMeshes.delete(id);
+    });
+
+    state.players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const kin = this.ensureKin(player, index);
+      const animator = this.animators.get(player.id);
+      const targetX = this.laneX(entry.lane) + (index - (state.players.length - 1) / 2) * 0.26;
+      const moving = Math.abs(kin.position.x - targetX) > 0.05;
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.3);
+
+      if ((entry.catches || 0) > (this.lastCatches.get(player.id) || 0)) {
+        this.lastCatches.set(player.id, entry.catches);
+        animator.trigger("jump");
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.6, 0)), ["#ffc400", "#ffd15c", "#ffffff"], { count: 8, speed: 1.8, up: 2, size: 0.08, life: 0.6 });
+        if (player.id === controlledId) {
+          this.feedback?.sound("coin");
+          this.feedback?.vibrate(10);
+        }
+      }
+      if ((entry.bombs || 0) > (this.lastBombs.get(player.id) || 0)) {
+        this.lastBombs.set(player.id, entry.bombs);
+        animator.trigger("hit");
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#1b2530", "#ff8b2e", "#ffffff"], { count: 12, speed: 2.4, up: 2, size: 0.09, life: 0.7 });
+        if (player.id === controlledId) {
+          this.shake = Math.max(this.shake, 0.8);
+          this.feedback?.sound("error");
+          this.feedback?.vibrate([24, 18, 30]);
+        }
+      }
+
+      if (minigame.finaleAt) {
+        animator.set("cheer", { base: true });
+      } else {
+        animator.set(moving ? "run" : "idle", { base: true });
+      }
+      animator.update(now);
+      kin.userData.shadow.position.set(kin.position.x, 0.06, kin.position.z);
+      kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
+    });
+
+    this.bursts.update(dt);
+
+    this.shake *= 0.9;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.22;
+    const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.2, this.baseCamZ || 7.2);
+    this.camera.position.lerp(desired, 0.1);
+    this.camera.lookAt(0, 2, 0);
+
+    this.updateHud(minigame, arcade, state, now);
+    // Global: a downward arrow marks your own kin so you never lose yourself.
+    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
+      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
+        this.ownMarker.visible = ok.visible !== false;
+        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
+        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  updateHud(minigame, arcade, state, now) {
+    if (!this.hud) return;
+    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
+    const own = arcade.players[this.getControlledPlayerId()];
+    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
+    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
+    this.hud.querySelector("[data-kinetic-score]").textContent = String(own?.catches || 0);
+  }
+
+  resizeRenderer() {
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const width = Math.max(320, Math.floor(rect.width));
+    const height = Math.max(240, Math.floor(rect.height));
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    const portrait = height > width;
+    this.baseCamY = portrait ? 3.4 : 3.2;
+    this.baseCamZ = portrait ? 8 : 7.2;
+    this.camera.fov = portrait ? 58 : 50;
+    this.camera.updateProjectionMatrix();
+  }
+}

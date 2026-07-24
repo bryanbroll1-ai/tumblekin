@@ -3,29 +3,28 @@ export const GESTURES = {
   taps: { icon: "👆👆", label: "Schnell tippen" },
   joystick: { icon: "🕹️", label: "Stick ziehen" },
   drag: { icon: "👆↔️", label: "Horizontal ziehen" },
-  swipeUp: { icon: "👆⬆️", label: "Nach oben wischen" }
+  swipeUp: { icon: "👆⬆️", label: "Nach oben wischen" },
+  swipeSide: { icon: "👆↔️", label: "Links/Rechts wischen" },
+  swipeAny: { icon: "👆✳️", label: "In jede Richtung wischen" },
+  hold: { icon: "👆⏺️", label: "Knopf gedrückt halten" }
 };
 
 export const MINIGAME_CATALOG = [
   { type: "bounceArena", title: "Bumper Bloom", gesture: "joystick", help: "Drängen, rammen, auf der Platte bleiben." },
-  { type: "driftDocks", title: "Drift Docks", family: "kinetic", gesture: "joystick", help: "Münzen holen und dem Dreharm ausweichen." },
-  { type: "lanternLift", title: "Lantern Lift", family: "direct", gesture: "drag", help: "Den Korb ziehen, Lichter fangen, Stürme meiden." },
-  { type: "balanceBrew", title: "Balance Brew", family: "direct", gesture: "drag", help: "Die Kugel im wandernden Ruhefeld halten." },
-  { type: "canopyClimb", title: "Vine Vault", gesture: "tap", help: "Zur richtigen Blattseite springen." },
-  { type: "fluxFloor", title: "Glow Grid", gesture: "tap", help: "Fläche erobern und Rivalen verdrängen." },
-  { type: "dodgeBlocks", title: "Cloudbreak", gesture: "tap", help: "Den Warnungen ausweichen." },
-  { type: "timingStop", title: "Pulse Pin", gesture: "tap", help: "Den Puls im hellen Sektor stoppen." },
-  { type: "petalPanic", title: "Petal Panic", family: "choice", gesture: "tap", help: "Springe sofort auf das tragende Blatt." },
-  { type: "orbitDrop", title: "Orbit Drop", family: "timing", gesture: "tap", help: "Ein Versuch pro Umlauf. Triff die Fassung." },
-  { type: "tideTap", title: "Tide Tap", family: "timing", gesture: "tap", help: "Triff den wechselnden Wellenkamm." },
-  { type: "fireflySweep", title: "Coin Sweep", family: "steer", gesture: "joystick", help: "Jage die Münze mit dem Joystick." },
-  { type: "iceDrift", title: "Ice Drift", family: "steer", gesture: "joystick", help: "Zwischen den Eisbrocken driften." },
-  { type: "magnetMates", title: "Magnet Mates", family: "steer", gesture: "joystick", help: "Am bewegten Magnetkern bleiben." },
-  { type: "gravityGarden", title: "Gravity Garden", family: "steer", gesture: "joystick", help: "Im wandernden Schwerkraftfeld bleiben." },
-  { type: "sparkSort", title: "Coin Sort", family: "target", gesture: "tap", help: "Goldmünzen treffen, rote Nieten meiden." },
-  { type: "bubblePop", title: "Bubble Bay", family: "target", gesture: "tap", help: "Aufsteigende Blasen sanft zerplatzen lassen." },
-  { type: "plinkoDrop", title: "Plinko Falls", family: "plinko", gesture: "tap", help: "Kugeln fallen lassen und die Mitte treffen." },
-  { type: "curlingSlide", title: "Slide Stones", family: "curling", gesture: "swipeUp", help: "Steine ins Ziel schlittern lassen." }
+  { type: "finishRush", title: "Zielgerade", family: "runner", gesture: "swipeSide", help: "Weiche Hürden aus, sammle Boosts und wirf Stachelkugeln auf die Läufer vor dir." },
+  { type: "colorEscape", title: "Farbflucht", family: "colorgrid", gesture: "swipeAny", help: "Steh auf der angesagten Farbe, bevor der Boden wegbricht." },
+  { type: "nervenprobe", title: "Nervenprobe", family: "stopclock", gesture: "tap", help: "Die Uhr versteckt sich nach 2 Sekunden. Drück den Knopf so nah wie möglich an der Zielzeit." },
+  { type: "lichtwaechter", title: "Lichtwächter", family: "redlight", gesture: "hold", help: "Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!" },
+  { type: "ballonPump", title: "Pump-Panik", family: "pump", gesture: "taps", help: "Tippe so schnell du kannst! Jeder Tap pumpt deinen Ballon größer – der dickste Ballon gewinnt." },
+  { type: "fassrolle", title: "Fassrolle", family: "barrel", gesture: "hold", help: "Das Riesenfass rollt immer schneller. Halte ◀ oder ▶ und lauf dagegen an – wer abrutscht, platscht ins Wasser." },
+  { type: "zuendstoff", title: "Zündstoff", family: "bomb", gesture: "tap", help: "Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus." },
+  { type: "muenzregen", title: "Münzregen", family: "catchfall", gesture: "swipeSide", help: "Wechsle die Spur und fang die goldenen Münzen – aber weich den schwarzen Bomben aus!" },
+  { type: "blobklopfe", title: "Blob-Klopfe", family: "whack", gesture: "tap", help: "Blobs poppen aus den Löchern – tipp ihr Feld, bevor sie abtauchen. Finger weg von den stacheligen!" },
+  { type: "seilspringen", title: "Seilspringen", family: "wave", gesture: "tap", help: "Das Riesenseil wird immer schneller. Spring im richtigen Moment – einmal gestolpert und du bist raus." },
+  { type: "kanonenflug", title: "Kanonenflug", family: "cannon", gesture: "taps", help: "Tipp 1 stoppt die Kraft, Tipp 2 den Abschusswinkel. Volle Power bei 45° fliegt am weitesten!" },
+  { type: "messerwurf", title: "Messerwurf", family: "knife", gesture: "tap", help: "Wirf dein Messer in den drehenden Baumstamm – aber triff kein Messer der anderen, sonst bist du raus!" },
+  { type: "turmbau", title: "Turmbau", family: "stack", gesture: "tap", help: "Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!" },
+  { type: "bergsteiger", title: "Bergsteiger", family: "climb", gesture: "taps", help: "Tippe abwechselnd links und rechts, um die Wand hochzuklettern. Wer zuerst oben ist, gewinnt!" }
 ];
 
 export const ARCADE_TYPES = new Set(

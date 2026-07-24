@@ -1,25 +1,24 @@
 const BOARD_SIZE = 32;
-const ROUTE_COST = 2;
 
 const MOSSBACK_FIELDS = [
-  "start", "spark", "boost", "snag", "challenge", "spark", "jinx", "gate",
-  "spark", "snag", "boost", "spark", "challenge", "spark", "jinx", "gate",
-  "spark", "boost", "snag", "spark", "challenge", "jinx", "spark", "gate",
-  "spark", "snag", "boost", "spark", "challenge", "spark", "jinx", "gate"
+  "start", "normal", "normal", "normal", "challenge", "normal", "normal", "gate",
+  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate",
+  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate",
+  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate"
 ];
 
 const CLOUDPANTRY_FIELDS = [
-  "start", "boost", "spark", "challenge", "snag", "spark", "jinx", "gate",
-  "spark", "challenge", "spark", "boost", "snag", "spark", "jinx", "gate",
-  "spark", "snag", "challenge", "spark", "boost", "spark", "jinx", "gate",
-  "spark", "boost", "spark", "snag", "challenge", "spark", "jinx", "gate"
+  "start", "normal", "normal", "challenge", "normal", "normal", "normal", "gate",
+  "normal", "challenge", "normal", "normal", "normal", "normal", "normal", "gate",
+  "normal", "normal", "challenge", "normal", "normal", "normal", "normal", "gate",
+  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate"
 ];
 
 const TIDEWORKS_FIELDS = [
-  "start", "spark", "jinx", "boost", "spark", "snag", "challenge", "gate",
-  "challenge", "spark", "boost", "spark", "snag", "jinx", "spark", "gate",
-  "spark", "boost", "snag", "challenge", "spark", "spark", "jinx", "gate",
-  "spark", "snag", "jinx", "spark", "boost", "challenge", "spark", "gate"
+  "start", "normal", "normal", "normal", "normal", "normal", "challenge", "gate",
+  "challenge", "normal", "normal", "normal", "normal", "normal", "normal", "gate",
+  "normal", "normal", "normal", "challenge", "normal", "normal", "normal", "gate",
+  "normal", "normal", "normal", "normal", "normal", "challenge", "normal", "gate"
 ];
 
 const BOARD_DEFINITIONS = [
@@ -29,12 +28,9 @@ const BOARD_DEFINITIONS = [
     shortName: "Wurzelwanderin",
     subtitle: "Ein lebender Wald mit Kronenweg und Herzbaum",
     badge: "Lebender Wald",
-    feature: "Kurze Sprungwurzeln · 1 Münze",
+    feature: "Kronenweg, Pilzmarkt und Herzbaum",
     zones: ["Schweifhain", "Pilzmarkt", "Kronenpfad", "Herzwurzel"],
     fieldTypes: MOSSBACK_FIELDS,
-    branches: { 4: 7, 12: 15, 20: 23, 28: 31 },
-    routeCost: 1,
-    shortcutName: "Sprungwurzel",
     swatches: ["#315b3f", "#b9f06f", "#f29a67"]
   }),
   createBoard({
@@ -43,12 +39,9 @@ const BOARD_DEFINITIONS = [
     shortName: "Kometenhafen",
     subtitle: "Schwebende Inseln, Luftschiffe und Sternenwind",
     badge: "Windschleifen",
-    feature: "Windfähren überspringen 4 Felder · 2 Münzen",
+    feature: "Schwebende Inseln und Sternenwind",
     zones: ["Ankerwolke", "Sternensteg", "Ballonbucht", "Kometenkai"],
     fieldTypes: CLOUDPANTRY_FIELDS,
-    branches: { 2: 7, 10: 15, 18: 23, 26: 31 },
-    routeCost: 2,
-    shortcutName: "Windfähre",
     swatches: ["#44517a", "#ffd06a", "#f58c8c"]
   }),
   createBoard({
@@ -56,13 +49,10 @@ const BOARD_DEFINITIONS = [
     name: "Pelagos Leuchtriff",
     shortName: "Leuchtriff",
     subtitle: "Korallenstadt zwischen Fluträdern und Glasstegen",
-    badge: "Risikoroute",
-    feature: "Turbinenstege überspringen 5 Felder · 3 Münzen",
+    badge: "Leuchtriff",
+    feature: "Korallenstadt zwischen Fluträdern",
     zones: ["Korallentor", "Flutmarkt", "Glasgarten", "Leuchtkranz"],
     fieldTypes: TIDEWORKS_FIELDS,
-    branches: { 1: 7, 9: 15, 17: 23, 25: 31 },
-    routeCost: 3,
-    shortcutName: "Turbinensteg",
     swatches: ["#176b78", "#69f0dc", "#f3c85d"]
   })
 ];
@@ -73,12 +63,8 @@ function createBoard(config) {
   }
   return {
     ...config,
-    routeCost: config.routeCost || ROUTE_COST,
-    routes: Array.from({ length: BOARD_SIZE }, (_, index) => {
-      const main = (index + 1) % BOARD_SIZE;
-      const shortcut = config.branches[index];
-      return shortcut === undefined ? [main] : [main, shortcut];
-    })
+    // Simple, mobile-friendly loop: one path forward, no shortcut branches.
+    routes: Array.from({ length: BOARD_SIZE }, (_, index) => [(index + 1) % BOARD_SIZE])
   };
 }
 
@@ -95,8 +81,6 @@ function publicBoard(board) {
     zones: board.zones,
     fieldTypes: board.fieldTypes,
     routes: board.routes,
-    routeCost: board.routeCost,
-    shortcutName: board.shortcutName,
     badge: board.badge,
     feature: board.feature,
     swatches: board.swatches
@@ -106,7 +90,6 @@ function publicBoard(board) {
 module.exports = {
   BOARD_DEFINITIONS,
   BOARD_SIZE,
-  ROUTE_COST,
   getBoard,
   publicBoard
 };

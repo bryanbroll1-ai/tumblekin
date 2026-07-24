@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin36";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin36";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin36";
+import { drawDiceFace } from "./Dice.js?v=tumblekin62";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin62";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin62";
 
 const EVENT_FIELDS = new Set(["challenge", "gate"]);
 const CAMERA_DAMPING = 6.5;
@@ -132,7 +132,9 @@ export class BoardGame {
       fieldIndex: landing.to
     });
     const token = this.tokens.get(landing.playerId);
-    if (token) token.userData.reaction = { type: landing.fieldType === "snag" ? "stumble" : "land", startedAt: performance.now() };
+    // Items and challenges get a happy hop; ordinary fields a soft landing.
+    const reactionType = landing.fieldType === "challenge" ? "cheer" : "land";
+    if (token) token.userData.reaction = { type: reactionType, startedAt: performance.now() };
     this.createLandingBurst(landing.to, landing.fieldType, Boolean(landing.gateEffects?.some((effect) => effect.coins > 0)));
   }
 
@@ -541,8 +543,29 @@ export class BoardGame {
           wrap: index === fieldTypes.length - 1 && nextIndex === 0
         });
         this.boardGroup.add(connector);
+
+        // A small chevron on every connector shows the direction of travel,
+        // so the loop's flow is obvious at a glance.
+        const arrow = createPathArrow();
+        arrow.position.set(
+          (from.x + to.x) / 2,
+          (from.y + to.y) / 2 + 0.12,
+          (from.z + to.z) / 2
+        );
+        arrow.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+        this.boardGroup.add(arrow);
       });
     });
+
+    // A golden START arch over field 0 anchors the whole loop.
+    const startPos = this.fieldPositions[0];
+    const nextPos = this.fieldPositions[1] || startPos;
+    if (startPos) {
+      const arch = createStartArch();
+      arch.position.set(startPos.x, startPos.y + 0.28, startPos.z);
+      arch.rotation.y = Math.atan2(nextPos.x - startPos.x, nextPos.z - startPos.z);
+      this.boardGroup.add(arch);
+    }
 
     fieldTypes.forEach((type, index) => {
       const position = this.fieldPositions[index];
@@ -638,10 +661,14 @@ export class BoardGame {
         }
         token.userData.accentMaterials.forEach((material) => material.color.set(player.color));
         if (this.animatingPlayers.has(player.id)) return;
-        const scale = playersOnField.length > 1 ? 0.6 : 0.84;
+        // Shrink more when a field is crowded so tokens never intersect.
+        const crowd = playersOnField.length;
+        const scale = crowd >= 3 ? 0.5 : (crowd === 2 ? 0.6 : 0.84);
         token.scale.setScalar(scale);
         token.position.copy(this.tokenPosition(position, index, playersOnField.length, scale));
         token.userData.restY = token.position.y;
+        token.userData.homeX = token.position.x;
+        token.userData.homeZ = token.position.z;
       });
     });
   }
@@ -678,8 +705,8 @@ export class BoardGame {
     const offsets = total <= 1
       ? [[0, 0]]
       : total === 2
-        ? [[-0.12, 0], [0.12, 0]]
-        : [[-0.12, -0.12], [0.12, -0.12], [-0.12, 0.12], [0.12, 0.12]];
+        ? [[-0.14, 0], [0.14, 0]]
+        : [[-0.13, -0.13], [0.13, -0.13], [-0.13, 0.13], [0.13, 0.13]];
     const [dx, dz] = offsets[Math.min(offsetIndex, offsets.length - 1)];
     const tileTop = this.fieldMeshes[fieldIndex]?.userData.topY || 0.34;
     return new THREE.Vector3(
@@ -720,7 +747,19 @@ export class BoardGame {
       token.position.lerpVectors(from, to, t);
       const fromTop = this.fieldMeshes[animation.route[segment]]?.userData.topY || 0.34;
       const toTop = this.fieldMeshes[animation.route[segment + 1]]?.userData.topY || 0.34;
-      token.position.y = THREE.MathUtils.lerp(fromTop, toTop, t) + 0.27 + Math.sin(t * Math.PI) * 0.3;
+      // Leap higher over fields where someone is standing so the mover
+      // vaults past bystanders instead of clipping through them.
+      let arc = 0.3;
+      for (const [otherId, other] of this.tokens.entries()) {
+        if (otherId === playerId || this.animatingPlayers.has(otherId)) continue;
+        const hx = other.userData.homeX ?? other.position.x;
+        const hz = other.userData.homeZ ?? other.position.z;
+        if (Math.hypot(to.x - hx, to.z - hz) < 0.45 || Math.hypot(from.x - hx, from.z - hz) < 0.45) {
+          arc = 0.62;
+          break;
+        }
+      }
+      token.position.y = THREE.MathUtils.lerp(fromTop, toTop, t) + 0.27 + Math.sin(t * Math.PI) * arc;
       token.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
       token.userData.stepPhase = t * Math.PI * 2;
     }
@@ -831,20 +870,67 @@ export class BoardGame {
       if (moving) {
         const stride = Math.sin(data.stepPhase || 0);
         data.feet?.forEach((foot, index) => { foot.rotation.x = stride * (index === 0 ? 0.65 : -0.65); });
+        // Arms swing opposite to the feet — a proper little march.
+        data.arms?.forEach((arm, index) => {
+          arm.rotation.x = stride * (index === 0 ? -0.8 : 0.8);
+          arm.rotation.z = arm.userData.baseRotZ;
+        });
         data.body.scale.set(1 - Math.abs(stride) * 0.04, 1 + Math.abs(stride) * 0.08, 1 - Math.abs(stride) * 0.04);
         return;
       }
       data.feet?.forEach((foot) => { foot.rotation.x *= 0.82; });
+      data.arms?.forEach((arm) => { arm.rotation.x *= 0.82; });
+
+      // Step aside when another kin walks through this field, then settle
+      // back home — no more clipping through bystanders.
+      const homeX = data.homeX ?? token.position.x;
+      const homeZ = data.homeZ ?? token.position.z;
+      let dodgeTargetX = 0;
+      let dodgeTargetZ = 0;
+      this.animatingPlayers.forEach((movingId) => {
+        const mover = this.tokens.get(movingId);
+        if (!mover) return;
+        const dx = homeX - mover.position.x;
+        const dz = homeZ - mover.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist >= 0.42) return;
+        const push = (0.42 - dist) / 0.42;
+        const len = Math.max(0.05, dist);
+        dodgeTargetX += (dx / len) * push * 0.3;
+        dodgeTargetZ += (dz / len) * push * 0.3;
+      });
+      data.dodgeX = THREE.MathUtils.lerp(data.dodgeX || 0, dodgeTargetX, 0.24);
+      data.dodgeZ = THREE.MathUtils.lerp(data.dodgeZ || 0, dodgeTargetZ, 0.24);
+      token.position.x = homeX + data.dodgeX;
+      token.position.z = homeZ + data.dodgeZ;
+      const dodging = Math.hypot(data.dodgeX, data.dodgeZ) > 0.03;
+
       let squashX = 1;
       let squashY = 1;
       let bodyTilt = Math.sin(now / 600 + data.phase) * 0.08;
+      let hop = 0;
+      if (dodging) {
+        // A startled little shuffle while stepping aside.
+        squashY -= 0.07;
+        squashX += 0.05;
+        data.feet?.forEach((foot, index) => { foot.rotation.x = Math.sin(now / 60 + index * Math.PI) * 0.5; });
+      }
+      const reactionDuration = data.reaction?.type === "cheer" ? 760 : 620;
       const reactionAge = now - (data.reaction?.startedAt || 0);
-      if (data.reaction && reactionAge < 620) {
-        const progress = clamp01(reactionAge / 620);
+      if (data.reaction && reactionAge < reactionDuration) {
+        const progress = clamp01(reactionAge / reactionDuration);
         const pulse = Math.sin(progress * Math.PI * 2.4) * (1 - progress);
         if (data.reaction.type === "stumble") {
           bodyTilt += pulse * 0.58;
           squashY -= Math.abs(pulse) * 0.15;
+        } else if (data.reaction.type === "cheer") {
+          // Two happy hops with a squash on take-off/landing — arms up!
+          hop = Math.abs(Math.sin(progress * Math.PI * 2)) * (1 - progress) * 0.26;
+          squashX += Math.sin(progress * Math.PI * 4) * 0.12 * (1 - progress);
+          squashY += hop * 0.5;
+          data.arms?.forEach((arm) => {
+            arm.rotation.z = THREE.MathUtils.lerp(arm.userData.baseRotZ, arm.userData.side * -2.4, Math.sin(progress * Math.PI));
+          });
         } else {
           squashX += Math.abs(pulse) * 0.16;
           squashY -= pulse * 0.18;
@@ -855,7 +941,14 @@ export class BoardGame {
       const breathe = 1 + Math.sin(now / 520 + data.phase) * 0.018;
       data.body.rotation.z = bodyTilt;
       data.body.scale.set(squashX * breathe, squashY * breathe, squashX * breathe);
-      token.position.y = (data.restY ?? token.position.y) + Math.sin(now / 380 + data.phase) * 0.018;
+      token.position.y = (data.restY ?? token.position.y) + Math.sin(now / 380 + data.phase) * 0.018 + hop;
+    });
+
+    // Special fields shimmer softly so gates and challenges stay
+    // discoverable without shouting over the current-field highlight.
+    this.fieldMeshes.forEach((mesh, index) => {
+      if (!mesh?.userData.special || index === this.currentFieldIndex) return;
+      mesh.material.emissiveIntensity = 0.05 + Math.abs(Math.sin(now / 640 + index * 1.7)) * 0.12;
     });
 
     this.landingBursts = this.landingBursts.filter((burst) => {
@@ -1467,11 +1560,14 @@ function createToken(color, styleIndex = 0) {
     feet.push(foot);
   });
 
+  const arms = [];
   [-1, 1].forEach((side) => {
     const arm = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.17, 0.1), accent);
     arm.position.set(side * 0.26, -0.02, 0.005);
     arm.rotation.z = side * -0.4;
+    arm.userData = { side, baseRotZ: side * -0.4 };
     body.add(arm);
+    arms.push(arm);
   });
 
   const faceY = 0.05;
@@ -1501,6 +1597,7 @@ function createToken(color, styleIndex = 0) {
     accentMaterials,
     eyes,
     feet,
+    arms,
     mouth,
     style,
     phase: styleIndex * 1.4 + Math.random() * 0.3,
@@ -1519,7 +1616,9 @@ function fieldStyle(type, index, theme) {
     special,
     height: special ? 0.19 : 0.165,
     baseHeight: theme.tileStyle === "saucer" ? 0.16 : 0.145,
-    size: special ? 0.62 : 0.55
+    // Slightly tighter tiles leave visible gaps along the path, so the loop
+    // reads as separate steps instead of a solid band.
+    size: special ? 0.58 : 0.5
   };
 }
 
@@ -1561,26 +1660,11 @@ function drawFieldIcon(ctx, type) {
     ctx.fill();
     return;
   }
-  if (type === "spark") {
-    drawIconStar(ctx, 64, 64, 34, 15);
-    ctx.fill();
-    return;
-  }
-  if (type === "snag") {
+  if (type === "normal") {
+    // Understated dot so normal fields stay calm and uniform.
     ctx.beginPath();
-    ctx.moveTo(34, 64);
-    ctx.lineTo(94, 64);
-    ctx.stroke();
-    return;
-  }
-  if (type === "boost") {
-    [42, 70].forEach((x) => {
-      ctx.beginPath();
-      ctx.moveTo(x, 34);
-      ctx.lineTo(x + 27, 64);
-      ctx.lineTo(x, 94);
-      ctx.stroke();
-    });
+    ctx.arc(64, 64, 10, 0, Math.PI * 2);
+    ctx.fill();
     return;
   }
   if (type === "challenge") {
@@ -1608,22 +1692,64 @@ function drawFieldIcon(ctx, type) {
     ctx.fill();
     return;
   }
-  if (type === "jinx") {
-    ctx.beginPath();
-    ctx.moveTo(71, 20);
-    ctx.lineTo(40, 70);
-    ctx.lineTo(61, 70);
-    ctx.lineTo(52, 108);
-    ctx.lineTo(91, 54);
-    ctx.lineTo(69, 54);
-    ctx.closePath();
-    ctx.fill();
-    return;
-  }
   ctx.font = "900 72px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("!", 64, 67);
+}
+
+// Flat white chevron lying on the path, pointing toward the next field.
+function createPathArrow() {
+  const group = new THREE.Group();
+  const material = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.62, depthWrite: false });
+  [-1, 1].forEach((side) => {
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 0.05), material);
+    wing.position.set(side * 0.048, 0, -0.028);
+    wing.rotation.y = side * -0.82;
+    group.add(wing);
+  });
+  group.renderOrder = 2;
+  return group;
+}
+
+// Blocky golden arch with a START banner over field 0.
+function createStartArch() {
+  const group = new THREE.Group();
+  const gold = new THREE.MeshLambertMaterial({ color: "#ffb400", emissive: "#a86a00", emissiveIntensity: 0.25 });
+  [-1, 1].forEach((side) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.86, 0.08), gold);
+    post.position.set(side * 0.44, 0.43, 0);
+    post.castShadow = true;
+    group.add(post);
+  });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.13, 0.11), gold);
+  beam.position.y = 0.9;
+  beam.castShadow = true;
+  group.add(beam);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 44px ui-rounded, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("START", 128, 34);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const label = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.72, 0.18),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide })
+  );
+  label.position.y = 0.9;
+  label.position.z = 0.062;
+  group.add(label);
+  const labelBack = label.clone();
+  labelBack.position.z = -0.062;
+  labelBack.rotation.y = Math.PI;
+  group.add(labelBack);
+  return group;
 }
 
 function drawIconStar(ctx, x, y, outer, inner) {

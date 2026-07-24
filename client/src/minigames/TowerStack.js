@@ -1,0 +1,361 @@
+import * as THREE from "/vendor/three/three.module.js";
+import {
+  CubeBurst,
+  createCloud,
+  createNameLabel,
+  createOwnMarker,
+  updateOwnMarker,
+  disposeScene
+} from "./VoxelKit.js?v=tumblekin62";
+
+// Turmbau — a block slides back and forth over each player's tower; tap to
+// drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
+// total miss topples the tower. Tallest tower wins.
+const COL_GAP = 1.85;
+const BLOCK_H = 0.32;
+const BASE_Y = 0.2;
+const WORLD_W = 1.35;      // world width of a full-width (=1) block
+const SLIDE_W = 1.15;      // world half-range of the sliding block
+
+export class TowerStack {
+  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
+    this.canvas = canvas;
+    this.controls = controls;
+    this.sendInput = sendInput;
+    this.now = now;
+    this.getState = getState;
+    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
+    this.feedback = feedback;
+    this.minigame = null;
+    this.update = null;
+    this.frame = null;
+    this.renderer = null;
+    this.scene = null;
+    this.camera = null;
+    this.webglCanvas = null;
+    this.hud = null;
+    this.towers = new Map();       // playerId -> { group, blocks:[], slider, x, color }
+    this.lastHeight = new Map();
+    this.lastToppled = new Map();
+    this.lastFrameAt = performance.now();
+    this.shake = 0;
+  }
+
+  start(minigame) {
+    this.minigame = minigame;
+    this.update = minigame;
+    this.canvas.hidden = true;
+    this.webglCanvas = document.createElement("canvas");
+    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
+    this.webglCanvas.setAttribute("aria-label", "3D Turmbau");
+    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+
+    this.hud = document.createElement("div");
+    this.hud.className = "kinetic-hud";
+    this.hud.innerHTML = `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="color-banner" data-stack-banner hidden></div>
+    `;
+    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    this.createScene();
+
+    this.controls.innerHTML = `
+      <button type="button" class="nerve-button" data-stack-drop>
+        <span class="nerve-button-face">SETZEN!</span>
+      </button>
+    `;
+    this.dropButton = this.controls.querySelector("[data-stack-drop]");
+    this.onDropDown = (event) => {
+      event.preventDefault();
+      this.pressDrop();
+    };
+    this.dropButton.addEventListener("pointerdown", this.onDropDown);
+    this.onCanvasTap = (event) => {
+      event.preventDefault();
+      this.pressDrop();
+    };
+    this.webglCanvas.addEventListener("pointerdown", this.onCanvasTap);
+    this.loop();
+  }
+
+  pressDrop() {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const own = arcade?.players?.[this.getControlledPlayerId()];
+    if (!own || own.toppled || own.height >= arcade.total) return;
+    this.feedback?.sound("move");
+    this.feedback?.vibrate(10);
+    this.sendInput({ action: "drop" }).catch(() => {});
+  }
+
+  handleUpdate(update) {
+    this.update = update;
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.frame);
+    this.controls.innerHTML = "";
+    this.canvas.hidden = false;
+    if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
+    this.bursts?.dispose();
+    if (this.scene) disposeScene(this.scene);
+    this.renderer?.dispose();
+    this.renderer?.forceContextLoss?.();
+    this.webglCanvas?.remove();
+    this.hud?.remove();
+    this.webglCanvas = null;
+    this.hud = null;
+    this.scene = null;
+    this.renderer = null;
+    this.towers.clear();
+  }
+
+  createScene() {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color("#9adcf2");
+    this.scene.fog = new THREE.Fog("#a8e2f4", 20, 46);
+    this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 90);
+
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
+    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
+    sun.position.set(-4, 12, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = -8;
+    sun.shadow.camera.right = 8;
+    sun.shadow.camera.top = 12;
+    sun.shadow.camera.bottom = -6;
+    this.scene.add(sun);
+
+    const ground = new THREE.Mesh(
+      new THREE.BoxGeometry(22, 0.5, 12),
+      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+    );
+    ground.position.y = -0.25;
+    ground.receiveShadow = true;
+    this.scene.add(ground);
+
+    [[-7, 5.4, -4, 5], [7, 6, -3, 6]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      this.scene.add(cloud);
+    });
+
+    this.bursts = new CubeBurst(this.scene);
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => this.ensureTower(player, index, players.length));
+    this.resizeRenderer();
+    this.camera.position.set(0, this.baseCamY || 2.6, this.baseCamZ || 8);
+    this.camera.lookAt(0, 1.3, 0);
+  }
+
+  columnX(index, count) {
+    return (index - (count - 1) / 2) * COL_GAP;
+  }
+
+  ensureTower(player, index, count) {
+    if (this.towers.has(player.id)) return this.towers.get(player.id);
+    const isOwn = player.id === this.getControlledPlayerId();
+    const x = this.columnX(index, count);
+    const group = new THREE.Group();
+    group.position.x = x;
+    this.scene.add(group);
+    // Foundation plinth (faded for rival towers).
+    const base = new THREE.Mesh(
+      new THREE.BoxGeometry(WORLD_W + 0.2, 0.4, 1.1),
+      new THREE.MeshLambertMaterial({ color: "#8a5a2c", transparent: !isOwn, opacity: isOwn ? 1 : 0.09 })
+    );
+    base.position.y = 0;
+    base.receiveShadow = isOwn;
+    base.castShadow = isOwn;
+    group.add(base);
+    const label = createNameLabel(player.name.slice(0, 7), player.color);
+    label.position.set(0, -0.5, 0.7);
+    label.material.opacity = isOwn ? 1 : 0.28;
+    group.add(label);
+    // The sliding preview block (only really matters on your own tower).
+    const slider = new THREE.Mesh(
+      new THREE.BoxGeometry(WORLD_W, BLOCK_H, 1),
+      new THREE.MeshLambertMaterial({ color: player.color, transparent: true, opacity: isOwn ? 0.9 : 0.07 })
+    );
+    slider.castShadow = isOwn;
+    group.add(slider);
+
+    const tower = { group, blocks: [], slider, label, x, color: player.color };
+    this.towers.set(player.id, tower);
+    return tower;
+  }
+
+  loop = () => {
+    this.draw();
+    this.frame = requestAnimationFrame(this.loop);
+  };
+
+  draw() {
+    const minigame = this.update || this.minigame;
+    const state = this.getState();
+    const arcade = minigame?.arcade;
+    if (!minigame || !state || !arcade || !this.renderer) return;
+    this.resizeRenderer();
+
+    const now = this.now();
+    const frameNow = performance.now();
+    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
+    this.lastFrameAt = frameNow;
+    const controlledId = this.getControlledPlayerId();
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    const players = state.players || [];
+    let topHeight = 0;
+
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const tower = this.ensureTower(player, index, players.length);
+
+      // Reconcile placed blocks up to the server height. Rival towers are
+      // rendered nearly see-through so your own tower is unmistakable.
+      const isOwn = player.id === controlledId;
+      while (tower.blocks.length < (entry.height || 0)) {
+        const level = tower.blocks.length;
+        const block = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1),
+          new THREE.MeshLambertMaterial({
+            color: tower.color,
+            emissive: tower.color,
+            emissiveIntensity: isOwn ? (level % 2 ? 0.12 : 0.04) : 0,
+            transparent: !isOwn,
+            opacity: isOwn ? 1 : 0.09
+          })
+        );
+        block.position.set(entry.offset * WORLD_W, BASE_Y + 0.2 + level * BLOCK_H, 0);
+        block.castShadow = isOwn;
+        block.receiveShadow = isOwn;
+        tower.group.add(block);
+        tower.blocks.push(block);
+      }
+      const height = tower.blocks.length;
+      topHeight = Math.max(topHeight, height);
+
+      // Grow/topple feedback.
+      if (height > (this.lastHeight.get(player.id) || 0)) {
+        this.lastHeight.set(player.id, height);
+        const top = tower.blocks[height - 1];
+        this.bursts.spawn(top.getWorldPosition(new THREE.Vector3()), [tower.color, "#ffffff"], { count: 5, speed: 1.2, up: 1.2, size: 0.06, life: 0.4 });
+        if (player.id === controlledId) {
+          this.feedback?.sound(entry.flash === "good" ? "perfect" : "pop");
+          this.feedback?.vibrate(8);
+        }
+      }
+      // Sealed tower (a miss or a full stack): plant a little flag on top as
+      // the end marker — the tower never falls over.
+      const capped = entry.toppled || height >= arcade.total;
+      if (capped && !this.lastToppled.get(player.id)) {
+        this.lastToppled.set(player.id, true);
+        const top = tower.blocks[height - 1];
+        if (top) {
+          const pole = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.6, 0.06), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
+          pole.position.set(top.position.x, top.position.y + BLOCK_H / 2 + 0.3, 0);
+          tower.group.add(pole);
+          const flag = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, 0.05), new THREE.MeshLambertMaterial({ color: tower.color, emissive: tower.color, emissiveIntensity: 0.2 }));
+          flag.position.set(top.position.x + 0.24, top.position.y + BLOCK_H / 2 + 0.42, 0);
+          tower.group.add(flag);
+          this.bursts.spawn(top.getWorldPosition(new THREE.Vector3()), [tower.color, "#ffffff"], { count: 8, speed: 1.6, up: 1.8, size: 0.08, life: 0.6 });
+        }
+        if (player.id === controlledId) {
+          this.feedback?.sound(entry.toppled && height < arcade.total ? "pop" : "win");
+          this.feedback?.vibrate(entry.toppled && height < arcade.total ? 12 : [20, 20, 40]);
+        }
+      }
+
+      // The sliding preview block sits one level above the tower.
+      const active = !capped && !minigame.finaleAt;
+      tower.slider.visible = active;
+      if (active) {
+        const speed = 1.1 + height * 0.06;
+        const swing = Math.sin(elapsed / 1000 * speed + (entry.phase || 0) * Math.PI * 2);
+        const blockCentre = swing * (0.85 - height * 0.01);
+        tower.slider.geometry.dispose();
+        tower.slider.geometry = new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1);
+        tower.slider.position.set(blockCentre * (SLIDE_W / 0.85), BASE_Y + 0.2 + height * BLOCK_H, 0);
+      }
+
+      tower.label.material.opacity = player.id === controlledId ? 1 : 0.3;
+    });
+
+    this.bursts.update(dt);
+
+    // Camera rises smoothly with the tallest tower (a damped height avoids the
+    // jump when a block lands).
+    this.shake *= 0.9;
+    this.smoothTop = THREE.MathUtils.lerp(this.smoothTop ?? topHeight, topHeight, Math.min(1, dt * 4));
+    const focusY = 1.3 + this.smoothTop * BLOCK_H * 0.5;
+    // Bias slightly toward the own tower so it's never cut off, while all four
+    // stay in frame.
+    const ownX = (this.towers.get(controlledId)?.x || 0) * 0.3;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+    const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 2.6) + this.smoothTop * BLOCK_H * 0.45, this.baseCamZ || 8);
+    this.camera.position.lerp(desired, 0.12);
+    this.camera.lookAt(ownX, focusY, 0);
+
+    // Arrow over your own tower so you always know which one is yours.
+    const ownTower = this.towers.get(controlledId);
+    if (ownTower) {
+      if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
+      const oh = arcade.players[controlledId]?.height || 0;
+      this.ownMarker.visible = true;
+      this.ownMarker.position.set(ownTower.x, 0, 0);
+      updateOwnMarker(this.ownMarker, now, BASE_Y + 0.2 + oh * BLOCK_H + 0.5);
+    }
+
+    this.updateHud(minigame, arcade, state, now);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  updateHud(minigame, arcade, state, now) {
+    if (!this.hud) return;
+    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
+    const own = arcade.players[this.getControlledPlayerId()];
+    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
+    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
+    this.hud.querySelector("[data-kinetic-score]").textContent = String(own?.height || 0);
+
+    const banner = this.hud.querySelector("[data-stack-banner]");
+    if (banner) {
+      if ((own?.height || 0) >= arcade.total) {
+        banner.hidden = false;
+        banner.textContent = "Turm komplett! 🏆";
+        banner.style.background = "#ffc400";
+        banner.style.color = "#5c4508";
+      } else if (own?.toppled) {
+        banner.hidden = false;
+        banner.textContent = "Turm gesetzt 🚩";
+        banner.style.background = "#12aaff";
+        banner.style.color = "#ffffff";
+      } else {
+        banner.hidden = true;
+      }
+    }
+    if (this.dropButton) this.dropButton.disabled = Boolean(own?.toppled || (own?.height || 0) >= arcade.total || minigame.finaleAt);
+  }
+
+  resizeRenderer() {
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const width = Math.max(320, Math.floor(rect.width));
+    const height = Math.max(240, Math.floor(rect.height));
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    const portrait = height > width;
+    this.baseCamY = portrait ? 2.7 : 2.6;
+    this.baseCamZ = portrait ? 10.5 : 8.5;
+    this.camera.fov = portrait ? 58 : 48;
+    this.camera.updateProjectionMatrix();
+  }
+}

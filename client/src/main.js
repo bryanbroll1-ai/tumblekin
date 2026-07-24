@@ -1,16 +1,22 @@
-import { BoardGame } from "./game/BoardGame.js?v=tumblekin36";
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin36";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin36";
-import { DodgeBlocks } from "./minigames/DodgeBlocks.js?v=tumblekin36";
-import { TimingStop } from "./minigames/TimingStop.js?v=tumblekin36";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin36";
-import { FluxFloor } from "./minigames/FluxFloor.js?v=tumblekin36";
-import { CanopyClimb } from "./minigames/CanopyClimb.js?v=tumblekin36";
-import { PocketArcade } from "./minigames/PocketArcade.js?v=tumblekin36";
-import { KineticArena } from "./minigames/KineticArena.js?v=tumblekin36";
-import { DirectTouchGames } from "./minigames/DirectTouchGames.js?v=tumblekin36";
-import { ARCADE_TYPES } from "./minigames/catalog.js?v=tumblekin36";
-import { Feedback } from "./game/Feedback.js?v=tumblekin36";
+import { BoardGame } from "./game/BoardGame.js?v=tumblekin62";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin62";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin62";
+import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin62";
+import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin62";
+import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin62";
+import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin62";
+import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin62";
+import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin62";
+import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin62";
+import { BombPass } from "./minigames/BombPass.js?v=tumblekin62";
+import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin62";
+import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin62";
+import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin62";
+import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin62";
+import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin62";
+import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin62";
+import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin62";
+import { Feedback } from "./game/Feedback.js?v=tumblekin62";
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
@@ -52,10 +58,10 @@ const ui = new UIManager({
   addTestPlayers: () => network.request("addTestPlayers", { code: currentState?.code }),
   enableDevMode: () => network.request("enableDevMode", { code: currentState?.code }),
   selectBoard: (boardId) => network.request("selectBoard", { code: currentState?.code, boardId }),
+  selectMode: (mode) => network.request("selectMode", { code: currentState?.code, mode }),
+  selectSingleGame: (type) => network.request("selectSingleGame", { code: currentState?.code, type }),
   startGame: () => network.request("startGame", { code: currentState?.code }),
   startDevMinigame: (type) => network.request("startDevMinigame", { code: currentState?.code, type }),
-  useSabotage: () => network.request("useSabotage", { code: currentState?.code, playerId: ui.getControlledPlayerId() }),
-  chooseRoute: (routeChoice) => network.request("chooseRoute", { code: currentState?.code, playerId: ui.getControlledPlayerId(), routeChoice }),
   rollDice: () => network.request("rollDice", { code: currentState?.code, playerId: ui.getControlledPlayerId() }),
   restartGame: () => network.request("restartGame", { code: currentState?.code })
 }, feedback);
@@ -75,7 +81,7 @@ network.on("boardLanded", (landing) => {
   if (gateBonus) {
     feedback.sound("coin");
     feedback.vibrate([22, 28, 32, 28, 44]);
-  } else if (effect.type === "jinx" || effect.type === "challenge") {
+  } else if (effect.type === "challenge") {
     feedback.sound("impact");
     feedback.vibrate(28);
   } else if ((effect.coins || 0) > 0) {
@@ -167,14 +173,21 @@ function startOrUpdateMinigame(minigame) {
   stopMinigame();
   const MinigameClass = {
     bounceArena: BounceArena,
-    driftDocks: KineticArena,
-    lanternLift: DirectTouchGames,
-    balanceBrew: DirectTouchGames,
-    canopyClimb: CanopyClimb,
-    fluxFloor: FluxFloor,
-    dodgeBlocks: DodgeBlocks,
-    timingStop: TimingStop
-  }[minigame.type] || (ARCADE_TYPES.has(minigame.type) ? PocketArcade : null);
+    finishRush: RunnerDerby,
+    colorEscape: ColorRush,
+    nervenprobe: Nervenprobe,
+    lichtwaechter: RedLightGate,
+    ballonPump: BalloonPump,
+    fassrolle: BarrelRoll,
+    zuendstoff: BombPass,
+    muenzregen: CoinRain,
+    blobklopfe: WhackBlob,
+    seilspringen: RopeSkip,
+    kanonenflug: CannonFly,
+    messerwurf: KnifeThrow,
+    turmbau: TowerStack,
+    bergsteiger: CliffClimb
+  }[minigame.type] || null;
 
   if (!MinigameClass) return;
   activeMinigameId = minigame.id;
@@ -194,6 +207,7 @@ function startOrUpdateMinigame(minigame) {
     previousMinigameId = minigame.id;
   }
   activeMinigame.start(minigame);
+  if (new URLSearchParams(location.search).has("dev")) window.__activeMinigame = activeMinigame;
 }
 
 function stopMinigame() {

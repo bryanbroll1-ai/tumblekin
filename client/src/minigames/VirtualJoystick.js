@@ -1,12 +1,15 @@
 export class VirtualJoystick {
-  constructor({ root, onDirection, onEngage, feedback, label = "Steuern", intervalMs = 105 }) {
+  constructor({ root, onDirection, onVector, onEngage, feedback, label = "Steuern", intervalMs = 105 }) {
     this.root = root;
     this.onDirection = onDirection;
+    this.onVector = onVector; // optional analog callback: (x, y) each in [-1, 1]
     this.onEngage = onEngage;
     this.feedback = feedback;
     this.intervalMs = intervalMs;
     this.pointerId = null;
     this.direction = null;
+    this.vecX = 0;
+    this.vecY = 0;
     this.engaged = false;
     this.timer = null;
 
@@ -65,6 +68,16 @@ export class VirtualJoystick {
     const y = rawY * scale;
     this.knob.style.transform = `translate(${x}px, ${y}px)`;
 
+    // Analog vector, normalised to the knob's travel radius.
+    const deadZoneVec = maxDistance * 0.28;
+    if (distance < deadZoneVec) {
+      this.vecX = 0;
+      this.vecY = 0;
+    } else {
+      this.vecX = x / maxDistance;
+      this.vecY = y / maxDistance;
+    }
+
     const deadZone = rect.width * 0.09;
     const nextDirection = distance < deadZone
       ? null
@@ -83,7 +96,8 @@ export class VirtualJoystick {
   }
 
   emitDirection() {
-    if (this.direction) this.onDirection(this.direction);
+    if (this.onVector) this.onVector(this.vecX, this.vecY);
+    if (this.direction && this.onDirection) this.onDirection(this.direction);
   }
 
   reset() {
@@ -91,9 +105,12 @@ export class VirtualJoystick {
     this.timer = null;
     this.pointerId = null;
     this.direction = null;
+    this.vecX = 0;
+    this.vecY = 0;
     this.engaged = false;
     this.base.classList.remove("active");
     this.knob.style.transform = "translate(0px, 0px)";
+    this.onVector?.(0, 0);
   }
 
   destroy() {

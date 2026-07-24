@@ -99,7 +99,10 @@ export class KinAnimator {
     this.kin = kin;
     this.state = "idle";
     this.baseState = "idle";
-    this.stateStart = performance.now();
+    // stateStart is stamped lazily with the SAME clock update() receives —
+    // callers pass network-synced time, so performance.now() here would make
+    // every one-shot state (hit/stumble/jump/fall) finish instantly.
+    this.stateStart = null;
     this.groundY = kin.position.y;
   }
 
@@ -109,15 +112,16 @@ export class KinAnimator {
     }
     if (this.state === state) return;
     this.state = state;
-    this.stateStart = performance.now();
+    this.stateStart = null;
   }
 
   trigger(state) {
     this.state = state;
-    this.stateStart = performance.now();
+    this.stateStart = null;
   }
 
   update(now = performance.now()) {
+    if (this.stateStart === null) this.stateStart = now;
     const t = (now - this.stateStart) / 1000;
     const d = this.kin.userData;
     const phase = d.phase;
@@ -137,11 +141,15 @@ export class KinAnimator {
 
     switch (this.state) {
       case "run": {
-        const stride = Math.sin(now / 90 + phase);
-        d.feet.forEach((foot, index) => { foot.rotation.x = stride * (index === 0 ? 0.8 : -0.8); });
-        d.arms.forEach((arm, index) => { arm.rotation.z = arm.userData.baseRotZ + stride * (index === 0 ? -0.5 : 0.5); });
-        d.body.rotation.x = 0.14;
-        this.kin.position.y = this.groundY + Math.abs(Math.sin(now / 90 + phase)) * 0.05;
+        // Bouncy, exaggerated sprint with head bob and body roll.
+        const stride = Math.sin(now / 78 + phase);
+        d.feet.forEach((foot, index) => { foot.rotation.x = stride * (index === 0 ? 1.05 : -1.05); });
+        d.arms.forEach((arm, index) => { arm.rotation.z = arm.userData.baseRotZ + stride * (index === 0 ? -0.75 : 0.75); });
+        d.body.rotation.x = 0.2;
+        d.body.rotation.z = stride * 0.09;
+        const bounce = Math.abs(Math.sin(now / 78 + phase));
+        d.body.scale.set(1 - bounce * 0.05, 1 + bounce * 0.08, 1 - bounce * 0.05);
+        this.kin.position.y = this.groundY + bounce * 0.09;
         break;
       }
       case "jump": {
@@ -164,14 +172,17 @@ export class KinAnimator {
         break;
       }
       case "cheer": {
-        const hop = Math.abs(Math.sin(now / 160 + phase));
-        this.kin.position.y = this.groundY + hop * 0.22;
-        d.body.scale.set(1 - hop * 0.05, 1 + hop * 0.1, 1 - hop * 0.05);
+        // Explosive celebration: big hops, arms thrown up, a happy wiggle-spin.
+        const hop = Math.abs(Math.sin(now / 150 + phase));
+        this.kin.position.y = this.groundY + hop * 0.34;
+        d.body.scale.set(1 - hop * 0.08, 1 + hop * 0.16, 1 - hop * 0.08);
         d.arms.forEach((arm) => {
-          arm.rotation.z = arm.userData.side * 2.4;
-          arm.position.y = arm.userData.baseY + 0.12 + hop * 0.04;
+          arm.rotation.z = arm.userData.side * (2.6 + hop * 0.4);
+          arm.position.y = arm.userData.baseY + 0.16 + hop * 0.06;
         });
-        d.body.rotation.z = Math.sin(now / 320 + phase) * 0.08;
+        d.feet.forEach((foot, index) => { foot.rotation.x = hop * (index === 0 ? 0.5 : -0.5); });
+        d.body.rotation.y = Math.sin(now / 150 + phase) * 0.4;
+        d.body.rotation.z = Math.sin(now / 210 + phase) * 0.12;
         break;
       }
       case "sad": {
@@ -210,11 +221,24 @@ export class KinAnimator {
         break;
       }
       default: {
-        // idle
-        const breathe = 1 + Math.sin(now / 520 + phase) * 0.02;
-        d.body.scale.set(breathe, 2 - breathe, breathe);
-        d.body.rotation.z = Math.sin(now / 900 + phase) * 0.03;
-        this.kin.position.y = this.groundY + Math.sin(now / 640 + phase) * 0.012;
+        // Lively idle: breathing, weight-shift sway, looking around, arm sway,
+        // and an occasional little hop so nobody ever stands frozen.
+        const breath = Math.sin(now / 430 + phase);
+        d.body.scale.set(1 - breath * 0.02, 1 + breath * 0.04, 1 - breath * 0.02);
+        d.body.rotation.z = Math.sin(now / 760 + phase) * 0.06;
+        d.body.rotation.y = Math.sin(now / 1150 + phase) * 0.14;
+        d.arms.forEach((arm, index) => {
+          arm.rotation.z = arm.userData.baseRotZ + Math.sin(now / 610 + phase + index * 1.6) * 0.13;
+        });
+        let y = this.groundY + Math.sin(now / 430 + phase) * 0.02;
+        const hopCycle = ((now / 1000) + phase) % 3.6;
+        if (hopCycle < 0.34) {
+          const h = Math.sin((hopCycle / 0.34) * Math.PI);
+          y += h * 0.09;
+          d.body.scale.y *= 1 + h * 0.07;
+          d.feet.forEach((foot, index) => { foot.rotation.x = h * (index === 0 ? 0.4 : -0.4); });
+        }
+        this.kin.position.y = y;
       }
     }
   }
@@ -246,6 +270,45 @@ export function createCloud(seed = 0) {
     group.add(chunk);
   }
   return group;
+}
+
+// A downward-pointing "you" arrow that bobs above the controlled player's
+// kin so you can always find yourself among the crowd. Attach it to a kin and
+// call updateOwnMarker() each frame.
+export function createOwnMarker(color = "#ffe25c") {
+  const group = new THREE.Group();
+  const shaft = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.26, 0.12),
+    new THREE.MeshBasicMaterial({ color })
+  );
+  shaft.position.y = 0.2;
+  group.add(shaft);
+  const tip = new THREE.Mesh(
+    new THREE.ConeGeometry(0.2, 0.26, 4),
+    new THREE.MeshBasicMaterial({ color })
+  );
+  tip.rotation.x = Math.PI;
+  tip.rotation.y = Math.PI / 4;
+  group.add(tip);
+  // A white outline cone just behind for contrast against any background.
+  const outline = new THREE.Mesh(
+    new THREE.ConeGeometry(0.26, 0.32, 4),
+    new THREE.MeshBasicMaterial({ color: "#ffffff" })
+  );
+  outline.rotation.x = Math.PI;
+  outline.rotation.y = Math.PI / 4;
+  outline.position.z = -0.02;
+  outline.scale.setScalar(1);
+  group.add(outline);
+  group.renderOrder = 999;
+  group.userData = { phase: Math.random() * Math.PI * 2 };
+  return group;
+}
+
+export function updateOwnMarker(marker, now, baseY) {
+  if (!marker) return;
+  marker.position.y = baseY + 0.9 + Math.sin(now / 260 + marker.userData.phase) * 0.1;
+  marker.rotation.y = Math.sin(now / 500) * 0.3;
 }
 
 export function createNameLabel(text, accent) {

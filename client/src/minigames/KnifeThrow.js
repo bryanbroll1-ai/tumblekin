@@ -1,0 +1,461 @@
+import * as THREE from "/vendor/three/three.module.js";
+import {
+  CubeBurst,
+  KinAnimator,
+  createCloud,
+  createNameLabel,
+  createShadowBlob,
+  createVoxelKin,
+  disposeScene
+} from "./VoxelKit.js?v=tumblekin62";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
+
+// Messerwurf — a big log spins face-on; tap to stick a knife into it.
+// Land on top of another player's knife and you are out. The log flips
+// direction and speeds up each round, so timing gets trickier.
+const LOG_R = 1.5;
+const KNIFE_R = LOG_R + 0.02;
+const KIN_Y = 0.62;
+const LOG_Y = 3.4;             // the disc floats above the throwers
+const LOG_Z = -0.3;
+const SPOTS = [-2.4, -0.8, 0.8, 2.4];
+
+function buildKnife(color) {
+  const knife = new THREE.Group();
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 0.7, 0.05),
+    new THREE.MeshLambertMaterial({ color: "#d8dee8" })
+  );
+  blade.position.y = 0.35;
+  knife.add(blade);
+  const guard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.24, 0.08, 0.1),
+    new THREE.MeshLambertMaterial({ color: "#ffd15c" })
+  );
+  guard.position.y = 0.02;
+  knife.add(guard);
+  const handle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.11, 0.3, 0.11),
+    new THREE.MeshLambertMaterial({ color: color || "#8a5a2c" })
+  );
+  handle.position.y = -0.16;
+  knife.add(handle);
+  return knife;
+}
+
+export class KnifeThrow {
+  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
+    this.canvas = canvas;
+    this.controls = controls;
+    this.sendInput = sendInput;
+    this.now = now;
+    this.getState = getState;
+    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
+    this.feedback = feedback;
+    this.minigame = null;
+    this.update = null;
+    this.frame = null;
+    this.renderer = null;
+    this.scene = null;
+    this.camera = null;
+    this.webglCanvas = null;
+    this.hud = null;
+    this.kins = new Map();
+    this.animators = new Map();
+    this.knifeMeshes = [];
+    this.lastStuck = new Map();
+    this.lastEliminated = new Map();
+    this.lastFrameAt = performance.now();
+    this.lastServerAt = performance.now();
+    this.localAngle = 0;
+    this.shake = 0;
+    this.finaleDone = false;
+  }
+
+  start(minigame) {
+    this.minigame = minigame;
+    this.update = minigame;
+    this.canvas.hidden = true;
+    this.webglCanvas = document.createElement("canvas");
+    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
+    this.webglCanvas.setAttribute("aria-label", "3D Messerwurf");
+    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+
+    this.hud = document.createElement("div");
+    this.hud.className = "kinetic-hud";
+    this.hud.innerHTML = `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="color-banner" data-knife-banner hidden></div>
+    `;
+    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    this.createScene();
+
+    this.controls.innerHTML = `
+      <button type="button" class="nerve-button" data-knife-throw>
+        <span class="nerve-button-face">WERFEN!</span>
+      </button>
+    `;
+    this.throwButton = this.controls.querySelector("[data-knife-throw]");
+    this.onThrowDown = (event) => {
+      event.preventDefault();
+      this.pressThrow();
+    };
+    this.throwButton.addEventListener("pointerdown", this.onThrowDown);
+    this.onCanvasTap = (event) => {
+      event.preventDefault();
+      this.pressThrow();
+    };
+    this.webglCanvas.addEventListener("pointerdown", this.onCanvasTap);
+    this.loop();
+  }
+
+  pressThrow() {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const id = this.getControlledPlayerId();
+    const own = arcade?.players?.[id];
+    if (!own || own.eliminated || own.turnDone) return;
+    if (arcade.activeId !== id) return;   // only on your own turn
+    this.feedback?.sound("whoosh");
+    this.feedback?.vibrate(12);
+    this.sendInput({ action: "throw" }).catch(() => {});
+  }
+
+  handleUpdate(update) {
+    this.update = update;
+    this.lastServerAt = performance.now();
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.frame);
+    this.controls.innerHTML = "";
+    this.canvas.hidden = false;
+    if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
+    this.bursts?.dispose();
+    if (this.scene) disposeScene(this.scene);
+    this.renderer?.dispose();
+    this.renderer?.forceContextLoss?.();
+    this.webglCanvas?.remove();
+    this.hud?.remove();
+    this.webglCanvas = null;
+    this.hud = null;
+    this.scene = null;
+    this.renderer = null;
+    this.kins.clear();
+    this.animators.clear();
+    this.knifeMeshes = [];
+  }
+
+  createScene() {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color("#9adcf2");
+    this.scene.fog = new THREE.Fog("#a8e2f4", 18, 42);
+    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80);
+
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
+    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
+    sun.position.set(-4, 11, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = -8;
+    sun.shadow.camera.right = 8;
+    sun.shadow.camera.top = 8;
+    sun.shadow.camera.bottom = -8;
+    this.scene.add(sun);
+
+    // Forest clearing with a mounted log to throw at.
+    const meadow = new THREE.Mesh(
+      new THREE.BoxGeometry(24, 0.5, 16),
+      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+    );
+    meadow.position.y = -0.25;
+    meadow.receiveShadow = true;
+    this.scene.add(meadow);
+    // Two tall support posts holding the disc up above the throwers.
+    [-2.1, 2.1].forEach((x) => {
+      const post = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, LOG_Y + 1.2, 0.34),
+        new THREE.MeshLambertMaterial({ color: "#8a5a2c" })
+      );
+      post.position.set(x, (LOG_Y + 1.2) / 2 - 0.25, LOG_Z - 0.3);
+      post.castShadow = true;
+      this.scene.add(post);
+    });
+    const crossbeam = new THREE.Mesh(
+      new THREE.BoxGeometry(4.6, 0.3, 0.3),
+      new THREE.MeshLambertMaterial({ color: "#6e4522" })
+    );
+    crossbeam.position.set(0, LOG_Y + 1.1, LOG_Z - 0.3);
+    this.scene.add(crossbeam);
+
+    // The spinning log: a cylinder face-on to the camera.
+    this.log = new THREE.Group();
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(LOG_R, LOG_R, 0.7, 20),
+      new THREE.MeshLambertMaterial({ color: "#b07a3e" })
+    );
+    trunk.rotation.x = Math.PI / 2;
+    trunk.castShadow = true;
+    this.log.add(trunk);
+    // Bark rings + a face with tree-ring circles so the spin is readable.
+    for (let r = 0.55; r < LOG_R; r += 0.55) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(r, 0.035, 6, 24),
+        new THREE.MeshLambertMaterial({ color: "#8a5a2c" })
+      );
+      ring.position.z = 0.36;
+      this.log.add(ring);
+    }
+    // A bright wedge marker so the rotation is obvious.
+    const marker = new THREE.Mesh(
+      new THREE.BoxGeometry(0.24, LOG_R * 0.9, 0.06),
+      new THREE.MeshLambertMaterial({ color: "#ff5c8a" })
+    );
+    marker.position.set(0, LOG_R * 0.45, 0.37);
+    this.log.add(marker);
+    this.log.position.set(0, LOG_Y, LOG_Z);
+    this.scene.add(this.log);
+
+    this.knifeGroup = new THREE.Group();
+    this.log.add(this.knifeGroup);
+    // Pool for knives flying up from a thrower into the disc.
+    this.flyingKnives = [];
+
+    [[-6, 5.2, -5, 5], [6, 6, -3, 6]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      this.scene.add(cloud);
+    });
+
+    this.bursts = new CubeBurst(this.scene);
+    this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
+    this.resizeRenderer();
+    this.camera.position.set(0, 2.6, 7);
+    this.camera.lookAt(0, 2.4, LOG_Z);
+  }
+
+  // The ACTIVE thrower stands dead centre, directly under the disc; the others
+  // flank them symmetrically so everyone stays readable.
+  spotForPlayer(playerId, index, count) {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const centreId = arcade?.activeId || this.getControlledPlayerId();
+    if (playerId === centreId) return 0;
+    const players = this.getState()?.players || [];
+    const others = players.filter((p) => p.id !== centreId).map((p) => p.id);
+    const flanks = [-2.4, 2.4, -1.3, 1.3];
+    const slot = others.indexOf(playerId);
+    return flanks[(slot >= 0 ? slot : index) % flanks.length];
+  }
+
+  ensureKin(player, index = 0) {
+    if (this.kins.has(player.id)) return this.kins.get(player.id);
+    const kin = createVoxelKin(player.color, index);
+    const label = createNameLabel(player.name.slice(0, 7), player.color);
+    label.position.y = 0.62;
+    kin.add(label);
+    const shadow = createShadowBlob(0.45);
+    this.scene.add(shadow);
+    kin.userData.label = label;
+    kin.userData.shadow = shadow;
+    const count = this.getState()?.players?.length || 4;
+    kin.userData.spotX = this.spotForPlayer(player.id, index, count);
+    kin.position.set(kin.userData.spotX, KIN_Y, 2.4);
+    this.scene.add(kin);
+    const animator = new KinAnimator(kin);
+    animator.groundY = KIN_Y;
+    this.kins.set(player.id, kin);
+    this.animators.set(player.id, animator);
+    return kin;
+  }
+
+  // Reconcile the shared knife list into the spinning group, launching a
+  // knife that visibly flies up from the thrower into the disc.
+  syncKnives(arcade) {
+    const knives = arcade.knives || [];
+    while (this.knifeMeshes.length < knives.length) {
+      const data = knives[this.knifeMeshes.length];
+      const owner = this.getState()?.players?.find((player) => player.id === data.playerId);
+      const holder = new THREE.Group();
+      holder.rotation.z = -(data.angleDeg * Math.PI) / 180;
+      const knife = buildKnife(owner?.color);
+      knife.rotation.z = Math.PI;
+      knife.position.set(0, KNIFE_R - 0.05, 0.42);
+      holder.add(knife);
+      holder.visible = false;   // revealed once the flying knife arrives
+      this.knifeGroup.add(holder);
+      this.knifeMeshes.push(holder);
+
+      // A world-space knife that flies from the thrower up to the disc top.
+      const fromKin = this.kins.get(data.playerId);
+      const flyer = buildKnife(owner?.color);
+      const startX = fromKin ? fromKin.position.x : 0;
+      flyer.position.set(startX, KIN_Y + 0.4, 2.2);
+      this.scene.add(flyer);
+      this.flyingKnives.push({ mesh: flyer, holder, startX, startedAt: this.now() });
+      if (data.playerId === this.getControlledPlayerId()) this.feedback?.sound("whoosh");
+    }
+  }
+
+  updateFlyingKnives(now) {
+    const life = 240;
+    this.flyingKnives = this.flyingKnives.filter((fk) => {
+      const t = (now - fk.startedAt) / life;
+      if (t >= 1) {
+        this.scene.remove(fk.mesh);
+        fk.holder.visible = true;
+        this.bursts.spawn(new THREE.Vector3(0, LOG_Y + LOG_R, LOG_Z + 0.4), ["#d8dee8", "#ffffff"], { count: 5, speed: 1.4, up: 1, size: 0.05, life: 0.4 });
+        return false;
+      }
+      // Straight up from the thrower to just above the disc rim.
+      fk.mesh.position.x = THREE.MathUtils.lerp(fk.startX, 0, t);
+      fk.mesh.position.y = THREE.MathUtils.lerp(KIN_Y + 0.4, LOG_Y + LOG_R, t);
+      fk.mesh.position.z = THREE.MathUtils.lerp(2.2, LOG_Z + 0.4, t);
+      return true;
+    });
+  }
+
+  loop = () => {
+    this.draw();
+    this.frame = requestAnimationFrame(this.loop);
+  };
+
+  draw() {
+    const minigame = this.update || this.minigame;
+    const state = this.getState();
+    const arcade = minigame?.arcade;
+    if (!minigame || !state || !arcade || !this.renderer) return;
+    this.resizeRenderer();
+
+    const now = this.now();
+    const frameNow = performance.now();
+    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
+    this.lastFrameAt = frameNow;
+    const controlledId = this.getControlledPlayerId();
+
+    // Extrapolate the log spin between server ticks for a smooth roll.
+    const dir = (arcade.round || 0) % 2 === 0 ? 1 : -1;
+    const snapshotAge = Math.min(0.25, (frameNow - this.lastServerAt) / 1000);
+    const target = (arcade.logAngle || 0) + (arcade.spinSpeed || 1) * dir * snapshotAge;
+    this.localAngle += (target - this.localAngle) * Math.min(1, dt * 12);
+    this.log.rotation.z = this.localAngle;
+
+    this.syncKnives(arcade);
+    this.updateFlyingKnives(now);
+
+    state.players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const kin = this.ensureKin(player, index);
+      const animator = this.animators.get(player.id);
+      const out = Boolean(entry.eliminated);
+      // The active thrower slides to centre each turn; others glide to flanks.
+      const targetX = this.spotForPlayer(player.id, index, state.players.length);
+      kin.userData.spotX = targetX;
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.12);
+      // The active player stands a step forward, under the disc.
+      const isActive = arcade.activeId === player.id;
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, isActive ? 1.9 : 2.6, 0.1);
+
+      if ((entry.stuck || 0) > (this.lastStuck.get(player.id) || 0)) {
+        this.lastStuck.set(player.id, entry.stuck);
+        animator.trigger("cheer");
+        if (player.id === controlledId) {
+          this.feedback?.sound("pop");
+          this.feedback?.vibrate(10);
+        }
+      }
+      if (out && !this.lastEliminated.get(player.id)) {
+        this.lastEliminated.set(player.id, true);
+        animator.trigger("stumble");
+        this.shake = Math.max(this.shake, 0.7);
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), ["#ff2038", player.color, "#ffffff"], { count: 12, speed: 2.2, up: 2, size: 0.09, life: 0.7 });
+        if (player.id === controlledId) {
+          this.feedback?.sound("error");
+          this.feedback?.vibrate([26, 20, 34]);
+        }
+      }
+
+      if (minigame.finaleAt && !out) {
+        animator.set("cheer", { base: true });
+      } else {
+        animator.set(out ? "sad" : "idle", { base: true });
+      }
+      animator.update(now);
+      kin.userData.shadow.position.set(kin.position.x, 0.05, kin.position.z);
+      kin.userData.shadow.material.opacity = out ? 0.12 : 0.26;
+      kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
+    });
+
+    this.bursts.update(dt);
+
+    this.shake *= 0.9;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.22;
+    const desired = new THREE.Vector3(shakeX, this.baseCamY || 2.6, this.baseCamZ || 7);
+    this.camera.position.lerp(desired, 0.1);
+    this.camera.lookAt(0, 2.4, LOG_Z);
+
+    this.updateHud(minigame, arcade, state, now);
+    // Global: a downward arrow marks your own kin so you never lose yourself.
+    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
+      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
+        this.ownMarker.visible = ok.visible !== false;
+        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
+        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  updateHud(minigame, arcade, state, now) {
+    if (!this.hud) return;
+    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
+    const own = arcade.players[this.getControlledPlayerId()];
+    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
+    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
+    this.hud.querySelector("[data-kinetic-score]").textContent = String(own?.stuck || 0);
+
+    const id = this.getControlledPlayerId();
+    const myTurn = arcade.activeId === id && !own?.eliminated && !own?.turnDone;
+    const turnLeft = arcade.turnEndsAt ? Math.max(0, Math.ceil((arcade.turnEndsAt - now) / 1000)) : 0;
+    const activePlayer = state.players.find((p) => p.id === arcade.activeId);
+    const banner = this.hud.querySelector("[data-knife-banner]");
+    if (banner) {
+      banner.hidden = false;
+      if (own?.eliminated) {
+        banner.textContent = "Getroffen – raus!";
+        banner.style.background = "#40506a";
+        banner.style.color = "#ffffff";
+      } else if (myTurn) {
+        banner.textContent = `Du bist dran! ${turnLeft}s`;
+        banner.style.background = "#ffc400";
+        banner.style.color = "#5c4508";
+      } else if (arcade.activeId) {
+        banner.textContent = `${(activePlayer?.name || "Gegner").slice(0, 8)} wirft … ${turnLeft}s`;
+        banner.style.background = "#12aaff";
+        banner.style.color = "#ffffff";
+      } else {
+        banner.hidden = true;
+      }
+    }
+    if (this.throwButton) this.throwButton.disabled = !myTurn || Boolean(minigame.finaleAt);
+  }
+
+  resizeRenderer() {
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const width = Math.max(320, Math.floor(rect.width));
+    const height = Math.max(240, Math.floor(rect.height));
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    const portrait = height > width;
+    this.baseCamY = portrait ? 2.9 : 2.6;
+    this.baseCamZ = portrait ? 8.4 : 7.2;
+    this.camera.fov = portrait ? 54 : 48;
+    this.camera.updateProjectionMatrix();
+  }
+}

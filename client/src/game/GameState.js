@@ -1,13 +1,11 @@
-import { minigameMeta } from "../minigames/catalog.js?v=tumblekin36";
+import { minigameMeta } from "../minigames/catalog.js?v=tumblekin62";
 
+// One calm colour for every normal field; the specials pop in strong candy hues.
 export const FIELD_COLORS = {
   start: "#cfd8d3",
-  spark: "#ffd15c",
-  snag: "#f58f9d",
-  boost: "#7fd4f0",
-  jinx: "#c5a9f0",
-  challenge: "#f2f0e4",
-  gate: "#9fe8b4"
+  normal: "#e9f2da",
+  challenge: "#ff3d7f",
+  gate: "#ffb400"
 };
 
 export function getCurrentPlayer(state) {

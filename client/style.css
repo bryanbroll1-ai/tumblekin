@@ -541,6 +541,202 @@ h3 {
   padding: 4px 10px 11px;
 }
 
+/* Game-mode picker: board classic vs minigame marathon. */
+.mode-options {
+  display: grid;
+  gap: 8px;
+  padding: 4px 10px 11px;
+}
+
+.mode-option {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  background: #252730;
+  color: #fff;
+  text-align: left;
+}
+
+.mode-option strong {
+  font-size: 0.95rem;
+}
+
+.mode-option span {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.mode-option.is-active {
+  border-color: var(--yellow);
+  background: #17272a;
+  box-shadow: inset 4px 0 0 var(--yellow);
+}
+
+.mode-option:disabled {
+  opacity: 0.75;
+}
+
+/* Single-game picker: scrollable list of every minigame. */
+.single-options {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  padding: 4px 10px 11px;
+  overflow-y: auto;
+}
+
+.single-option {
+  display: grid;
+  gap: 3px;
+  padding: 10px 13px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  background: #252730;
+  color: #fff;
+  text-align: left;
+}
+
+.single-option strong {
+  font-size: 0.9rem;
+}
+
+.single-option span {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.74rem;
+  line-height: 1.25;
+}
+
+.single-option.is-active {
+  border-color: var(--yellow);
+  background: #17272a;
+  box-shadow: inset 4px 0 0 var(--yellow);
+}
+
+.single-option:disabled {
+  opacity: 0.75;
+}
+
+/* Floating in-game menu button + overlay. */
+.game-menu-button {
+  position: fixed;
+  z-index: 90;
+  top: calc(74px + env(safe-area-inset-top));
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 14px;
+  background: rgba(16, 24, 30, 0.82);
+  color: #fff;
+  font-size: 1.15rem;
+  line-height: 1;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+.game-menu-button:active {
+  transform: scale(0.94);
+}
+
+/* On the minigame screen the top title bar is gone, so raise the menu button
+   to line up with the score pill on the left. */
+body[data-screen="minigame"] .game-menu-button {
+  top: calc(12px + env(safe-area-inset-top));
+}
+
+.game-menu[hidden] {
+  display: none;
+}
+
+.game-menu {
+  position: fixed;
+  z-index: 95;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 14, 18, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.game-menu-card[hidden] {
+  display: none;
+}
+
+.game-menu-card {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 340px);
+  padding: 22px 20px;
+  border-radius: 22px;
+  background: #fdf9f0;
+  color: #1b2530;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  animation: menu-card-pop 0.22s ease;
+}
+
+@keyframes menu-card-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.game-menu-card h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+.game-menu-card p {
+  margin: 0;
+  color: #5a6572;
+  font-size: 0.9rem;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.menu-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+  font-weight: 700;
+}
+
+.menu-toggle {
+  min-width: 72px;
+  padding: 8px 0;
+  border: 2px solid #1b2530;
+  border-radius: 12px;
+  background: #43e38c;
+  color: #0c3a1c;
+  font-weight: 800;
+  box-shadow: 0 3px 0 #14532d;
+}
+
+.menu-toggle.is-off {
+  background: #d8dde3;
+  color: #5a6572;
+  box-shadow: 0 3px 0 #9aa4ae;
+}
+
+.menu-danger-btn {
+  padding: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ff5c6e, #e0233c);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 5px 0 #7c0a1c;
+}
+
+.menu-danger-btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 #7c0a1c;
+}
+
 .board-option {
   position: relative;
   display: grid;
@@ -1110,24 +1306,9 @@ h3 {
   color: var(--yellow);
 }
 
-.glitch-charge {
-  position: absolute;
-  top: -5px;
-  right: 2px;
-  display: grid;
-  place-items: center;
-  min-width: 22px;
-  height: 18px;
-  border-radius: 8px;
-  background: var(--green);
-  color: var(--ink);
-  font-size: 0.56rem;
-  font-weight: 1000;
-}
-
 .turn-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(174px, 38%);
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 44%);
   align-items: center;
   gap: 12px;
   padding: 11px;
@@ -1163,25 +1344,8 @@ h3 {
 
 .turn-actions {
   display: grid;
-  grid-template-columns: 0.78fr 1.22fr;
+  grid-template-columns: 1fr;
   gap: 7px;
-}
-
-.sabotage-btn {
-  min-height: 72px;
-  border: 2px solid var(--green);
-  border-radius: var(--radius);
-  background: #282b32;
-  color: var(--green);
-  font-size: 0.72rem;
-  font-weight: 1000;
-  text-transform: uppercase;
-}
-
-.sabotage-btn:active:not(:disabled) {
-  transform: translateY(3px);
-  background: var(--green);
-  color: var(--ink);
 }
 
 .turn-panel p {
@@ -1224,25 +1388,11 @@ h3 {
   pointer-events: none;
 }
 
+/* In-play the 3D scene carries the important info (timers over podiums,
+   gauges, banners); the decorative title bar would only cover it on a tall
+   phone, so it is hidden during a minigame. */
 .minigame-screen .game-hud {
-  position: absolute;
-  z-index: 6;
-  top: calc(12px + env(safe-area-inset-top));
-  right: 14px;
-  left: 14px;
-  width: auto;
-  margin: 0 auto;
-  pointer-events: none;
-}
-
-.minigame-screen .game-hud h2 {
-  margin-top: 4px;
-  color: #fff;
-  text-shadow: 0 3px 14px rgba(0, 0, 0, 0.5);
-}
-
-.minigame-screen .turn-pill {
-  pointer-events: auto;
+  display: none;
 }
 
 .minigame-canvas {
@@ -1283,14 +1433,15 @@ h3 {
   pointer-events: none;
 }
 
+/* Time + score sit top-LEFT so the top-right stays clear for the ☰ menu. */
 .kinetic-scorebar {
   position: absolute;
-  top: calc(88px + env(safe-area-inset-top));
-  right: 14px;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 112px;
+  min-width: 108px;
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 10px;
@@ -1299,8 +1450,10 @@ h3 {
   backdrop-filter: blur(10px);
 }
 
+/* In dev mode the controller row occupies the top band, so drop below it. */
 .kinetic-hud.dev-mode .kinetic-scorebar {
-  top: calc(142px + env(safe-area-inset-top));
+  top: calc(150px + env(safe-area-inset-top));
+  left: 14px;
 }
 
 .kinetic-scorebar span,
@@ -1647,6 +1800,358 @@ h3 {
   transform: translateY(4px);
   background: #33474f;
   box-shadow: 0 3px 0 #071014;
+}
+
+.runner-lane-controls {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(10, 18, 21, 0.88);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+}
+
+.runner-lane-controls button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 108px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius);
+  background: #203037;
+  color: #fff;
+  font-size: 2.6rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow: 0 7px 0 #071014;
+}
+
+/* Pickup throw: pops in between the lane buttons once you carry an orb. */
+.runner-lane-controls .runner-throw {
+  flex: 0.8 1 0;
+  background: linear-gradient(180deg, #ff9d3d, #f26a13);
+  border-color: #ffffff;
+  box-shadow: 0 7px 0 #7c3a08, 0 0 22px rgba(255, 139, 46, 0.55);
+  animation: runner-throw-pop 0.3s ease;
+}
+
+.runner-lane-controls .runner-throw[hidden] {
+  display: none;
+}
+
+@keyframes runner-throw-pop {
+  0% { transform: scale(0.6); }
+  70% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+.runner-lane-controls button:first-child {
+  border-color: var(--blue);
+}
+
+.runner-lane-controls button:last-child {
+  border-color: var(--green);
+}
+
+.runner-lane-controls button:active {
+  transform: translateY(4px);
+  background: #33474f;
+  box-shadow: 0 3px 0 #071014;
+}
+
+/* Bergsteiger: the hand you should tap next glows. */
+.runner-lane-controls button.climb-next {
+  background: #43e38c;
+  border-color: #ffffff;
+  box-shadow: 0 7px 0 #14532d, 0 0 20px rgba(67, 227, 140, 0.6);
+}
+
+.color-dpad {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(10, 18, 21, 0.88);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+}
+
+.color-dpad-row {
+  display: flex;
+  gap: 72px;
+}
+
+.color-dpad button {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 62px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 16px;
+  background: #203037;
+  color: #fff;
+  font-size: 1.9rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow: 0 6px 0 #071014;
+}
+
+.color-dpad button:active {
+  transform: translateY(4px);
+  background: #33474f;
+  box-shadow: 0 2px 0 #071014;
+}
+
+/* Big single-action buttons for the new 3D games. */
+.nerve-button,
+.hold-button,
+.jump-button,
+.pump-button,
+.bomb-button {
+  display: grid;
+  place-items: center;
+  width: min(100%, 340px);
+  min-height: 92px;
+  margin: 0 auto;
+  border-radius: 24px;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.nerve-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff4d5e, #d81330);
+  box-shadow: 0 8px 0 #7c0a1c, 0 18px 30px rgba(216, 19, 48, 0.4);
+}
+
+.nerve-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #7c0a1c;
+}
+
+.hold-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #37d96e, #17a84a);
+  box-shadow: 0 8px 0 #0b5a27, 0 18px 30px rgba(23, 168, 74, 0.4);
+}
+
+.hold-button.is-holding,
+.hold-button:active {
+  transform: translateY(6px);
+  background: linear-gradient(180deg, #4bee81, #1fc257);
+  box-shadow: 0 2px 0 #0b5a27;
+}
+
+.jump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #3db2ff, #0f7fd6);
+  box-shadow: 0 8px 0 #084a80, 0 18px 30px rgba(15, 127, 214, 0.4);
+}
+
+.jump-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #084a80;
+}
+
+.pump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff8b2e, #f2600f);
+  box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
+}
+
+.pump-button:active {
+  transform: translateY(6px) scale(0.98);
+  box-shadow: 0 2px 0 #833508;
+}
+
+.bomb-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #40506a, #26303f);
+  box-shadow: 0 8px 0 #0d1218, 0 18px 30px rgba(38, 48, 63, 0.5);
+}
+
+.bomb-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #0d1218;
+}
+
+.nerve-button:disabled,
+.hold-button:disabled,
+.jump-button:disabled,
+.pump-button:disabled,
+.bomb-button:disabled {
+  opacity: 0.55;
+  filter: saturate(0.4);
+  transform: none;
+}
+
+/* Blob-Klopfe: 3x3 tap pad mirroring the field of holes. */
+.whack-pad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 340px);
+  margin: 0 auto;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(10, 18, 21, 0.88);
+  backdrop-filter: blur(14px);
+}
+
+.whack-pad button {
+  aspect-ratio: 4 / 3;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 14px;
+  background: radial-gradient(circle at 50% 45%, #3c2a1e 0 38%, #203037 40%);
+  box-shadow: 0 5px 0 #071014;
+}
+
+.whack-pad button:active {
+  transform: translateY(3px);
+  background: radial-gradient(circle at 50% 45%, #5a4030 0 38%, #33474f 40%);
+  box-shadow: 0 2px 0 #071014;
+}
+
+/* Farbfolge: four fat colour buttons. */
+.simon-pad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 360px);
+  margin: 0 auto;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(10, 18, 21, 0.88);
+  backdrop-filter: blur(14px);
+}
+
+.simon-pad button {
+  min-height: 74px;
+  border: 3px solid #ffffff;
+  border-radius: 16px;
+  background: var(--simon-color, #888);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35);
+}
+
+.simon-pad button:active {
+  transform: translateY(4px);
+  filter: brightness(1.25);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.simon-pad button:disabled {
+  opacity: 0.45;
+  filter: saturate(0.5);
+}
+
+/* Kanonenflug: vertical power gauge pinned to the HUD's right edge. */
+.cannon-gauge {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 180px;
+  border: 3px solid #ffffff;
+  border-radius: 12px;
+  background: rgba(10, 18, 21, 0.65);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.cannon-gauge-fill {
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(180deg, #ffc400, #ff8b2e);
+  transition: none;
+}
+
+.cannon-gauge-fill.hot {
+  background: linear-gradient(180deg, #2ee86a, #17a84a);
+}
+
+.cannon-gauge.done {
+  opacity: 0.5;
+}
+
+/* Angle phase: blue sweep with a bright 45° marker at the middle. */
+.cannon-gauge.angle-phase .cannon-gauge-fill {
+  background: linear-gradient(180deg, #4bb8ff, #0f7fd6);
+}
+
+.cannon-gauge.angle-phase .cannon-gauge-fill.hot {
+  background: linear-gradient(180deg, #2ee86a, #17a84a);
+}
+
+.cannon-gauge.angle-phase::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 50%;
+  height: 3px;
+  background: #ffffff;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+}
+
+.cannon-phase-label {
+  position: absolute;
+  right: 6px;
+  top: calc(50% - 108px);
+  min-width: 44px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(10, 18, 21, 0.75);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.color-banner {
+  position: absolute;
+  top: calc(70px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(88vw, 420px);
+  padding: 9px 20px;
+  border: 4px solid #ffffff;
+  border-radius: 999px;
+  font-size: clamp(1rem, 4.6vw, 1.35rem);
+  font-weight: 1000;
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  animation: banner-pop 260ms ease-out;
+}
+
+.kinetic-hud.dev-mode .color-banner {
+  top: calc(200px + env(safe-area-inset-top));
+}
+
+@keyframes banner-pop {
+  0% { transform: translateX(-50%) scale(0.8); opacity: 0; }
+  72% { transform: translateX(-50%) scale(1.06); opacity: 1; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+.color-banner[hidden] {
+  display: none;
 }
 
 .arcade-tap-button {
@@ -2444,6 +2949,8 @@ h3 {
 
 /* Minigame intro: tutorial card + unified 3-2-1-LOS countdown */
 
+/* Minigame intro: one clean, focused card — name, goal, gesture — then a
+   single big countdown. */
 .minigame-intro {
   position: absolute;
   z-index: 30;
@@ -2451,9 +2958,9 @@ h3 {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 18px;
-  background: rgba(31, 90, 110, 0.32);
-  backdrop-filter: blur(6px);
+  gap: 22px;
+  background: linear-gradient(180deg, rgba(10, 32, 42, 0.62), rgba(10, 32, 42, 0.4));
+  backdrop-filter: blur(10px);
 }
 
 .minigame-intro[hidden] { display: none; }
@@ -2461,41 +2968,62 @@ h3 {
 .intro-card {
   display: grid;
   justify-items: center;
-  gap: 10px;
-  width: min(84vw, 340px);
-  padding: 22px 20px;
-  border-radius: var(--radius);
-  background: var(--panel);
+  gap: 14px;
+  width: min(86vw, 360px);
+  padding: 26px 22px 20px;
+  border-radius: 26px;
+  background: #ffffff;
   color: var(--ink);
   text-align: center;
-  box-shadow: var(--strong-shadow);
+  box-shadow: 0 24px 60px rgba(4, 22, 30, 0.45);
   animation: result-pop 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   transition: transform 300ms ease, opacity 300ms ease;
 }
 
-.intro-card h2 { font-size: 1.7rem; }
+.intro-card .eyebrow {
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(40, 199, 217, 0.14);
+  color: #0d6a78;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.intro-card h2 {
+  font-size: 2rem;
+  font-weight: 1000;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
 
 .intro-goal {
+  max-width: 30ch;
   color: var(--ink-soft);
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .intro-gesture {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-  padding: 10px 16px;
-  border-radius: 14px;
-  background: rgba(40, 199, 217, 0.14);
-  font-size: 0.85rem;
-  font-weight: 900;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--yellow);
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 1000;
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.12);
 }
 
 .intro-gesture-icon {
-  font-size: 1.9rem;
+  font-size: 2.1rem;
   line-height: 1;
   animation: gesture-bounce 1.1s ease-in-out infinite;
 }
@@ -2506,23 +3034,47 @@ h3 {
   60% { transform: translateY(0) scale(0.96); }
 }
 
+/* While counting, the card stays fully readable — it only relaxes a touch. */
 .minigame-intro.counting .intro-card {
-  transform: translateY(-14px) scale(0.86);
-  opacity: 0.65;
+  transform: scale(0.96);
 }
 
+/* The number lives in its own reserved slot BELOW the card: it never covers
+   the instructions and never shifts the layout when it appears. */
 .intro-count {
-  min-height: 96px;
-  color: #ffe25c;
-  font-size: 5.4rem;
-  font-weight: 900;
+  display: grid;
+  place-items: center;
+  min-width: 118px;
+  min-height: 118px;
+  border: 7px solid #ffffff;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: var(--ink);
+  font-size: 3.6rem;
+  font-weight: 1000;
   line-height: 1;
-  text-shadow: 0 4px 0 rgba(31, 90, 110, 0.55), 0 12px 30px rgba(31, 90, 110, 0.4);
+  box-shadow: 0 12px 0 rgba(0, 0, 0, 0.22), 0 22px 50px rgba(4, 22, 30, 0.45);
 }
 
-.intro-count.go { color: #43e38c; font-size: 4.6rem; }
+/* Keep the slot's space reserved even before the count starts. */
+.intro-count[hidden] {
+  display: grid;
+  visibility: hidden;
+}
 
-.intro-count.pop { animation: countdown-pop 300ms ease-out; }
+.intro-count.go {
+  background: var(--green);
+  color: #ffffff;
+  font-size: 2.5rem;
+}
+
+.intro-count.pop { animation: intro-count-pop 300ms ease-out; }
+
+@keyframes intro-count-pop {
+  0% { transform: scale(0.45); opacity: 0; }
+  65% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
 
 /* Result staging: placements reveal from last place to first */
 

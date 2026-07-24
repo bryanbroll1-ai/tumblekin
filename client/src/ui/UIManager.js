@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin36";
-import { playerStatus } from "../game/Player.js?v=tumblekin36";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin36";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin62";
+import { playerStatus } from "../game/Player.js?v=tumblekin62";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin62";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -34,6 +34,10 @@ export class UIManager {
       this.introMinigameId = null;
     }
     if (state?.status !== "result") this.clearResultTimers();
+    // The in-game menu lives on every screen of a running match.
+    const inMatch = Boolean(state && ["board", "minigame", "result", "end"].includes(state.status));
+    if (this.el.gameMenuButton) this.el.gameMenuButton.hidden = !inMatch;
+    if (!inMatch) this.toggleGameMenu(false);
     if (!state) {
       this.showScreen("start");
       return;
@@ -98,6 +102,10 @@ export class UIManager {
       playerCount: document.getElementById("player-count"),
       boardOptions: document.getElementById("board-options"),
       selectedBoardLabel: document.getElementById("selected-board-label"),
+      modeOptions: document.getElementById("mode-options"),
+      selectedModeLabel: document.getElementById("selected-mode-label"),
+      singleOptions: document.getElementById("single-options"),
+      selectedSingleLabel: document.getElementById("selected-single-label"),
       startGame: document.getElementById("start-game"),
       addTestPlayers: document.getElementById("add-test-players"),
       enableDevMode: document.getElementById("enable-dev-mode"),
@@ -110,9 +118,6 @@ export class UIManager {
       scoreStrip: document.getElementById("score-strip"),
       boardMessage: document.getElementById("board-message"),
       diceLabel: document.getElementById("dice-label"),
-      sabotage: document.getElementById("use-sabotage"),
-      routeScenic: document.getElementById("route-scenic"),
-      routeShortcut: document.getElementById("route-shortcut"),
       rollDice: document.getElementById("roll-dice"),
       minigameReason: document.getElementById("minigame-reason"),
       intro: document.getElementById("minigame-intro"),
@@ -129,8 +134,45 @@ export class UIManager {
       resultList: document.getElementById("result-list"),
       winnerBanner: document.getElementById("winner-banner"),
       finalList: document.getElementById("final-list"),
-      restart: document.getElementById("restart-game")
+      restart: document.getElementById("restart-game"),
+      gameMenuButton: document.getElementById("game-menu-button"),
+      gameMenu: document.getElementById("game-menu"),
+      menuToggleSound: document.getElementById("menu-toggle-sound"),
+      menuToggleVibration: document.getElementById("menu-toggle-vibration"),
+      menuResume: document.getElementById("menu-resume"),
+      menuLeave: document.getElementById("menu-leave"),
+      menuLeaveCancel: document.getElementById("menu-leave-cancel"),
+      menuLeaveConfirm: document.getElementById("menu-leave-confirm")
     };
+  }
+
+  // The floating in-game menu: settings plus a confirmed way out of a match.
+  toggleGameMenu(open) {
+    if (!this.el.gameMenu) return;
+    this.el.gameMenu.hidden = !open;
+    if (open) this.setMenuView("main");
+    this.syncMenuToggles();
+  }
+
+  setMenuView(view) {
+    this.el.gameMenu?.querySelectorAll("[data-menu-view]").forEach((card) => {
+      card.hidden = card.dataset.menuView !== view;
+    });
+  }
+
+  syncMenuToggles() {
+    const sound = this.feedback?.enabled !== false;
+    const vibration = this.feedback?.vibrationEnabled !== false;
+    if (this.el.menuToggleSound) {
+      this.el.menuToggleSound.textContent = sound ? "An" : "Aus";
+      this.el.menuToggleSound.classList.toggle("is-off", !sound);
+      this.el.menuToggleSound.setAttribute("aria-pressed", String(sound));
+    }
+    if (this.el.menuToggleVibration) {
+      this.el.menuToggleVibration.textContent = vibration ? "An" : "Aus";
+      this.el.menuToggleVibration.classList.toggle("is-off", !vibration);
+      this.el.menuToggleVibration.setAttribute("aria-pressed", String(vibration));
+    }
   }
 
   bindEvents() {
@@ -140,12 +182,37 @@ export class UIManager {
     this.el.startGame.addEventListener("click", () => this.safeAction(() => this.handlers.startGame()));
     this.el.addTestPlayers.addEventListener("click", () => this.safeAction(() => this.handlers.addTestPlayers()));
     this.el.enableDevMode.addEventListener("click", () => this.safeAction(() => this.handlers.enableDevMode()));
-    this.el.sabotage.addEventListener("click", () => this.safeAction(() => this.handlers.useSabotage()));
-    this.el.routeScenic.addEventListener("click", () => this.safeAction(() => this.handlers.chooseRoute("scenic")));
-    this.el.routeShortcut.addEventListener("click", () => this.safeAction(() => this.handlers.chooseRoute("shortcut")));
     this.el.rollDice.addEventListener("click", () => this.safeAction(() => this.handlers.rollDice()));
     this.el.restart.addEventListener("click", () => this.safeAction(() => this.handlers.restartGame()));
     this.el.copyLink.addEventListener("click", () => this.safeAction(() => this.copyJoinLink()));
+    this.el.modeOptions?.querySelectorAll("[data-mode]").forEach((button) => {
+      button.addEventListener("click", () => this.safeAction(() => this.handlers.selectMode(button.dataset.mode)));
+    });
+    this.el.gameMenuButton?.addEventListener("click", () => {
+      this.feedback?.sound("tap");
+      this.toggleGameMenu(this.el.gameMenu?.hidden !== false);
+    });
+    this.el.menuResume?.addEventListener("click", () => this.toggleGameMenu(false));
+    this.el.gameMenu?.addEventListener("click", (event) => {
+      if (event.target === this.el.gameMenu) this.toggleGameMenu(false);
+    });
+    this.el.menuToggleSound?.addEventListener("click", () => {
+      this.feedback?.setSoundEnabled?.(!(this.feedback?.enabled !== false));
+      this.feedback?.sound("tap");
+      this.syncMenuToggles();
+    });
+    this.el.menuToggleVibration?.addEventListener("click", () => {
+      this.feedback?.setVibrationEnabled?.(!(this.feedback?.vibrationEnabled !== false));
+      this.feedback?.vibrate(14);
+      this.syncMenuToggles();
+    });
+    // Leaving needs an explicit confirmation step.
+    this.el.menuLeave?.addEventListener("click", () => this.setMenuView("confirm"));
+    this.el.menuLeaveCancel?.addEventListener("click", () => this.setMenuView("main"));
+    this.el.menuLeaveConfirm?.addEventListener("click", () => this.safeAction(async () => {
+      this.toggleGameMenu(false);
+      await this.handlers.leaveRoom();
+    }));
     this.el.code.addEventListener("input", () => {
       this.el.code.value = this.el.code.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
     });
@@ -252,7 +319,7 @@ export class UIManager {
       <li class="player-card ${player.connected === false ? "offline" : ""}" style="--player-color:${player.color}">
         <span class="player-dot avatar-${index % 4}" style="background:${player.color}"></span>
         <span class="player-name">${escapeHtml(player.name)}</span>
-        <span class="player-meta">${playerStatus(player)}</span>
+        <span class="player-meta">${(player.wins || 0) > 0 ? `🏆 ${player.wins} · ` : ""}${playerStatus(player)}</span>
       </li>
     `).join("");
     this.el.startGame.disabled = !host || (!state.devMode && state.players.length < 2);
@@ -262,9 +329,51 @@ export class UIManager {
     this.el.addTestPlayers.disabled = !host || state.players.length >= 4;
     this.el.enableDevMode.hidden = !this.devToolsAllowed;
     this.el.enableDevMode.disabled = !host || state.players.length > 1;
+    this.renderModeOptions(host);
     this.renderBoardOptions(host);
     this.renderQrCode();
     this.renderDevControllers();
+  }
+
+  renderModeOptions(host) {
+    const mode = this.state?.mode || "board";
+    if (this.el.selectedModeLabel) {
+      this.el.selectedModeLabel.textContent = mode === "arcade"
+        ? "Minispiel-Marathon"
+        : mode === "single" ? "Einzelspiel" : "Brettspiel";
+    }
+    this.el.modeOptions?.querySelectorAll("[data-mode]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.mode === mode);
+      button.disabled = !host;
+    });
+    // The board picker only matters in board mode; the game picker in single.
+    const boardPanel = this.el.boardOptions?.closest(".board-picker-panel");
+    if (boardPanel) boardPanel.hidden = mode !== "board";
+    const singlePanel = this.el.singleOptions?.closest(".single-picker-panel");
+    if (singlePanel) singlePanel.hidden = mode !== "single";
+    if (mode === "single") this.renderSingleOptions(host);
+  }
+
+  renderSingleOptions(host) {
+    const selected = this.state?.singleType || null;
+    const games = MINIGAME_CATALOG;
+    if (this.el.selectedSingleLabel) {
+      this.el.selectedSingleLabel.textContent = games.find((game) => game.type === selected)?.title || "Zufällig";
+    }
+    if (!this.el.singleOptions) return;
+    const signature = `${selected}|${host}|${games.length}`;
+    if (this.el.singleOptions.dataset.signature !== signature) {
+      this.el.singleOptions.dataset.signature = signature;
+      this.el.singleOptions.innerHTML = games.map((game) => `
+        <button type="button" class="single-option ${game.type === selected ? "is-active" : ""}" data-single-game="${game.type}" ${host ? "" : "disabled"}>
+          <strong>${escapeHtml(game.title)}</strong>
+          <span>${escapeHtml(game.help)}</span>
+        </button>
+      `).join("");
+      this.el.singleOptions.querySelectorAll("[data-single-game]").forEach((button) => {
+        button.addEventListener("click", () => this.safeAction(() => this.handlers.selectSingleGame(button.dataset.singleGame)));
+      });
+    }
   }
 
   renderBoard() {
@@ -292,26 +401,12 @@ export class UIManager {
           : (current?.diceValue ? `Letzter Wurf: ${current.diceValue}` : "Würfel bereit"));
     this.el.rollDice.disabled = !myTurn || current?.connected === false;
     this.el.rollDice.textContent = myTurn ? "Würfeln" : (current?.connected === false ? "Offline" : (current?.isBot ? "Bot würfelt ..." : "Warten"));
-    const sabotageTarget = [...state.players]
-      .filter((player) => player.id !== current?.id)
-      .sort((a, b) => b.coins - a.coins || b.position - a.position)[0];
-    const canSabotage = Boolean(myTurn && current?.connected !== false && current?.glitchCharges > 0 && sabotageTarget);
-    this.el.sabotage.disabled = !canSabotage;
-    this.el.sabotage.textContent = `Stupser ${current?.glitchCharges || 0}`;
-    this.el.sabotage.title = sabotageTarget ? `${sabotageTarget.name} beim nächsten Wurf bremsen` : "Kein Ziel";
-    const routeChoice = current?.routeChoice || "scenic";
-    this.el.routeScenic.classList.toggle("active", routeChoice === "scenic");
-    this.el.routeShortcut.classList.toggle("active", routeChoice === "shortcut");
-    this.el.routeScenic.disabled = !myTurn;
-    this.el.routeShortcut.disabled = !myTurn || current?.coins < (state.board?.routeCost || 2);
-    this.el.routeShortcut.textContent = `Abkürzung −${state.board?.routeCost || 2}`;
-    this.el.routeShortcut.title = `${state.board?.shortcutName || "Abkürzung"}: wird nur bezahlt, wenn sie im Wurf erreicht wird`;
     this.el.scoreStrip.innerHTML = state.players.map((player, index) => `
       <div class="score-chip ${player.id === current?.id ? "current" : ""} ${player.connected === false ? "offline" : ""}"
         style="--chip-color:${player.color}" title="${escapeHtml(player.name)}: ${player.coins} Münzen">
         <span class="player-dot avatar-${index % 4}" style="background:${player.color}"></span>
         <span class="score-name">${escapeHtml(shortName(player.name))}</span>
-        <strong><span class="coin-count">● ${player.coins}</span>${player.glitchCharges ? `<small class="glitch-charge">S${player.glitchCharges}</small>` : ""}</strong>
+        <strong><span class="coin-count">● ${player.coins}</span></strong>
       </div>
     `).join("");
     this.renderDevControllers();
@@ -407,7 +502,7 @@ export class UIManager {
     this.el.resultWinner.innerHTML = winner ? `
       <span class="player-dot" style="background:${winner.color}"></span>
       <strong>${tie ? `${winnerNames} teilen Platz 1!` : `${winnerNames} gewinnt!`}</strong>
-      <span>${formatResultMetric(winner)} · ${tie ? "je " : ""}+${countNoun(winner.award, "Münzen")}${winner.glitchAward ? " · +1 Stupser" : ""}</span>
+      <span>${formatResultMetric(winner)} · ${tie ? "je " : ""}+${countNoun(winner.award, "Münzen")}</span>
       ${tie ? '<span class="tie-badge">Gleichstand!</span>' : ""}
     ` : "";
 
@@ -421,7 +516,7 @@ export class UIManager {
         <li class="ranking-card revealing" style="--rank-color:${entry.color}; --reveal-delay:${delay}s">
           <span class="rank-number">${displayedRank}</span>
           <span class="player-name">${escapeHtml(entry.name)}</span>
-          <span class="player-meta">${formatResultMetric(entry)} · +${countNoun(entry.award, "Münzen")}${entry.glitchAward ? " · S+1" : ""}</span>
+          <span class="player-meta">${formatResultMetric(entry)} · +${countNoun(entry.award, "Münzen")}</span>
         </li>
       `;
     }).join("");
@@ -447,15 +542,19 @@ export class UIManager {
   }
 
   renderEnd() {
+    const arcadeMode = this.state.mode === "arcade";
     const winners = this.state.players.filter((player) => this.state.winnerIds.includes(player.id));
     this.el.winnerBanner.innerHTML = winners.map((player) => `
-      <div><span class="player-dot" style="background:${player.color}"></span> ${escapeHtml(player.name)} mit ${player.coins} Münzen</div>
+      <div><span class="player-dot" style="background:${player.color}"></span> ${escapeHtml(player.name)} mit ${arcadeMode ? `${player.wins || 0} Siegen` : `${player.coins} Münzen`}</div>
     `).join("");
-    this.el.finalList.innerHTML = sortByStanding(this.state.players).map((player, index) => `
+    const ordered = arcadeMode
+      ? [...this.state.players].sort((a, b) => ((b.wins || 0) - (a.wins || 0)) || (b.coins - a.coins))
+      : sortByStanding(this.state.players);
+    this.el.finalList.innerHTML = ordered.map((player, index) => `
       <li class="ranking-card" style="--rank-color:${player.color}">
         <span class="rank-number">${index + 1}</span>
         <span class="player-name">${escapeHtml(player.name)}</span>
-        <span class="player-meta">● ${player.coins} Münzen</span>
+        <span class="player-meta">${arcadeMode ? `🏆 ${player.wins || 0} Siege · ● ${player.coins}` : `● ${player.coins} Münzen`}</span>
       </li>
     `).join("");
     this.el.restart.disabled = !isHost(this.state, this.myPlayerId);
@@ -588,6 +687,10 @@ function formatResultMetric(entry) {
     const knockoutText = detail.knockouts ? ` · ${detail.knockouts} K.O.` : "";
     return detail.alive ? `Bis zuletzt auf der Platte${knockoutText}` : `${formatMilliseconds(detail.value)} überlebt${knockoutText}`;
   }
+  if (detail.kind === "knockouts") {
+    const survived = detail.survivedMs ? ` · ${formatMilliseconds(detail.survivedMs)} auf der Platte` : "";
+    return `${countNoun(detail.value, "Rauswürfe")}${survived}`;
+  }
   if (detail.kind === "strikes") return `${countNoun(detail.value, "Treffer")} · ${countNoun(detail.passes, "Pässe")}`;
   if (detail.kind === "hits" || detail.kind === "lines") return countNoun(detail.value, detail.label);
   if (detail.kind === "fit") return `${detail.value}/${detail.total} ${detail.label}`;
@@ -611,6 +714,7 @@ const SINGULAR_NOUNS = {
   "Stürme": "Sturm",
   "Pässe": "Pass",
   "Ziele": "Ziel",
+  "Rauswürfe": "Rauswurf",
   "Punkte": "Punkt"
 };
 

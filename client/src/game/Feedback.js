@@ -3,8 +3,19 @@ export class Feedback {
     this.audioContext = null;
     this.masterGain = null;
     this.compressor = null;
-    this.enabled = true;
+    this.enabled = localStorage.getItem("tumblekin-sound") !== "off";
+    this.vibrationEnabled = localStorage.getItem("tumblekin-vibration") !== "off";
     this.unlocked = false;
+  }
+
+  setSoundEnabled(enabled) {
+    this.enabled = Boolean(enabled);
+    localStorage.setItem("tumblekin-sound", this.enabled ? "on" : "off");
+  }
+
+  setVibrationEnabled(enabled) {
+    this.vibrationEnabled = Boolean(enabled);
+    localStorage.setItem("tumblekin-vibration", this.vibrationEnabled ? "on" : "off");
   }
 
   attachUnlock() {
@@ -20,6 +31,7 @@ export class Feedback {
   }
 
   vibrate(pattern = 18) {
+    if (!this.vibrationEnabled) return;
     if (!("vibrate" in navigator)) return;
     const softened = Array.isArray(pattern)
       ? pattern.map((value, index) => Math.min(value, index % 2 === 0 ? 32 : 24))

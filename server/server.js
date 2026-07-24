@@ -9,53 +9,117 @@ const { BOARD_DEFINITIONS, BOARD_SIZE, getBoard, publicBoard } = require("./boar
 const PORT = Number(process.env.PORT || 3000);
 const MAX_PLAYERS = 4;
 const MAX_ROUNDS = 5;
+const ARCADE_MARATHON_ROUNDS = 5;
 const STARTING_COINS = 10;
 const GATE_COIN_BONUS = 5;
 const RESULT_HOLD_MS = 6500;
+// When a round is decided early (last one standing, everyone finished), the
+// scene keeps playing for this long — winners celebrate on camera — before
+// the scoreboard appears. No more abrupt cuts.
+const MINIGAME_FINALE_MS = 2600;
 const DICE_REVEAL_MS = 700;
 const BOARD_STEP_MS = 250;
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 
+// Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
   { type: "bounceArena", title: "Bumper Bloom", duration: 18000 },
-  { type: "driftDocks", title: "Drift Docks", duration: 16000, arcadeFamily: "kinetic" },
-  { type: "lanternLift", title: "Lantern Lift", duration: 15000, arcadeFamily: "direct" },
-  { type: "balanceBrew", title: "Balance Brew", duration: 15000, arcadeFamily: "direct" },
-  { type: "canopyClimb", title: "Vine Vault", duration: 18000 },
-  { type: "fluxFloor", title: "Glow Grid", duration: 16000 },
-  { type: "dodgeBlocks", title: "Cloudbreak", duration: 13000 },
-  { type: "timingStop", title: "Pulse Pin", duration: 8000 },
-  { type: "petalPanic", title: "Petal Panic", duration: 13000, arcadeFamily: "choice" },
-  { type: "orbitDrop", title: "Orbit Drop", duration: 13000, arcadeFamily: "timing" },
-  { type: "tideTap", title: "Tide Tap", duration: 13000, arcadeFamily: "timing" },
-  { type: "fireflySweep", title: "Coin Sweep", duration: 15000, arcadeFamily: "steer" },
-  { type: "iceDrift", title: "Ice Drift", duration: 15000, arcadeFamily: "steer" },
-  { type: "magnetMates", title: "Magnet Mates", duration: 15000, arcadeFamily: "steer" },
-  { type: "gravityGarden", title: "Gravity Garden", duration: 15000, arcadeFamily: "steer" },
-  { type: "sparkSort", title: "Coin Sort", duration: 13000, arcadeFamily: "target" },
-  { type: "bubblePop", title: "Bubble Bay", duration: 15000, arcadeFamily: "target" },
-  { type: "plinkoDrop", title: "Plinko Falls", duration: 18000, arcadeFamily: "plinko" },
-  { type: "curlingSlide", title: "Slide Stones", duration: 20000, arcadeFamily: "curling" }
+  { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
+  { type: "colorEscape", title: "Farbflucht", duration: 38000, arcadeFamily: "colorgrid" },
+  { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
+  { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
+  { type: "ballonPump", title: "Pump-Panik", duration: 12000, arcadeFamily: "pump" },
+  { type: "fassrolle", title: "Fassrolle", duration: 32000, arcadeFamily: "barrel" },
+  { type: "zuendstoff", title: "Zündstoff", duration: 45000, arcadeFamily: "bomb" },
+  { type: "muenzregen", title: "Münzregen", duration: 30000, arcadeFamily: "catchfall" },
+  { type: "blobklopfe", title: "Blob-Klopfe", duration: 25000, arcadeFamily: "whack" },
+  { type: "seilspringen", title: "Seilspringen", duration: 35000, arcadeFamily: "wave" },
+  { type: "kanonenflug", title: "Kanonenflug", duration: 16000, arcadeFamily: "cannon" },
+  { type: "messerwurf", title: "Messerwurf", duration: 46000, arcadeFamily: "knife" },
+  { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
+  { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" }
 ];
 
 const ARCADE_CONFIGS = {
-  driftDocks: { family: "kinetic", kineticMode: "sweep", seed: 227 },
-  lanternLift: { family: "direct", directMode: "catch", spawnMs: 720, seed: 257 },
-  balanceBrew: { family: "direct", directMode: "balance", seed: 271 },
-  petalPanic: { family: "choice", beatMs: 690, choiceDelay: 0, seed: 23 },
-  orbitDrop: { family: "timing", periodMs: 1760, target: 0.25, timingWindow: 0.24, seed: 67 },
-  tideTap: { family: "timing", periodMs: 1540, target: 0.75, timingWindow: 0.18, dynamicTiming: true, seed: 83 },
-  fireflySweep: { family: "steer", steerMode: "collect", seed: 109 },
-  iceDrift: { family: "steer", steerMode: "avoid", seed: 127 },
-  magnetMates: { family: "steer", steerMode: "chase", seed: 139 },
-  gravityGarden: { family: "steer", steerMode: "stay", seed: 151 },
-  sparkSort: { family: "target", targetMode: "sort", spawnMs: 620, seed: 179 },
-  bubblePop: { family: "target", targetMode: "bubble", spawnMs: 540, seed: 313 },
-  plinkoDrop: { family: "plinko", seed: 331 },
-  curlingSlide: { family: "curling", seed: 347 }
+  finishRush: { family: "runner", seed: 367 },
+  colorEscape: { family: "colorgrid", seed: 379 },
+  nervenprobe: { family: "stopclock", seed: 353 },
+  lichtwaechter: { family: "redlight", seed: 389 },
+  ballonPump: { family: "pump", seed: 401 },
+  fassrolle: { family: "barrel", seed: 409 },
+  zuendstoff: { family: "bomb", seed: 419 },
+  muenzregen: { family: "catchfall", seed: 421 },
+  blobklopfe: { family: "whack", seed: 431 },
+  seilspringen: { family: "wave", seed: 433 },
+  kanonenflug: { family: "cannon", seed: 439 },
+  messerwurf: { family: "knife", seed: 457 },
+  turmbau: { family: "stack", seed: 461 },
+  bergsteiger: { family: "climb", seed: 463 }
 };
+
+const STOPCLOCK_TARGETS = [5000, 6500, 7500];
+const RUNNER_LENGTH = 150;
+const RUNNER_BASE_SPEED = 5.8;
+const RUNNER_STUMBLE_MS = 1150;
+const RUNNER_BOOST_MS = 1300;
+const COLORGRID_SIZE = 6;
+const COLORGRID_ROUNDS = 6;
+const COLORGRID_ROUND_MS = 6000;
+const COLORGRID_ANNOUNCE_MS = 2600;
+const COLORGRID_DROP_END_MS = 4800;
+const COLORGRID_LEAD_MS = 3000;       // calm lead-in before the first drop
+
+// Lichtwächter — red light, green light: hold to run, freeze on red.
+const REDLIGHT_GOAL = 30;             // metres to the guard's gate
+const REDLIGHT_SPEED = 4.6;           // run speed while holding on green
+const REDLIGHT_PENALTY = 7;           // metres lost when caught moving on red
+const REDLIGHT_GRACE_MS = 300;        // reaction grace after the light flips red
+const REDLIGHT_HOLD_FRESH_MS = 220;   // "holding" = a run ping this recent
+
+// Seilspringen — jump the swinging rope; mistime one and you trip out.
+const WAVE_JUMP_MS = 650;             // airtime of a jump
+const WAVE_FIRST_AT = 3200;           // first pass after the start
+const WAVE_MIN_GAP = 1150;            // passes accelerate down to this gap
+
+// Fassrolle — everyone balances on one giant rolling barrel; run against the
+// spin or slide off. Last Kin on the barrel wins.
+const BARREL_LIMIT = 1.35;            // slide distance before falling off
+const BARREL_RUN_SPEED = 2.1;         // counter-run speed while holding
+const BARREL_HOLD_FRESH_MS = 220;     // "holding" = a run ping this recent
+
+// Zündstoff — hot-potato bomb: the fuse time is shown for the first moments,
+// then hidden, so a good passer can time the boom.
+const BOMB_PASS_LOCK_MS = 380;        // minimum hold time before passing on
+const BOMB_MIN_FUSE_MS = 4000;
+const BOMB_MAX_FUSE_MS = 8000;
+const BOMB_REVEAL_MS = 2000;          // fuse time is visible this long after a pass
+
+// Münzregen — coins, gems and bombs rain into three lanes; switch to catch.
+const CATCH_FALL_MS = 1150;           // visual fall time from sky to lane
+
+// Messerwurf — throw a knife into the spinning log without hitting another.
+const KNIFE_MIN_GAP_DEG = 22;         // knives closer than this collide
+const KNIFE_TURN_MS = 10000;          // each player's turn lasts this long
+
+// Turmbau — drop the sliding block onto your tower; misalignment trims it.
+const STACK_BLOCKS = 14;
+
+// Bergsteiger — alternate left/right taps to climb; wrong side slips you.
+const CLIMB_HEIGHT = 30;
+
+// Blob-Klopfe — whack the blobs that pop out of the 3x3 holes.
+const WHACK_CELLS = 9;
+
+// Kanonenflug — tap once for power, once for the launch angle (45° is best).
+const CANNON_PERIOD_MS = 1300;        // full swing of the power gauge
+const CANNON_ANGLE_PERIOD_MS = 1500;  // full sweep of the angle gauge (5°-85°)
+
+// Blitzfang — wait for green, tap first; a false start costs dearly.
+const REACT_ROUNDS = 3;
+const REACT_WINDOW_MS = 2200;
+const REACT_PENALTY_MS = 900;
 
 const PLINKO_SLOTS = [1, 4, 7, 12, 7, 4, 1];
 const PLINKO_GRAVITY = 1.35;
@@ -67,13 +131,33 @@ const CURLING_RINGS = [
   { radius: 0.24, points: 4 }
 ];
 const CURLING_STONES_PER_PLAYER = 3;
+const CURLING_STONE_RADIUS = 0.045;   // stone radius in the logical sheet
+const CURLING_FRICTION = 1.15;        // ice glide damping -> stones coast, then settle
+const CURLING_WALL_REST = 0.55;       // side-cushion bounce ("Rempler erlaubt")
+const CURLING_RESTITUTION = 0.92;     // stone-on-stone bounce
+const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel through
 
-const ARENA_RADIUS = 1.02;
-const ARENA_BALL_RADIUS = 0.16;
-const ARENA_FORCE = 0.22;
-const ARENA_BUMP_FORCE = 0.58;
-const ARENA_MAX_SPEED = 1.65;
-const ARENA_DRAG = 0.91;
+// Bumper Bloom — a sumo bumper arena on a round plate.
+// Physics live in a unit disk (radius 1). One analog gesture: steer with the
+// stick, ramming is pure momentum. The rim ALWAYS bounces you back — unless a
+// bumper hit was hard enough to "launch" you (a short window), so you can never
+// drive yourself off but a solid ram sends a rival flying over the edge.
+// Falling is a timed respawn, never elimination, so every player is in for the
+// whole round and the score is survival time + knockouts.
+const ARENA_RADIUS = 1.0;             // plate disk radius (logical units)
+const ARENA_BALL_RADIUS = 0.15;       // kin collision radius
+const ARENA_ACCEL = 3.8;              // stick thrust acceleration (snappy, responsive)
+const ARENA_DRAG = 1.75;              // velocity damping (quick stops, still carries momentum)
+const ARENA_RESTITUTION = 1.4;        // >1: bouncy bumpers, so rams carry punch
+const ARENA_RIM_RESTITUTION = 0.62;   // bounce back onto the plate when not launched
+const ARENA_LAUNCH_IMPULSE = 0.95;    // min hit strength (normal Δv) that launches a rival
+const ARENA_LAUNCH_MS = 1150;         // launched window during which the rim lets you fly off
+const ARENA_SUBSTEPS = 4;             // sub-stepped integration prevents tunneling
+const ARENA_RESPAWN_MS = 2200;        // time out of play after a knock-off
+const ARENA_INVULN_MS = 1300;         // spawn grace: no collisions, can't be launched
+const ARENA_SURVIVE_RATE = 10;        // score per second in play
+const ARENA_KNOCKOUT_BONUS = 60;      // score for launching a rival
+const ARENA_CREDIT_MS = 1600;         // a hit only credits a knock-off this recent
 
 const FLUX_SIZE = 9;
 const FLUX_MOVE_COOLDOWN = 92;
@@ -134,6 +218,10 @@ io.on("connection", (socket) => {
       code,
       hostId: player.id,
       boardId: BOARD_DEFINITIONS[0].id,
+      mode: "board",
+      arcadePlan: [],
+      arcadeRoundIndex: 0,
+      singleType: null,
       status: "lobby",
       phase: "lobby",
       players: [player],
@@ -295,6 +383,35 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
+  socket.on("selectMode", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt den Modus.");
+    if (room.status !== "lobby") return replyError(reply, "Der Modus kann nur in der Lobby gewechselt werden.");
+    const mode = payload?.mode === "arcade" ? "arcade" : (payload?.mode === "single" ? "single" : "board");
+    room.mode = mode;
+    room.lastMessage = mode === "arcade"
+      ? "Minispiel-Marathon gewählt: 5 Runden, die meisten Siege gewinnen."
+      : mode === "single"
+        ? "Einzelspiel gewählt: Sucht euch ein Minispiel aus."
+        : "Brettspiel-Modus gewählt.";
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
+  socket.on("selectSingleGame", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt das Minispiel.");
+    if (room.status !== "lobby") return replyError(reply, "Das Minispiel kann nur in der Lobby gewechselt werden.");
+    const template = MINIGAMES.find((candidate) => candidate.type === payload?.type);
+    if (!template) return replyError(reply, "Dieses Minispiel existiert nicht.");
+    room.singleType = template.type;
+    room.lastMessage = `${template.title} ausgewählt.`;
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
   socket.on("startGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
@@ -320,28 +437,6 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("chooseRoute", (payload, reply) => {
-    const room = findRoomForSocket(socket, payload?.code);
-    if (!room) return replyError(reply, "Kein Raum gefunden.");
-    const current = getCurrentPlayer(room);
-    if (!current) return replyError(reply, "Kein aktueller Spieler.");
-    if (payload?.playerId && payload.playerId !== current.id) {
-      return replyError(reply, `${current.name} ist am Zug.`);
-    }
-    if (!canControl(socket, current)) return replyError(reply, "Du steuerst diesen Spieler nicht.");
-    if (room.status !== "board" || room.phase !== "waitingRoll") {
-      return replyError(reply, "Der Weg kann nur vor dem Würfeln gewählt werden.");
-    }
-    if (payload?.routeChoice !== "scenic" && payload?.routeChoice !== "shortcut") {
-      return replyError(reply, "Unbekannte Wegwahl.");
-    }
-    current.routeChoice = payload.routeChoice;
-    room.lastMessage = payload.routeChoice === "shortcut"
-      ? `${current.name} hält nach der Abkürzung Ausschau.`
-      : `${current.name} bleibt auf dem großen Pfad.`;
-    reply?.({ ok: true, routeChoice: current.routeChoice });
-    emitRoom(room);
-  });
 
   socket.on("rollDice", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
@@ -356,21 +451,6 @@ io.on("connection", (socket) => {
     const result = performRoll(room, current);
     if (!result.ok) return replyError(reply, result.error || "Würfeln ist gerade nicht möglich.");
     reply?.({ ok: true, dice: result.dice });
-  });
-
-  socket.on("useSabotage", (payload, reply) => {
-    const room = findRoomForSocket(socket, payload?.code);
-    if (!room) return replyError(reply, "Kein Raum gefunden.");
-    const current = getCurrentPlayer(room);
-    if (!current) return replyError(reply, "Kein aktueller Spieler.");
-    if (payload?.playerId && payload.playerId !== current.id) {
-      return replyError(reply, `${current.name} ist am Zug.`);
-    }
-    if (!canControl(socket, current)) return replyError(reply, "Du steuerst diesen Spieler nicht.");
-    const result = performSabotage(room, current);
-    if (!result.ok) return replyError(reply, result.error || "Sabotage nicht möglich.");
-    reply?.({ ok: true, targetId: result.target.id });
-    emitRoom(room);
   });
 
   socket.on("minigameInput", (payload, reply) => {
@@ -412,39 +492,66 @@ function createPlayer({ id, name, color, isHost = false, isBot = false, isLocalD
     controllerId,
     connected: true,
     coins: STARTING_COINS,
-    routeChoice: "scenic",
+    wins: 0,
     position: 0,
     diceValue: null,
     nextRollBoost: 0,
     nextRollPenalty: 0,
-    glitchCharges: 0,
     minigameScore: 0
   };
 }
 
 function startGame(room) {
   clearRoomTimers(room);
-  room.status = "board";
-  room.phase = "waitingRoll";
   room.round = 1;
   room.currentTurnIndex = 0;
   room.lastMinigameResult = null;
   room.lastMove = null;
   room.winnerIds = [];
   room.resultEndsAt = null;
-  room.lastMessage = `${getBoard(room.boardId).name} erwacht.`;
   room.players.forEach((player, index) => {
     player.isHost = player.id === room.hostId;
-    player.coins = STARTING_COINS;
-    player.routeChoice = "scenic";
+    // Single mode keeps the lobby tally running across games.
+    if (room.mode !== "single") {
+      player.coins = STARTING_COINS;
+      player.wins = 0;
+    }
     player.position = 0;
     player.diceValue = null;
     player.nextRollBoost = 0;
     player.nextRollPenalty = 0;
-    player.glitchCharges = 0;
     player.minigameScore = 0;
     player.color = COLORS[index % COLORS.length];
   });
+
+  if (room.mode === "arcade") {
+    // Minigame marathon: a shuffled plan of rounds, most round wins take it.
+    room.arcadePlan = buildArcadePlan(ARCADE_MARATHON_ROUNDS);
+    room.arcadeRoundIndex = 0;
+    startMinigame(room, `Runde 1 von ${room.arcadePlan.length}`, "nextArcadeRound", room.arcadePlan[0]);
+    return;
+  }
+
+  if (room.mode === "single") {
+    // One chosen minigame, then back to the lobby — wins keep adding up.
+    const type = room.singleType || buildArcadePlan(1)[0];
+    startMinigame(room, "Einzelspiel", "returnLobby", type);
+    return;
+  }
+
+  room.status = "board";
+  room.phase = "waitingRoll";
+  room.lastMessage = `${getBoard(room.boardId).name} erwacht.`;
+}
+
+// A shuffled selection of distinct minigames for the marathon mode.
+function buildArcadePlan(rounds) {
+  const pool = MINIGAMES.map((game) => game.type);
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, Math.min(rounds, pool.length));
 }
 
 function resetToLobby(room) {
@@ -459,14 +566,15 @@ function resetToLobby(room) {
   room.winnerIds = [];
   room.resultEndsAt = null;
   room.lastMessage = "Zurück in der Lobby.";
+  room.arcadePlan = [];
+  room.arcadeRoundIndex = 0;
   room.players.forEach((player, index) => {
     player.coins = STARTING_COINS;
-    player.routeChoice = "scenic";
+    player.wins = 0;
     player.position = 0;
     player.diceValue = null;
     player.nextRollBoost = 0;
     player.nextRollPenalty = 0;
-    player.glitchCharges = 0;
     player.minigameScore = 0;
     player.color = COLORS[index % COLORS.length];
   });
@@ -492,10 +600,7 @@ function performRoll(room, player) {
   const dice = clamp(baseDice + boost - penalty, 1, 9);
   const board = getBoard(room.boardId);
   const from = player.position;
-  const route = buildBoardPath(board, from, dice, player.routeChoice, player.coins);
-  const pathSteps = route.path;
-  const shortcuts = route.shortcuts;
-  const routeCost = route.cost;
+  const pathSteps = buildBoardPath(board, from, dice);
   const to = pathSteps[pathSteps.length - 1];
   player.diceValue = dice;
 
@@ -509,9 +614,6 @@ function performRoll(room, player) {
     path: pathSteps,
     dice,
     fieldType,
-    routeChoice: player.routeChoice,
-    routeCost,
-    shortcuts,
     diceDelayMs: DICE_REVEAL_MS,
     stepDurationMs: BOARD_STEP_MS,
     movementDurationMs,
@@ -527,13 +629,11 @@ function performRoll(room, player) {
   const timer = setTrackedTimeout(room, () => {
     if (room.status !== "board" || room.phase !== "moving") return;
     player.position = to;
-    const routeEffect = resolveRouteCost(player, board, routeCost, shortcuts.length);
     const gateEffects = resolveGateRewards(player, pathSteps, board);
     const fieldEffect = applyFieldEffect(player, fieldType);
-    const messages = [routeEffect?.message, ...gateEffects.map((effect) => effect.message), fieldEffect.message].filter(Boolean);
+    const messages = [...gateEffects.map((effect) => effect.message), fieldEffect.message].filter(Boolean);
     const landing = {
       ...move,
-      routeEffect,
       fieldEffect,
       gateEffects,
       message: messages.join(" ")
@@ -557,37 +657,16 @@ function performRoll(room, player) {
   return { ok: true, dice, timer };
 }
 
-function buildBoardPath(board, from, steps, routeChoice = "scenic", coins = 0) {
+// One simple loop forward — no shortcut branches.
+function buildBoardPath(board, from, steps) {
   const path = [];
-  const shortcuts = [];
   let cursor = from;
-  let cost = 0;
-  let availableCoins = coins;
   for (let step = 1; step <= steps; step += 1) {
-    const routes = board.routes[cursor] || [(cursor + 1) % board.fieldTypes.length];
-    let next = routes[0];
-    if (routes.length > 1 && routeChoice === "shortcut" && availableCoins >= board.routeCost) {
-      next = routes[1];
-      availableCoins -= board.routeCost;
-      cost += board.routeCost;
-      shortcuts.push({ from: cursor, to: next });
-    }
+    const next = board.routes[cursor]?.[0] ?? (cursor + 1) % board.fieldTypes.length;
     path.push(next);
     cursor = next;
   }
-  return { path, shortcuts, cost };
-}
-
-function resolveRouteCost(player, board, routeCost, shortcutCount) {
-  if (!routeCost || !shortcutCount) return null;
-  const cost = Math.min(player.coins, routeCost);
-  player.coins -= cost;
-  return {
-    type: "shortcut",
-    coins: -cost,
-    count: shortcutCount,
-    message: `${board.shortcutName}: ${shortcutCount > 1 ? `${shortcutCount} Sprünge` : "Abkürzung"} für ${cost} Münzen.`
-  };
+  return path;
 }
 
 function resolveGateRewards(player, pathSteps, board = BOARD_DEFINITIONS[0]) {
@@ -606,58 +685,16 @@ function resolveGateRewards(player, pathSteps, board = BOARD_DEFINITIONS[0]) {
 }
 
 function applyFieldEffect(player, fieldType) {
-  if (fieldType === "spark" || fieldType === "start") {
-    player.coins += 3;
-    return { type: fieldType, coins: 3, message: "Münzfeld: +3 Münzen." };
-  }
-  if (fieldType === "snag") {
-    const loss = Math.min(2, player.coins);
-    player.coins -= loss;
-    return { type: fieldType, coins: -loss, message: `Hakenfeld: -${loss} Münzen.` };
-  }
-  if (fieldType === "boost") {
+  // Every normal field simply pays a couple of coins — one field language,
+  // no punishing squares to read.
+  if (fieldType === "normal" || fieldType === "start") {
     player.coins += 2;
-    player.nextRollBoost = Math.min(4, (player.nextRollBoost || 0) + 2);
-    return { type: fieldType, coins: 2, boost: 2, message: "Rückenwind: +2 Münzen und nächster Wurf +2." };
-  }
-  if (fieldType === "jinx") {
-    const before = player.glitchCharges || 0;
-    player.glitchCharges = Math.min(3, before + 1);
-    player.coins += 1;
-    const gained = player.glitchCharges - before;
-    return {
-      type: fieldType,
-      coins: 1,
-      glitch: gained,
-      message: gained ? "Stupserfeld: +1 Münze und ein Stupser." : "Stupserfeld: Vorrat voll, aber +1 Münze."
-    };
+    return { type: fieldType, coins: 2, message: "+2 Münzen." };
   }
   if (fieldType === "gate") {
     return { type: fieldType, coins: 0, message: "" };
   }
   return { type: "challenge", coins: 0, message: "Challenge-Feld: Ein Minispiel startet." };
-}
-
-function performSabotage(room, player) {
-  if (room.status !== "board" || room.phase !== "waitingRoll") {
-    return { ok: false, error: "Sabotage geht nur vor dem Würfeln." };
-  }
-  if (getCurrentPlayer(room)?.id !== player.id) {
-    return { ok: false, error: "Du bist gerade nicht am Zug." };
-  }
-  if ((player.glitchCharges || 0) <= 0) {
-    return { ok: false, error: "Kein Stupser verfügbar." };
-  }
-  const target = [...room.players]
-    .filter((candidate) => candidate.id !== player.id)
-    .sort((a, b) => compareStanding(a, b) || b.position - a.position)[0];
-  if (!target) return { ok: false, error: "Kein Sabotage-Ziel verfügbar." };
-
-  player.glitchCharges -= 1;
-  target.nextRollPenalty = Math.min(4, (target.nextRollPenalty || 0) + 2);
-  room.lastMessage = `${player.name} stupst ${target.name}: nächster Wurf -2.`;
-  io.to(room.code).emit("roomNotice", { severity: "warning", message: room.lastMessage });
-  return { ok: true, target };
 }
 
 function formatDiceRoll(baseDice, boost, penalty, result) {
@@ -670,8 +707,6 @@ function formatDiceRoll(baseDice, boost, penalty, result) {
 function advanceTurn(room) {
   if (room.status !== "board") return;
 
-  const outgoingPlayer = getCurrentPlayer(room);
-  if (outgoingPlayer) outgoingPlayer.routeChoice = "scenic";
   room.phase = "waitingRoll";
   const lastIndex = room.players.length - 1;
   if (room.currentTurnIndex >= lastIndex) {
@@ -754,10 +789,19 @@ function startMinigame(room, reason, afterAction, forcedType = null) {
     updateFluxFloor(room);
     updateCanopyClimb(room);
     updateArcade(room);
+    // Finale window elapsed → now actually finish and show the scoreboard.
+    const current = room.currentMinigame;
+    if (current?.finaleAt && Date.now() >= current.finaleAt && room.status === "minigame") {
+      finishMinigame(room);
+      return;
+    }
     emitMinigameUpdate(room);
   }, 90);
 
-  setTrackedTimeout(room, () => finishMinigame(room), countdownMs + template.duration + 350);
+  // Natural end also runs through the finale window (celebration/reveal)
+  // before the scoreboard — the tick loop finishes once finaleAt elapses.
+  setTrackedTimeout(room, () => beginMinigameFinale(room, room.currentMinigame), countdownMs + template.duration + 350);
+  setTrackedTimeout(room, () => finishMinigame(room), countdownMs + template.duration + 350 + MINIGAME_FINALE_MS + 500);
 }
 
 function handleMinigameInput(room, player, input) {
@@ -928,60 +972,115 @@ function updateBounceArena(room) {
     return;
   }
 
-  const dt = Math.min(0.12, Math.max(0.016, (now - (arena.lastUpdateAt || now)) / 1000));
+  const frameDt = Math.min(0.12, Math.max(0.016, (now - (arena.lastUpdateAt || now)) / 1000));
   arena.lastUpdateAt = now;
   arena.tick = (arena.tick || 0) + 1;
 
-  Object.values(arena.players).forEach((arenaPlayer) => {
-    if (!arenaPlayer.alive) return;
-    arenaPlayer.vx *= Math.pow(ARENA_DRAG, dt * 10);
-    arenaPlayer.vy *= Math.pow(ARENA_DRAG, dt * 10);
-    arenaPlayer.x += arenaPlayer.vx * dt;
-    arenaPlayer.y += arenaPlayer.vy * dt;
-    arenaPlayer.score += dt * 5;
-  });
+  const players = Object.values(arena.players);
 
-  const entries = Object.entries(arena.players);
-  for (let a = 0; a < entries.length; a += 1) {
-    for (let b = a + 1; b < entries.length; b += 1) {
-      resolveArenaCollision(entries[a], entries[b]);
+  const sub = ARENA_SUBSTEPS;
+  const dt = frameDt / sub;
+  const limit = ARENA_RADIUS - ARENA_BALL_RADIUS;
+
+  for (let step = 0; step < sub; step += 1) {
+    // Integrate: thrust while the stick intent is fresh, then damping, then move.
+    players.forEach((ap) => {
+      if (!ap.inPlay) return;
+      const steering = now - ap.lastThrustAt < 200 ? 1 : 0;
+      if (steering) {
+        ap.vx += ap.thrustX * ARENA_ACCEL * dt;
+        ap.vy += ap.thrustY * ARENA_ACCEL * dt;
+      }
+      const damp = Math.exp(-ARENA_DRAG * dt);
+      ap.vx *= damp;
+      ap.vy *= damp;
+      ap.x += ap.vx * dt;
+      ap.y += ap.vy * dt;
+      ap.playMs += dt * 1000;
+      ap.score += dt * ARENA_SURVIVE_RATE;
+    });
+
+    // Ball-ball collisions (skip invulnerable spawns so nobody is spawn-camped).
+    const entries = Object.entries(arena.players);
+    for (let a = 0; a < entries.length; a += 1) {
+      for (let b = a + 1; b < entries.length; b += 1) {
+        resolveArenaCollision(entries[a], entries[b], now);
+      }
     }
+
+    // Rim: reflect gentle contact, let a hard outward push fly over and fall.
+    players.forEach((ap) => {
+      if (!ap.inPlay) return;
+      const dist = Math.hypot(ap.x, ap.y);
+      if (dist <= limit) return;
+      const nx = ap.x / (dist || 1);
+      const ny = ap.y / (dist || 1);
+      const launched = now < ap.launchedUntil;
+      const invulnerable = now < ap.invulnUntil;
+      if (!ap.ejecting && (!launched || invulnerable)) {
+        // Not launched (or protected): bounce back onto the plate.
+        ap.x = nx * limit;
+        ap.y = ny * limit;
+        const vn = ap.vx * nx + ap.vy * ny;
+        ap.vx -= (1 + ARENA_RIM_RESTITUTION) * vn * nx;
+        ap.vy -= (1 + ARENA_RIM_RESTITUTION) * vn * ny;
+      } else {
+        ap.ejecting = true;
+      }
+      if (ap.ejecting && dist > ARENA_RADIUS + ARENA_BALL_RADIUS) {
+        knockArenaPlayerOff(arena, ap, now);
+      }
+    });
   }
-
-  entries.forEach(([playerId, arenaPlayer]) => {
-    if (!arenaPlayer.alive) return;
-    const distance = Math.hypot(arenaPlayer.x, arenaPlayer.y);
-    if (distance <= ARENA_RADIUS) return;
-    arenaPlayer.alive = false;
-    arenaPlayer.outAt = now;
-    arenaPlayer.vx = 0;
-    arenaPlayer.vy = 0;
-    if (arenaPlayer.lastHitBy && arena.players[arenaPlayer.lastHitBy]) {
-      const hitter = arena.players[arenaPlayer.lastHitBy];
-      hitter.knockouts += 1;
-      hitter.score += 45;
-    }
-    minigame.scores[playerId] = Math.max(0, Math.round(arenaPlayer.score));
-  });
 
   let aliveCount = 0;
   room.players.forEach((player) => {
-    const arenaPlayer = arena.players[player.id];
-    if (!arenaPlayer) return;
-    if (arenaPlayer.alive) aliveCount += 1;
-    minigame.scores[player.id] = Math.max(0, Math.round(arenaPlayer.score));
+    const ap = arena.players[player.id];
+    if (!ap) return;
+    if (ap.inPlay) aliveCount += 1;
+    minigame.scores[player.id] = Math.max(0, Math.round(ap.score));
     player.minigameScore = minigame.scores[player.id];
   });
 
+  // Single elimination: once only one (or none) is left on the plate, play a
+  // short finale (survivor celebrates on camera), then the scoreboard.
   const elapsed = now - minigame.startedAt;
-  if (aliveCount <= 1 && elapsed > 2400 && room.players.length > 1) {
-    finishMinigame(room);
+  if (aliveCount <= 1 && elapsed > 2000 && room.players.length > 1) {
+    beginMinigameFinale(room, minigame);
   }
+}
+
+// Falling off is permanent — one knock-off and you are out for the round.
+function knockArenaPlayerOff(arena, ap, now) {
+  if (!ap.inPlay) return;
+  ap.inPlay = false;
+  ap.ejecting = false;
+  ap.outAt = now;
+  ap.knockedAt = now;
+  ap.falls += 1;
+  ap.vx = 0;
+  ap.vy = 0;
+  // Credit a recent hitter with the knockout.
+  const hitter = ap.lastHitBy && arena.players[ap.lastHitBy];
+  if (hitter && now - ap.lastHitAt < ARENA_CREDIT_MS) {
+    hitter.knockouts += 1;
+    hitter.score += ARENA_KNOCKOUT_BONUS;
+  }
+  ap.lastHitBy = null;
+}
+
+// Schedule the wind-down: gameplay keeps rendering for a short finale so
+// everyone sees who is still standing, then the scoreboard follows.
+function beginMinigameFinale(room, minigame) {
+  if (!minigame || minigame.finaleAt || minigame.finishing) return;
+  minigame.finaleAt = Date.now() + MINIGAME_FINALE_MS;
+  emitMinigameUpdate(room);
 }
 
 function finishMinigame(room) {
   const minigame = room.currentMinigame;
   if (!minigame || room.status !== "minigame") return;
+  minigame.finishing = true;
 
   updateDodgeMinigame(room);
   updateFluxFloor(room);
@@ -997,7 +1096,7 @@ function finishMinigame(room) {
     }
     if (minigame.type === "bounceArena") {
       const arenaPlayer = minigame.arena.players[player.id];
-      minigame.scores[player.id] = bounceResultScore(arenaPlayer, minigame.startedAt, finishedAt);
+      minigame.scores[player.id] = bounceResultScore(arenaPlayer);
     }
     if (minigame.type === "timingStop" && !minigame.stopped[player.id]) {
       minigame.scores[player.id] = 0;
@@ -1016,8 +1115,7 @@ function finishMinigame(room) {
       score: minigame.scores[player.id] || 0,
       hits: minigame.hits[player.id] || 0,
       detail: minigameResultDetail(minigame, player.id, finishedAt),
-      award: 0,
-      glitchAward: 0
+      award: 0
     }))
     .sort((a, b) => b.score - a.score);
 
@@ -1036,14 +1134,16 @@ function finishMinigame(room) {
     rankIndex = tieEnd;
   }
 
-  const winningScore = ranking[0]?.score;
-  ranking.filter((entry) => entry.score === winningScore).forEach((entry) => {
-    const player = room.players.find((candidate) => candidate.id === entry.playerId);
-    if (!player) return;
-    const before = player.glitchCharges || 0;
-    player.glitchCharges = Math.min(3, before + 1);
-    entry.glitchAward = player.glitchCharges - before;
-  });
+  // Marathon/single mode: every round winner banks a win (ties share it).
+  if ((room.mode === "arcade" || room.mode === "single") && ranking.length > 0) {
+    const topScore = ranking[0].score;
+    ranking.forEach((entry) => {
+      if (entry.score !== topScore) return;
+      entry.roundWin = true;
+      const player = room.players.find((candidate) => candidate.id === entry.playerId);
+      if (player) player.wins = (player.wins || 0) + 1;
+    });
+  }
 
   room.status = "result";
   room.phase = "minigameResult";
@@ -1062,12 +1162,12 @@ function finishMinigame(room) {
   setTrackedTimeout(room, () => continueAfterResult(room), RESULT_HOLD_MS);
 }
 
-function bounceResultScore(arenaPlayer, startedAt, finishedAt) {
+function bounceResultScore(arenaPlayer) {
   if (!arenaPlayer) return 0;
-  const survivedUntil = arenaPlayer.outAt || finishedAt;
-  const survivalMs = Math.max(0, survivedUntil - startedAt);
-  const survivorBonus = arenaPlayer.alive ? 100000 : 0;
-  return survivorBonus + survivalMs * 10 + (arenaPlayer.knockouts || 0);
+  // Survival time and knockouts are already folded into the live score; a
+  // last-one-standing survivor gets a decisive bonus on top.
+  const base = Math.max(0, Math.round(arenaPlayer.score || 0));
+  return base + (arenaPlayer.inPlay ? 100000 : 0);
 }
 
 function arcadeRankingScore(arcade, arcadePlayer) {
@@ -1093,6 +1193,77 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   if (arcade.family === "plinko" || arcade.family === "curling") {
     return Math.max(0, score * 1000 + successes);
   }
+  if (arcade.family === "stopclock") {
+    // Closest guess wins: a smaller deviation ranks higher.
+    if (arcadePlayer.stoppedMs === null || arcadePlayer.stoppedMs === undefined) return 0;
+    return Math.max(1, 100000 - Math.round(arcadePlayer.deviationMs || 0));
+  }
+  if (arcade.family === "runner") {
+    // Finishers rank above everyone still running, fastest first.
+    return arcadePlayer.finishedAt
+      ? 10000000 - Math.round(arcadePlayer.finishMs || 0)
+      : Math.round(arcadePlayer.progress || 0);
+  }
+  if (arcade.family === "colorgrid") {
+    // More survived rounds wins; fewer falls breaks ties.
+    return Math.max(0, (arcadePlayer.survived || 0) * 1000 - (arcadePlayer.stumbles || 0));
+  }
+  if (arcade.family === "redlight") {
+    // Finishers rank above runners, fastest first; getting caught costs progress anyway.
+    return arcadePlayer.finishedAt
+      ? 10000000 - Math.round(arcadePlayer.finishMs || 0)
+      : Math.round((arcadePlayer.progress || 0) * 100);
+  }
+  if (arcade.family === "wave") {
+    // Survive more waves to win; later elimination breaks ties.
+    return (arcadePlayer.eliminated ? 0 : 5000000) + (arcadePlayer.survived || 0) * 1000;
+  }
+  if (arcade.family === "pump") {
+    return arcadePlayer.pumps || 0;
+  }
+  if (arcade.family === "barrel") {
+    // Whoever stays on longest wins; survivors rank above everyone who fell.
+    return arcadePlayer.fallenAt
+      ? Math.round(arcadePlayer.survivedMs || 0)
+      : 10000000 + Math.round(arcadePlayer.score || 0);
+  }
+  if (arcade.family === "bomb") {
+    // Survivors on top; among the blown-up, a later boom ranks higher.
+    return arcadePlayer.outAt
+      ? Math.max(1, Math.round(arcadePlayer.outAt))
+      : 100000000000000 + (arcadePlayer.passes || 0);
+  }
+  if (arcade.family === "catchfall") {
+    return Math.max(0, 50000 + (arcadePlayer.catches || 0) * 1000 - (arcadePlayer.bombs || 0) * 600);
+  }
+  if (arcade.family === "whack") {
+    return Math.max(0, 50000 + (arcadePlayer.hits || 0) * 1000 - (arcadePlayer.badHits || 0) * 400);
+  }
+  if (arcade.family === "cannon") {
+    return arcadePlayer.launchedAt ? (arcadePlayer.distance || 0) : 0;
+  }
+  if (arcade.family === "simon") {
+    return Math.max(0, (arcadePlayer.survived || 0) * 1000 - (arcadePlayer.mistakes || 0));
+  }
+  if (arcade.family === "react") {
+    const played = arcadePlayer.times || [];
+    const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
+    return Math.max(1, 1000000 - total);
+  }
+  if (arcade.family === "knife") {
+    // Survivors rank above the eliminated; more knives stuck breaks ties.
+    return (arcadePlayer.eliminated ? 0 : 5000000) + (arcadePlayer.stuck || 0) * 1000;
+  }
+  if (arcade.family === "stack") {
+    // Tallest tower wins; perfect stacks are the tie-breaker.
+    return (arcadePlayer.height || 0) * 1000 + (arcadePlayer.perfects || 0);
+  }
+  if (arcade.family === "climb") {
+    // Reaching the top ranks by speed; otherwise by how high you got.
+    return arcadePlayer.finishedAt
+      ? 10000000 - Math.round(arcadePlayer.finishMs || 0)
+      : (arcadePlayer.rung || 0) * 100;
+  }
   return score;
 }
 
@@ -1109,11 +1280,11 @@ function minigameResultDetail(minigame, playerId, finishedAt) {
   if (minigame.type === "bounceArena") {
     const arenaPlayer = minigame.arena.players[playerId];
     return {
-      kind: "survival",
-      value: Math.max(0, (arenaPlayer?.outAt || finishedAt) - minigame.startedAt),
-      alive: Boolean(arenaPlayer?.alive),
-      knockouts: arenaPlayer?.knockouts || 0,
-      label: "Überlebt"
+      kind: "knockouts",
+      value: arenaPlayer?.knockouts || 0,
+      survivedMs: Math.round(arenaPlayer?.playMs || 0),
+      falls: arenaPlayer?.falls || 0,
+      label: "Rauswürfe"
     };
   }
   if (minigame.type === "dodgeBlocks") {
@@ -1152,11 +1323,104 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "curling") {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Ring-Punkte" };
   }
+  if (arcade.family === "stopclock") {
+    return { kind: "deviationMs", value: arcadePlayer.deviationMs };
+  }
+  if (arcade.family === "runner") {
+    return arcadePlayer.finishedAt
+      ? { kind: "time", value: arcadePlayer.finishMs, label: "Zielzeit" }
+      : { kind: "progress", value: Math.round(arcadePlayer.progress || 0), total: RUNNER_LENGTH, label: "Meter" };
+  }
+  if (arcade.family === "colorgrid") {
+    return { kind: "points", value: arcadePlayer.survived || 0, label: "Runden" };
+  }
+  if (arcade.family === "redlight") {
+    return arcadePlayer.finishedAt
+      ? { kind: "time", value: arcadePlayer.finishMs, label: "Zielzeit" }
+      : { kind: "progress", value: Math.round(arcadePlayer.progress || 0), total: REDLIGHT_GOAL, label: "Meter" };
+  }
+  if (arcade.family === "wave") {
+    return { kind: "points", value: arcadePlayer.survived || 0, label: "Wellen" };
+  }
+  if (arcade.family === "pump") {
+    return { kind: "points", value: arcadePlayer.pumps || 0, label: "Pumps" };
+  }
+  if (arcade.family === "barrel") {
+    return { kind: "zoneTime", value: Math.round(arcadePlayer.fallenAt ? (arcadePlayer.survivedMs || 0) : (arcadePlayer.score || 0)), label: "Auf dem Fass" };
+  }
+  if (arcade.family === "bomb") {
+    return { kind: "points", value: arcadePlayer.passes || 0, label: "Weitergaben" };
+  }
+  if (arcade.family === "catchfall") {
+    return { kind: "coins", value: arcadePlayer.catches || 0, mistakes: arcadePlayer.bombs || 0, label: "Münzen" };
+  }
+  if (arcade.family === "whack") {
+    return { kind: "targets", value: arcadePlayer.hits || 0, mistakes: arcadePlayer.badHits || 0, label: "Treffer" };
+  }
+  if (arcade.family === "cannon") {
+    return { kind: "points", value: arcadePlayer.distance || 0, label: "Meter" };
+  }
+  if (arcade.family === "simon") {
+    return { kind: "correct", value: arcadePlayer.survived || 0, mistakes: arcadePlayer.mistakes || 0, label: "Runden" };
+  }
+  if (arcade.family === "react") {
+    const played = arcadePlayer.times || [];
+    const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
+    return { kind: "deviationMs", value: total };
+  }
+  if (arcade.family === "knife") {
+    return { kind: "points", value: arcadePlayer.stuck || 0, label: "Treffer" };
+  }
+  if (arcade.family === "stack") {
+    return { kind: "points", value: arcadePlayer.height || 0, label: "Etagen" };
+  }
+  if (arcade.family === "climb") {
+    return arcadePlayer.finishedAt
+      ? { kind: "time", value: arcadePlayer.finishMs, label: "Gipfelzeit" }
+      : { kind: "points", value: arcadePlayer.rung || 0, label: "Sprossen" };
+  }
   return null;
+}
+
+// Bots get a believable skill profile: reaction delay, error rate and
+// timing spread instead of perfect play.
+function botProfile(arcadePlayer, seedHint = 0) {
+  if (!arcadePlayer.botProfile) {
+    const roll = Math.random() + seedHint * 0;
+    arcadePlayer.botProfile = roll < 0.33
+      ? { level: "easy", reactionMs: 900, mistake: 0.3, spreadMs: 650 }
+      : roll < 0.75
+        ? { level: "normal", reactionMs: 550, mistake: 0.16, spreadMs: 340 }
+        : { level: "hard", reactionMs: 300, mistake: 0.07, spreadMs: 160 };
+  }
+  return arcadePlayer.botProfile;
 }
 
 function continueAfterResult(room) {
   if (room.status !== "result") return;
+
+  if (room.afterMinigameAction === "returnLobby") {
+    room.status = "lobby";
+    room.phase = "lobby";
+    room.afterMinigameAction = null;
+    room.currentMinigame = null;
+    room.lastMessage = "Zurück in der Lobby — sucht euch das nächste Minispiel aus.";
+    emitRoom(room);
+    return;
+  }
+
+  if (room.afterMinigameAction === "nextArcadeRound") {
+    room.arcadeRoundIndex += 1;
+    if (room.arcadeRoundIndex >= room.arcadePlan.length) {
+      finishGame(room);
+      emitRoom(room);
+      return;
+    }
+    const nextType = room.arcadePlan[room.arcadeRoundIndex];
+    startMinigame(room, `Runde ${room.arcadeRoundIndex + 1} von ${room.arcadePlan.length}`, "nextArcadeRound", nextType);
+    emitRoom(room);
+    return;
+  }
 
   if (room.afterMinigameAction === "returnBoard") {
     room.status = "board";
@@ -1191,6 +1455,15 @@ function continueAfterResult(room) {
 function finishGame(room) {
   room.status = "end";
   room.phase = "finished";
+  if (room.mode === "arcade") {
+    const standings = [...room.players].sort((a, b) => (b.wins - a.wins) || (b.coins - a.coins));
+    const leader = standings[0];
+    room.winnerIds = room.players
+      .filter((player) => player.wins === leader?.wins)
+      .map((player) => player.id);
+    room.lastMessage = "Die meisten Siege gewinnen den Marathon.";
+    return;
+  }
   const standings = [...room.players].sort(compareStanding);
   const leader = standings[0];
   room.winnerIds = room.players
@@ -1556,16 +1829,28 @@ function createArenaState(players, startedAt) {
   players.forEach((player, index) => {
     const angle = (index / Math.max(1, players.length)) * Math.PI * 2 - Math.PI / 2;
     arena.players[player.id] = {
-      x: Math.cos(angle) * 0.46,
-      y: Math.sin(angle) * 0.46,
-      vx: -Math.sin(angle) * 0.08,
-      vy: Math.cos(angle) * 0.08,
-      alive: true,
+      x: Math.cos(angle) * 0.5,
+      y: Math.sin(angle) * 0.5,
+      vx: 0,
+      vy: 0,
+      thrustX: 0,
+      thrustY: 0,
+      lastThrustAt: 0,
+      inPlay: true,          // on the plate and collidable
+      ejecting: false,       // cleared the rim, tumbling off
+      launchedUntil: 0,      // recently rammed hard -> rim lets you fly off
+      outUntil: 0,           // respawns when now passes this
+      invulnUntil: startedAt + ARENA_INVULN_MS,
       score: 0,
+      playMs: 0,             // accumulated time in play (for the result card)
       knockouts: 0,
+      falls: 0,
       lastHitBy: null,
+      lastHitAt: 0,
       collisionCount: 0,
       lastCollisionAt: 0,
+      knockedAt: 0,          // bumps the client into a tumble animation
+      spawnedAt: startedAt,
       outAt: null
     };
   });
@@ -1575,46 +1860,42 @@ function createArenaState(players, startedAt) {
 function handleArenaInput(room, player, input) {
   const minigame = room.currentMinigame;
   const arenaPlayer = minigame?.arena?.players?.[player.id];
-  if (!arenaPlayer || !arenaPlayer.alive) return { ok: false, error: "Deine Kugel ist schon raus." };
+  if (!arenaPlayer) return { ok: false, error: "Arena nicht bereit." };
+  if (!arenaPlayer.inPlay) return { ok: true }; // still respawning — ignore, don't error
 
   const now = Date.now();
-  const last = minigame.lastInputAt[player.id] || 0;
-  if (now - last < 45) return { ok: true };
-  minigame.lastInputAt[player.id] = now;
-
   const action = input.action;
-  if (action === "up" || action === "down" || action === "left" || action === "right") {
-    const dx = action === "left" ? -1 : action === "right" ? 1 : 0;
-    const dy = action === "up" ? -1 : action === "down" ? 1 : 0;
-    arenaPlayer.vx += dx * ARENA_FORCE;
-    arenaPlayer.vy += dy * ARENA_FORCE;
-    clampArenaSpeed(arenaPlayer);
+
+  // Analog stick: a direction vector in [-1, 1]. Stored as a steering
+  // intent and applied continuously by the physics step for a short window.
+  if (action === "thrust") {
+    let dx = Number(input.x) || 0;
+    let dy = Number(input.y) || 0;
+    const length = Math.hypot(dx, dy);
+    if (length > 1) { dx /= length; dy /= length; }
+    arenaPlayer.thrustX = dx;
+    arenaPlayer.thrustY = dy;
+    arenaPlayer.lastThrustAt = now;
     return { ok: true };
   }
 
-  if (action === "bump") {
-    let dx = arenaPlayer.vx;
-    let dy = arenaPlayer.vy;
-    const speed = Math.hypot(dx, dy);
-    if (speed < 0.18) {
-      dx = arenaPlayer.x || 0.01;
-      dy = arenaPlayer.y || 0.01;
-    }
-    const length = Math.max(0.01, Math.hypot(dx, dy));
-    arenaPlayer.vx += (dx / length) * ARENA_BUMP_FORCE;
-    arenaPlayer.vy += (dy / length) * ARENA_BUMP_FORCE;
-    arenaPlayer.score += 1;
-    clampArenaSpeed(arenaPlayer);
+  // Backward-compatible 4-way fallback (bots / old clients).
+  if (action === "up" || action === "down" || action === "left" || action === "right") {
+    arenaPlayer.thrustX = action === "left" ? -1 : action === "right" ? 1 : 0;
+    arenaPlayer.thrustY = action === "up" ? -1 : action === "down" ? 1 : 0;
+    arenaPlayer.lastThrustAt = now;
     return { ok: true };
   }
 
   return { ok: false, error: "Ungültiger Bounce-Arena-Input." };
 }
 
-function resolveArenaCollision(entryA, entryB) {
+function resolveArenaCollision(entryA, entryB, now = Date.now()) {
   const [idA, a] = entryA;
   const [idB, b] = entryB;
-  if (!a.alive || !b.alive) return;
+  if (!a.inPlay || !b.inPlay) return;
+  // Spawn grace: invulnerable balls pass through so nobody gets spawn-camped.
+  if (now < a.invulnUntil || now < b.invulnUntil) return;
 
   let dx = b.x - a.x;
   let dy = b.y - a.y;
@@ -1622,7 +1903,7 @@ function resolveArenaCollision(entryA, entryB) {
   const minDistance = ARENA_BALL_RADIUS * 2;
   if (distance >= minDistance) return;
 
-  if (distance < 0.001) {
+  if (distance < 0.0001) {
     dx = 0.01;
     dy = 0;
     distance = 0.01;
@@ -1630,67 +1911,76 @@ function resolveArenaCollision(entryA, entryB) {
 
   const nx = dx / distance;
   const ny = dy / distance;
+
+  // Separate the overlap so balls stay solid (no clipping / sinking through).
   const overlap = (minDistance - distance) / 2;
   a.x -= nx * overlap;
   a.y -= ny * overlap;
   b.x += nx * overlap;
   b.y += ny * overlap;
 
+  // Equal-mass collision along the contact normal with a bouncy restitution.
   const relVel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-  const approachSpeed = Math.max(0, -relVel);
-  const impulse = 0.48 + approachSpeed * 1.42;
-  a.vx -= nx * impulse;
-  a.vy -= ny * impulse;
-  b.vx += nx * impulse;
-  b.vy += ny * impulse;
-  clampArenaSpeed(a);
-  clampArenaSpeed(b);
+  if (relVel < 0) {
+    const jn = -(1 + ARENA_RESTITUTION) * relVel / 2;
+    a.vx -= jn * nx;
+    a.vy -= jn * ny;
+    b.vx += jn * nx;
+    b.vy += jn * ny;
+    // A solid hit "launches" both balls: for a short window the rim will let
+    // them fly off. Gentle nudges stay below the threshold and just bounce.
+    if (jn >= ARENA_LAUNCH_IMPULSE) {
+      a.launchedUntil = now + ARENA_LAUNCH_MS;
+      b.launchedUntil = now + ARENA_LAUNCH_MS;
+    }
+  }
 
   a.lastHitBy = idB;
   b.lastHitBy = idA;
-  const collisionAt = Date.now();
-  if (collisionAt - a.lastCollisionAt > 120) a.collisionCount += 1;
-  if (collisionAt - b.lastCollisionAt > 120) b.collisionCount += 1;
-  a.lastCollisionAt = collisionAt;
-  b.lastCollisionAt = collisionAt;
-  a.score += 2;
-  b.score += 2;
+  a.lastHitAt = now;
+  b.lastHitAt = now;
+  if (now - a.lastCollisionAt > 120) a.collisionCount += 1;
+  if (now - b.lastCollisionAt > 120) b.collisionCount += 1;
+  a.lastCollisionAt = now;
+  b.lastCollisionAt = now;
 }
 
 function arenaBotStep(arena, playerId) {
   const bot = arena?.players?.[playerId];
-  if (!bot?.alive) return;
+  if (!bot?.inPlay) return;
 
+  const now = Date.now();
   const distanceFromCenter = Math.hypot(bot.x, bot.y);
+  const profile = bot.arenaProfile || (bot.arenaProfile = (() => {
+    const roll = Math.random();
+    return roll < 0.33 ? { edge: 0.78, aggro: 0.72 } : roll < 0.75 ? { edge: 0.86, aggro: 0.9 } : { edge: 0.92, aggro: 1 };
+  })());
+
+  // Too close to the rim yourself: retreat toward the middle.
   let targetX = -bot.x;
   let targetY = -bot.y;
 
-  if (distanceFromCenter < ARENA_RADIUS * 0.72) {
+  if (distanceFromCenter < ARENA_RADIUS * profile.edge) {
     const opponents = Object.entries(arena.players)
-      .filter(([id, candidate]) => id !== playerId && candidate.alive)
+      .filter(([id, candidate]) => id !== playerId && candidate.inPlay && now >= candidate.invulnUntil)
       .map(([_id, candidate]) => candidate)
       .sort((a, b) => Math.hypot(a.x - bot.x, a.y - bot.y) - Math.hypot(b.x - bot.x, b.y - bot.y));
-    if (opponents[0]) {
-      targetX = opponents[0].x - bot.x;
-      targetY = opponents[0].y - bot.y;
+    const prey = opponents[0];
+    if (prey) {
+      // Aim past the rival, along the line from the arena centre outward, so
+      // the ram shoves them toward the nearest rim rather than across the plate.
+      const outLen = Math.max(0.05, Math.hypot(prey.x, prey.y));
+      const aimX = prey.x + (prey.x / outLen) * 0.45;
+      const aimY = prey.y + (prey.y / outLen) * 0.45;
+      targetX = aimX - bot.x;
+      targetY = aimY - bot.y;
     }
   }
 
   const length = Math.max(0.01, Math.hypot(targetX, targetY));
-  bot.vx += (targetX / length) * ARENA_FORCE * 0.82;
-  bot.vy += (targetY / length) * ARENA_FORCE * 0.82;
-  if (Math.random() > 0.72) {
-    bot.vx += (targetX / length) * ARENA_BUMP_FORCE * 0.55;
-    bot.vy += (targetY / length) * ARENA_BUMP_FORCE * 0.55;
-  }
-  clampArenaSpeed(bot);
-}
-
-function clampArenaSpeed(arenaPlayer) {
-  const speed = Math.hypot(arenaPlayer.vx, arenaPlayer.vy);
-  if (speed <= ARENA_MAX_SPEED) return;
-  arenaPlayer.vx = (arenaPlayer.vx / speed) * ARENA_MAX_SPEED;
-  arenaPlayer.vy = (arenaPlayer.vy / speed) * ARENA_MAX_SPEED;
+  bot.thrustX = (targetX / length) * profile.aggro;
+  bot.thrustY = (targetY / length) * profile.aggro;
+  bot.lastThrustAt = now;
 }
 
 function createArcadeState(type, players, startedAt) {
@@ -1822,7 +2112,432 @@ function createArcadeState(type, players, startedAt) {
       entry.startX = 0.2 + index * 0.2;
     });
   }
+  if (config.family === "stopclock") {
+    // A fresh random target every game, from 4s up to a 12s maximum.
+    arcade.targetMs = Math.round(4000 + arcadeNoise(config.seed + Date.now() % 997) * 8000);
+    arcade.hideAfterMs = 2000;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.stoppedMs = null;
+      entry.deviationMs = null;
+    });
+  }
+  if (config.family === "runner") {
+    arcade.trackLength = RUNNER_LENGTH;
+    arcade.rows = createRunnerCourse(config.seed);
+    arcade.shots = [];
+    arcade.nextShotId = 1;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.lane = 1;
+      entry.progress = 0;
+      entry.nextRow = 0;
+      entry.stumbleUntil = 0;
+      entry.boostUntil = 0;
+      entry.finishedAt = null;
+      entry.finishMs = null;
+      entry.stumbles = 0;
+      entry.hasItem = false;
+      entry.throwsHit = 0;
+    });
+  }
+  if (config.family === "colorgrid") {
+    arcade.gridSize = COLORGRID_SIZE;
+    arcade.roundMs = COLORGRID_ROUND_MS;
+    arcade.announceMs = COLORGRID_ANNOUNCE_MS;
+    arcade.dropEndMs = COLORGRID_DROP_END_MS;
+    arcade.leadMs = COLORGRID_LEAD_MS;
+    arcade.roundCount = COLORGRID_ROUNDS;
+    arcade.round = -1;
+    arcade.phase = "announce";
+    arcade.targetColor = 0;
+    arcade.grid = [];
+    const starts = [[1, 1], [4, 1], [1, 4], [4, 4]];
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      const [gx, gy] = starts[index % starts.length];
+      entry.gx = gx;
+      entry.gy = gy;
+      entry.fallenRound = -1;
+      entry.eliminated = false;
+      entry.survived = 0;
+    });
+    advanceColorRound(arcade, 0, startedAt);
+  }
+  if (config.family === "redlight") {
+    arcade.goal = REDLIGHT_GOAL;
+    arcade.phases = buildRedlightPhases(config.seed, 60000);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.progress = 0;
+      entry.lastRunAt = 0;
+      entry.caught = 0;
+      entry.penalizedPhase = -1;
+      entry.finishedAt = null;
+      entry.finishMs = null;
+    });
+  }
+  if (config.family === "wave") {
+    arcade.jumpMs = WAVE_JUMP_MS;
+    arcade.waves = buildWaveSchedule(config.seed, 60000);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.jumpUntil = 0;
+      entry.eliminated = false;
+      entry.survived = 0;
+    });
+  }
+  if (config.family === "pump") {
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.pumps = 0;
+    });
+  }
+  if (config.family === "barrel") {
+    arcade.limit = BARREL_LIMIT;
+    arcade.phases = buildBarrelPhases(config.seed, 60000);
+    arcade.barrelAngle = 0;
+    arcade.barrelVel = 0;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.offset = 0;
+      entry.lastRunAt = 0;
+      entry.runDir = 0;
+      entry.fallenAt = null;
+      entry.survivedMs = 0;
+    });
+  }
+  if (config.family === "catchfall") {
+    arcade.fallMs = CATCH_FALL_MS;
+    arcade.drops = buildCatchDrops(config.seed, 60000);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.lane = 1;
+      entry.catches = 0;
+      entry.bombs = 0;
+    });
+  }
+  if (config.family === "whack") {
+    arcade.pops = buildWhackPops(config.seed, 60000);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.hits = 0;
+      entry.badHits = 0;
+      entry.hitPopIds = {};
+    });
+  }
+  if (config.family === "cannon") {
+    arcade.periodMs = CANNON_PERIOD_MS;
+    arcade.anglePeriodMs = CANNON_ANGLE_PERIOD_MS;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.launchedAt = null;
+      entry.power = 0;
+      entry.powerAt = null;
+      entry.angle = null;
+      entry.distance = 0;
+    });
+  }
+  if (config.family === "simon") {
+    arcade.rounds = buildSimonRounds(config.seed);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.currentRound = -1;
+      entry.roundProgress = 0;
+      entry.roundFailed = false;
+      entry.survived = 0;
+      entry.mistakes = 0;
+    });
+  }
+  if (config.family === "react") {
+    arcade.rounds = buildReactRounds(config.seed);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.times = [];
+    });
+  }
+  if (config.family === "bomb") {
+    arcade.order = players.map((player) => player.id);
+    arcade.holderId = arcade.order[Math.floor(arcadeNoise(config.seed) * arcade.order.length)] || null;
+    arcade.holderSince = startedAt;
+    arcade.canPassAt = startedAt;
+    arcade.fuseMs = bombFuseMs(config.seed, 0);
+    arcade.fuseAt = startedAt + arcade.fuseMs;
+    // The fuse length is shown for a moment after each pass, then hidden.
+    arcade.revealUntil = startedAt + BOMB_REVEAL_MS;
+    arcade.explosions = 0;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.outAt = null;
+      entry.passes = 0;
+    });
+  }
+  if (config.family === "knife") {
+    // Turn-based like the mobile knife game: one player is active at a time
+    // with a 10s window to stick knives into the shared spinning disc.
+    arcade.order = players.map((player) => player.id);
+    arcade.turnIndex = 0;
+    arcade.activeId = arcade.order[0] || null;
+    arcade.turnEndsAt = startedAt + KNIFE_TURN_MS;
+    arcade.turnMs = KNIFE_TURN_MS;
+    arcade.spinSpeed = 1.1;
+    arcade.logAngle = 0;
+    arcade.knives = [];                  // { angleDeg, playerId }
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.stuck = 0;
+      entry.eliminated = false;          // hit another knife → out
+      entry.turnDone = false;            // has had their throwing window
+    });
+  }
+  if (config.family === "stack") {
+    arcade.total = STACK_BLOCKS;
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      entry.height = 0;
+      entry.width = 1;                   // current top-block width (0..1)
+      entry.offset = 0;                  // logical x-centre of the tower
+      entry.dir = index % 2 === 0 ? 1 : -1;
+      entry.phase = arcadeNoise(config.seed + index * 7);
+      entry.toppled = false;
+      entry.perfects = 0;
+    });
+  }
+  if (config.family === "climb") {
+    arcade.height = CLIMB_HEIGHT;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.rung = 0;                    // rungs climbed
+      entry.nextSide = arcadeNoise(config.seed + 1) > 0.5 ? 1 : -1;
+      entry.slips = 0;
+      entry.finishedAt = null;
+      entry.finishMs = null;
+    });
+  }
   return arcade;
+}
+
+// The barrel keeps switching direction and rolls faster over time.
+function buildBarrelPhases(seed, totalMs) {
+  const phases = [];
+  let at = 2000;
+  let index = 0;
+  let sign = arcadeNoise(seed) > 0.5 ? 1 : -1;
+  phases.push({ from: 0, until: at, vel: 0 });
+  while (at < totalMs) {
+    const length = 1250 + arcadeNoise(seed + index * 13) * 1150;
+    // A short calm start, then a livelier ramp so it stays exciting.
+    const ramp = Math.min(1, index * 0.08);
+    const magnitude = 0.5 + ramp * 1.35 + arcadeNoise(seed + index * 19) * 0.28;
+    // Mostly alternate, sometimes double up in the same direction for surprise.
+    if (arcadeNoise(seed + index * 29) > 0.28) sign = -sign;
+    phases.push({ from: at, until: at + length, vel: sign * magnitude });
+    at += length;
+    index += 1;
+  }
+  return phases;
+}
+
+function barrelPhaseAt(arcade, elapsed) {
+  for (let index = 0; index < arcade.phases.length; index += 1) {
+    const phase = arcade.phases[index];
+    if (elapsed < phase.until) return phase;
+  }
+  return arcade.phases[arcade.phases.length - 1];
+}
+
+// The fuse is always a whole number of seconds, picked fresh each round from
+// a small pool so the reveal shows a clean "10s" rather than "9.7s".
+function bombFuseMs(seed, round) {
+  const minSecs = Math.round(BOMB_MIN_FUSE_MS / 1000);
+  const maxSecs = Math.round(BOMB_MAX_FUSE_MS / 1000);
+  const span = maxSecs - minSecs + 1;
+  const secs = minSecs + Math.floor(arcadeNoise(seed + round * 31 + Date.now() % 131) * span);
+  return secs * 1000;
+}
+
+// Coins, gems and bombs rain thick and fast into three lanes; sometimes two
+// drops land at once so you have to read the board and pick the better lane.
+function buildCatchDrops(seed, totalMs) {
+  const drops = [];
+  let at = 2200;
+  let index = 0;
+  let id = 1;
+  while (at < totalMs) {
+    const roll = arcadeNoise(seed + index * 29);
+    const kind = roll < 0.2 ? "bomb" : (roll > 0.86 ? "gem" : "coin");
+    const lane = Math.floor(arcadeNoise(seed + index * 13) * 3);
+    drops.push({ id: id++, catchAt: Math.round(at), lane, kind, processed: false });
+    // Every so often a second drop in a different lane on the same beat.
+    if (index > 4 && arcadeNoise(seed + index * 53) > 0.62) {
+      const otherLane = (lane + 1 + Math.floor(arcadeNoise(seed + index * 61) * 2)) % 3;
+      const otherRoll = arcadeNoise(seed + index * 67);
+      drops.push({
+        id: id++,
+        catchAt: Math.round(at),
+        lane: otherLane,
+        kind: otherRoll < 0.35 ? "bomb" : "coin",
+        processed: false
+      });
+    }
+    at += Math.max(360, 720 - index * 14) + arcadeNoise(seed + index * 41) * 200;
+    index += 1;
+  }
+  return drops;
+}
+
+// Blobs pop out of the 3x3 holes — some are spiky troublemakers.
+function buildWhackPops(seed, totalMs) {
+  const pops = [];
+  let at = 2500;
+  let index = 0;
+  let lastCell = -1;
+  while (at < totalMs) {
+    let cell = Math.floor(arcadeNoise(seed + index * 17) * WHACK_CELLS);
+    if (cell === lastCell) cell = (cell + 1 + Math.floor(arcadeNoise(seed + index * 23) * (WHACK_CELLS - 1))) % WHACK_CELLS;
+    lastCell = cell;
+    // A calmer pace than before: blobs stay up longer and spawn less often.
+    const upMs = 1150 - Math.min(280, index * 7);
+    pops.push({
+      id: index + 1,
+      from: Math.round(at),
+      until: Math.round(at + upMs),
+      cell,
+      kind: arcadeNoise(seed + index * 37) < 0.18 ? "bad" : "good"
+    });
+    at += Math.max(560, 920 - index * 8) + arcadeNoise(seed + index * 43) * 220;
+    index += 1;
+  }
+  return pops;
+}
+
+// Farbfolge rounds: watch the growing colour sequence, then repeat it.
+function buildSimonRounds(seed) {
+  const rounds = [];
+  let at = 1500;
+  for (let r = 0; r < 8; r += 1) {
+    const seqLen = 2 + r;
+    const sequence = Array.from({ length: seqLen }, (_v, i) => Math.floor(arcadeNoise(seed + r * 97 + i * 13) * 4));
+    const showMs = seqLen * 650 + 700;
+    const inputMs = seqLen * 950 + 900;
+    rounds.push({ index: r, sequence, showFrom: at, inputFrom: at + showMs, until: at + showMs + inputMs });
+    at += showMs + inputMs + 400;
+  }
+  return rounds;
+}
+
+function simonRoundAt(arcade, elapsed) {
+  return arcade.rounds.find((round) => elapsed >= round.showFrom && elapsed < round.until) || null;
+}
+
+// Blitzfang rounds: the lamp turns green at a secret moment.
+function buildReactRounds(seed) {
+  return Array.from({ length: REACT_ROUNDS }, (_v, i) => ({
+    index: i,
+    armFrom: 2000 + i * 4600,
+    greenAt: Math.round(2000 + i * 4600 + 1200 + arcadeNoise(seed + i * 53) * 2200)
+  }));
+}
+
+// Alternating green/red windows, deterministic per seed. Index 0 is green.
+function buildRedlightPhases(seed, totalMs) {
+  const phases = [];
+  let at = 0;
+  let index = 0;
+  while (at < totalMs) {
+    const green = 1500 + arcadeNoise(seed + index * 13) * 1300;
+    const red = 1000 + arcadeNoise(seed + index * 19) * 900;
+    phases.push({ kind: "green", from: at, until: at + green });
+    phases.push({ kind: "red", from: at + green, until: at + green + red });
+    at += green + red;
+    index += 1;
+  }
+  return phases;
+}
+
+function redlightPhaseAt(arcade, elapsed) {
+  for (let index = 0; index < arcade.phases.length; index += 1) {
+    const phase = arcade.phases[index];
+    if (elapsed < phase.until) return { ...phase, index };
+  }
+  return { ...arcade.phases[arcade.phases.length - 1], index: arcade.phases.length - 1 };
+}
+
+// Waves roll in faster and faster, deterministic per seed.
+function buildWaveSchedule(seed, totalMs) {
+  const waves = [];
+  let at = WAVE_FIRST_AT;
+  let index = 0;
+  while (at < totalMs) {
+    // Direction flips every few passes, but always with a full swing before
+    // the hit so the timing is identical and fair.
+    const dir = Math.floor(index / 3) % 2 === 0 ? 1 : -1;
+    waves.push({ hitAt: Math.round(at), dir, processed: false });
+    // A gentler, steadier ramp so the speed-up feels moderate.
+    const gap = Math.max(WAVE_MIN_GAP, 2900 - index * 110) + arcadeNoise(seed + index * 23) * 500;
+    at += gap;
+    index += 1;
+  }
+  return waves;
+}
+
+// Same course for every player: at each row at least one lane stays free,
+// so the track is always beatable and fair.
+function createRunnerCourse(seed) {
+  const rows = [];
+  let position = 14;
+  let index = 0;
+  while (position < RUNNER_LENGTH - 10) {
+    const roll = arcadeNoise(seed + index * 17);
+    if (roll < 0.1) {
+      // Occasional breather with a boost pad.
+      rows.push({ position, kind: "boost", lane: Math.floor(arcadeNoise(seed + index * 23) * 3) });
+    } else if (roll < 0.38) {
+      // Pickup orb: grab it to throw a straight tumble-shot down your lane.
+      rows.push({ position, kind: "item", lane: Math.floor(arcadeNoise(seed + index * 47) * 3) });
+    } else if (roll < 0.56) {
+      // Log blocks two adjacent lanes.
+      const freeLane = Math.floor(arcadeNoise(seed + index * 29) * 3);
+      rows.push({ position, kind: "log", freeLane });
+    } else if (roll < 0.66) {
+      // Slider oscillates between two lanes; the third lane is always safe.
+      const baseLane = Math.floor(arcadeNoise(seed + index * 31) * 2);
+      rows.push({ position, kind: "slider", baseLane, phase: arcadeNoise(seed + index * 37) * Math.PI * 2 });
+    } else {
+      rows.push({ position, kind: "cone", lane: Math.floor(arcadeNoise(seed + index * 41) * 3) });
+    }
+    // Denser spacing than before so there is more to dodge.
+    position += 3.8 + arcadeNoise(seed + index * 43) * 2.2;
+    index += 1;
+  }
+  return rows;
+}
+
+function runnerBlockedLanes(row, now) {
+  if (row.kind === "cone") return [row.lane];
+  if (row.kind === "log") return [0, 1, 2].filter((lane) => lane !== row.freeLane);
+  if (row.kind === "slider") {
+    return [row.baseLane + (Math.sin(now / 650 + row.phase) > 0 ? 1 : 0)];
+  }
+  return [];
+}
+
+function advanceColorRound(arcade, round, now) {
+  arcade.round = round;
+  arcade.phase = "announce";
+  arcade.roundStartedAt = now;
+  arcade.targetColor = Math.floor(arcadeNoise(arcade.seed + round * 53) * 4);
+  arcade.grid = Array.from({ length: COLORGRID_SIZE * COLORGRID_SIZE }, (_cell, index) =>
+    Math.floor(arcadeNoise(arcade.seed + round * 61 + index * 7) * 4)
+  );
+  // Guarantee enough tiles of the target color to stand on.
+  const targetTiles = arcade.grid.filter((color) => color === arcade.targetColor).length;
+  if (targetTiles < 6) {
+    for (let extra = 0; extra < 6 - targetTiles; extra += 1) {
+      const slot = Math.floor(arcadeNoise(arcade.seed + round * 67 + extra * 11) * arcade.grid.length);
+      arcade.grid[slot] = arcade.targetColor;
+    }
+  }
 }
 
 function handleArcadeInput(room, player, input) {
@@ -1832,11 +2547,332 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldown = arcade.family === "steer" || arcade.family === "kinetic"
-    ? 55
-    : (arcade.family === "direct" ? 42 : (arcade.family === "plinko" || arcade.family === "curling" ? 180 : 100));
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40 };
+  const cooldown = cooldowns[arcade.family] ?? 100;
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
   arcadePlayer.lastInputAt = now;
+
+  if (arcade.family === "stopclock") {
+    if (input.action !== "stop") return { ok: false, error: "Tippe, um die Uhr zu stoppen." };
+    if (arcadePlayer.stoppedMs !== null) return { ok: true };
+    const minigameStart = room.currentMinigame.startedAt;
+    arcadePlayer.stoppedMs = Math.max(0, now - minigameStart);
+    arcadePlayer.deviationMs = Math.abs(arcadePlayer.stoppedMs - arcade.targetMs);
+    arcadePlayer.score = Math.max(0, 8000 - arcadePlayer.deviationMs);
+    arcadePlayer.successes = 1;
+    arcadePlayer.flash = arcadePlayer.deviationMs < 250 ? "good" : "bad";
+    arcadePlayer.lastHitAt = now;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "redlight") {
+    if (input.action !== "run") return { ok: false, error: "Halte den Knopf, um zu laufen." };
+    if (arcadePlayer.finishedAt) return { ok: true };
+    // Holding = a run ping this recent; the tick does the movement.
+    arcadePlayer.lastRunAt = now;
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
+  }
+
+  if (arcade.family === "wave") {
+    if (input.action !== "jump") return { ok: false, error: "Tippe, um zu springen." };
+    if (arcadePlayer.eliminated) return { ok: true };
+    if (now < arcadePlayer.jumpUntil) return { ok: true };
+    arcadePlayer.jumpUntil = now + WAVE_JUMP_MS;
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
+  }
+
+  if (arcade.family === "pump") {
+    if (input.action !== "pump") return { ok: false, error: "Tippe so schnell du kannst." };
+    arcadePlayer.pumps += 1;
+    arcadePlayer.score = arcadePlayer.pumps;
+    arcadePlayer.hasMoved = true;
+    if (arcadePlayer.pumps % 10 === 0) {
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+    }
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "barrel") {
+    if (input.action !== "run") return { ok: false, error: "Halte links oder rechts, um zu laufen." };
+    if (arcadePlayer.fallenAt) return { ok: true };
+    arcadePlayer.lastRunAt = now;
+    arcadePlayer.runDir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
+  }
+
+  if (arcade.family === "catchfall") {
+    if (input.action !== "lane") return { ok: false, error: "Wechsle die Spur mit links/rechts." };
+    const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
+    arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
+  }
+
+  if (arcade.family === "whack") {
+    if (input.action !== "whack") return { ok: false, error: "Tippe auf das Feld mit dem Blob." };
+    const cell = clamp(Math.round(Number(input.cell) || 0), 0, WHACK_CELLS - 1);
+    const elapsed = now - room.currentMinigame.startedAt;
+    const pop = arcade.pops.find((candidate) =>
+      candidate.cell === cell && elapsed >= candidate.from && elapsed <= candidate.until && !arcadePlayer.hitPopIds[candidate.id]);
+    if (!pop) return { ok: true };
+    arcadePlayer.hitPopIds[pop.id] = true;
+    arcadePlayer.hasMoved = true;
+    if (pop.kind === "bad") {
+      arcadePlayer.badHits += 1;
+      arcadePlayer.flash = "bad";
+    } else {
+      arcadePlayer.hits += 1;
+      arcadePlayer.flash = "good";
+    }
+    arcadePlayer.lastHitAt = now;
+    arcadePlayer.score = Math.max(0, arcadePlayer.hits * 10 - arcadePlayer.badHits * 4);
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "cannon") {
+    if (input.action !== "launch") return { ok: false, error: "Tippe im richtigen Moment zum Abschuss." };
+    if (arcadePlayer.launchedAt) return { ok: true };
+    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
+
+    // First tap locks the power, then the angle gauge starts sweeping.
+    if (!arcadePlayer.powerAt) {
+      const power = Math.abs(Math.sin((elapsed / arcade.periodMs) * Math.PI));
+      arcadePlayer.power = Number(power.toFixed(3));
+      arcadePlayer.powerAt = now;
+      arcadePlayer.flash = power > 0.88 ? "good" : "bad";
+      arcadePlayer.lastHitAt = now;
+      arcadePlayer.hasMoved = true;
+      return { ok: true };
+    }
+
+    // Second tap locks the angle — real ballistics, 45° flies farthest.
+    const angleT = Math.abs(Math.sin(((now - arcadePlayer.powerAt) / arcade.anglePeriodMs) * Math.PI));
+    const angleDeg = Math.round(5 + angleT * 80);
+    const angleRad = (angleDeg * Math.PI) / 180;
+    arcadePlayer.angle = angleDeg;
+    arcadePlayer.launchedAt = now;
+    arcadePlayer.distance = Math.round(6 + arcadePlayer.power * arcadePlayer.power * Math.sin(2 * angleRad) * 94);
+    arcadePlayer.score = arcadePlayer.distance;
+    arcadePlayer.flash = Math.abs(angleDeg - 45) < 8 ? "good" : "bad";
+    arcadePlayer.lastHitAt = now;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "simon") {
+    if (input.action !== "color") return { ok: false, error: "Tippe die Farben in der gezeigten Reihenfolge." };
+    const elapsed = now - room.currentMinigame.startedAt;
+    const round = simonRoundAt(arcade, elapsed);
+    if (!round || elapsed < round.inputFrom) return { ok: true };
+    if (arcadePlayer.currentRound !== round.index) {
+      arcadePlayer.currentRound = round.index;
+      arcadePlayer.roundProgress = 0;
+      arcadePlayer.roundFailed = false;
+    }
+    if (arcadePlayer.roundFailed || arcadePlayer.roundProgress >= round.sequence.length) return { ok: true };
+    const picked = clamp(Math.round(Number(input.index) || 0), 0, 3);
+    if (picked === round.sequence[arcadePlayer.roundProgress]) {
+      arcadePlayer.roundProgress += 1;
+      arcadePlayer.hasMoved = true;
+      if (arcadePlayer.roundProgress >= round.sequence.length) {
+        arcadePlayer.survived += 1;
+        arcadePlayer.flash = "good";
+        arcadePlayer.lastHitAt = now;
+      }
+    } else {
+      arcadePlayer.roundFailed = true;
+      arcadePlayer.mistakes += 1;
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+    }
+    arcadePlayer.score = arcadePlayer.survived * 1000 - arcadePlayer.mistakes;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "react") {
+    if (input.action !== "tap") return { ok: false, error: "Tippe, sobald es grün wird." };
+    const roundIndex = arcadePlayer.times.length;
+    if (roundIndex >= arcade.rounds.length) return { ok: true };
+    const round = arcade.rounds[roundIndex];
+    const elapsed = now - room.currentMinigame.startedAt;
+    if (elapsed < round.armFrom) return { ok: true };
+    if (elapsed < round.greenAt) {
+      // False start: a painful fixed penalty for this round.
+      arcadePlayer.times.push(REACT_PENALTY_MS);
+      arcadePlayer.flash = "bad";
+    } else {
+      arcadePlayer.times.push(Math.min(REACT_WINDOW_MS, Math.round(elapsed - round.greenAt)));
+      arcadePlayer.flash = "good";
+    }
+    arcadePlayer.lastHitAt = now;
+    arcadePlayer.hasMoved = true;
+    arcadePlayer.score = arcadePlayer.times.reduce((sum, value) => sum + value, 0);
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "bomb") {
+    if (input.action !== "pass") return { ok: false, error: "Tippe, um die Bombe weiterzugeben." };
+    if (arcadePlayer.outAt) return { ok: true };
+    if (arcade.holderId !== player.id) return { ok: true };
+    if (now < arcade.canPassAt) return { ok: true };
+    const alive = arcade.order.filter((id) => !arcade.players[id]?.outAt);
+    if (alive.length <= 1) return { ok: true };
+    const myIndex = alive.indexOf(player.id);
+    arcade.holderId = alive[(myIndex + 1) % alive.length];
+    arcade.holderSince = now;
+    arcade.canPassAt = now + BOMB_PASS_LOCK_MS;
+    // The fuse keeps ticking — passing moves the bomb but never resets the
+    // timer. Only an explosion lights a fresh fuse.
+    arcadePlayer.passes += 1;
+    arcadePlayer.hasMoved = true;
+    arcadePlayer.flash = "good";
+    arcadePlayer.lastHitAt = now;
+    return { ok: true };
+  }
+
+  if (arcade.family === "knife") {
+    if (input.action !== "throw") return { ok: false, error: "Tippe, um das Messer zu werfen." };
+    // Only the active thrower may throw, only during their own window.
+    if (arcade.activeId !== player.id || arcadePlayer.eliminated || arcadePlayer.turnDone) return { ok: true };
+    const angleDeg = ((arcade.logAngle * 180) / Math.PI) % 360;
+    const normalized = (angleDeg + 360) % 360;
+    // Collision if another knife already sits within the safety gap.
+    const clash = arcade.knives.some((knife) => {
+      const diff = Math.abs(((knife.angleDeg - normalized + 540) % 360) - 180);
+      return diff < KNIFE_MIN_GAP_DEG;
+    });
+    if (clash) {
+      // Hitting another knife ends your turn immediately and knocks you out.
+      arcadePlayer.eliminated = true;
+      arcadePlayer.eliminatedAt = now;
+      arcadePlayer.turnDone = true;
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+      advanceKnifeTurn(room, room.currentMinigame, arcade, now);
+    } else {
+      arcade.knives.push({ angleDeg: normalized, playerId: player.id });
+      arcadePlayer.stuck += 1;
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+    }
+    arcadePlayer.hasMoved = true;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "stack") {
+    if (input.action !== "drop") return { ok: false, error: "Tippe, um den Block zu setzen." };
+    if (arcadePlayer.toppled || arcadePlayer.height >= arcade.total) return { ok: true };
+    // The sliding block's current x-centre (mirrors the client oscillation).
+    const elapsed = now - room.currentMinigame.startedAt;
+    const speed = 1.1 + arcadePlayer.height * 0.06;
+    const swing = Math.sin(elapsed / 1000 * speed + arcadePlayer.phase * Math.PI * 2);
+    const blockCentre = swing * (0.85 - arcadePlayer.height * 0.01);
+    const overlapLeft = Math.max(arcadePlayer.offset - arcadePlayer.width / 2, blockCentre - arcadePlayer.width / 2);
+    const overlapRight = Math.min(arcadePlayer.offset + arcadePlayer.width / 2, blockCentre + arcadePlayer.width / 2);
+    const overlap = overlapRight - overlapLeft;
+    if (overlap <= 0.02) {
+      arcadePlayer.toppled = true;
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+    } else {
+      const perfect = Math.abs(blockCentre - arcadePlayer.offset) < 0.05;
+      arcadePlayer.width = perfect ? arcadePlayer.width : overlap;
+      arcadePlayer.offset = (overlapLeft + overlapRight) / 2;
+      arcadePlayer.height += 1;
+      if (perfect) arcadePlayer.perfects += 1;
+      arcadePlayer.score = arcadePlayer.height * 100 + arcadePlayer.perfects * 20;
+      arcadePlayer.flash = perfect ? "good" : null;
+      arcadePlayer.lastHitAt = now;
+    }
+    arcadePlayer.hasMoved = true;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "climb") {
+    if (input.action !== "grab") return { ok: false, error: "Tippe abwechselnd links und rechts." };
+    if (arcadePlayer.finishedAt) return { ok: true };
+    const side = input.side === -1 || input.side === "-1" ? -1 : 1;
+    if (side === arcadePlayer.nextSide) {
+      arcadePlayer.rung += 1;
+      arcadePlayer.nextSide = -arcadePlayer.nextSide;
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+      if (arcadePlayer.rung >= arcade.height) {
+        arcadePlayer.finishedAt = now;
+        arcadePlayer.finishMs = Math.max(0, now - room.currentMinigame.startedAt);
+      }
+      arcadePlayer.score = arcadePlayer.rung;
+    } else {
+      // Wrong hand — a small slip, but never below the ground.
+      arcadePlayer.rung = Math.max(0, arcadePlayer.rung - 1);
+      arcadePlayer.slips += 1;
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+    }
+    arcadePlayer.hasMoved = true;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "runner") {
+    if (input.action === "throw") {
+      if (arcadePlayer.finishedAt || !arcadePlayer.hasItem) return { ok: true };
+      // The shot flies straight forward down the thrower's own lane and hits
+      // the nearest runner ahead in that same lane.
+      arcadePlayer.hasItem = false;
+      arcadePlayer.hasMoved = true;
+      arcade.shots.push({
+        id: arcade.nextShotId++,
+        fromId: player.id,
+        lane: arcadePlayer.lane,
+        fromProgress: arcadePlayer.progress,
+        firedAt: now,
+        speed: 60,              // metres/sec the shot travels
+        resolved: false
+      });
+      return { ok: true };
+    }
+    if (input.action !== "lane") return { ok: false, error: "Wische nach links oder rechts." };
+    if (arcadePlayer.finishedAt) return { ok: true };
+    const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
+    arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
+  }
+
+  if (arcade.family === "colorgrid") {
+    if (input.action !== "step") return { ok: false, error: "Wische in eine Richtung." };
+    if (arcadePlayer.eliminated) return { ok: true };
+    // Movement is frozen once the floor starts dropping — you commit during
+    // the announce phase only.
+    const roundElapsed = (now - room.currentMinigame.startedAt) - arcade.round * arcade.roundMs;
+    if (roundElapsed >= arcade.announceMs) return { ok: true };
+    const directions = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+    const direction = directions[input.dir];
+    if (!direction) return { ok: false, error: "Unbekannte Richtung." };
+    const targetGx = clamp(arcadePlayer.gx + direction[0], 0, COLORGRID_SIZE - 1);
+    const targetGy = clamp(arcadePlayer.gy + direction[1], 0, COLORGRID_SIZE - 1);
+    // One kin per tile: a step onto an occupied tile simply bounces off.
+    const occupied = Object.entries(arcade.players).some(([otherId, other]) => (
+      otherId !== player.id && !other.eliminated && other.gx === targetGx && other.gy === targetGy
+    ));
+    if (occupied) return { ok: true };
+    arcadePlayer.gx = targetGx;
+    arcadePlayer.gy = targetGy;
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
+  }
 
   if (arcade.family === "plinko") {
     if (input.action !== "drop") return { ok: false, error: "Tippe, um eine Kugel fallen zu lassen." };
@@ -2055,6 +3091,382 @@ function updateArcade(room) {
     arcade.lastUpdateAt = now;
     updateCurling(room, minigame, arcade, dt, now);
   }
+
+  if (arcade.family === "runner") {
+    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    updateRunner(room, minigame, arcade, dt, now);
+  }
+
+  if (arcade.family === "colorgrid") {
+    updateColorGrid(room, minigame, arcade, now);
+  }
+
+  if (arcade.family === "redlight") {
+    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    updateRedlight(room, minigame, arcade, dt, now);
+  }
+
+  if (arcade.family === "wave") {
+    updateWave(room, minigame, arcade, now);
+  }
+
+  if (arcade.family === "barrel") {
+    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    updateBarrel(room, minigame, arcade, dt, now);
+  }
+
+  if (arcade.family === "bomb") {
+    updateBomb(room, minigame, arcade, now);
+  }
+
+  if (arcade.family === "catchfall") {
+    updateCatchfall(room, minigame, arcade, now);
+  }
+
+  if (arcade.family === "knife") {
+    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    updateKnife(room, minigame, arcade, dt, now);
+  }
+
+  maybeFinishArcadeEarly(room, minigame, arcade, now);
+}
+
+function updateCatchfall(room, minigame, arcade, now) {
+  const elapsed = Math.max(0, now - minigame.startedAt);
+  arcade.drops.forEach((drop) => {
+    if (drop.processed || elapsed < drop.catchAt) return;
+    drop.processed = true;
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry || entry.lane !== drop.lane) return;
+      if (drop.kind === "coin") {
+        entry.catches += 1;
+        entry.streak = (entry.streak || 0) + 1;
+        entry.flash = "good";
+      } else if (drop.kind === "gem") {
+        entry.catches += 3;
+        entry.streak = (entry.streak || 0) + 1;
+        entry.flash = "good";
+      } else {
+        entry.bombs += 1;
+        entry.streak = 0;
+        entry.flash = "bad";
+      }
+      entry.lastHitAt = now;
+      entry.score = Math.max(0, entry.catches * 10 - entry.bombs * 8);
+      syncArcadeScore(minigame, player, entry);
+    });
+  });
+}
+
+// Messerwurf: the shared log spins ever faster; once every alive player has
+// thrown this round (or the round times out) it advances to the next.
+// Move to the next player who has not yet had a turn. Spin gets a touch
+// faster each turn so later throwers face a trickier disc.
+function advanceKnifeTurn(room, minigame, arcade, now) {
+  const current = arcade.players[arcade.activeId];
+  if (current) current.turnDone = true;
+  let next = null;
+  for (let step = 1; step <= arcade.order.length; step += 1) {
+    const candidate = arcade.order[(arcade.turnIndex + step) % arcade.order.length];
+    if (!arcade.players[candidate]?.turnDone) { next = candidate; arcade.turnIndex = (arcade.turnIndex + step) % arcade.order.length; break; }
+  }
+  if (next) {
+    arcade.activeId = next;
+    arcade.turnEndsAt = now + arcade.turnMs;
+    arcade.spinSpeed = Math.min(2.4, arcade.spinSpeed + 0.18);
+  } else {
+    arcade.activeId = null;   // everyone has thrown
+  }
+}
+
+function updateKnife(room, minigame, arcade, dt, now) {
+  // The disc always spins; direction alternates by turn to keep it honest.
+  const dir = arcade.turnIndex % 2 === 0 ? 1 : -1;
+  arcade.logAngle += arcade.spinSpeed * dir * dt;
+
+  if (arcade.activeId && now >= arcade.turnEndsAt) {
+    advanceKnifeTurn(room, minigame, arcade, now);
+  }
+}
+
+function updateBarrel(room, minigame, arcade, dt, now) {
+  const elapsed = Math.max(0, now - minigame.startedAt);
+  const phase = barrelPhaseAt(arcade, elapsed);
+  arcade.barrelVel = phase.vel;
+  arcade.barrelAngle += phase.vel * dt;
+
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry || entry.fallenAt) return;
+    const holding = now - (entry.lastRunAt || 0) <= BARREL_HOLD_FRESH_MS;
+    // Counter-running always beats the barrel by a fixed margin, so slow
+    // phases stay just as controllable as fast ones (no overshoot slingshot).
+    const runVel = holding ? entry.runDir * (Math.abs(phase.vel) + 0.55) : 0;
+    // The spinning barrel carries you along; counter-run to stay on top.
+    entry.offset += (phase.vel + runVel) * dt;
+    if (Math.abs(entry.offset) >= arcade.limit) {
+      entry.fallenAt = now;
+      entry.survivedMs = elapsed;
+      entry.flash = "bad";
+      entry.lastHitAt = now;
+      syncArcadeScore(minigame, player, entry);
+      return;
+    }
+    entry.score = Math.round(elapsed);
+    syncArcadeScore(minigame, player, entry);
+  });
+}
+
+function updateBomb(room, minigame, arcade, now) {
+  if (now < arcade.fuseAt) return;
+  const holder = arcade.players[arcade.holderId];
+  if (holder && !holder.outAt) {
+    holder.outAt = now;
+    holder.flash = "bad";
+    holder.lastHitAt = now;
+    const holderPlayer = room.players.find((player) => player.id === arcade.holderId);
+    if (holderPlayer) syncArcadeScore(minigame, holderPlayer, holder);
+  }
+  arcade.explosions += 1;
+  const alive = arcade.order.filter((id) => !arcade.players[id]?.outAt);
+  if (alive.length === 0) return;
+  // Hand the next bomb to a random survivor and light a fresh fuse — its time
+  // is shown for a moment so a sharp player can plan the next pass.
+  arcade.holderId = alive[Math.floor(arcadeNoise(arcade.seed + arcade.explosions * 41) * alive.length)] || alive[0];
+  arcade.holderSince = now;
+  arcade.canPassAt = now + BOMB_PASS_LOCK_MS;
+  arcade.fuseMs = bombFuseMs(arcade.seed, arcade.explosions);
+  arcade.fuseAt = now + arcade.fuseMs;
+  arcade.revealUntil = now + BOMB_REVEAL_MS;
+}
+
+function updateRedlight(room, minigame, arcade, dt, now) {
+  const elapsed = Math.max(0, now - minigame.startedAt);
+  const phase = redlightPhaseAt(arcade, elapsed);
+  arcade.phaseIndex = phase.index;
+  arcade.phaseKind = phase.kind;
+  arcade.phaseUntil = minigame.startedAt + phase.until;
+
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry || entry.finishedAt) return;
+    const holding = now - (entry.lastRunAt || 0) <= REDLIGHT_HOLD_FRESH_MS;
+
+    if (holding && phase.kind === "green") {
+      entry.progress = Math.min(arcade.goal, entry.progress + REDLIGHT_SPEED * dt);
+      if (entry.progress >= arcade.goal) {
+        entry.finishedAt = now;
+        entry.finishMs = elapsed;
+        entry.score = Math.max(1000, 200000 - elapsed);
+        syncArcadeScore(minigame, player, entry);
+      }
+      return;
+    }
+
+    // Caught sprinting during red — a short grace right after the switch is forgiven.
+    if (holding && phase.kind === "red" && entry.penalizedPhase !== phase.index) {
+      const intoRed = elapsed - phase.from;
+      if (intoRed > REDLIGHT_GRACE_MS) {
+        entry.penalizedPhase = phase.index;
+        entry.caught += 1;
+        entry.progress = Math.max(0, entry.progress - REDLIGHT_PENALTY);
+        entry.flash = "bad";
+        entry.lastHitAt = now;
+      }
+    }
+  });
+}
+
+function updateWave(room, minigame, arcade, now) {
+  const elapsed = Math.max(0, now - minigame.startedAt);
+  arcade.waves.forEach((wave, index) => {
+    if (wave.processed || elapsed < wave.hitAt) return;
+    wave.processed = true;
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry || entry.eliminated) return;
+      const jumpStartedAt = entry.jumpUntil - arcade.jumpMs - minigame.startedAt;
+      const airborne = entry.jumpUntil - minigame.startedAt >= wave.hitAt && jumpStartedAt <= wave.hitAt;
+      if (airborne) {
+        entry.survived = index + 1;
+        entry.score = entry.survived * 1000;
+        entry.flash = "good";
+        syncArcadeScore(minigame, player, entry);
+      } else {
+        entry.eliminated = true;
+        entry.eliminatedAt = now;
+        entry.flash = "bad";
+        entry.lastHitAt = now;
+        syncArcadeScore(minigame, player, entry);
+      }
+    });
+  });
+}
+
+function updateRunner(room, minigame, arcade, dt, now) {
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry || entry.finishedAt) return;
+    const stumbling = now < entry.stumbleUntil;
+    const boosted = now < entry.boostUntil;
+    const speed = RUNNER_BASE_SPEED * (stumbling ? 0.35 : 1) * (boosted ? 1.55 : 1);
+    entry.progress = Math.min(arcade.trackLength, entry.progress + speed * dt);
+
+    while (entry.nextRow < arcade.rows.length && entry.progress >= arcade.rows[entry.nextRow].position) {
+      const row = arcade.rows[entry.nextRow];
+      entry.nextRow += 1;
+      if (row.kind === "boost") {
+        if (row.lane === entry.lane) {
+          entry.boostUntil = now + RUNNER_BOOST_MS;
+          entry.flash = "good";
+          entry.lastHitAt = now;
+        }
+      } else if (row.kind === "item") {
+        if (row.lane === entry.lane && !entry.hasItem) {
+          entry.hasItem = true;
+          entry.flash = "good";
+          entry.lastHitAt = now;
+        }
+      } else if (runnerBlockedLanes(row, now).includes(entry.lane)) {
+        entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
+        entry.stumbles += 1;
+        entry.flash = "bad";
+        entry.lastHitAt = now;
+      }
+    }
+
+    if (entry.progress >= arcade.trackLength) {
+      entry.finishedAt = now;
+      entry.finishMs = Math.max(0, now - minigame.startedAt);
+      entry.flash = "good";
+      entry.lastHitAt = now;
+    }
+
+    entry.score = entry.finishedAt
+      ? 10000000 - entry.finishMs
+      : Math.round(entry.progress * 1000);
+    syncArcadeScore(minigame, player, entry);
+  });
+
+  // Shots travel straight forward down their lane; the first runner ahead in
+  // the same lane that they overtake gets tumbled.
+  arcade.shots.forEach((shot) => {
+    if (shot.resolved) return;
+    const travelled = ((now - shot.firedAt) / 1000) * shot.speed;
+    shot.headProgress = shot.fromProgress + travelled;
+    const thrower = arcade.players[shot.fromId];
+    let hit = null;
+    room.players.forEach((candidate) => {
+      const entry = arcade.players[candidate.id];
+      if (!entry || candidate.id === shot.fromId || entry.finishedAt) return;
+      if (entry.lane !== shot.lane) return;
+      if (entry.progress > shot.fromProgress && entry.progress <= shot.headProgress) {
+        if (!hit || entry.progress < arcade.players[hit].progress) hit = candidate.id;
+      }
+    });
+    if (hit) {
+      const target = arcade.players[hit];
+      target.stumbleUntil = now + Math.round(RUNNER_STUMBLE_MS * 1.25);
+      target.stumbles += 1;
+      target.flash = "bad";
+      target.lastHitAt = now;
+      if (thrower) thrower.throwsHit = (thrower.throwsHit || 0) + 1;
+      shot.resolved = true;
+      shot.resolvedAt = now;
+      shot.hitId = hit;
+    } else if (travelled > RUNNER_LENGTH) {
+      shot.resolved = true;
+      shot.resolvedAt = now;
+    }
+  });
+  // Keep spent shots briefly so clients can play the impact, then drop.
+  arcade.shots = arcade.shots.filter((shot) => !shot.resolved || now < (shot.resolvedAt || now) + 700);
+}
+
+function updateColorGrid(room, minigame, arcade, now) {
+  if (now < minigame.startedAt) return;
+  const elapsed = now - minigame.startedAt;
+  // A calm lead-in: the first target is shown but the floor never drops until
+  // the lead time has passed, so the round no longer starts abruptly.
+  const shifted = elapsed - (arcade.leadMs || 0);
+  const round = shifted < 0 ? 0 : Math.min(arcade.roundCount - 1, Math.floor(shifted / arcade.roundMs));
+  if (round !== arcade.round) advanceColorRound(arcade, round, now);
+
+  const roundElapsed = shifted < 0 ? 0 : shifted - round * arcade.roundMs;
+  const phase = roundElapsed < arcade.announceMs ? "announce" : (roundElapsed < arcade.dropEndMs ? "drop" : "rest");
+
+  if (phase === "drop" && arcade.phase === "announce") {
+    // The floor drops: anyone on a wrong tile falls and is OUT for good.
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry || entry.eliminated) return;
+      const tileColor = arcade.grid[entry.gy * COLORGRID_SIZE + entry.gx];
+      if (tileColor === arcade.targetColor) {
+        entry.survived += 1;
+        entry.score = entry.survived;
+        entry.flash = "good";
+      } else {
+        entry.eliminated = true;
+        entry.fallenRound = round;
+        entry.flash = "bad";
+      }
+      entry.lastHitAt = now;
+      syncArcadeScore(minigame, player, entry);
+    });
+  }
+  arcade.phase = phase;
+
+  // Single elimination: once at most one player is still standing, play a
+  // short finale so the survivor is seen, then the scoreboard.
+  const alive = room.players.reduce((count, player) => (
+    count + (arcade.players[player.id] && !arcade.players[player.id].eliminated ? 1 : 0)
+  ), 0);
+  if (room.players.length > 1 && alive <= 1 && elapsed > arcade.announceMs) {
+    beginMinigameFinale(room, minigame);
+  }
+}
+
+function maybeFinishArcadeEarly(room, minigame, arcade, now) {
+  if (minigame.finishing || now < minigame.startedAt + 1500) return;
+  let done = false;
+  if (arcade.family === "stopclock") {
+    done = room.players.every((player) => arcade.players[player.id]?.stoppedMs !== null);
+  } else if (arcade.family === "runner") {
+    done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
+  } else if (arcade.family === "redlight") {
+    done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
+  } else if (arcade.family === "wave") {
+    const alive = room.players.filter((player) => !arcade.players[player.id]?.eliminated);
+    done = alive.length <= 1 && now > minigame.startedAt + WAVE_FIRST_AT;
+  } else if (arcade.family === "barrel") {
+    const alive = room.players.filter((player) => !arcade.players[player.id]?.fallenAt);
+    done = room.players.length > 1 && alive.length <= 1;
+  } else if (arcade.family === "bomb") {
+    const alive = room.players.filter((player) => !arcade.players[player.id]?.outAt);
+    done = room.players.length > 1 && alive.length <= 1;
+  } else if (arcade.family === "cannon") {
+    done = room.players.every((player) => arcade.players[player.id]?.launchedAt);
+  } else if (arcade.family === "react") {
+    done = room.players.every((player) => (arcade.players[player.id]?.times?.length || 0) >= REACT_ROUNDS);
+  } else if (arcade.family === "knife") {
+    // Everyone has had their throwing turn.
+    done = arcade.activeId === null || room.players.every((player) => arcade.players[player.id]?.turnDone);
+  } else if (arcade.family === "stack") {
+    done = room.players.every((player) => {
+      const entry = arcade.players[player.id];
+      return entry?.toppled || (entry?.height || 0) >= arcade.total;
+    });
+  } else if (arcade.family === "climb") {
+    done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
+  }
+  if (done) {
+    beginMinigameFinale(room, minigame);
+  }
 }
 
 function updatePlinko(room, minigame, arcade, dt, now) {
@@ -2118,53 +3530,61 @@ function updatePlinko(room, minigame, arcade, dt, now) {
 }
 
 function updateCurling(room, minigame, arcade, dt, now) {
-  arcade.stones.forEach((stone) => {
-    const speed = Math.hypot(stone.vx, stone.vy);
-    if (speed < 0.015) {
-      stone.vx = 0;
-      stone.vy = 0;
-      return;
-    }
-    const damping = Math.pow(0.38, dt);
-    stone.vx *= damping;
-    stone.vy *= damping;
-    stone.x += stone.vx * dt;
-    stone.y += stone.vy * dt;
-    if (stone.x < 0.05) { stone.x = 0.05; stone.vx = Math.abs(stone.vx) * 0.5; }
-    if (stone.x > 0.95) { stone.x = 0.95; stone.vx = -Math.abs(stone.vx) * 0.5; }
-    if (stone.y < 0.06) { stone.y = 0.06; stone.vy = Math.abs(stone.vy) * 0.5; }
-    if (stone.y > CURLING_SHEET_Y - 0.06) { stone.y = CURLING_SHEET_Y - 0.06; stone.vy = -Math.abs(stone.vy) * 0.5; }
-  });
+  const stoneRadius = CURLING_STONE_RADIUS;
+  const sub = CURLING_SUBSTEPS;
+  const h = dt / sub;
 
-  const stoneRadius = 0.042;
-  for (let a = 0; a < arcade.stones.length; a += 1) {
-    for (let b = a + 1; b < arcade.stones.length; b += 1) {
-      const first = arcade.stones[a];
-      const second = arcade.stones[b];
-      let dx = second.x - first.x;
-      let dy = second.y - first.y;
-      let distance = Math.hypot(dx, dy);
-      if (distance >= stoneRadius * 2) continue;
-      if (distance < 0.001) { dx = 0.01; dy = 0; distance = 0.01; }
-      const nx = dx / distance;
-      const ny = dy / distance;
-      const overlap = (stoneRadius * 2 - distance) / 2;
-      first.x -= nx * overlap;
-      first.y -= ny * overlap;
-      second.x += nx * overlap;
-      second.y += ny * overlap;
-      const relative = (second.vx - first.vx) * nx + (second.vy - first.vy) * ny;
-      if (relative < 0) {
-        const impulse = -relative * 0.86;
-        first.vx -= nx * impulse;
-        first.vy -= ny * impulse;
-        second.vx += nx * impulse;
-        second.vy += ny * impulse;
-        if (now - Math.max(first.lastCollisionAt, second.lastCollisionAt) > 140) {
-          arcade.clacks = (arcade.clacks || 0) + 1;
+  for (let step = 0; step < sub; step += 1) {
+    // Glide + wall cushions. Walls are inset by the radius so a stone's edge
+    // kisses the boundary and never sinks through it.
+    arcade.stones.forEach((stone) => {
+      const speed = Math.hypot(stone.vx, stone.vy);
+      if (speed < 0.02) {
+        stone.vx = 0;
+        stone.vy = 0;
+        return;
+      }
+      const damping = Math.exp(-CURLING_FRICTION * h);
+      stone.vx *= damping;
+      stone.vy *= damping;
+      stone.x += stone.vx * h;
+      stone.y += stone.vy * h;
+      if (stone.x < stoneRadius) { stone.x = stoneRadius; stone.vx = Math.abs(stone.vx) * CURLING_WALL_REST; }
+      if (stone.x > 1 - stoneRadius) { stone.x = 1 - stoneRadius; stone.vx = -Math.abs(stone.vx) * CURLING_WALL_REST; }
+      if (stone.y < stoneRadius) { stone.y = stoneRadius; stone.vy = Math.abs(stone.vy) * CURLING_WALL_REST; }
+      if (stone.y > CURLING_SHEET_Y - stoneRadius) { stone.y = CURLING_SHEET_Y - stoneRadius; stone.vy = -Math.abs(stone.vy) * CURLING_WALL_REST; }
+    });
+
+    // Solid stone-on-stone collisions (equal mass, bouncy restitution).
+    for (let a = 0; a < arcade.stones.length; a += 1) {
+      for (let b = a + 1; b < arcade.stones.length; b += 1) {
+        const first = arcade.stones[a];
+        const second = arcade.stones[b];
+        let dx = second.x - first.x;
+        let dy = second.y - first.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance >= stoneRadius * 2) continue;
+        if (distance < 0.0001) { dx = 0.01; dy = 0; distance = 0.01; }
+        const nx = dx / distance;
+        const ny = dy / distance;
+        const overlap = (stoneRadius * 2 - distance) / 2;
+        first.x -= nx * overlap;
+        first.y -= ny * overlap;
+        second.x += nx * overlap;
+        second.y += ny * overlap;
+        const relative = (second.vx - first.vx) * nx + (second.vy - first.vy) * ny;
+        if (relative < 0) {
+          const jn = -(1 + CURLING_RESTITUTION) * relative / 2;
+          first.vx -= jn * nx;
+          first.vy -= jn * ny;
+          second.vx += jn * nx;
+          second.vy += jn * ny;
+          if (now - Math.max(first.lastCollisionAt, second.lastCollisionAt) > 140) {
+            arcade.clacks = (arcade.clacks || 0) + 1;
+          }
+          first.lastCollisionAt = now;
+          second.lastCollisionAt = now;
         }
-        first.lastCollisionAt = now;
-        second.lastCollisionAt = now;
       }
     }
   }
@@ -2533,6 +3953,254 @@ function arcadeBotStep(room, bot) {
     const dx = clamp((arcade.house.x - startX) * 0.75 + (Math.random() - 0.5) * 0.1, -1, 1);
     const dy = clamp(-0.5 + (Math.random() - 0.5) * 0.12, -1, -0.3);
     handleArcadeInput(room, bot, { action: "flick", dx, dy });
+    return;
+  }
+  if (arcade.family === "stopclock") {
+    if (player.stoppedMs !== null) return;
+    const profile = botProfile(player);
+    if (player.botStopAt === undefined) {
+      player.botStopAt = arcade.targetMs + (Math.random() - 0.5) * 2 * profile.spreadMs;
+    }
+    if (Date.now() - minigame.startedAt >= player.botStopAt) {
+      handleArcadeInput(room, bot, { action: "stop" });
+    }
+    return;
+  }
+  if (arcade.family === "redlight") {
+    if (player.finishedAt) return;
+    const now = Date.now();
+    const profile = botProfile(player);
+    const elapsed = now - minigame.startedAt;
+    const phase = redlightPhaseAt(arcade, elapsed);
+    const intoPhase = elapsed - phase.from;
+    if (phase.kind === "green") {
+      // Bots react late to green and occasionally hesitate.
+      if (intoPhase >= profile.reactionMs && Math.random() > 0.08) {
+        handleArcadeInput(room, bot, { action: "run" });
+      }
+      return;
+    }
+    // Red: sloppy bots keep running a moment too long.
+    if (intoPhase < profile.reactionMs * 0.6 || Math.random() < profile.mistake * 0.25) {
+      handleArcadeInput(room, bot, { action: "run" });
+    }
+    return;
+  }
+  if (arcade.family === "wave") {
+    if (player.eliminated) return;
+    const now = Date.now();
+    const profile = botProfile(player);
+    const elapsed = now - minigame.startedAt;
+    const next = arcade.waves.find((wave) => !wave.processed && wave.hitAt > elapsed);
+    if (!next) return;
+    if (player.botJumpWave !== next.hitAt) {
+      player.botJumpWave = next.hitAt;
+      // Aim to be mid-air at impact; bad bots mistime or skip the jump.
+      player.botJumpAt = Math.random() < profile.mistake
+        ? next.hitAt + arcade.jumpMs * 0.8
+        : next.hitAt - arcade.jumpMs * 0.45 + (Math.random() - 0.5) * profile.spreadMs * 0.5;
+    }
+    if (elapsed >= player.botJumpAt && now >= player.jumpUntil) {
+      handleArcadeInput(room, bot, { action: "jump" });
+    }
+    return;
+  }
+  if (arcade.family === "pump") {
+    const profile = botProfile(player);
+    // Tap rate scales with skill; the input cooldown caps the maximum.
+    const chance = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.7 : 0.5;
+    if (Math.random() < chance) handleArcadeInput(room, bot, { action: "pump" });
+    return;
+  }
+  if (arcade.family === "barrel") {
+    if (player.fallenAt) return;
+    const profile = botProfile(player);
+    // Counter-run against the drift once it becomes noticeable.
+    const drift = player.offset + arcade.barrelVel * 0.25;
+    if (Math.abs(drift) > 0.12 && Math.random() > profile.mistake * 0.4) {
+      handleArcadeInput(room, bot, { action: "run", dir: drift > 0 ? -1 : 1 });
+    }
+    return;
+  }
+  if (arcade.family === "bomb") {
+    if (player.outAt || arcade.holderId !== bot.id) return;
+    const now = Date.now();
+    const profile = botProfile(player);
+    if (now - arcade.holderSince > BOMB_PASS_LOCK_MS + profile.reactionMs * 0.8 + Math.random() * 500) {
+      handleArcadeInput(room, bot, { action: "pass" });
+    }
+    return;
+  }
+  if (arcade.family === "catchfall") {
+    const now = Date.now();
+    const profile = botProfile(player);
+    const elapsed = now - minigame.startedAt;
+    const next = arcade.drops.find((drop) => !drop.processed && drop.catchAt > elapsed + profile.reactionMs * 0.4);
+    if (!next || next.catchAt - elapsed > 1100) return;
+    let wanted = player.lane;
+    if (next.kind === "coin" && Math.random() > profile.mistake) wanted = next.lane;
+    if (next.kind === "bomb" && next.lane === player.lane && Math.random() > profile.mistake) {
+      wanted = next.lane === 0 ? 1 : next.lane - 1;
+    }
+    if (wanted !== player.lane) {
+      handleArcadeInput(room, bot, { action: "lane", dir: wanted > player.lane ? 1 : -1 });
+    }
+    return;
+  }
+  if (arcade.family === "whack") {
+    const now = Date.now();
+    const profile = botProfile(player);
+    const elapsed = now - minigame.startedAt;
+    const active = arcade.pops.find((pop) =>
+      pop.kind === "good" && !player.hitPopIds[pop.id]
+      && elapsed >= pop.from + profile.reactionMs * 0.7 && elapsed <= pop.until);
+    if (active && Math.random() > profile.mistake) {
+      handleArcadeInput(room, bot, { action: "whack", cell: active.cell });
+    }
+    return;
+  }
+  if (arcade.family === "cannon") {
+    if (player.launchedAt) return;
+    const now = Date.now();
+    const profile = botProfile(player);
+    if (!player.powerAt) {
+      if (player.botLaunchAt === undefined) {
+        // Aim for a gauge peak, offset by skill-based error.
+        const target = arcade.periodMs / 2 + (Math.random() - 0.5) * profile.spreadMs * 0.6;
+        const cycle = 2 + Math.floor(Math.random() * 5);
+        player.botLaunchAt = cycle * arcade.periodMs + Math.max(120, target);
+      }
+      if (now - minigame.startedAt >= player.botLaunchAt) {
+        handleArcadeInput(room, bot, { action: "launch" });
+      }
+      return;
+    }
+    // Second tap: aim for the 45° sweet spot (angleT = 0.5 → period/6).
+    if (player.botAngleAt === undefined) {
+      player.botAngleAt = player.powerAt + arcade.anglePeriodMs / 6 + (Math.random() - 0.5) * profile.spreadMs * 0.7;
+      if (player.botAngleAt - player.powerAt < 360) player.botAngleAt = player.powerAt + 360;
+    }
+    if (now >= player.botAngleAt) {
+      handleArcadeInput(room, bot, { action: "launch" });
+    }
+    return;
+  }
+  if (arcade.family === "simon") {
+    const now = Date.now();
+    const profile = botProfile(player);
+    const elapsed = now - minigame.startedAt;
+    const round = simonRoundAt(arcade, elapsed);
+    if (!round || elapsed < round.inputFrom + profile.reactionMs) return;
+    if (player.currentRound === round.index && (player.roundFailed || player.roundProgress >= round.sequence.length)) return;
+    const progress = player.currentRound === round.index ? player.roundProgress : 0;
+    const correct = round.sequence[progress];
+    const pick = Math.random() < profile.mistake * 0.45 ? (correct + 1) % 4 : correct;
+    handleArcadeInput(room, bot, { action: "color", index: pick });
+    return;
+  }
+  if (arcade.family === "react") {
+    const now = Date.now();
+    const profile = botProfile(player);
+    const roundIndex = player.times.length;
+    if (roundIndex >= arcade.rounds.length) return;
+    const round = arcade.rounds[roundIndex];
+    const elapsed = now - minigame.startedAt;
+    // Rare false start, otherwise react with profile delay.
+    if (Math.random() < profile.mistake * 0.02 && elapsed > round.armFrom + 400 && elapsed < round.greenAt) {
+      handleArcadeInput(room, bot, { action: "tap" });
+      return;
+    }
+    if (elapsed >= round.greenAt + profile.reactionMs * 0.55) {
+      handleArcadeInput(room, bot, { action: "tap" });
+    }
+    return;
+  }
+  if (arcade.family === "knife") {
+    // Only act on the bot's own turn.
+    if (arcade.activeId !== bot.id || player.eliminated || player.turnDone) return;
+    const profile = botProfile(player);
+    const angleDeg = (((arcade.logAngle * 180) / Math.PI) % 360 + 360) % 360;
+    const safe = !arcade.knives.some((knife) => {
+      const diff = Math.abs(((knife.angleDeg - angleDeg + 540) % 360) - 180);
+      return diff < KNIFE_MIN_GAP_DEG + 8;
+    });
+    // Throw into clear gaps; a weaker bot occasionally mistimes into a knife.
+    if ((safe && Math.random() > profile.mistake * 0.5) || Math.random() < profile.mistake * 0.03) {
+      handleArcadeInput(room, bot, { action: "throw" });
+    }
+    return;
+  }
+  if (arcade.family === "stack") {
+    if (player.toppled || player.height >= arcade.total) return;
+    const now = Date.now();
+    const profile = botProfile(player);
+    const elapsed = now - minigame.startedAt;
+    const speed = 1.1 + player.height * 0.06;
+    const swing = Math.sin(elapsed / 1000 * speed + player.phase * Math.PI * 2);
+    const blockCentre = swing * (0.85 - player.height * 0.01);
+    // Drop when the sliding block is close to lined up with the tower.
+    if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
+      handleArcadeInput(room, bot, { action: "drop" });
+    }
+    return;
+  }
+  if (arcade.family === "climb") {
+    if (player.finishedAt) return;
+    const profile = botProfile(player);
+    const chance = profile.level === "hard" ? 0.85 : profile.level === "normal" ? 0.62 : 0.42;
+    if (Math.random() < chance) {
+      // Bots almost always alternate correctly; rare fumble on the wrong side.
+      const side = Math.random() < profile.mistake * 0.25 ? -player.nextSide : player.nextSide;
+      handleArcadeInput(room, bot, { action: "grab", side });
+    }
+    return;
+  }
+  if (arcade.family === "runner") {
+    if (player.finishedAt) return;
+    const now = Date.now();
+    const profile = botProfile(player);
+    if (player.hasItem && Math.random() < 0.12) {
+      handleArcadeInput(room, bot, { action: "throw" });
+    }
+    const nextRow = arcade.rows[player.nextRow];
+    if (!nextRow || nextRow.position - player.progress > 6) return;
+    const pickupRow = nextRow.kind === "boost" || nextRow.kind === "item";
+    const blocked = pickupRow ? [] : runnerBlockedLanes(nextRow, now);
+    const lanes = [0, 1, 2];
+    let wanted = player.lane;
+    if (pickupRow && Math.random() > profile.mistake) {
+      wanted = nextRow.lane;
+    } else if (blocked.includes(player.lane) && Math.random() > profile.mistake) {
+      const free = lanes.filter((lane) => !blocked.includes(lane));
+      wanted = free.sort((a, b) => Math.abs(a - player.lane) - Math.abs(b - player.lane))[0] ?? player.lane;
+    }
+    if (wanted !== player.lane) {
+      handleArcadeInput(room, bot, { action: "lane", dir: wanted > player.lane ? 1 : -1 });
+    }
+    return;
+  }
+  if (arcade.family === "colorgrid") {
+    if (arcade.phase !== "announce" || player.eliminated) return;
+    const now = Date.now();
+    const profile = botProfile(player);
+    const roundElapsed = (now - minigame.startedAt) - arcade.round * arcade.roundMs;
+    if (roundElapsed < profile.reactionMs) return;
+    const onTarget = arcade.grid[player.gy * COLORGRID_SIZE + player.gx] === arcade.targetColor;
+    if (onTarget || Math.random() < profile.mistake * 0.5) return;
+    // Walk one step towards the nearest safe tile.
+    let best = null;
+    arcade.grid.forEach((color, index) => {
+      if (color !== arcade.targetColor) return;
+      const gx = index % COLORGRID_SIZE;
+      const gy = Math.floor(index / COLORGRID_SIZE);
+      const dist = Math.abs(gx - player.gx) + Math.abs(gy - player.gy);
+      if (!best || dist < best.dist) best = { gx, gy, dist };
+    });
+    if (!best) return;
+    const dx = best.gx - player.gx;
+    const dy = best.gy - player.gy;
+    const dir = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
+    handleArcadeInput(room, bot, { action: "step", dir });
   }
 }
 
@@ -2648,10 +4316,6 @@ function scheduleBotTurn(room) {
   room.botTurnTimer = setTimeout(() => {
     room.botTurnTimer = null;
     if (room.status !== "board" || getCurrentPlayer(room)?.id !== current.id) return;
-    current.routeChoice = current.coins >= getBoard(room.boardId).routeCost && Math.random() > 0.56
-      ? "shortcut"
-      : "scenic";
-    if ((current.glitchCharges || 0) > 0 && Math.random() > 0.48) performSabotage(room, current);
     performRoll(room, current);
   }, 900 + Math.floor(Math.random() * 900));
 }
@@ -2687,7 +4351,6 @@ function serializeRoom(room) {
       subtitle: candidate.subtitle,
       badge: candidate.badge,
       feature: candidate.feature,
-      routeCost: candidate.routeCost,
       swatches: candidate.swatches
     })),
     status: room.status,
@@ -2696,6 +4359,11 @@ function serializeRoom(room) {
     fieldTypes: board.fieldTypes,
     round: room.round,
     maxRounds: room.maxRounds,
+    mode: room.mode || "board",
+    arcadeRound: room.mode === "arcade" ? Math.min(room.arcadeRoundIndex + 1, room.arcadePlan.length || 1) : null,
+    arcadeTotalRounds: room.mode === "arcade" ? (room.arcadePlan.length || ARCADE_MARATHON_ROUNDS) : null,
+    singleType: room.singleType,
+    minigameTitles: MINIGAMES.map((game) => ({ type: game.type, title: game.title })),
     devMode: room.devMode,
     hostConnected: room.players.some((player) => player.id === room.hostId && player.connected),
     currentTurnIndex: room.currentTurnIndex,
@@ -2709,12 +4377,11 @@ function serializeRoom(room) {
       isLocalDev: player.isLocalDev,
       connected: player.connected,
       coins: player.coins,
-      routeChoice: player.routeChoice || "scenic",
+      wins: player.wins || 0,
       position: player.position,
       diceValue: player.diceValue,
       nextRollBoost: player.nextRollBoost || 0,
       nextRollPenalty: player.nextRollPenalty || 0,
-      glitchCharges: player.glitchCharges || 0,
       minigameScore: player.minigameScore
     })),
     currentMinigame: room.currentMinigame ? serializeMinigame(room.currentMinigame) : null,
@@ -2735,6 +4402,7 @@ function serializeMinigame(minigame) {
     reason: minigame.reason,
     startedAt: minigame.startedAt,
     duration: minigame.duration,
+    finaleAt: minigame.finaleAt || null,
     scores: minigame.scores,
     stopped: minigame.stopped,
     lanes: minigame.lanes,
@@ -2928,6 +4596,7 @@ module.exports = {
     GATE_COIN_BONUS,
     MINIGAMES,
     applyFieldEffect,
+
     arcadeRankingScore,
     bounceResultScore,
     buildBoardPath,
@@ -2939,9 +4608,41 @@ module.exports = {
     handleArcadeInput,
     handleCanopyInput,
     arcadeTargetPosition,
+    arcadeResultDetail,
+    createArenaState,
+    handleArenaInput,
+    updateBounceArena,
+    arenaBotStep,
+    ARENA_RADIUS,
+    ARENA_BALL_RADIUS,
+    ARENA_RESPAWN_MS,
+    createRunnerCourse,
+    runnerBlockedLanes,
+    advanceColorRound,
     nearestLowerCanopyLeaf,
     refreshFluxScores,
     updateArcade,
+    updateRedlight,
+    updateWave,
+    buildRedlightPhases,
+    redlightPhaseAt,
+    buildWaveSchedule,
+    REDLIGHT_GOAL,
+    REDLIGHT_SPEED,
+    REDLIGHT_PENALTY,
+    WAVE_JUMP_MS,
+    updateBarrel,
+    updateBomb,
+    updateKnife,
+    buildBarrelPhases,
+    barrelPhaseAt,
+    bombFuseMs,
+    buildArcadePlan,
+    BARREL_LIMIT,
+    BOMB_PASS_LOCK_MS,
+    KNIFE_MIN_GAP_DEG,
+    STACK_BLOCKS,
+    CLIMB_HEIGHT,
     resolveGateRewards
   }
 };

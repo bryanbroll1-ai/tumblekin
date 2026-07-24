@@ -1,6 +1,6 @@
 # Tumblekin
 
-Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 19 touch-optimierten Challenges gegeneinander an.
+Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 22 touch-optimierten Challenges gegeneinander an.
 
 ## Start
 
@@ -42,7 +42,7 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 - Stupser bremsen vor dem Würfeln automatisch den in der Gesamtwertung führenden Rivalen.
 - Nach fünf Runden gewinnen die meisten Münzen.
 
-## 19 Challenges
+## 21 Challenges
 
 Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden und setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks und Klacks über Web Audio).
 
@@ -57,10 +57,6 @@ Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden u
 - **Cloudbreak:** Warnsignale lesen und ausweichen.
 - **Pulse Pin:** Einen Energiepuls im Zielsektor stoppen.
 
-### Zwei klare Seiten
-
-- **Petal Panic:** Sofort auf das tragende Blatt springen.
-
 ### Ein Tap
 
 - **Orbit Drop** und **Tide Tap** erlauben genau einen Versuch pro Umlauf. Bei Tide Tap wechselt der Zielkamm.
@@ -73,6 +69,12 @@ Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden u
 
 - **Coin Sort** und **Bubble Bay** werden direkt im Vollbild-Spielfeld angetippt, **Lantern Lift** und **Balance Brew** per horizontalem Ziehen gesteuert.
 
+### Vertical-Slice-Neuzugänge
+
+- **Sekundenjäger:** Zeit merken, dann die verhüllte Uhr blind im richtigen Moment stoppen — die kleinste Abweichung gewinnt.
+- **Zielgerade:** Ein 3D-Sprint über drei Spuren; per Wisch die Spur wechseln, Hürden ausweichen, Boostfelder mitnehmen, als Erster ins Ziel.
+- **Farbflucht:** Ein 3D-Farbfeld-Duell; auf der angesagten Farbe stehen, bevor der Boden wegbricht — die meisten überlebten Runden gewinnen.
+
 Die Spiellogik und Wertung sind serverautoritativ. Sounds entstehen ohne Audiodateien über Web Audio; unterstützte Smartphones erhalten zusätzlich begrenztes Feedback über `navigator.vibrate`.
 
 ## Sandbox
@@ -83,7 +85,7 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 ## Dev-Testmodus
 
-Der Dev-Testmodus ist im normalen Spiel ausgeblendet. Mit `http://localhost:3000/?dev=1` erscheint in der Lobby der Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 19 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
+Der Dev-Testmodus ist im normalen Spiel ausgeblendet. Mit `http://localhost:3000/?dev=1` erscheint in der Lobby der Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 21 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
 
 ## Architektur
 

@@ -15,8 +15,8 @@ export const BOARD_THEMES = {
     cameraYaw: 0.1,
     camera: {
       target: [0, 0.48, 0.08],
-      overviewPortrait: [0.15, 14.2, 6.2],
-      overviewLandscape: [0.5, 6.9, 8.2],
+      overviewPortrait: [0.16, 16.47, 7.19],
+      overviewLandscape: [0.53, 8.00, 9.51],
       overviewFovPortrait: 56,
       overviewFovLandscape: 38,
       followPortrait: [0.2, 7.6, 3.6],
@@ -39,8 +39,8 @@ export const BOARD_THEMES = {
     cameraYaw: -0.18,
     camera: {
       target: [0, 0.52, 0.02],
-      overviewPortrait: [0.15, 14.3, 6.3],
-      overviewLandscape: [0.45, 7.15, 8.5],
+      overviewPortrait: [0.16, 16.59, 7.31],
+      overviewLandscape: [0.47, 8.29, 9.86],
       overviewFovPortrait: 56,
       overviewFovLandscape: 39,
       followPortrait: [0.16, 7.8, 3.7],
@@ -63,8 +63,8 @@ export const BOARD_THEMES = {
     cameraYaw: 0.22,
     camera: {
       target: [0, 0.3, 0.03],
-      overviewPortrait: [0.12, 14.2, 6.1],
-      overviewLandscape: [0.55, 6.7, 8.35],
+      overviewPortrait: [0.13, 16.47, 7.08],
+      overviewLandscape: [0.58, 7.77, 9.69],
       overviewFovPortrait: 55,
       overviewFovLandscape: 38,
       followPortrait: [0.18, 7.5, 3.55],
@@ -110,7 +110,11 @@ export function boardTheme(boardId) {
   return BOARD_THEMES[boardId] || BOARD_THEMES.mossback;
 }
 
+// Fields sit further apart than authored so the loop reads clearly at a
+// glance — start, gates and everything between get breathing room.
+const LAYOUT_SPREAD = 1.18;
+
 export function createThemeLayout(boardId, count = 32) {
   const source = LAYOUTS[boardId] || LAYOUTS.mossback;
-  return source.slice(0, count).map(([x, y, z]) => ({ x, y, z }));
+  return source.slice(0, count).map(([x, y, z]) => ({ x: x * LAYOUT_SPREAD, y, z: z * LAYOUT_SPREAD }));
 }
