@@ -8,8 +8,8 @@ import {
   createVoxelKin,
   disposeScene,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin62";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
+} from "./VoxelKit.js?v=tumblekin63";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a

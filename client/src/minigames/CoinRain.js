@@ -7,8 +7,8 @@ import {
   createShadowBlob,
   createVoxelKin,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin62";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
+} from "./VoxelKit.js?v=tumblekin63";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.

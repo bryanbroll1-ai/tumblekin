@@ -2218,7 +2218,9 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "whack") {
-    arcade.pops = buildWhackPops(config.seed, 60000);
+    // Salt the fixed per-game seed with time so the blobs pop in a fresh random
+    // pattern every round instead of the identical fixed sequence.
+    arcade.pops = buildWhackPops(config.seed + (Date.now() % 9973), 60000);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.hits = 0;
@@ -2759,10 +2761,14 @@ function handleArcadeInput(room, player, input) {
       arcadePlayer.lastHitAt = now;
       advanceKnifeTurn(room, room.currentMinigame, arcade, now);
     } else {
+      // One knife per turn: a clean throw lands and immediately hands the
+      // spinning log to the next player.
       arcade.knives.push({ angleDeg: normalized, playerId: player.id });
       arcadePlayer.stuck += 1;
       arcadePlayer.flash = "good";
       arcadePlayer.lastHitAt = now;
+      arcadePlayer.turnDone = true;
+      advanceKnifeTurn(room, room.currentMinigame, arcade, now);
     }
     arcadePlayer.hasMoved = true;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
@@ -2854,9 +2860,13 @@ function handleArcadeInput(room, player, input) {
   if (arcade.family === "colorgrid") {
     if (input.action !== "step") return { ok: false, error: "Wische in eine Richtung." };
     if (arcadePlayer.eliminated) return { ok: true };
-    // Movement is frozen once the floor starts dropping — you commit during
-    // the announce phase only.
-    const roundElapsed = (now - room.currentMinigame.startedAt) - arcade.round * arcade.roundMs;
+    // You may move freely while the floor is whole (the calm lead-in and the
+    // announce phase). Movement locks only while the wrong tiles are dropping
+    // away and rising back, and frees again once everything is back — so this
+    // must use the same lead-aware round clock as updateColorGrid.
+    const elapsed = now - room.currentMinigame.startedAt;
+    const shifted = elapsed - (arcade.leadMs || 0);
+    const roundElapsed = shifted < 0 ? 0 : shifted - arcade.round * arcade.roundMs;
     if (roundElapsed >= arcade.announceMs) return { ok: true };
     const directions = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
     const direction = directions[input.dir];

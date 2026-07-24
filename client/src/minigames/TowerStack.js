@@ -6,7 +6,7 @@ import {
   createOwnMarker,
   updateOwnMarker,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin62";
+} from "./VoxelKit.js?v=tumblekin63";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -166,18 +166,18 @@ export class TowerStack {
     const group = new THREE.Group();
     group.position.x = x;
     this.scene.add(group);
-    // Foundation plinth (faded for rival towers).
+    // Foundation plinth — solid for every tower.
     const base = new THREE.Mesh(
       new THREE.BoxGeometry(WORLD_W + 0.2, 0.4, 1.1),
-      new THREE.MeshLambertMaterial({ color: "#8a5a2c", transparent: !isOwn, opacity: isOwn ? 1 : 0.09 })
+      new THREE.MeshLambertMaterial({ color: "#8a5a2c" })
     );
     base.position.y = 0;
-    base.receiveShadow = isOwn;
-    base.castShadow = isOwn;
+    base.receiveShadow = true;
+    base.castShadow = true;
     group.add(base);
     const label = createNameLabel(player.name.slice(0, 7), player.color);
     label.position.set(0, -0.5, 0.7);
-    label.material.opacity = isOwn ? 1 : 0.28;
+    label.material.opacity = isOwn ? 1 : 0.8;
     group.add(label);
     // The sliding preview block (only really matters on your own tower).
     const slider = new THREE.Mesh(
@@ -218,8 +218,9 @@ export class TowerStack {
       if (!entry) return;
       const tower = this.ensureTower(player, index, players.length);
 
-      // Reconcile placed blocks up to the server height. Rival towers are
-      // rendered nearly see-through so your own tower is unmistakable.
+      // Reconcile placed blocks up to the server height. Placed blocks are
+      // solid for every tower; only the sliding preview block of rivals is
+      // faded (see the slider below).
       const isOwn = player.id === controlledId;
       while (tower.blocks.length < (entry.height || 0)) {
         const level = tower.blocks.length;
@@ -228,14 +229,12 @@ export class TowerStack {
           new THREE.MeshLambertMaterial({
             color: tower.color,
             emissive: tower.color,
-            emissiveIntensity: isOwn ? (level % 2 ? 0.12 : 0.04) : 0,
-            transparent: !isOwn,
-            opacity: isOwn ? 1 : 0.09
+            emissiveIntensity: isOwn ? (level % 2 ? 0.12 : 0.04) : 0
           })
         );
         block.position.set(entry.offset * WORLD_W, BASE_Y + 0.2 + level * BLOCK_H, 0);
-        block.castShadow = isOwn;
-        block.receiveShadow = isOwn;
+        block.castShadow = true;
+        block.receiveShadow = true;
         tower.group.add(block);
         tower.blocks.push(block);
       }
@@ -285,7 +284,7 @@ export class TowerStack {
         tower.slider.position.set(blockCentre * (SLIDE_W / 0.85), BASE_Y + 0.2 + height * BLOCK_H, 0);
       }
 
-      tower.label.material.opacity = player.id === controlledId ? 1 : 0.3;
+      tower.label.material.opacity = player.id === controlledId ? 1 : 0.8;
     });
 
     this.bursts.update(dt);

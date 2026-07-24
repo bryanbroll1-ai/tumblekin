@@ -7,8 +7,8 @@ import {
   createShadowBlob,
   createVoxelKin,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin62";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
+} from "./VoxelKit.js?v=tumblekin63";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
@@ -159,20 +159,23 @@ export class CliffClimb {
         this.scene.add(hold);
       }
     }
-    // Grassy summit ledge.
-    const summit = new THREE.Mesh(
-      new THREE.BoxGeometry(9, 0.6, 1.6),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+    // Summit deck the finishers hop onto — a wooden lookout platform (no more
+    // green slab), wide enough to hold everyone who reaches the top.
+    this.summitY = CLIMB_WORLD + 0.2;    // world height of the deck's top surface
+    const deck = new THREE.Mesh(
+      new THREE.BoxGeometry(Math.max(4, count * LANE_GAP + 1.4), 0.4, 2.2),
+      new THREE.MeshLambertMaterial({ color: "#c98b52" })
     );
-    summit.position.set(0, CLIMB_WORLD + 0.6, -0.7);
-    summit.castShadow = true;
-    this.scene.add(summit);
-    // A flag at the top.
+    deck.position.set(0, this.summitY - 0.2, 0.1);
+    deck.castShadow = true;
+    deck.receiveShadow = true;
+    this.scene.add(deck);
+    // A flag planted at the back of the deck.
     const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
-    pole.position.set(0, CLIMB_WORLD + 1.5, -0.4);
+    pole.position.set(0, this.summitY + 0.7, -0.65);
     this.scene.add(pole);
     const flag = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.44, 0.06), new THREE.MeshLambertMaterial({ color: "#ff2e6a" }));
-    flag.position.set(0.4, CLIMB_WORLD + 1.9, -0.4);
+    flag.position.set(0.4, this.summitY + 1.1, -0.65);
     this.scene.add(flag);
 
     [[-7, 6, -4, 5], [7, 8, -3, 6], [0, 10, -6, 7]].forEach(([x, y, z, seed]) => {
@@ -273,32 +276,41 @@ export class CliffClimb {
         }
       }
 
-      // Sway toward the reaching hand while climbing.
-      const reach = now < (entry.lastHitAt || 0) + 220 ? entry.nextSide * -0.12 : 0;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.laneX + reach, 0.3);
-      if (entry.finishedAt || minigame.finaleAt) {
-        animator.set(entry.finishedAt ? "cheer" : "idle", { base: true });
+      // At the finale, everyone who reached the top hops up onto the summit
+      // deck, turns around to face the camera and celebrates.
+      const celebrating = Boolean(minigame.finaleAt && entry.finishedAt);
+      if (celebrating) {
+        const spreadX = kin.userData.laneX * 0.6;
+        animator.groundY = THREE.MathUtils.lerp(animator.groundY, this.summitY + 0.3, Math.min(1, dt * 3));
+        animator.set("cheer", { base: true });
+        animator.update(now);
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, spreadX, Math.min(1, dt * 3));
+        kin.position.z = THREE.MathUtils.lerp(kin.position.z, 0.4, Math.min(1, dt * 3));
+        kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, Math.min(1, dt * 4));
       } else {
-        animator.set("idle", { base: true });
-      }
-      animator.update(now);
+        // Sway toward the reaching hand while climbing.
+        const reach = now < (entry.lastHitAt || 0) + 220 ? entry.nextSide * -0.12 : 0;
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.laneX + reach, 0.3);
+        animator.set(entry.finishedAt ? "cheer" : "idle", { base: true });
+        animator.update(now);
 
-      // Hand-over-hand climbing pose (runs after the base animator so it wins):
-      // the hand that just grabbed reaches up the wall, the other pulls down,
-      // with alternating legs and a gentle body bob — no more stiff standing.
-      const d = kin.userData;
-      if (d.arms && !entry.finishedAt && !minigame.finaleAt) {
-        const grabP = Math.max(0, 1 - (now - (d.grabAt || 0)) / 340);
-        const usedSide = -entry.nextSide;           // hand that just grabbed
-        d.arms.forEach((arm) => {
-          const up = arm.userData.side === usedSide;
-          arm.rotation.z = arm.userData.baseRotZ + arm.userData.side * (up ? -1.3 : 0.5) * (0.55 + grabP * 0.6);
-          arm.rotation.x = up ? -1.15 * (0.5 + grabP * 0.5) : 0.35;
-          arm.position.y = arm.userData.baseY + (up ? 0.16 * (0.4 + grabP * 0.6) : -0.05);
-        });
-        if (d.feet) d.feet.forEach((foot, fi) => { foot.rotation.x = (fi === 0 ? 1 : -1) * (0.35 + grabP * 0.35); });
-        d.body.position.y = Math.sin(now / 200 + d.phase) * 0.02 - grabP * 0.04;
-        d.body.rotation.z = usedSide * 0.06 * grabP;
+        // Hand-over-hand climbing pose (runs after the base animator so it wins):
+        // the hand that just grabbed reaches up the wall, the other pulls down,
+        // with alternating legs and a gentle body bob — no more stiff standing.
+        const d = kin.userData;
+        if (d.arms && !entry.finishedAt && !minigame.finaleAt) {
+          const grabP = Math.max(0, 1 - (now - (d.grabAt || 0)) / 340);
+          const usedSide = -entry.nextSide;           // hand that just grabbed
+          d.arms.forEach((arm) => {
+            const up = arm.userData.side === usedSide;
+            arm.rotation.z = arm.userData.baseRotZ + arm.userData.side * (up ? -1.3 : 0.5) * (0.55 + grabP * 0.6);
+            arm.rotation.x = up ? -1.15 * (0.5 + grabP * 0.5) : 0.35;
+            arm.position.y = arm.userData.baseY + (up ? 0.16 * (0.4 + grabP * 0.6) : -0.05);
+          });
+          if (d.feet) d.feet.forEach((foot, fi) => { foot.rotation.x = (fi === 0 ? 1 : -1) * (0.35 + grabP * 0.35); });
+          d.body.position.y = Math.sin(now / 200 + d.phase) * 0.02 - grabP * 0.04;
+          d.body.rotation.z = usedSide * 0.06 * grabP;
+        }
       }
       kin.userData.shadow.visible = false;
       kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.75;
@@ -316,14 +328,22 @@ export class CliffClimb {
       });
     }
 
-    // Follow the own climber in x (portrait is too narrow for all four lanes)
-    // and in y as it rises.
     this.shake *= 0.9;
-    const followX = (this.ownX || 0) * 0.7;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
-    const desired = new THREE.Vector3(followX + shakeX, Math.max(2.4, ownY) + (this.baseCamLift || 0.4), this.baseCamZ || 7.4);
-    this.camera.position.lerp(desired, 0.1);
-    this.camera.lookAt(followX, Math.max(2.4, ownY) + 0.4, 0);
+    if (minigame.finaleAt) {
+      // Pull back to frame the whole summit deck and the celebration.
+      const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+      const desired = new THREE.Vector3(shakeX, this.summitY + 0.6, (this.baseCamZ || 7.4) + 1.8);
+      this.camera.position.lerp(desired, 0.08);
+      this.camera.lookAt(0, this.summitY + 0.2, 0);
+    } else {
+      // Follow the own climber in x (portrait is too narrow for all four lanes)
+      // and in y as it rises.
+      const followX = (this.ownX || 0) * 0.7;
+      const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+      const desired = new THREE.Vector3(followX + shakeX, Math.max(2.4, ownY) + (this.baseCamLift || 0.4), this.baseCamZ || 7.4);
+      this.camera.position.lerp(desired, 0.1);
+      this.camera.lookAt(followX, Math.max(2.4, ownY) + 0.4, 0);
+    }
 
     this.updateHud(minigame, arcade, state, now);
     // Global: a downward arrow marks your own kin so you never lose yourself.

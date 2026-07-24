@@ -1,4 +1,4 @@
-import { minigameMeta } from "../minigames/catalog.js?v=tumblekin62";
+import { minigameMeta } from "../minigames/catalog.js?v=tumblekin63";
 
 // One calm colour for every normal field; the specials pop in strong candy hues.
 export const FIELD_COLORS = {

@@ -722,23 +722,24 @@ test("messerwurf: only the active thrower may throw; a clash ends their turn", (
   handleArcadeInput(room, waiting, { action: "throw" });
   assert.equal(arcade.players[waiting.id].stuck, 0, "off-turn throws are ignored");
 
-  // The active player sticks several knives in their window.
+  // The active player throws exactly one knife, then the turn passes on.
   arcade.logAngle = 0;
   arcade.players[active.id].lastInputAt = 0;
   handleArcadeInput(room, active, { action: "throw" });
-  assert.equal(arcade.players[active.id].stuck, 1, "active thrower sticks a knife");
+  assert.equal(arcade.players[active.id].stuck, 1, "active thrower sticks one knife");
   assert.equal(arcade.knives.length, 1);
+  assert.equal(arcade.players[active.id].turnDone, true, "a clean throw ends the turn");
+  assert.equal(arcade.activeId, waiting.id, "the turn passes after one knife");
 
-  // Throwing onto an existing knife clashes → out, turn passes on.
+  // The next player throws onto the existing knife → clash → out.
   arcade.logAngle = (2 * Math.PI) / 180; // 2 degrees, inside the safety gap
-  arcade.players[active.id].lastInputAt = 0;
-  handleArcadeInput(room, active, { action: "throw" });
-  assert.equal(arcade.players[active.id].eliminated, true, "clash knocks the thrower out");
+  arcade.players[waiting.id].lastInputAt = 0;
+  handleArcadeInput(room, waiting, { action: "throw" });
+  assert.equal(arcade.players[waiting.id].eliminated, true, "clash knocks the thrower out");
   assert.equal(arcade.knives.length, 1, "no knife added on a clash");
-  assert.equal(arcade.activeId, waiting.id, "the turn passes to the next player");
 
-  const survivor = arcadeRankingScore(arcade, arcade.players[waiting.id]);
-  const out = arcadeRankingScore(arcade, arcade.players[active.id]);
+  const survivor = arcadeRankingScore(arcade, arcade.players[active.id]);
+  const out = arcadeRankingScore(arcade, arcade.players[waiting.id]);
   assert.ok(survivor > out, "survivors outrank the eliminated");
 });
 

@@ -7,8 +7,8 @@ import {
   createShadowBlob,
   createVoxelKin,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin62";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
+} from "./VoxelKit.js?v=tumblekin63";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -16,26 +16,26 @@ import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin62";
 const LOG_R = 1.5;
 const KNIFE_R = LOG_R + 0.02;
 const KIN_Y = 0.62;
-const LOG_Y = 3.4;             // the disc floats above the throwers
+const LOG_Y = 4.0;             // the disc floats a little higher above the throwers
 const LOG_Z = -0.3;
 const SPOTS = [-2.4, -0.8, 0.8, 2.4];
 
 function buildKnife(color) {
   const knife = new THREE.Group();
   const blade = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.7, 0.05),
+    new THREE.BoxGeometry(0.055, 0.72, 0.035),
     new THREE.MeshLambertMaterial({ color: "#d8dee8" })
   );
-  blade.position.y = 0.35;
+  blade.position.y = 0.36;
   knife.add(blade);
   const guard = new THREE.Mesh(
-    new THREE.BoxGeometry(0.24, 0.08, 0.1),
+    new THREE.BoxGeometry(0.15, 0.055, 0.075),
     new THREE.MeshLambertMaterial({ color: "#ffd15c" })
   );
   guard.position.y = 0.02;
   knife.add(guard);
   const handle = new THREE.Mesh(
-    new THREE.BoxGeometry(0.11, 0.3, 0.11),
+    new THREE.BoxGeometry(0.07, 0.3, 0.07),
     new THREE.MeshLambertMaterial({ color: color || "#8a5a2c" })
   );
   handle.position.y = -0.16;
@@ -236,8 +236,8 @@ export class KnifeThrow {
     this.bursts = new CubeBurst(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
-    this.camera.position.set(0, 2.6, 7);
-    this.camera.lookAt(0, 2.4, LOG_Z);
+    this.camera.position.set(0, 2.9, 7.4);
+    this.camera.lookAt(0, 2.7, LOG_Z);
   }
 
   // The ACTIVE thrower stands dead centre, directly under the disc; the others
@@ -284,14 +284,16 @@ export class KnifeThrow {
       const holder = new THREE.Group();
       holder.rotation.z = -(data.angleDeg * Math.PI) / 180;
       const knife = buildKnife(owner?.color);
-      knife.rotation.z = Math.PI;
-      knife.position.set(0, KNIFE_R - 0.05, 0.42);
+      // Stick into the bottom rim of the wheel, blade pointing up into it, like
+      // the mobile knife game — the knife then rides around as the log spins.
+      knife.position.set(0, -(KNIFE_R - 0.05), 0.42);
       holder.add(knife);
       holder.visible = false;   // revealed once the flying knife arrives
       this.knifeGroup.add(holder);
       this.knifeMeshes.push(holder);
 
-      // A world-space knife that flies from the thrower up to the disc top.
+      // A world-space knife that flies from the thrower up into the disc's
+      // bottom rim.
       const fromKin = this.kins.get(data.playerId);
       const flyer = buildKnife(owner?.color);
       const startX = fromKin ? fromKin.position.x : 0;
@@ -309,12 +311,12 @@ export class KnifeThrow {
       if (t >= 1) {
         this.scene.remove(fk.mesh);
         fk.holder.visible = true;
-        this.bursts.spawn(new THREE.Vector3(0, LOG_Y + LOG_R, LOG_Z + 0.4), ["#d8dee8", "#ffffff"], { count: 5, speed: 1.4, up: 1, size: 0.05, life: 0.4 });
+        this.bursts.spawn(new THREE.Vector3(0, LOG_Y - LOG_R, LOG_Z + 0.4), ["#d8dee8", "#ffffff"], { count: 5, speed: 1.4, up: 1, size: 0.05, life: 0.4 });
         return false;
       }
-      // Straight up from the thrower to just above the disc rim.
+      // Straight up from the thrower into the disc's bottom rim.
       fk.mesh.position.x = THREE.MathUtils.lerp(fk.startX, 0, t);
-      fk.mesh.position.y = THREE.MathUtils.lerp(KIN_Y + 0.4, LOG_Y + LOG_R, t);
+      fk.mesh.position.y = THREE.MathUtils.lerp(KIN_Y + 0.4, LOG_Y - LOG_R, t);
       fk.mesh.position.z = THREE.MathUtils.lerp(2.2, LOG_Z + 0.4, t);
       return true;
     });
@@ -396,9 +398,9 @@ export class KnifeThrow {
 
     this.shake *= 0.9;
     const shakeX = Math.sin(now / 15) * this.shake * 0.22;
-    const desired = new THREE.Vector3(shakeX, this.baseCamY || 2.6, this.baseCamZ || 7);
+    const desired = new THREE.Vector3(shakeX, this.baseCamY || 2.9, this.baseCamZ || 7.4);
     this.camera.position.lerp(desired, 0.1);
-    this.camera.lookAt(0, 2.4, LOG_Z);
+    this.camera.lookAt(0, 2.7, LOG_Z);
 
     this.updateHud(minigame, arcade, state, now);
     // Global: a downward arrow marks your own kin so you never lose yourself.
@@ -453,8 +455,8 @@ export class KnifeThrow {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     const portrait = height > width;
-    this.baseCamY = portrait ? 2.9 : 2.6;
-    this.baseCamZ = portrait ? 8.4 : 7.2;
+    this.baseCamY = portrait ? 3.2 : 2.9;
+    this.baseCamZ = portrait ? 8.9 : 7.7;
     this.camera.fov = portrait ? 54 : 48;
     this.camera.updateProjectionMatrix();
   }

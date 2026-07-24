@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin62";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin62";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin62";
+import { drawDiceFace } from "./Dice.js?v=tumblekin63";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin63";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin63";
 
 const EVENT_FIELDS = new Set(["challenge", "gate"]);
 const CAMERA_DAMPING = 6.5;
