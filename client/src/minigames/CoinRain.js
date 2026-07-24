@@ -1,14 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin64";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -100,6 +101,7 @@ export class CoinRain {
     if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
     if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
     this.bursts?.dispose();
+    this.floaters?.dispose();
     if (this.scene) disposeScene(this.scene);
     this.renderer?.dispose();
     this.renderer?.forceContextLoss?.();
@@ -188,6 +190,7 @@ export class CoinRain {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     this.camera.position.set(0, this.baseCamY || 3.2, this.baseCamZ || 7.2);
@@ -312,18 +315,25 @@ export class CoinRain {
       kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.3);
 
       if ((entry.catches || 0) > (this.lastCatches.get(player.id) || 0)) {
+        const gained = (entry.catches || 0) - (this.lastCatches.get(player.id) || 0);
         this.lastCatches.set(player.id, entry.catches);
         animator.trigger("jump");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.6, 0)), ["#ffc400", "#ffd15c", "#ffffff"], { count: 8, speed: 1.8, up: 2, size: 0.08, life: 0.6 });
+        const catchPos = kin.position.clone().add(new THREE.Vector3(0, 0.6, 0));
+        this.bursts.spawn(catchPos, ["#ffc400", "#ffd15c", "#ffffff"], { count: 9, speed: 1.9, up: 2, size: 0.08, life: 0.6, drag: 1.8, fadePow: 1.4 });
+        this.bursts.ring(kin.position.clone().setY(0.07), "#ffd15c", { radius: 1, life: 0.4, opacity: 0.45 });
+        this.floaters.pop(catchPos, `+${gained}`, { color: "#ffe36b", size: 0.36, life: 0.7, rise: 0.75 });
         if (player.id === controlledId) {
-          this.feedback?.sound("coin");
-          this.feedback?.vibrate(10);
+          this.feedback?.sound(gained > 1 ? "sparkle" : "coin", { pan: kin.position.x * 0.2 });
+          this.feedback?.vibrate(gained > 1 ? [8, 12, 10] : 10);
         }
       }
       if ((entry.bombs || 0) > (this.lastBombs.get(player.id) || 0)) {
         this.lastBombs.set(player.id, entry.bombs);
         animator.trigger("hit");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#1b2530", "#ff8b2e", "#ffffff"], { count: 12, speed: 2.4, up: 2, size: 0.09, life: 0.7 });
+        const bombPos = kin.position.clone().add(new THREE.Vector3(0, 0.4, 0));
+        this.bursts.spawn(bombPos, ["#1b2530", "#ff8b2e", "#ffffff"], { count: 14, speed: 2.5, up: 2, size: 0.09, life: 0.72, drag: 1.5 });
+        this.bursts.ring(kin.position.clone().setY(0.07), "#ff8b2e", { radius: 1.5, life: 0.5, opacity: 0.5 });
+        this.floaters.pop(bombPos, "AUTSCH!", { color: "#ff8b2e", size: 0.36, life: 0.8 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.8);
           this.feedback?.sound("error");
@@ -342,6 +352,7 @@ export class CoinRain {
     });
 
     this.bursts.update(dt);
+    this.floaters.update(dt);
 
     this.shake *= 0.9;
     const shakeX = Math.sin(now / 15) * this.shake * 0.22;

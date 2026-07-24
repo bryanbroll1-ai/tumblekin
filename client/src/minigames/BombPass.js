@@ -8,8 +8,8 @@ import {
   createVoxelKin,
   disposeScene,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin64";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
 
 // Zündstoff — hot-potato with a blocky bomb. The fuse length is secret:
 // tap to pass the bomb on before it blows. Whoever holds it when it pops

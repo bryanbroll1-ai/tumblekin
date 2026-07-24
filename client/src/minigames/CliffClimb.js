@@ -7,8 +7,8 @@ import {
   createShadowBlob,
   createVoxelKin,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin64";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.

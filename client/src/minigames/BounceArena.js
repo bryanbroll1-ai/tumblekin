@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin63";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin64";
 import {
   CubeBurst,
   KinAnimator,
@@ -12,8 +12,8 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin64";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;

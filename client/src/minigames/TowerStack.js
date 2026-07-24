@@ -1,12 +1,13 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   createCloud,
   createNameLabel,
   createOwnMarker,
   updateOwnMarker,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin64";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -97,6 +98,7 @@ export class TowerStack {
     this.canvas.hidden = false;
     if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
     this.bursts?.dispose();
+    this.floaters?.dispose();
     if (this.scene) disposeScene(this.scene);
     this.renderer?.dispose();
     this.renderer?.forceContextLoss?.();
@@ -148,6 +150,7 @@ export class TowerStack {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureTower(player, index, players.length));
     this.resizeRenderer();
@@ -245,10 +248,26 @@ export class TowerStack {
       if (height > (this.lastHeight.get(player.id) || 0)) {
         this.lastHeight.set(player.id, height);
         const top = tower.blocks[height - 1];
-        this.bursts.spawn(top.getWorldPosition(new THREE.Vector3()), [tower.color, "#ffffff"], { count: 5, speed: 1.2, up: 1.2, size: 0.06, life: 0.4 });
+        const topPos = top.getWorldPosition(new THREE.Vector3());
+        const perfect = entry.flash === "good";
+        this.bursts.spawn(topPos, [tower.color, "#ffffff"], {
+          count: perfect ? 10 : 5,
+          speed: perfect ? 1.7 : 1.2,
+          up: perfect ? 1.6 : 1.2,
+          size: 0.06,
+          life: 0.45,
+          drag: 2.2,
+          fadePow: 1.6
+        });
+        if (perfect) {
+          this.bursts.ring(topPos, "#fff2b0", { radius: 1.2, life: 0.5, opacity: 0.6, tilt: null });
+          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.35, 0)), "PERFEKT!", { color: "#ffe36b", size: 0.42 });
+        } else {
+          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.3, 0)), "+1", { color: "#ffffff", size: 0.34, life: 0.7, rise: 0.7 });
+        }
         if (player.id === controlledId) {
-          this.feedback?.sound(entry.flash === "good" ? "perfect" : "pop");
-          this.feedback?.vibrate(8);
+          this.feedback?.sound(perfect ? "perfect" : "pop", { pan: tower.x * 0.25 });
+          this.feedback?.vibrate(perfect ? [8, 20, 12] : 8);
         }
       }
       // Sealed tower (a miss or a full stack): plant a little flag on top as
@@ -264,9 +283,21 @@ export class TowerStack {
           const flag = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, 0.05), new THREE.MeshLambertMaterial({ color: tower.color, emissive: tower.color, emissiveIntensity: 0.2 }));
           flag.position.set(top.position.x + 0.24, top.position.y + BLOCK_H / 2 + 0.42, 0);
           tower.group.add(flag);
-          this.bursts.spawn(top.getWorldPosition(new THREE.Vector3()), [tower.color, "#ffffff"], { count: 8, speed: 1.6, up: 1.8, size: 0.08, life: 0.6 });
+          const topPos = top.getWorldPosition(new THREE.Vector3());
+          const complete = !entry.toppled || height >= arcade.total;
+          this.bursts.spawn(topPos, [tower.color, "#ffffff", "#ffe36b"], {
+            count: complete ? 16 : 8,
+            speed: complete ? 2.2 : 1.6,
+            up: complete ? 2.2 : 1.8,
+            size: 0.08,
+            life: 0.7,
+            drag: 1.6
+          });
+          this.bursts.ring(topPos, complete ? "#ffe36b" : "#ffffff", { radius: complete ? 2 : 1.3, life: 0.6, opacity: 0.6, tilt: null });
+          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.5, 0)), complete ? "🏆" : "🚩", { size: complete ? 0.6 : 0.42, life: 1.1, rise: 1.1 });
         }
         if (player.id === controlledId) {
+          this.shake = Math.max(this.shake, 0.6);
           this.feedback?.sound(entry.toppled && height < arcade.total ? "pop" : "win");
           this.feedback?.vibrate(entry.toppled && height < arcade.total ? 12 : [20, 20, 40]);
         }
@@ -288,6 +319,7 @@ export class TowerStack {
     });
 
     this.bursts.update(dt);
+    this.floaters.update(dt);
 
     // Camera rises smoothly with the tallest tower (a damped height avoids the
     // jump when a block lands).

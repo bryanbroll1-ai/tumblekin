@@ -156,11 +156,30 @@ export class KinAnimator {
         break;
       }
       case "jump": {
-        const progress = Math.min(1, t / 0.62);
-        this.kin.position.y = this.groundY + Math.sin(progress * Math.PI) * 0.55;
-        d.body.scale.set(1 - progress * 0.06, 1 + Math.sin(progress * Math.PI) * 0.12, 1 - progress * 0.06);
-        d.arms.forEach((arm) => { arm.rotation.z = arm.userData.baseRotZ * -2.4; });
-        d.feet.forEach((foot) => { foot.rotation.x = 0.6; });
+        // Three-beat jump with anticipation and a landing squash so hops read
+        // as a real spring rather than a floaty bob.
+        const progress = Math.min(1, t / 0.72);
+        if (progress < 0.14) {
+          const crouch = progress / 0.14;
+          d.body.scale.set(1 + crouch * 0.12, 1 - crouch * 0.16, 1 + crouch * 0.12);
+          d.body.position.y = -crouch * 0.06;
+          d.arms.forEach((arm) => { arm.rotation.z = arm.userData.baseRotZ * (1 - crouch * 1.8); });
+          d.feet.forEach((foot) => { foot.rotation.x = -crouch * 0.3; });
+        } else if (progress < 0.85) {
+          const air = (progress - 0.14) / 0.71;
+          const lift = Math.sin(air * Math.PI);
+          this.kin.position.y = this.groundY + lift * 0.6;
+          d.body.scale.set(1 - lift * 0.08, 1 + lift * 0.17, 1 - lift * 0.08);
+          d.arms.forEach((arm) => { arm.rotation.z = arm.userData.baseRotZ * -2.4; });
+          // Legs tuck at the apex, reach out again toward the ground.
+          d.feet.forEach((foot) => { foot.rotation.x = 0.7 - Math.abs(air - 0.5) * 0.5; });
+        } else {
+          const land = (progress - 0.85) / 0.15;
+          const squash = Math.sin(land * Math.PI);
+          d.body.scale.set(1 + squash * 0.17, 1 - squash * 0.2, 1 + squash * 0.17);
+          d.body.position.y = -squash * 0.05;
+          d.arms.forEach((arm) => { arm.rotation.z = arm.userData.baseRotZ * (1 + squash * 0.6); });
+        }
         if (progress >= 1) this.set(this.baseState);
         break;
       }
@@ -368,9 +387,13 @@ export class CubeBurst {
   constructor(scene) {
     this.scene = scene;
     this.pieces = [];
+    this.rings = [];
   }
 
-  spawn(position, colors, { count = 10, speed = 1.9, up = 2.1, size = 0.075, gravity = 5.4, life = 0.7 } = {}) {
+  // Confetti/spark burst. `drag` adds air resistance so shards decelerate for a
+  // punchier pop; `fadePow` shapes the fade (>1 keeps pieces solid then snaps
+  // out); `spin` scales the tumble speed. All optional and backward compatible.
+  spawn(position, colors, { count = 10, speed = 1.9, up = 2.1, size = 0.075, gravity = 5.4, life = 0.7, drag = 0, fadePow = 1, spin = 12 } = {}) {
     const palette = Array.isArray(colors) ? colors : [colors];
     for (let index = 0; index < count; index += 1) {
       const mesh = new THREE.Mesh(
@@ -386,13 +409,30 @@ export class CubeBurst {
         vx: Math.cos(angle) * radial,
         vy: up * (0.5 + Math.random() * 0.6),
         vz: Math.sin(angle) * radial,
-        spinX: (Math.random() - 0.5) * 12,
-        spinY: (Math.random() - 0.5) * 12,
+        spinX: (Math.random() - 0.5) * spin,
+        spinY: (Math.random() - 0.5) * spin,
         age: 0,
-        life,
-        gravity
+        life: life * (0.85 + Math.random() * 0.3),
+        gravity,
+        drag,
+        fadePow
       });
     }
+  }
+
+  // Flat, ground-hugging shockwave ring that scales out and fades — great for
+  // impacts, perfect hits and eliminations.
+  ring(position, color = "#ffffff", { life = 0.5, radius = 1.7, opacity = 0.55, y = 0.06, tilt = -Math.PI / 2 } = {}) {
+    const mesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.82, 1, 32),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false })
+    );
+    mesh.position.set(position.x, tilt === null ? position.y : y, position.z);
+    if (tilt !== null) mesh.rotation.x = tilt;
+    mesh.scale.setScalar(0.12);
+    mesh.renderOrder = 2;
+    this.scene.add(mesh);
+    this.rings.push({ mesh, age: 0, life, radius, opacity });
   }
 
   update(dt) {
@@ -405,12 +445,32 @@ export class CubeBurst {
         return false;
       }
       piece.vy -= piece.gravity * dt;
+      if (piece.drag) {
+        const damp = Math.max(0, 1 - piece.drag * dt);
+        piece.vx *= damp;
+        piece.vy *= damp;
+        piece.vz *= damp;
+      }
       piece.mesh.position.x += piece.vx * dt;
       piece.mesh.position.y += piece.vy * dt;
       piece.mesh.position.z += piece.vz * dt;
       piece.mesh.rotation.x += piece.spinX * dt;
       piece.mesh.rotation.y += piece.spinY * dt;
-      piece.mesh.material.opacity = 1 - piece.age / piece.life;
+      piece.mesh.material.opacity = Math.pow(Math.max(0, 1 - piece.age / piece.life), piece.fadePow);
+      return true;
+    });
+    this.rings = this.rings.filter((ring) => {
+      ring.age += dt;
+      const progress = ring.age / ring.life;
+      if (progress >= 1) {
+        this.scene.remove(ring.mesh);
+        ring.mesh.geometry.dispose();
+        ring.mesh.material.dispose();
+        return false;
+      }
+      const eased = 1 - Math.pow(1 - progress, 3);
+      ring.mesh.scale.setScalar(0.12 + eased * ring.radius);
+      ring.mesh.material.opacity = ring.opacity * (1 - progress);
       return true;
     });
   }
@@ -421,7 +481,74 @@ export class CubeBurst {
       piece.mesh.geometry.dispose();
       piece.mesh.material.dispose();
     });
+    this.rings.forEach((ring) => {
+      this.scene.remove(ring.mesh);
+      ring.mesh.geometry.dispose();
+      ring.mesh.material.dispose();
+    });
     this.pieces = [];
+    this.rings = [];
+  }
+}
+
+// Pop-up 3D score/emote text that springs in, floats up and fades. One manager
+// per scene; call pop() on events and update(dt) each frame.
+export class FloatingText {
+  constructor(scene) {
+    this.scene = scene;
+    this.items = [];
+  }
+
+  pop(position, text, { color = "#ffffff", size = 0.5, life = 0.95, rise = 0.9, stroke = "rgba(18,38,48,0.6)" } = {}) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d");
+    ctx.font = "900 82px ui-rounded, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 18;
+    ctx.strokeStyle = stroke;
+    ctx.strokeText(text, 128, 68);
+    ctx.fillStyle = color;
+    ctx.fillText(text, 128, 66);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+    sprite.position.copy(position);
+    sprite.renderOrder = 1000;
+    this.scene.add(sprite);
+    this.items.push({ sprite, age: 0, life, rise, baseY: position.y, size });
+  }
+
+  update(dt) {
+    this.items = this.items.filter((item) => {
+      item.age += dt;
+      const progress = item.age / item.life;
+      if (progress >= 1) {
+        this.scene.remove(item.sprite);
+        item.sprite.material.map?.dispose?.();
+        item.sprite.material.dispose();
+        return false;
+      }
+      item.sprite.position.y = item.baseY + item.rise * (1 - Math.pow(1 - progress, 2));
+      // Springy pop-in (overshoot) then settle; fade out over the final third.
+      const pop = progress < 0.22 ? Math.sin((progress / 0.22) * (Math.PI / 2)) * 1.15 : 1 + (0.15 * Math.max(0, 1 - (progress - 0.22) / 0.15));
+      const scale = item.size * pop;
+      item.sprite.scale.set(scale * 2, scale, 1);
+      item.sprite.material.opacity = progress < 0.66 ? 1 : 1 - (progress - 0.66) / 0.34;
+      return true;
+    });
+  }
+
+  dispose() {
+    this.items.forEach((item) => {
+      this.scene.remove(item.sprite);
+      item.sprite.material.map?.dispose?.();
+      item.sprite.material.dispose();
+    });
+    this.items = [];
   }
 }
 

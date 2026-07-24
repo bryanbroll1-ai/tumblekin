@@ -1,14 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin64";
+import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -131,6 +132,7 @@ export class KnifeThrow {
     this.canvas.hidden = false;
     if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
     this.bursts?.dispose();
+    this.floaters?.dispose();
     if (this.scene) disposeScene(this.scene);
     this.renderer?.dispose();
     this.renderer?.forceContextLoss?.();
@@ -234,6 +236,7 @@ export class KnifeThrow {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     this.camera.position.set(0, 2.9, 7.4);
@@ -367,6 +370,10 @@ export class KnifeThrow {
       if ((entry.stuck || 0) > (this.lastStuck.get(player.id) || 0)) {
         this.lastStuck.set(player.id, entry.stuck);
         animator.trigger("cheer");
+        const hitPos = new THREE.Vector3(0, LOG_Y - LOG_R, LOG_Z + 0.4);
+        this.bursts.spawn(hitPos, ["#d8dee8", "#ffe36b", "#ffffff"], { count: 8, speed: 1.8, up: 1.4, size: 0.06, life: 0.5, drag: 2.4, fadePow: 1.5 });
+        this.bursts.ring(hitPos, "#ffe36b", { radius: 1, life: 0.4, opacity: 0.5, tilt: null });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "TREFFER!", { color: "#ffe36b", size: 0.4, life: 0.85 });
         if (player.id === controlledId) {
           this.feedback?.sound("pop");
           this.feedback?.vibrate(10);
@@ -376,7 +383,10 @@ export class KnifeThrow {
         this.lastEliminated.set(player.id, true);
         animator.trigger("stumble");
         this.shake = Math.max(this.shake, 0.7);
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), ["#ff2038", player.color, "#ffffff"], { count: 12, speed: 2.2, up: 2, size: 0.09, life: 0.7 });
+        const outPos = kin.position.clone().add(new THREE.Vector3(0, 0.5, 0));
+        this.bursts.spawn(outPos, ["#ff2038", player.color, "#ffffff"], { count: 14, speed: 2.4, up: 2, size: 0.09, life: 0.75, drag: 1.4 });
+        this.bursts.ring(kin.position.clone().setY(0.05), "#ff2038", { radius: 1.6, life: 0.55, opacity: 0.55 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "RAUS!", { color: "#ff6b7f", size: 0.44, life: 0.95 });
         if (player.id === controlledId) {
           this.feedback?.sound("error");
           this.feedback?.vibrate([26, 20, 34]);
@@ -395,6 +405,7 @@ export class KnifeThrow {
     });
 
     this.bursts.update(dt);
+    this.floaters.update(dt);
 
     this.shake *= 0.9;
     const shakeX = Math.sin(now / 15) * this.shake * 0.22;

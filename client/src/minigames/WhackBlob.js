@@ -3,7 +3,7 @@ import {
   CubeBurst,
   createCloud,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin64";
 
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.
