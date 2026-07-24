@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node server/server.js",
-    "test": "node --test server/*.test.js"
+    "test": "node --test server/*.test.js",
+    "smoke": "node scripts/smoke.mjs"
   },
   "keywords": [
     "party-game",

@@ -87,6 +87,31 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 Der Dev-Testmodus ist im normalen Spiel ausgeblendet. Mit `http://localhost:3000/?dev=1` erscheint in der Lobby der Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 21 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
 
+## Lokal testen
+
+Regeln und Spiellogik auf dem Server:
+
+```bash
+npm test
+```
+
+Rauchtest im echten Browser — startet den Server auf einem freien Port, öffnet jedes Minispiel, spielt ein paar Sekunden und meldet Render- und Konsolenfehler:
+
+```bash
+npm run smoke                # alle 15 Minispiele
+npm run smoke -- turmbau     # nur ausgewählte
+npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
+```
+
+Der Rauchtest braucht einmalig einen Browser:
+
+```bash
+npm install --no-save playwright
+npx playwright install chromium
+```
+
+Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIUM_PATH=/pfad/zu/chrome` verwenden. Der Server wird automatisch gestartet und wieder beendet; der Exit-Code ist 0 nur, wenn alle geprüften Minispiele sauber rendern.
+
 ## Architektur
 
 - Express liefert PWA, Three.js und Clientmodule aus.
