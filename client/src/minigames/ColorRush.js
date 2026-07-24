@@ -6,11 +6,16 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
-  disposeScene,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin64";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
-
+} from "./VoxelKit.js?v=tumblekin65";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin65";
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
 // different colour falls into the void along with anyone still on it.
@@ -61,20 +66,13 @@ export class ColorRush {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Farbflucht");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Farbflucht", background: "#8fd8f2", fog: ["#9fdef5", 16, 40] });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="color-banner" data-color-banner hidden></div>
       <div class="kinetic-countdown" data-kinetic-countdown></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -124,47 +122,21 @@ export class ColorRush {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
     if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.tiles = [];
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#8fd8f2");
-    this.scene.fog = new THREE.Fog("#9fdef5", 16, 40);
-    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x6fb0c4, 2.4));
-    const sun = new THREE.DirectionalLight(0xfff4d6, 3.0);
-    sun.position.set(-4, 11, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8;
-    sun.shadow.camera.bottom = -8;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      hemiIntensity: 2.4,
+      skyColor: 0xdfefff,
+      groundColor: 0x6fb0c4,
+      sunColor: 0xfff4d6
+    });
 
     // The canyon below: falling means dropping into a dark chasm and
     // vanishing from sight — not floating in the sky.
@@ -399,12 +371,8 @@ export class ColorRush {
     this.camera.lookAt(0, 0, 0);
 
     this.updateHud(minigame, state, arcade, phase, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -441,16 +409,9 @@ export class ColorRush {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamera = portrait ? new THREE.Vector3(0, 12.5, 9.8) : new THREE.Vector3(0, 11.5, 9.2);
-    this.camera.fov = portrait ? 50 : 46;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamera = portrait ? new THREE.Vector3(0, 12.5, 9.8) : new THREE.Vector3(0, 11.5, 9.2);
+      camera.fov = portrait ? 50 : 46;
+    });
   }
 }

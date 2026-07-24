@@ -1,19 +1,18 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin64";
 import {
   CubeBurst,
   KinAnimator,
   createCloud,
-  createCountdownSprite,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
-  disposeScene,
-  noise,
+  createCountdownSprite,
+  updateCountdownSprite,
   setKinOpacity,
-  updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin64";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
+  noise
+} from "./VoxelKit.js?v=tumblekin65";
+import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin65";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin65";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -55,11 +54,14 @@ export class BounceArena {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} bounce-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Bumper Bloom Arena");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, {
+      label: "3D Bumper Bloom Arena",
+      canvasClass: "bounce-webgl",
+      background: "#9fdcf2",
+      fog: ["#aee2f5", 12, 26],
+      fov: 44,
+      far: 60
+    });
     this.createScene();
 
     this.controls.innerHTML = `
@@ -103,45 +105,23 @@ export class BounceArena {
     this.joystick?.destroy();
     this.joystick = null;
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.webglCanvas = null;
-    this.renderer = null;
-    this.scene = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9fdcf2");
-    this.scene.fog = new THREE.Fog("#aee2f5", 12, 26);
-
-    this.camera = new THREE.PerspectiveCamera(44, 1, 0.1, 60);
     this.camera.position.set(0, 4.6, 5.6);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x7ab8c4, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff4d6, 3.4);
-    sun.position.set(3.5, 7, 4.2);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -4;
-    sun.shadow.camera.right = 4;
-    sun.shadow.camera.top = 4;
-    sun.shadow.camera.bottom = -4;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      sunPosition: [3.5, 7, 4.2],
+      shadow: { left: -4, right: 4, top: 4, bottom: -4 },
+      sunIntensity: 3.4,
+      skyColor: 0xdfefff,
+      groundColor: 0x7ab8c4,
+      sunColor: 0xfff4d6
+    });
 
     // Ocean far below — falling now actually goes somewhere.
     this.water = new THREE.Mesh(
@@ -463,12 +443,8 @@ export class BounceArena {
     this.camera.lookAt(this.lookTarget);
 
     // The 3-2-1 countdown is shown once by the shared intro card, not here.
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -485,20 +461,11 @@ export class BounceArena {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(220, Math.floor(rect.height));
-    const targetWidth = Math.floor(width * Math.min(window.devicePixelRatio || 1, 2));
-    const targetHeight = Math.floor(height * Math.min(window.devicePixelRatio || 1, 2));
-    if (this.webglCanvas.width !== targetWidth || this.webglCanvas.height !== targetHeight) {
-      this.renderer.setSize(width, height, false);
-      this.camera.aspect = width / height;
-      const portrait = height > width;
+    resizeStage(this, (portrait, camera) => {
       this.baseCamera = portrait ? new THREE.Vector3(0, 5.0, 6.1) : new THREE.Vector3(0, 3.9, 5.8);
-      this.camera.fov = portrait ? 47 : 43;
-      this.camera.position.copy(this.baseCamera);
-      this.camera.updateProjectionMatrix();
-    }
+      camera.fov = portrait ? 47 : 43;
+      camera.position.copy(this.baseCamera);
+    }, { minHeight: 220 });
     if (!this.baseCamera) this.baseCamera = this.camera.position.clone();
   }
 }

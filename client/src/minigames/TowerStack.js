@@ -5,10 +5,9 @@ import {
   createCloud,
   createNameLabel,
   createOwnMarker,
-  updateOwnMarker,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin64";
-
+  updateOwnMarker
+} from "./VoxelKit.js?v=tumblekin65";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin65";
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
 // total miss topples the tower. Tallest tower wins.
@@ -45,19 +44,12 @@ export class TowerStack {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Turmbau");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Turmbau", fog: ["#a8e2f4", 20, 46], fov: 46, far: 90 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="color-banner" data-stack-banner hidden></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -95,45 +87,13 @@ export class TowerStack {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
-    this.bursts?.dispose();
-    this.floaters?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.towers.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 20, 46);
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 90);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
-    sun.position.set(-4, 12, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 12;
-    sun.shadow.camera.bottom = -6;
-    this.scene.add(sun);
+    addStageLights(this.scene, { sunPosition: [-4, 12, 6], shadow: { top: 12, bottom: -6 } });
 
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(22, 0.5, 12),
@@ -376,17 +336,10 @@ export class TowerStack {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamY = portrait ? 2.7 : 2.6;
-    this.baseCamZ = portrait ? 10.5 : 8.5;
-    this.camera.fov = portrait ? 58 : 48;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamY = portrait ? 2.7 : 2.6;
+      this.baseCamZ = portrait ? 10.5 : 8.5;
+      camera.fov = portrait ? 58 : 48;
+    });
   }
 }

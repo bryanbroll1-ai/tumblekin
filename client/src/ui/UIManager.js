@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin64";
-import { playerStatus } from "../game/Player.js?v=tumblekin64";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin64";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin65";
+import { playerStatus } from "../game/Player.js?v=tumblekin65";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin65";
 
 export class UIManager {
   constructor(handlers, feedback = null) {

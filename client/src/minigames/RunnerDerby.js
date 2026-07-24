@@ -5,11 +5,16 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin64";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin64";
-
+  createVoxelKin
+} from "./VoxelKit.js?v=tumblekin65";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin65";
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
 // dodge hurdles and grab boost pads. Camera chases the controlled kin.
@@ -72,19 +77,12 @@ export class RunnerDerby {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Zielgerade");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Zielgerade", background: "#8fd8f2", fog: ["#9fdef5", 10, 30], fov: 52 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0m</strong></div>
       <div class="kinetic-countdown" data-kinetic-countdown></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -137,48 +135,24 @@ export class RunnerDerby {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
     if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
     const arcade = this.minigame.arcade;
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#8fd8f2");
     const trackZ = arcade.trackLength * SEGMENT;
-    this.scene.fog = new THREE.Fog("#9fdef5", 10, 30);
-    this.camera = new THREE.PerspectiveCamera(52, 1, 0.1, 80);
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x6fb0c4, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff4d6, 3.2);
-    sun.position.set(-4, 10, -2);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8;
-    sun.shadow.camera.bottom = -8;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      sunPosition: [-4, 10, -2],
+      sunIntensity: 3.2,
+      skyColor: 0xdfefff,
+      groundColor: 0x6fb0c4,
+      sunColor: 0xfff4d6
+    });
 
     // A wide meadow under everything — the world no longer falls away into
     // blue void beside the track.
@@ -720,12 +694,8 @@ export class RunnerDerby {
     }
 
     this.updateHud(minigame, state, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -745,17 +715,10 @@ export class RunnerDerby {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamera = portrait ? new THREE.Vector3(0, 4.2, -6.6) : new THREE.Vector3(0, 3.4, -6.0);
-    this.fov = portrait ? 58 : 48;
-    this.camera.fov = this.fov;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamera = portrait ? new THREE.Vector3(0, 4.2, -6.6) : new THREE.Vector3(0, 3.4, -6.0);
+      this.fov = portrait ? 58 : 48;
+      camera.fov = this.fov;
+    });
   }
 }

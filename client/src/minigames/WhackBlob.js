@@ -1,10 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  createCloud,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin64";
-
+import { CubeBurst, createCloud } from "./VoxelKit.js?v=tumblekin65";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin65";
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.
 const CELL = 1.35;
@@ -36,18 +32,11 @@ export class WhackBlob {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Blob-Klopfe");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Blob-Klopfe", fog: ["#a8e2f4", 16, 40] });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     // No button pad — you simply tap the holes on the 3D field directly.
@@ -93,16 +82,7 @@ export class WhackBlob {
     if (this.onCanvasWhack) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasWhack);
     this.controls.innerHTML = "";
     this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.blobs.clear();
   }
 
@@ -113,28 +93,7 @@ export class WhackBlob {
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 16, 40);
-    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
-    sun.position.set(-4, 11, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -6;
-    sun.shadow.camera.right = 6;
-    sun.shadow.camera.top = 6;
-    sun.shadow.camera.bottom = -6;
-    this.scene.add(sun);
+    addStageLights(this.scene, { shadow: { left: -6, right: 6, top: 6, bottom: -6 } });
 
     // Grass mound with nine dark holes.
     const meadow = new THREE.Mesh(
@@ -387,17 +346,10 @@ export class WhackBlob {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamY = portrait ? 5.8 : 5.2;
-    this.baseCamZ = portrait ? 7.6 : 7;
-    this.camera.fov = portrait ? 54 : 48;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamY = portrait ? 5.8 : 5.2;
+      this.baseCamZ = portrait ? 7.6 : 7;
+      camera.fov = portrait ? 54 : 48;
+    });
   }
 }
