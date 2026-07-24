@@ -16,6 +16,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
 const LANE_WIDTH = 1.5;

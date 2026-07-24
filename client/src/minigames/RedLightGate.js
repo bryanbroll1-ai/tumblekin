@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -15,6 +16,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Lichtwächter — hold the button to sprint towards the gate while the
 // giant guard looks away. When the light flips to red he whirls around:
 // anyone still running is caught and stumbles backwards.
@@ -115,7 +117,6 @@ export class RedLightGate {
     clearInterval(this.holdTimer);
     this.holdTimer = null;
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     teardownStage(this);
     this.kins.clear();
     this.animators.clear();
@@ -207,6 +208,7 @@ export class RedLightGate {
 
     this.gateZ = gateZ;
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     // Start on the final framing — no camera fly-in.
@@ -306,7 +308,9 @@ export class RedLightGate {
       if ((entry.caught || 0) > (this.lastCaught.get(player.id) || 0)) {
         this.lastCaught.set(player.id, entry.caught);
         animator.trigger("stumble");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#ff2038", "#ffffff"], { count: 10, speed: 2, up: 1.6, size: 0.08, life: 0.6 });
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#ff2038", "#ffffff"], { count: 12, speed: 2.1, up: 1.6, size: 0.08, life: 0.6, drag: 1.6 });
+        this.bursts.ring(kin.position.clone().setY(0.07), "#ff2038", { radius: 1.5, life: 0.5 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "ERWISCHT!", { color: "#ff6b7f", size: 0.4, life: 0.9 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.8);
           this.feedback?.sound("error");
@@ -316,7 +320,9 @@ export class RedLightGate {
       if (finished && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
         animator.trigger("cheer");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffc400", "#ffffff"], { count: 16, speed: 2.4, up: 2.6, size: 0.09, life: 0.8 });
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffc400", "#ffffff"], { count: 20, speed: 2.6, up: 2.6, size: 0.09, life: 0.85, drag: 1.2 });
+        this.bursts.ring(kin.position.clone().setY(0.07), "#ffc400", { radius: 2, life: 0.6, opacity: 0.6 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "GESCHAFFT! 🏁", { color: "#ffe36b", size: 0.44, life: 1.2, rise: 1 });
         if (player.id === controlledId) {
           this.feedback?.sound("win");
           this.feedback?.vibrate([24, 24, 48]);
@@ -336,6 +342,8 @@ export class RedLightGate {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     this.shake *= 0.9;
     const shakeX = Math.sin(now / 15) * this.shake * 0.24;

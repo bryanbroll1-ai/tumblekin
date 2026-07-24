@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -15,6 +16,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the
 // biggest balloon lifts its Kin into the sky.
@@ -127,6 +129,7 @@ export class BalloonPump {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureStation(player, index, players.length));
     this.resizeRenderer();
@@ -289,8 +292,10 @@ export class BalloonPump {
               station.string.visible = false;
               this.shake = 1;
               const at = station.balloon.position.clone();
-              this.bursts.spawn(at, [player.color, "#ffffff"], { count: 26, speed: 4, up: 2.6, size: 0.12, life: 1.1 });
-              this.bursts.spawn(at, ["#ffd15c", player.color, "#ffffff"], { count: 18, speed: 2.4, up: 3.4, size: 0.09, life: 1.3 });
+              this.bursts.spawn(at, [player.color, "#ffffff"], { count: 30, speed: 4.2, up: 2.6, size: 0.12, life: 1.1, drag: 1.1 });
+              this.bursts.spawn(at, ["#ffd15c", player.color, "#ffffff"], { count: 20, speed: 2.5, up: 3.4, size: 0.09, life: 1.3, drag: 0.9 });
+              this.bursts.ring(at, "#ffffff", { radius: 2.6, life: 0.55, opacity: 0.65, tilt: null });
+              this.floaters.pop(at.clone().add(new THREE.Vector3(0, 0.5, 0)), "PENG! 🎈", { color: "#ffe36b", size: 0.5, life: 1.1 });
               this.feedback?.sound("impact");
               this.feedback?.vibrate([40, 26, 50]);
               if (player.id === controlledId) this.feedback?.sound("win");
@@ -323,6 +328,8 @@ export class BalloonPump {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     this.shake *= 0.9;
     const desired = new THREE.Vector3(Math.sin(now / 3200) * 0.15, (this.baseCamY || 3.4), this.baseCamZ || 9.4);

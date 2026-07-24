@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -15,6 +16,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
 // dodge hurdles and grab boost pads. Camera chases the controlled kin.
@@ -344,6 +346,7 @@ export class RunnerDerby {
     }
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
   }
@@ -547,7 +550,9 @@ export class RunnerDerby {
         this.lastStumbles.set(player.id, entry.stumbles);
         animator.trigger("stumble");
         this.bursts.spawn(kin.position.clone(), ["#ffffff", "#ef6673", "#ffd15c"], { count: 12, speed: 2.0, up: 2.2, size: 0.08, life: 0.6 });
-        this.bursts.spawn(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.06, kin.position.z - 0.3), ["#c98d4e", "#e8d4a8"], { count: 6, speed: 1.2, up: 0.9, size: 0.06, life: 0.5, gravity: 2 });
+        this.bursts.spawn(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.06, kin.position.z - 0.3), ["#c98d4e", "#e8d4a8"], { count: 6, speed: 1.2, up: 0.9, size: 0.06, life: 0.5, gravity: 2, drag: 1.8 });
+        this.bursts.ring(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.07, kin.position.z), "#ef6673", { radius: 1.3, life: 0.45, y: FLOOR_Y + 0.07 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "RUMMS!", { color: "#ef6673", size: 0.36, life: 0.8 });
         if (player.id === controlledId) {
           this.shake = 1;
           this.feedback?.sound("collision");
@@ -567,7 +572,9 @@ export class RunnerDerby {
       if (entry.finishedAt && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
         animator.set("cheer", { base: true });
-        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 20, speed: 2.6, up: 3.0, size: 0.1, life: 0.9 });
+        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 24, speed: 2.8, up: 3.0, size: 0.1, life: 0.95, drag: 1.2 });
+        this.bursts.ring(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.07, kin.position.z), "#ffd15c", { radius: 2, life: 0.65, opacity: 0.6, y: FLOOR_Y + 0.07 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "ZIEL! 🏁", { color: "#ffe36b", size: 0.46, life: 1.2, rise: 1 });
         if (player.id === controlledId) {
           this.feedback?.sound("perfect");
           this.feedback?.vibrate([12, 16, 24]);
@@ -660,6 +667,8 @@ export class RunnerDerby {
     }
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     // Idle sway on the roadside scenery.
     this.scenery.forEach((prop) => {

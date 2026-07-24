@@ -500,26 +500,40 @@ export class FloatingText {
   }
 
   pop(position, text, { color = "#ffffff", size = 0.5, life = 0.95, rise = 0.9, stroke = "rgba(18,38,48,0.6)" } = {}) {
+    const FONT_PX = 82;
+    const PAD = 26;                 // room for the outline stroke on both sides
     const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 128;
     const ctx = canvas.getContext("2d");
-    ctx.font = "900 82px ui-rounded, system-ui, sans-serif";
+    const font = `900 ${FONT_PX}px ui-rounded, system-ui, sans-serif`;
+
+    // Size the canvas to the text instead of clipping it: a fixed 256px canvas
+    // cut off anything past ~5 characters ("PERFEKT!" rendered as "ERFEK").
+    ctx.font = font;
+    const width = Math.ceil(ctx.measureText(text).width) + PAD * 2;
+    const height = FONT_PX + PAD * 2;
+    canvas.width = width;
+    canvas.height = height;
+
+    // Resizing the canvas resets the 2D context, so restyle after sizing.
+    ctx.font = font;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.lineJoin = "round";
     ctx.lineWidth = 18;
     ctx.strokeStyle = stroke;
-    ctx.strokeText(text, 128, 68);
+    ctx.strokeText(text, width / 2, height / 2 + 2);
     ctx.fillStyle = color;
-    ctx.fillText(text, 128, 66);
+    ctx.fillText(text, width / 2, height / 2);
+
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
     sprite.position.copy(position);
     sprite.renderOrder = 1000;
     this.scene.add(sprite);
-    this.items.push({ sprite, age: 0, life, rise, baseY: position.y, size });
+    // Keep the sprite's on-screen aspect equal to the canvas so wide labels
+    // stay legible instead of being squeezed into a fixed 2:1 box.
+    this.items.push({ sprite, age: 0, life, rise, baseY: position.y, size, aspect: width / height });
   }
 
   update(dt) {
@@ -536,7 +550,7 @@ export class FloatingText {
       // Springy pop-in (overshoot) then settle; fade out over the final third.
       const pop = progress < 0.22 ? Math.sin((progress / 0.22) * (Math.PI / 2)) * 1.15 : 1 + (0.15 * Math.max(0, 1 - (progress - 0.22) / 0.15));
       const scale = item.size * pop;
-      item.sprite.scale.set(scale * 2, scale, 1);
+      item.sprite.scale.set(scale * (item.aspect || 2), scale, 1);
       item.sprite.material.opacity = progress < 0.66 ? 1 : 1 - (progress - 0.66) / 0.34;
       return true;
     });

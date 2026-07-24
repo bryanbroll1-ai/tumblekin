@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -16,6 +17,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
 // different colour falls into the void along with anyone still on it.
@@ -183,6 +185,7 @@ export class ColorRush {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
   }
@@ -310,7 +313,8 @@ export class ColorRush {
 
       if (fallen && !this.lastFallen.get(player.id)) {
         animator.trigger("fall");
-        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#1b2530"], { count: 12, speed: 2.2, up: 1.6, size: 0.09, life: 0.7 });
+        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#1b2530"], { count: 14, speed: 2.3, up: 1.6, size: 0.09, life: 0.7, drag: 1.5 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "REINGEFALLEN!", { color: "#ff6b7f", size: 0.36, life: 0.9 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.7);
           this.feedback?.sound("error");
@@ -321,9 +325,10 @@ export class ColorRush {
 
       if ((entry.survived || 0) > (this.lastSurvived.get(player.id) || 0)) {
         this.lastSurvived.set(player.id, entry.survived);
-        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff"], { count: 10, speed: 2, up: 2.2, size: 0.08, life: 0.6 });
+        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff"], { count: 10, speed: 2, up: 2.2, size: 0.08, life: 0.6, drag: 1.8, fadePow: 1.4 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "SICHER!", { color: "#ffe36b", size: 0.32, life: 0.65, rise: 0.7 });
         if (player.id === controlledId) {
-          this.feedback?.sound("pop");
+          this.feedback?.sound("pop", { pan: kin.position.x * 0.18 });
           this.feedback?.vibrate(10);
         }
       }
@@ -346,7 +351,9 @@ export class ColorRush {
         animator.set(minigame.finaleAt ? "cheer" : "idle", { base: true });
         if (minigame.finaleAt && !this.finaleCelebrated) {
           this.finaleCelebrated = true;
-          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffc400"], { count: 20, speed: 2.6, up: 3, size: 0.1, life: 0.9 });
+          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffc400"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });
+          this.bursts.ring(kin.position.clone().setY(0.08), "#ffc400", { radius: 2, life: 0.65, opacity: 0.6 });
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "🏆", { size: 0.56, life: 1.2, rise: 1 });
           if (player.id === controlledId) this.feedback?.sound("win");
         }
       }
@@ -359,6 +366,8 @@ export class ColorRush {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     // Camera: gentle follow plus a drop/fall impact shake.
     this.shake *= 0.9;

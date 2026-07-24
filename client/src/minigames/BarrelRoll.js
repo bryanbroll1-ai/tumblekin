@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -16,6 +17,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
 // against it. Slide too far around the curve and you splash off.
@@ -121,7 +123,6 @@ export class BarrelRoll {
     clearInterval(this.holdTimer);
     this.holdTimer = null;
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     teardownStage(this);
     this.kins.clear();
     this.animators.clear();
@@ -231,6 +232,7 @@ export class BarrelRoll {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     // Three-quarter view: raised and offset sideways so all four runners on
@@ -307,7 +309,9 @@ export class BarrelRoll {
         this.lastFallen.set(player.id, true);
         animator.trigger("fall");
         kin.userData.fellAt = now;
-        this.bursts.spawn(kin.position.clone(), ["#1f8fd6", "#bfe9ff", player.color], { count: 14, speed: 2.4, up: 2, size: 0.09, life: 0.8 });
+        this.bursts.spawn(kin.position.clone(), ["#1f8fd6", "#bfe9ff", player.color], { count: 18, speed: 2.5, up: 2, size: 0.09, life: 0.8, drag: 1.5 });
+        this.bursts.ring(kin.position.clone().setY(0.08), "#bfe9ff", { radius: 1.8, life: 0.55 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "PLATSCH! 💦", { color: "#8fd8f2", size: 0.42, life: 1 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.9);
           this.feedback?.sound("fall");
@@ -345,7 +349,9 @@ export class BarrelRoll {
         animator.set("cheer", { base: true });
         if (!this.finaleDone) {
           this.finaleDone = true;
-          this.bursts.spawn(kin.position.clone(), [player.color, "#ffd15c", "#ffffff"], { count: 20, speed: 2.6, up: 3, size: 0.1, life: 0.9 });
+          this.bursts.spawn(kin.position.clone(), [player.color, "#ffd15c", "#ffffff"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });
+          this.bursts.ring(kin.position.clone().setY(0.08), "#ffd15c", { radius: 2, life: 0.65, opacity: 0.6 });
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "🏆", { size: 0.56, life: 1.2, rise: 1 });
           if (player.id === controlledId) this.feedback?.sound("win");
         }
       } else {
@@ -360,6 +366,8 @@ export class BarrelRoll {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
     this.waterMesh.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.05;
 
     this.shake *= 0.9;

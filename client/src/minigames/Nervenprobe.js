@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -15,6 +16,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Nervenprobe — all four Kins face the camera behind a timer podium.
 // The clock counts visibly for two seconds, then hides. Everyone slams
 // their red button at the target time; at the end all times are revealed
@@ -164,7 +166,6 @@ export class Nervenprobe {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     teardownStage(this);
     this.kins.clear();
     this.animators.clear();
@@ -278,6 +279,7 @@ export class Nervenprobe {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureStation(player, index, players.length));
     this.resizeRenderer();
@@ -451,7 +453,8 @@ export class Nervenprobe {
       if (stopped && !this.lastStopped.get(player.id)) {
         this.lastStopped.set(player.id, true);
         animator.trigger("jump");
-        this.bursts.spawn(new THREE.Vector3(station.x, 1.4, 0.7), ["#ff2038", "#ffffff"], { count: 8, speed: 1.8, up: 1.6, size: 0.07, life: 0.5 });
+        this.bursts.spawn(new THREE.Vector3(station.x, 1.4, 0.7), ["#ff2038", "#ffffff"], { count: 9, speed: 1.9, up: 1.6, size: 0.07, life: 0.5, drag: 2, fadePow: 1.4 });
+        this.floaters.pop(new THREE.Vector3(station.x, 2, 0.7), "STOPP!", { color: "#ffffff", size: 0.34, life: 0.7, rise: 0.6 });
         if (player.id !== controlledId) this.feedback?.sound("move");
       }
 
@@ -464,7 +467,9 @@ export class Nervenprobe {
         animator.set(isWinner ? "cheer" : (stopped ? "idle" : "sad"), { base: true });
         if (isWinner && !kin.userData.confettiDone) {
           kin.userData.confettiDone = true;
-          this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), [player.color, "#ffc400", "#ffffff"], { count: 18, speed: 2.4, up: 2.8, size: 0.09, life: 0.9 });
+          this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), [player.color, "#ffc400", "#ffffff"], { count: 22, speed: 2.6, up: 2.8, size: 0.09, life: 0.9, drag: 1.2 });
+          this.bursts.ring(kin.position.clone().setY(0.07), "#ffc400", { radius: 1.8, life: 0.6, opacity: 0.6 });
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "🏆", { size: 0.54, life: 1.2, rise: 1 });
         }
       } else {
         // Nervous idle while waiting, tiny shiver during the hidden phase.
@@ -481,6 +486,8 @@ export class Nervenprobe {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     // Ambient show life: spotlights sweep, curtain stars twinkle.
     this.spotCones?.forEach((cone) => {

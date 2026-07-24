@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { CubeBurst, createCloud } from "./VoxelKit.js?v=tumblekin65";
+import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin65";
 import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin65";
+
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.
 const CELL = 1.35;
@@ -81,7 +82,6 @@ export class WhackBlob {
     cancelAnimationFrame(this.frame);
     if (this.onCanvasWhack) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasWhack);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     teardownStage(this);
     this.blobs.clear();
   }
@@ -196,6 +196,7 @@ export class WhackBlob {
     this.hammerHit = null;   // { cell, startedAt }
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.resizeRenderer();
     this.camera.position.set(0, this.baseCamY || 5.2, this.baseCamZ || 7);
     this.camera.lookAt(0, 0.2, -0.4);
@@ -273,7 +274,15 @@ export class WhackBlob {
       if (whackedByMe && !blob.userData.hitShown) {
         blob.userData.hitShown = true;
         const pos = this.cellPos(pop.cell);
-        this.bursts.spawn(new THREE.Vector3(pos.x, 0.9, pos.z), pop.kind === "bad" ? ["#ff2038", "#8a0f1e"] : ["#8f6ae0", "#ffd15c", "#ffffff"], { count: 10, speed: 2, up: 2, size: 0.08, life: 0.6 });
+        const bad = pop.kind === "bad";
+        this.bursts.spawn(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : ["#8f6ae0", "#ffd15c", "#ffffff"], { count: 11, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
+        this.bursts.ring(new THREE.Vector3(pos.x, 0.42, pos.z), bad ? "#ff2038" : "#ffd15c", { radius: bad ? 1.3 : 1, life: 0.45, opacity: 0.5, tilt: null });
+        this.floaters.pop(new THREE.Vector3(pos.x, 1.2, pos.z), bad ? "AUA!" : "+1", {
+          color: bad ? "#ff6b7f" : "#ffe36b",
+          size: bad ? 0.38 : 0.32,
+          life: bad ? 0.8 : 0.65,
+          rise: 0.7
+        });
         // Swing the mallet down on this cell.
         this.hammerHit = { cell: pop.cell, startedAt: now };
       }
@@ -325,6 +334,8 @@ export class WhackBlob {
     }
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     this.shake *= 0.9;
     const shakeX = Math.sin(now / 15) * this.shake * 0.2;

@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -15,6 +16,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
 const LANE_GAP = 1.55;
@@ -92,7 +94,6 @@ export class CliffClimb {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     teardownStage(this);
     this.kins.clear();
     this.animators.clear();
@@ -158,6 +159,7 @@ export class CliffClimb {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     this.camera.position.set(0, 2.4, 7.4);
@@ -232,7 +234,8 @@ export class CliffClimb {
       if ((entry.slips || 0) > (this.lastSlips.get(player.id) || 0)) {
         this.lastSlips.set(player.id, entry.slips);
         animator.trigger("stumble");
-        this.bursts.spawn(kin.position.clone(), ["#ab9e88", "#ffffff"], { count: 6, speed: 1.4, up: 0.8, size: 0.06, life: 0.5, gravity: 2 });
+        this.bursts.spawn(kin.position.clone(), ["#ab9e88", "#ffffff"], { count: 8, speed: 1.5, up: 0.8, size: 0.06, life: 0.5, gravity: 2, drag: 1.8 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 0.9, 0)), "ABGERUTSCHT!", { color: "#ffb37a", size: 0.32, life: 0.8 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.5);
           this.feedback?.sound("error");
@@ -242,7 +245,9 @@ export class CliffClimb {
       if (entry.finishedAt && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
         animator.trigger("cheer");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffd15c", "#ffffff"], { count: 18, speed: 2.4, up: 2.8, size: 0.1, life: 0.9 });
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffd15c", "#ffffff"], { count: 22, speed: 2.6, up: 2.8, size: 0.1, life: 0.9, drag: 1.2 });
+        this.bursts.ring(kin.position.clone().add(new THREE.Vector3(0, 0.3, 0)), "#ffd15c", { radius: 1.8, life: 0.6, opacity: 0.6, tilt: null });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "OBEN! 🏔️", { color: "#ffe36b", size: 0.46, life: 1.2, rise: 1 });
         if (player.id === controlledId) {
           this.feedback?.sound("win");
           this.feedback?.vibrate([22, 22, 44]);
@@ -291,6 +296,8 @@ export class CliffClimb {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     // Highlight the hand the controlled player should tap next.
     const own = arcade.players[controlledId];

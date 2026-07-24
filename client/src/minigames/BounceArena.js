@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -209,6 +210,7 @@ export class BounceArena {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
 
     // Pool of flat shockwave rings that flash out from every hard bump.
     this.rings = [];
@@ -349,7 +351,9 @@ export class BounceArena {
         data.body.rotation.x = data.fallSpin;
         if (!this.splashed.has(player.id) && kin.position.y < WATER_Y + 0.3) {
           this.splashed.add(player.id);
-          this.bursts.spawn(new THREE.Vector3(kin.position.x, WATER_Y + 0.2, kin.position.z), ["#ffffff", "#7fdbe8"], { count: 14, speed: 2.4, up: 2.6, size: 0.09, life: 0.8 });
+          this.bursts.spawn(new THREE.Vector3(kin.position.x, WATER_Y + 0.2, kin.position.z), ["#ffffff", "#7fdbe8"], { count: 18, speed: 2.5, up: 2.6, size: 0.09, life: 0.8, drag: 1.5 });
+          this.bursts.ring(new THREE.Vector3(kin.position.x, WATER_Y + 0.25, kin.position.z), "#7fdbe8", { radius: 2, life: 0.6, y: WATER_Y + 0.25 });
+          this.floaters.pop(new THREE.Vector3(kin.position.x, WATER_Y + 1, kin.position.z), "PLATSCH! 💦", { color: "#bfe9ff", size: 0.42, life: 1 });
           if (player.id === controlledId) this.feedback?.sound("land");
         }
         setKinOpacity(kin, Math.max(0, 1 - Math.max(0, WATER_Y + 0.3 - kin.position.y) * 1.4));
@@ -386,7 +390,9 @@ export class BounceArena {
         kin.rotation.y += dt * 5;
         if (!this.finaleCelebrated) {
           this.finaleCelebrated = true;
-          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 24, speed: 2.8, up: 3.2, size: 0.1, life: 1 });
+          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 28, speed: 3, up: 3.2, size: 0.1, life: 1, drag: 1.2 });
+          this.bursts.ring(kin.position.clone().setY(PLATFORM_TOP_Y + 0.02), "#ffd15c", { radius: 2.2, life: 0.7, opacity: 0.6, y: PLATFORM_TOP_Y + 0.02 });
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "🏆", { size: 0.56, life: 1.3, rise: 1 });
           this.feedback?.sound("win");
           this.feedback?.vibrate([20, 24, 40]);
         }
@@ -430,6 +436,8 @@ export class BounceArena {
     this.water.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.04;
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
     this.updateRings(dt);
 
     // Camera: gentle follow of your kin plus a punchy impact shake.

@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -16,6 +17,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
 // each hitAt; tap to be mid-air. Trip once and you are out.
@@ -160,6 +162,7 @@ export class RopeSkip {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     this.camera.position.set(0, 3.4, 8.6);
@@ -281,7 +284,9 @@ export class RopeSkip {
       if (out && !this.lastEliminated.get(player.id)) {
         this.lastEliminated.set(player.id, true);
         animator.trigger("fall");
-        this.bursts.spawn(kin.position.clone(), ["#e0334f", player.color, "#ffffff"], { count: 12, speed: 2.2, up: 2, size: 0.09, life: 0.8 });
+        this.bursts.spawn(kin.position.clone(), ["#e0334f", player.color, "#ffffff"], { count: 14, speed: 2.4, up: 2, size: 0.09, life: 0.8, drag: 1.4 });
+        this.bursts.ring(kin.position.clone().setY(0.08), "#e0334f", { radius: 1.6, life: 0.55 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "GESTOLPERT!", { color: "#ff6b7f", size: 0.4 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.9);
           this.feedback?.sound("error");
@@ -290,8 +295,13 @@ export class RopeSkip {
       }
       if (!out && (entry.survived || 0) > (this.lastSurvived.get(player.id) || 0)) {
         this.lastSurvived.set(player.id, entry.survived);
+        this.floaters.pop(
+          kin.position.clone().add(new THREE.Vector3(0, 1, 0)),
+          `${entry.survived}`,
+          { color: "#ffe36b", size: 0.32, life: 0.6, rise: 0.6 }
+        );
         if (player.id === controlledId) {
-          this.feedback?.sound("pop");
+          this.feedback?.sound("pop", { pan: kin.position.x * 0.18 });
           this.feedback?.vibrate(8);
         }
       }
@@ -328,11 +338,15 @@ export class RopeSkip {
 
     if (minigame.finaleAt && survivorKin && !this.finaleDone) {
       this.finaleDone = true;
-      this.bursts.spawn(survivorKin.position.clone(), [survivorPlayer.color, "#ffd15c", "#ffffff"], { count: 20, speed: 2.6, up: 3, size: 0.1, life: 0.9 });
+      this.bursts.spawn(survivorKin.position.clone(), [survivorPlayer.color, "#ffd15c", "#ffffff"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });
+      this.bursts.ring(survivorKin.position.clone().setY(0.08), "#ffd15c", { radius: 2.2, life: 0.7, opacity: 0.6 });
+      this.floaters.pop(survivorKin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "🏆", { size: 0.6, life: 1.3, rise: 1.1 });
       if (survivorPlayer.id === controlledId) this.feedback?.sound("win");
     }
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     this.shake *= 0.9;
     const shakeX = Math.sin(now / 16) * this.shake * 0.24;

@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -16,6 +17,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Zündstoff — hot-potato with a blocky bomb. The fuse length is secret:
 // tap to pass the bomb on before it blows. Whoever holds it when it pops
 // is out; the last Kin standing wins.
@@ -91,7 +93,6 @@ export class BombPass {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     teardownStage(this);
     this.kins.clear();
     this.animators.clear();
@@ -195,6 +196,7 @@ export class BombPass {
     this.scene.add(this.bomb);
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     this.camera.position.set(0, 4.6, 7.8);
@@ -324,8 +326,11 @@ export class BombPass {
       if (out && !this.lastOut.get(player.id)) {
         this.lastOut.set(player.id, true);
         animator.trigger("fall");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.6, 0)), ["#ff8b2e", "#ffd15c", "#1b2530", "#ffffff"], { count: 24, speed: 3, up: 2.6, size: 0.1, life: 0.9 });
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.6, 0)), ["#ff8b2e", "#ffd15c", "#1b2530", "#ffffff"], { count: 28, speed: 3.2, up: 2.6, size: 0.1, life: 0.9, drag: 1.3 });
+        this.bursts.ring(kin.position.clone().setY(0.08), "#ff8b2e", { radius: 2.2, life: 0.6, opacity: 0.6 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "BUMM! 💥", { color: "#ff8b2e", size: 0.46, life: 1 });
         if (player.id === controlledId) {
+          this.shake = Math.max(this.shake, 1);
           this.feedback?.sound("error");
           this.feedback?.vibrate([30, 24, 40]);
         }
@@ -365,11 +370,15 @@ export class BombPass {
 
     if (minigame.finaleAt && survivorKin && !this.finaleDone) {
       this.finaleDone = true;
-      this.bursts.spawn(survivorKin.position.clone(), [survivorPlayer.color, "#ffd15c", "#ffffff"], { count: 22, speed: 2.6, up: 3, size: 0.1, life: 1 });
+      this.bursts.spawn(survivorKin.position.clone(), [survivorPlayer.color, "#ffd15c", "#ffffff"], { count: 26, speed: 2.8, up: 3, size: 0.1, life: 1, drag: 1.2 });
+      this.bursts.ring(survivorKin.position.clone().setY(0.08), "#ffd15c", { radius: 2.2, life: 0.7, opacity: 0.6 });
+      this.floaters.pop(survivorKin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "🏆", { size: 0.6, life: 1.3, rise: 1.1 });
       if (survivorPlayer.id === controlledId) this.feedback?.sound("win");
     }
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     this.shake *= 0.88;
     const shakeX = Math.sin(now / 15) * this.shake * 0.3;

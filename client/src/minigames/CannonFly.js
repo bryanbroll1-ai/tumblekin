@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
@@ -15,6 +16,7 @@ import {
   syncOwnMarker,
   teardownStage
 } from "./SceneKit.js?v=tumblekin65";
+
 // Kanonenflug — one perfectly timed tap fires your Kin out of the cannon.
 // The power gauge swings up and down; tap at the peak to fly the farthest.
 const CANNON_GAP = 1.9;
@@ -89,7 +91,6 @@ export class CannonFly {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     teardownStage(this);
     this.kins.clear();
     this.animators.clear();
@@ -135,6 +136,7 @@ export class CannonFly {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureStation(player, index, players.length));
     this.resizeRenderer();
@@ -229,7 +231,8 @@ export class CannonFly {
 
       if (entry.launchedAt && !this.lastLaunched.get(player.id)) {
         this.lastLaunched.set(player.id, true);
-        this.bursts.spawn(new THREE.Vector3(station.x, 1.6, 1.9), ["#ffd15c", "#ff8b2e", "#ffffff"], { count: 16, speed: 3, up: 2.2, size: 0.1, life: 0.7 });
+        this.bursts.spawn(new THREE.Vector3(station.x, 1.6, 1.9), ["#ffd15c", "#ff8b2e", "#ffffff"], { count: 18, speed: 3.1, up: 2.2, size: 0.1, life: 0.7, drag: 1.6 });
+        this.bursts.ring(new THREE.Vector3(station.x, 1.6, 1.9), "#ffd15c", { radius: 1.4, life: 0.45, opacity: 0.55, tilt: null });
         this.shake = Math.max(this.shake, 0.6);
         if (player.id !== controlledId) this.feedback?.sound("whoosh");
       }
@@ -265,7 +268,13 @@ export class CannonFly {
         kin.rotation.x = -t * Math.PI * 1.6;
         if (t >= 1 && !station.landedShown) {
           station.landedShown = true;
-          this.bursts.spawn(kin.position.clone(), ["#7fce6f", "#e6f2da", player.color], { count: 12, speed: 2, up: 1.8, size: 0.09, life: 0.7 });
+          this.bursts.spawn(kin.position.clone(), ["#7fce6f", "#e6f2da", player.color], { count: 14, speed: 2.1, up: 1.8, size: 0.09, life: 0.7, drag: 1.7 });
+          this.bursts.ring(kin.position.clone().setY(0.07), "#e6f2da", { radius: 1.5, life: 0.5 });
+          this.floaters.pop(
+            kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)),
+            `${Math.round(entry.distance || 0)}m`,
+            { color: "#ffe36b", size: 0.42, life: 1.1, rise: 0.9 }
+          );
           if (player.id === controlledId) {
             this.feedback?.sound("land");
             this.feedback?.vibrate(16);
@@ -291,6 +300,8 @@ export class CannonFly {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
 
     this.shake *= 0.9;
     const shakeX = Math.sin(now / 15) * this.shake * 0.22;
