@@ -38,7 +38,8 @@ export const MINIGAME_CATALOG = [
   { type: "falschsignal", title: "Falschsignal", family: "feint", gesture: "react", help: "Nur der runde grüne Kreis, der BLEIBT, ist echt. Falsche Farbe, falsche Form und kurzes Aufblitzen kosten Punkte — schnell tippen bringt mehr, zu schnell bringt Minus." },
   { type: "spurmaler", title: "Spurmaler", family: "trace", gesture: "trace", help: "Zieh den Finger auf der Spur nach oben und mal sie aus. Verlässt du das Band, reisst der Strich ab — jede geschaffte Runde bringt eine neue Kurve." },
   { type: "tellerdreher", title: "Tellerdreher", family: "plates", gesture: "plates", help: "Tippe den Teller an, der am langsamsten dreht. Du hast nur EINE Hand: jeder Griff kostet Vorrat, und ein voller Teller verschluckt ihn. Immer mehr Teller kommen dazu." },
-  { type: "angelduell", title: "Angelduell", family: "fish", gesture: "fish", help: "Halten holt den Fisch ein und spannt die Schnur. Wenn er zieht, steigt die Spannung viermal so schnell — dann loslassen, sonst reisst sie. Wer sie ausreizt, ist schneller." }
+  { type: "angelduell", title: "Angelduell", family: "fish", gesture: "fish", help: "Halten holt den Fisch ein und spannt die Schnur. Wenn er zieht, steigt die Spannung viermal so schnell — dann loslassen, sonst reisst sie. Wer sie ausreizt, ist schneller." },
+  { type: "farbenjagd", title: "Farbenjagd", family: "paint", gesture: "joystick", help: "Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal." }
 ];
 
 export const ARCADE_TYPES = new Set(

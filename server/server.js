@@ -91,6 +91,7 @@ const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 const FEINT_DURATION_MS = 32000;
 const PLATE_DURATION_MS = 34000;
 const FISH_DURATION_MS = 34000;
+const PAINT_DURATION_MS = 32000;
 
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
@@ -115,7 +116,8 @@ const MINIGAMES = [
   { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
   { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" },
   { type: "tellerdreher", title: "Tellerdreher", duration: PLATE_DURATION_MS, arcadeFamily: "plates" },
-  { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" }
+  { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" },
+  { type: "farbenjagd", title: "Farbenjagd", duration: PAINT_DURATION_MS, arcadeFamily: "paint" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -139,7 +141,8 @@ const ARCADE_CONFIGS = {
   falschsignal: { family: "feint", seed: 491 },
   spurmaler: { family: "trace", seed: 499 },
   tellerdreher: { family: "plates", seed: 503 },
-  angelduell: { family: "fish", seed: 509 }
+  angelduell: { family: "fish", seed: 509 },
+  farbenjagd: { family: "paint", seed: 521 }
 };
 
 // Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
@@ -279,6 +282,44 @@ const FISH_SURGE_MIN_MS = 900;         // Länge eines Schubs
 const FISH_SURGE_MAX_MS = 1600;
 const FISH_LEAD_IN_MS = 900;           // Ruhe, bevor der erste Schub kommt
 const FISH_MAX_CATCH = 20;             // Sicherheitsnetz
+
+// Farbenjagd: EINE geteilte Fläche für alle. Jeder Kin färbt das Feld, auf dem
+// er steht, in seine Farbe — auch wenn dort schon eine fremde liegt. Das ist der
+// Unterschied zu allen bisherigen Spielen: hier nimmt man sich gegenseitig
+// Boden ab, statt nebeneinander zu punkten. Gewonnen hat, wer am Ende die
+// meisten Felder hält, und ein fremdes Feld zu übermalen zählt doppelt: es
+// bringt dir eines und nimmt dem anderen eines.
+// 5 x 11 statt 7 x 9: das Seitenverhaeltnis des Feldes (0.45) muss zu dem des
+// Handybildes (0.46) passen. Mit 7 x 9 lagen die vorderen Ecken bei 1.83 NDC —
+// weit ausserhalb des Bildes. Am Bild gerechnet passt 5 x 11 bei 0.5 Weltmass
+// pro Feld genau: 78 px pro Feld und die Kamera darf 29 Grad geneigt bleiben,
+// sodass die Figuren noch Volumen haben.
+const PAINT_COLS = 5;
+const PAINT_ROWS = 11;
+// Gemessen und daraufhin umgebaut: mit sofortigem Umfärben war das Feld nach
+// vier Sekunden voll, danach flippten die Felder mehrere Male pro Sekunde
+// (gemessen 144 bis 309 Übermalungen je Spieler) und gewonnen hatte, wer im
+// letzten Tick zufällig auf den meisten stand. Ein Münzwurf, kein Spiel.
+//
+// Zwei Änderungen machen daraus Flächenkontrolle:
+//  * Ein Feld wird nicht getroffen, sondern BEANSPRUCHT. Fremder Anspruch muss
+//    erst abgetragen werden, dann der eigene aufgebaut — ein fremdes Feld
+//    kostet also doppelt so lange wie ein freies und verlangt, dass man dort
+//    bleibt statt durchzufahren.
+//  * Gewertet wird die Fläche über die ZEIT (Feldsekunden), nicht der Stand am
+//    Ende. Wer lange viel hält, gewinnt; ein Ausfall im letzten Moment
+//    entscheidet nichts mehr.
+const PAINT_SPEED = 2.2;               // Felder pro Sekunde
+const PAINT_CLAIM_RATE = 3.5;          // Anspruch pro Sekunde
+const PAINT_ACCEL = 14;                // wie schnell die Richtung greift
+const PAINT_DAMPING = 0.86;
+const PAINT_BUMP_RADIUS = 0.78;        // ab hier schubsen sich zwei Kins
+const PAINT_BUMP_FORCE = 5.2;
+const PAINT_BUMP_COOLDOWN_MS = 500;    // ein Rempler, nicht einer pro Tick
+const PAINT_TILE_SECOND_POINTS = 4;    // Punkte je gehaltenem Feld und Sekunde
+const PAINT_BOOST_MS = 5000;           // Dauer der breiten Rolle
+const PAINT_PICKUP_EVERY_MS = 4200;
+const PAINT_PICKUP_MAX = 2;
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1556,7 +1597,8 @@ function scheduleBotMinigameInputs(room) {
       // Bot hier nur auf 1.0 Schwung pro Sekunde, gebraucht werden bis zu 1.56.
       // fish braucht ebenfalls einen dichten Takt: Halten wird als Ping gemeldet,
       // und bei ~300 ms Abstand würde ein Ping-Fenster von 190 ms Lücken lassen.
-      const fastHand = ["trace", "plates", "fish"].includes(minigame.arcade.family);
+      // paint ebenso: die Richtung wird laufend gehalten wie an einem Stick.
+      const fastHand = ["trace", "plates", "fish", "paint"].includes(minigame.arcade.family);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
@@ -2007,6 +2049,17 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
       bestMs: arcadePlayer.bestMs,
       mistakes: arcadePlayer.falseStarts || 0,
+      label: "Punkte"
+    };
+  }
+  if (arcade.family === "paint") {
+    // Eigene Art, nicht das vorhandene "territory": dort gibt es kein Feld für
+    // die übermalten Felder, und die sind hier die halbe Geschichte.
+    return {
+      kind: "paintTiles",
+      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
+      owned: arcadePlayer.owned || 0,
+      claimed: arcadePlayer.claimed || 0,
       label: "Punkte"
     };
   }
@@ -3070,6 +3123,44 @@ function createArcadeState(type, players, startedAt) {
       entry.lastSpinAt = 0;
     });
   }
+  if (config.family === "paint") {
+    arcade.cols = PAINT_COLS;
+    arcade.rows = PAINT_ROWS;
+    arcade.grid = new Array(PAINT_COLS * PAINT_ROWS).fill(null);
+    arcade.charge = new Array(PAINT_COLS * PAINT_ROWS).fill(0);
+    arcade.pickups = [];
+    arcade.nextPickupAt = startedAt + PAINT_PICKUP_EVERY_MS;
+    arcade.nextPickupId = 1;
+    arcade.tileSecondPoints = PAINT_TILE_SECOND_POINTS;
+    // Startplätze in den vier Ecken: niemand hat einen Anfangsvorteil, und jeder
+    // sieht sofort, wo er steht.
+    const corners = [
+      [1, 1],
+      [PAINT_COLS - 2, 1],
+      [1, PAINT_ROWS - 2],
+      [PAINT_COLS - 2, PAINT_ROWS - 2]
+    ];
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      const [col, row] = corners[index % corners.length];
+      entry.px = col + 0.5;
+      entry.py = row + 0.5;
+      entry.vx = 0;
+      entry.vy = 0;
+      entry.dirX = 0;
+      entry.dirY = 0;
+      entry.wide = false;
+      entry.boostUntil = 0;
+      entry.claimed = 0;
+      entry.owned = 0;
+      entry.tileSeconds = 0;        // die eigentliche Wertung
+      entry.bumps = 0;
+      entry.lastBumpAt = 0;
+      entry.lastPickupAt = 0;
+      arcade.grid[paintIndex(col, row)] = player.id;
+      arcade.charge[paintIndex(col, row)] = 1;
+    });
+  }
   if (config.family === "fish") {
     arcade.tensionCalm = FISH_TENSION_CALM;
     arcade.tensionSurge = FISH_TENSION_SURGE;
@@ -3387,7 +3478,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0, fish: 60 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -3735,6 +3826,21 @@ function handleArcadeInput(room, player, input) {
     arcadePlayer.flash = "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "paint") {
+    if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
+    const dx = Number(input.x);
+    const dy = Number(input.y);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return { ok: false, error: "Ungültige Richtung." };
+    // Nur die RICHTUNG wird übernommen, nicht die Länge über 1: sonst wäre ein
+    // manipulierter Stick schneller als ein echter Daumen.
+    const length = Math.hypot(dx, dy);
+    const scale = length > 1 ? 1 / length : 1;
+    arcadePlayer.dirX = dx * scale;
+    arcadePlayer.dirY = dy * scale;
+    arcadePlayer.hasMoved = true;
     return { ok: true };
   }
 
@@ -4208,6 +4314,99 @@ function updateArcade(room) {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
     updateSumoStone(room, minigame, arcade, dt, now);
+    return;
+  }
+
+  if (arcade.family === "paint") {
+    const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    const active = room.players.filter((player) => arcade.players[player.id]);
+
+    // Neue Rolle aufs Feld legen, aber nie mehr als zwei gleichzeitig — sonst
+    // wird das Spiel ein Wettlauf um Boni statt um Fläche.
+    if (now >= arcade.nextPickupAt && arcade.pickups.length < PAINT_PICKUP_MAX) {
+      arcade.nextPickupAt = now + PAINT_PICKUP_EVERY_MS;
+      const roll = arcadeNoise(arcade.seed + arcade.nextPickupId * 37);
+      const col = Math.min(PAINT_COLS - 1, Math.floor(roll * PAINT_COLS));
+      const row = Math.min(PAINT_ROWS - 1, Math.floor(arcadeNoise(arcade.seed + arcade.nextPickupId * 53) * PAINT_ROWS));
+      arcade.pickups.push({ id: arcade.nextPickupId, col, row });
+      arcade.nextPickupId += 1;
+    }
+
+    active.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (entry.boostUntil && now >= entry.boostUntil) {
+        entry.wide = false;
+        entry.boostUntil = 0;
+      }
+
+      // Beschleunigen in die gehaltene Richtung, mit Dämpfung. Direkte
+      // Positionsübernahme fühlte sich in BounceArena rutschig an; hier gilt
+      // dasselbe Vorgehen.
+      entry.vx += (entry.dirX * PAINT_SPEED - entry.vx) * Math.min(1, PAINT_ACCEL * dt);
+      entry.vy += (entry.dirY * PAINT_SPEED - entry.vy) * Math.min(1, PAINT_ACCEL * dt);
+      entry.vx *= Math.pow(PAINT_DAMPING, dt * 10);
+      entry.vy *= Math.pow(PAINT_DAMPING, dt * 10);
+      entry.px = clamp(entry.px + entry.vx * dt, 0.1, PAINT_COLS - 0.1);
+      entry.py = clamp(entry.py + entry.vy * dt, 0.1, PAINT_ROWS - 0.1);
+    });
+
+    // Anrempeln: zwei Kins schieben sich auseinander. Das ist die einzige
+    // direkte Einmischung — man kann jemanden aus seinem Revier drängen.
+    for (let a = 0; a < active.length; a += 1) {
+      for (let b = a + 1; b < active.length; b += 1) {
+        const one = arcade.players[active[a].id];
+        const two = arcade.players[active[b].id];
+        const dx = two.px - one.px;
+        const dy = two.py - one.py;
+        const dist = Math.hypot(dx, dy);
+        if (dist >= PAINT_BUMP_RADIUS || dist < 1e-6) continue;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const push = (PAINT_BUMP_RADIUS - dist) * PAINT_BUMP_FORCE;
+        one.vx -= nx * push;
+        one.vy -= ny * push;
+        two.vx += nx * push;
+        two.vy += ny * push;
+        // Nur ein Rempler pro Begegnung: je Tick zu zählen ergab gemessen über
+        // 200 "Rempler" in einer Runde, was nichts mehr aussagt.
+        if (now - one.lastBumpAt > PAINT_BUMP_COOLDOWN_MS) {
+          one.bumps += 1;
+          one.lastBumpAt = now;
+        }
+        if (now - two.lastBumpAt > PAINT_BUMP_COOLDOWN_MS) {
+          two.bumps += 1;
+          two.lastBumpAt = now;
+        }
+      }
+    }
+
+    active.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const col = Math.floor(entry.px);
+      const row = Math.floor(entry.py);
+
+      paintBrushTiles(col, row, entry.wide).forEach(([c, r]) => {
+        paintClaim(arcade, entry, c, r, player.id, dt);
+      });
+
+      // Rolle einsammeln: aufs Feld laufen genügt.
+      const taken = arcade.pickups.findIndex((pickup) => pickup.col === col && pickup.row === row);
+      if (taken >= 0) {
+        arcade.pickups.splice(taken, 1);
+        entry.wide = true;
+        entry.boostUntil = now + PAINT_BOOST_MS;
+        entry.lastPickupAt = now;
+        entry.flash = "good";
+        entry.lastHitAt = now;
+      }
+
+      entry.owned = paintOwnedCount(arcade, player.id);
+      entry.tileSeconds += entry.owned * dt;
+      entry.score = Math.round(entry.tileSeconds * PAINT_TILE_SECOND_POINTS);
+      entry.hasMoved = entry.hasMoved || Math.abs(entry.dirX) + Math.abs(entry.dirY) > 0.05;
+      syncArcadeScore(minigame, player, entry);
+    });
     return;
   }
 
@@ -5155,6 +5354,57 @@ function traceOffset(seed, lap, x, y) {
   return Math.abs(x - tracePathX(seed, lap, clamp(y, 0, 1)));
 }
 
+function paintIndex(col, row) {
+  return row * PAINT_COLS + col;
+}
+
+function paintInside(col, row) {
+  return col >= 0 && col < PAINT_COLS && row >= 0 && row < PAINT_ROWS;
+}
+
+// Ein Feld beanspruchen. Kein Treffer, sondern Arbeit über Zeit: fremder
+// Anspruch muss erst abgetragen werden, dann der eigene aufgebaut. Meldet, was
+// in diesem Schritt passiert ist.
+function paintClaim(arcade, entry, col, row, playerId, dt) {
+  if (!paintInside(col, row)) return "outside";
+  const at = paintIndex(col, row);
+  const owner = arcade.grid[at];
+  const step = PAINT_CLAIM_RATE * dt;
+
+  if (owner === playerId) {
+    // Eigenes Feld: der Anspruch wird nur aufgefrischt, es gibt nichts zu holen.
+    arcade.charge[at] = 1;
+    return "mine";
+  }
+  if (owner) {
+    arcade.charge[at] -= step;
+    if (arcade.charge[at] > 0) return "eroding";
+    arcade.grid[at] = null;
+    arcade.charge[at] = 0;
+    return "neutralised";
+  }
+  arcade.charge[at] += step;
+  if (arcade.charge[at] < 1) return "claiming";
+  arcade.grid[at] = playerId;
+  arcade.charge[at] = 1;
+  entry.claimed += 1;
+  return "claimed";
+}
+
+// Alle Felder, die ein Pinselstrich trifft. Die breite Rolle nimmt die vier
+// Nachbarn mit — genug, um einen Vorsprung zu machen, aber kein Freifahrtschein.
+function paintBrushTiles(col, row, wide) {
+  const tiles = [[col, row]];
+  if (wide) tiles.push([col - 1, row], [col + 1, row], [col, row - 1], [col, row + 1]);
+  return tiles;
+}
+
+function paintOwnedCount(arcade, playerId) {
+  let owned = 0;
+  for (const owner of arcade.grid) if (owner === playerId) owned += 1;
+  return owned;
+}
+
 // Der Kampfplan eines Fisches: abwechselnd Ruhe und Schub, aus dem Seed
 // erzeugt. Client und Server leiten ihn aus derselben Funktion ab, damit die
 // Anzeige exakt das zeigt, was gewertet wird.
@@ -5689,6 +5939,57 @@ function arcadeBotStep(room, bot) {
     if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
       handleArcadeInput(room, bot, { action: "drop" });
     }
+    return;
+  }
+  if (arcade.family === "paint") {
+    const now = Date.now();
+    const profile = botProfile(player);
+    // Der Bot sucht sich ein Ziel und hält die Richtung, bis er dort ist. Jeden
+    // Tick neu zu wählen liess ihn zittern, statt zu laufen.
+    if (player.botTargetUntil === undefined) player.botTargetUntil = 0;
+    const reached = player.botTarget
+      && Math.hypot(player.botTarget.col + 0.5 - player.px, player.botTarget.row + 0.5 - player.py) < 0.45;
+    if (!player.botTarget || reached || now >= player.botTargetUntil) {
+      // Bewertung: eine Rolle ist am meisten wert, ein fremdes Feld mehr als ein
+      // leeres (es bringt eins und nimmt eins), das eigene nichts. Geteilt durch
+      // die Entfernung, damit Nähe zählt. Schwächere Bots gewichten Fremdfelder
+      // weniger — sie malen brav leere Flächen, statt anzugreifen.
+      const stealWeight = profile.level === "hard" ? 2.4 : profile.level === "normal" ? 1.7 : 1.1;
+      let best = null;
+      let bestScore = -Infinity;
+      for (let row = 0; row < PAINT_ROWS; row += 1) {
+        for (let col = 0; col < PAINT_COLS; col += 1) {
+          const owner = arcade.grid[paintIndex(col, row)];
+          if (owner === bot.id) continue;
+          const pickup = arcade.pickups.some((item) => item.col === col && item.row === row);
+          // Ein fremdes Feld kostet doppelt so lange wie ein freies, bringt aber
+          // auch doppelt (eines mehr für mich, eines weniger für ihn). Wie stark
+          // ein Bot das gegeneinander abwägt, ist sein Können.
+          const worth = pickup ? 6 : (owner ? stealWeight : 1);
+          const dist = Math.hypot(col + 0.5 - player.px, row + 0.5 - player.py) + 0.6;
+          const score = worth / dist + arcadeNoise(arcade.seed + col * 7 + row * 13 + now / 1000) * 0.12;
+          if (score > bestScore) {
+            bestScore = score;
+            best = { col, row };
+          }
+        }
+      }
+      player.botTarget = best;
+      // Neu entscheiden darf er auch unterwegs, sonst rennt er an einer gerade
+      // erschienenen Rolle vorbei. Ein schwacher Bot schaut seltener.
+      player.botTargetUntil = now + (profile.level === "hard" ? 700 : profile.level === "normal" ? 950 : 1150);
+    }
+    if (!player.botTarget) return;
+    const dx = player.botTarget.col + 0.5 - player.px;
+    const dy = player.botTarget.row + 0.5 - player.py;
+    const length = Math.hypot(dx, dy) || 1;
+    // Etwas Zittern in der Richtung: sonst laufen Bots wie auf Schienen.
+    const wobble = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.13 : 0.2;
+    handleArcadeInput(room, bot, {
+      action: "steer",
+      x: dx / length + (Math.random() - 0.5) * wobble,
+      y: dy / length + (Math.random() - 0.5) * wobble
+    });
     return;
   }
   if (arcade.family === "fish") {
@@ -6513,6 +6814,21 @@ module.exports = {
     buildFishPhases,
     activeFishPhase,
     fishSurging,
-    fishScore
+    fishScore,
+    PAINT_COLS,
+    PAINT_ROWS,
+    PAINT_SPEED,
+    PAINT_BUMP_RADIUS,
+    PAINT_CLAIM_RATE,
+    PAINT_TILE_SECOND_POINTS,
+    PAINT_BUMP_COOLDOWN_MS,
+    PAINT_BOOST_MS,
+    PAINT_PICKUP_MAX,
+    PAINT_DURATION_MS,
+    paintIndex,
+    paintInside,
+    paintClaim,
+    paintBrushTiles,
+    paintOwnedCount
   }
 };

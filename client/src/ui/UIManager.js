@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin77";
-import { playerStatus } from "../game/Player.js?v=tumblekin77";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin77";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin78";
+import { playerStatus } from "../game/Player.js?v=tumblekin78";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin78";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -813,6 +813,13 @@ function formatResultMetric(entry) {
     const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehlgriffe")}` : "";
     return `${detail.value} ${detail.label}${best}${slips}`;
   }
+  if (detail.kind === "paintTiles") {
+    // Gewertet wird die Fläche über die ZEIT. Der Stand am Ende und die selbst
+    // erobierten Felder erzählen daneben, wie es dazu kam.
+    const held = ` · ${countNoun(detail.owned, "Felder")} am Ende`;
+    const took = detail.claimed ? ` · ${countNoun(detail.claimed, "erobert")}` : "";
+    return `${detail.value} ${detail.label}${held}${took}`;
+  }
   if (detail.kind === "catch") {
     // Punkte entscheiden; die Fische und der angefangene zeigen, woher sie
     // kommen, die Risse, was sie gekostet haben.
@@ -851,6 +858,9 @@ const SINGULAR_NOUNS = {
   "Teller verloren": "Teller verloren",
   "Fische": "Fisch",
   "Risse": "Riss",
+  "übermalt": "übermalt",
+  "erobert": "erobert",
+  "Felder am Ende": "Feld am Ende",
   "Runden": "Runde",
   "Punkte": "Punkt"
 };
