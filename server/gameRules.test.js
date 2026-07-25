@@ -54,6 +54,14 @@ const {
   SLING_DISTANCE_STEP,
   SLING_MAX_SPEED,
   SLING_GRAVITY,
+  SUMO_RING_RADIUS,
+  SUMO_CHARGE_MS,
+  SUMO_OVERCHARGE_MS,
+  SUMO_MIN_CHARGE_MS,
+  SUMO_MAX_IMPULSE,
+  SUMO_HITS_OUT,
+  SUMO_SLIP_MS,
+  updateSumoStone,
   nearestToStar,
   standingsLeader
 } = testRules;
@@ -78,10 +86,10 @@ test("board uses one readable field language", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 16);
+  assert.equal(MINIGAMES.length, 17);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "turmbau", "zuendstoff"]
+    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "sumoschubs", "turmbau", "zuendstoff"]
   );
 });
 
@@ -1330,4 +1338,244 @@ test("sling: rapid fire is blocked by the input cooldown", () => {
     handleArcadeInput(room, shooter, { action: "shoot", power: 0.6, angle: 45 });
   }
   assert.equal(entry.shotsUsed, 1, "only the first shot of a burst may count");
+});
+
+
+// --- Sumo-Schubs -----------------------------------------------------------
+
+function sumoRoom(playerCount = 4) {
+  const players = Array.from({ length: playerCount }, (_, i) => ({
+    id: `s${i}`, name: `Sumo ${i}`, isBot: false
+  }));
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("sumoschubs", players, startedAt);
+  const minigame = {
+    id: 1, type: "sumoschubs", startedAt, duration: 40000,
+    arcade, scores: {}, lastInputAt: {}
+  };
+  const room = { currentMinigame: minigame, players };
+  // Umgeht den Eingabe-Cooldown; der wird separat geprüft.
+  const send = (player, input) => {
+    arcade.players[player.id].lastInputAt = 0;
+    return handleArcadeInput(room, player, input);
+  };
+  // Lädt für `heldMs` auf und lässt dann los.
+  const chargeAndShove = (player, heldMs) => {
+    const entry = arcade.players[player.id];
+    send(player, { action: "charge" });
+    entry.chargeStart = Date.now() - heldMs;
+    return send(player, { action: "shove" });
+  };
+  return { room, players, arcade, minigame, send, chargeAndShove };
+}
+
+test("sumo: players start evenly spread on the ring", () => {
+  const { players, arcade } = sumoRoom(4);
+  players.forEach((p) => {
+    const e = arcade.players[p.id];
+    // Jeder Platz liegt auf dem Einheitskreis.
+    assert.ok(Math.abs(Math.hypot(e.spotX, e.spotY) - 1) < 1e-9, "spot must sit on the unit circle");
+    assert.equal(e.hits, 0);
+    assert.equal(e.eliminated, false);
+  });
+  // Vier Plätze müssen verschieden sein.
+  const spots = players.map((p) => `${arcade.players[p.id].spotX.toFixed(3)},${arcade.players[p.id].spotY.toFixed(3)}`);
+  assert.equal(new Set(spots).size, 4);
+});
+
+test("sumo: a full charge shoves the stone away from the shover", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  chargeAndShove(me, SUMO_CHARGE_MS);
+  // Der Stein bekommt Geschwindigkeit WEG von meinem Platz.
+  assert.ok(arcade.stone.vx * e.spotX + arcade.stone.vy * e.spotY < 0, "stone must move away from the shover");
+  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) > SUMO_MAX_IMPULSE * 0.9);
+  assert.equal(e.shoves, 1);
+  assert.equal(e.lastShove.slipped, false);
+});
+
+test("sumo: a longer charge shoves harder", () => {
+  const weak = sumoRoom(4);
+  weak.chargeAndShove(weak.players[0], SUMO_CHARGE_MS * 0.3);
+  const weakSpeed = Math.hypot(weak.arcade.stone.vx, weak.arcade.stone.vy);
+
+  const strong = sumoRoom(4);
+  strong.chargeAndShove(strong.players[0], SUMO_CHARGE_MS);
+  const strongSpeed = Math.hypot(strong.arcade.stone.vx, strong.arcade.stone.vy);
+
+  assert.ok(strongSpeed > weakSpeed * 2, `${strongSpeed} should clearly beat ${weakSpeed}`);
+});
+
+test("sumo: overcharging slips instead of shoving", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  chargeAndShove(me, SUMO_OVERCHARGE_MS + 200);
+
+  assert.equal(e.slips, 1);
+  assert.equal(e.shoves, 0, "an overcharge must not move the stone");
+  assert.equal(arcade.stone.vx, 0);
+  assert.equal(arcade.stone.vy, 0);
+  assert.ok(e.slipUntil > Date.now(), "the slip has to cost recovery time");
+  assert.equal(e.lastShove.slipped, true);
+});
+
+test("sumo: a slipped player cannot act until recovered", () => {
+  const { players, arcade, chargeAndShove, send } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  chargeAndShove(me, SUMO_OVERCHARGE_MS + 200);
+  // Sofortiger Versuch währenddessen darf nichts bewirken.
+  send(me, { action: "charge" });
+  assert.equal(e.chargeStart, null, "charging must be ignored while down");
+});
+
+test("sumo: a mere tap does nothing", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const e = arcade.players[players[0].id];
+  chargeAndShove(players[0], SUMO_MIN_CHARGE_MS - 20);
+  assert.equal(e.shoves, 0);
+  assert.equal(e.slips, 0);
+  assert.equal(arcade.stone.vx, 0);
+});
+
+test("sumo: the stone leaving the ring hits the player it rolled toward", () => {
+  const { room, players, arcade, minigame } = sumoRoom(4);
+  const target = players[2];
+  const t = arcade.players[target.id];
+  // Stein direkt vor die Kante von Spieler 2 setzen, mit Fahrt nach draussen.
+  arcade.stone.x = t.spotX * (SUMO_RING_RADIUS - 0.02);
+  arcade.stone.y = t.spotY * (SUMO_RING_RADIUS - 0.02);
+  arcade.stone.vx = t.spotX * 2;
+  arcade.stone.vy = t.spotY * 2;
+
+  updateSumoStone(room, minigame, arcade, 0.1, Date.now());
+  assert.equal(t.hits, 1, "the player in the exit direction takes the hit");
+  players.filter((p) => p.id !== target.id).forEach((p) => {
+    assert.equal(arcade.players[p.id].hits, 0, "nobody else may be hit");
+  });
+  // Und der Stein liegt wieder in der Mitte.
+  assert.equal(arcade.stone.x, 0);
+  assert.equal(arcade.stone.y, 0);
+});
+
+test("sumo: enough hits eliminate a player", () => {
+  const { room, players, arcade, minigame } = sumoRoom(4);
+  const victim = players[1];
+  const v = arcade.players[victim.id];
+  for (let i = 0; i < SUMO_HITS_OUT; i += 1) {
+    arcade.stone.x = v.spotX * (SUMO_RING_RADIUS + 0.05);
+    arcade.stone.y = v.spotY * (SUMO_RING_RADIUS + 0.05);
+    updateSumoStone(room, minigame, arcade, 0.1, Date.now());
+  }
+  assert.equal(v.hits, SUMO_HITS_OUT);
+  assert.equal(v.eliminated, true);
+});
+
+test("sumo: an eliminated player can no longer shove", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const out = players[0];
+  arcade.players[out.id].eliminated = true;
+  chargeAndShove(out, SUMO_CHARGE_MS);
+  assert.equal(arcade.stone.vx, 0, "an eliminated player must not affect the stone");
+});
+
+test("sumo: friction brings the stone to rest", () => {
+  const { room, arcade, minigame } = sumoRoom(4);
+  arcade.stone.vx = 0.5;
+  arcade.stone.vy = 0;
+  for (let i = 0; i < 60; i += 1) updateSumoStone(room, minigame, arcade, 0.05, Date.now());
+  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) < 0.01, "the stone has to settle");
+});
+
+test("sumo: surviving outranks being eliminated", () => {
+  const { room, players, arcade, minigame } = sumoRoom(4);
+  const out = arcade.players[players[0].id];
+  out.eliminated = true;
+  out.hits = SUMO_HITS_OUT;
+  updateSumoStone(room, minigame, arcade, 0.05, Date.now());
+  const alive = arcade.players[players[1].id];
+  assert.ok(alive.score > out.score, "a player still standing must score higher");
+});
+
+test("sumo: garbage input does not corrupt the state", () => {
+  const { players, arcade, send } = sumoRoom(4);
+  const e = arcade.players[players[0].id];
+  send(players[0], { action: "shove" });          // ohne vorheriges Laden
+  send(players[0], { action: null });
+  send(players[0], {});
+  assert.ok(Number.isFinite(arcade.stone.vx));
+  assert.ok(Number.isFinite(e.score ?? 0));
+  assert.equal(e.shoves, 0);
+});
+
+test("sumo: wrong action is refused", () => {
+  const { players, send } = sumoRoom(4);
+  const result = send(players[0], { action: "drop" });
+  assert.equal(result.ok, false);
+});
+
+test("sumo: a stale charge from a reordered tap does not cause a phantom slip", () => {
+  // Regression: bei einem kurzen Antippen können `shove` und `charge` in
+  // vertauschter Reihenfolge eintreffen. Der zurückgebliebene Zeitstempel liess
+  // den nächsten, sauberen Halt sofort als Überladen gelten.
+  const { players, arcade, send } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+
+  // Vertauschte Reihenfolge nachstellen: shove zuerst, danach charge.
+  send(me, { action: "shove" });
+  send(me, { action: "charge" });
+  assert.notEqual(e.chargeStart, null, "the late charge does set a timestamp");
+
+  // Der Zeitstempel ist jetzt veraltet — ein neuer Halt muss ihn erneuern.
+  e.chargeStart = Date.now() - (SUMO_OVERCHARGE_MS + 2000);
+  send(me, { action: "charge" });
+  const age = Date.now() - e.chargeStart;
+  assert.ok(age < 100, `a fresh charge has to restart the clock, age was ${age} ms`);
+
+  // Und ein sauber dosierter Halt stösst dann wirklich.
+  e.chargeStart = Date.now() - SUMO_CHARGE_MS;
+  send(me, { action: "shove" });
+  assert.equal(e.shoves, 1, "a clean hold must shove");
+  assert.equal(e.slips, 0, "and must not slip");
+});
+
+test("sumo: a duplicate charge mid-hold does not reset the meter", () => {
+  const { players, arcade, send } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  send(me, { action: "charge" });
+  const first = e.chargeStart;
+  e.chargeStart = Date.now() - 400;          // 400 ms geladen
+  const mid = e.chargeStart;
+  send(me, { action: "charge" });             // doppeltes Drücken
+  assert.equal(e.chargeStart, mid, "an in-progress charge must be left alone");
+  assert.ok(first !== null);
+});
+
+test("sumo: a charge immediately followed by a shove clears the charge", () => {
+  // Regression: ein Eingabe-Cooldown blockte das unmittelbar folgende `shove`,
+  // sodass der Ladezeitstempel hängen blieb. Der nächste, sauber dosierte Halt
+  // galt dann als Überladen und rutschte aus.
+  const players = [{ id: "solo", name: "Solo", isBot: false }];
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("sumoschubs", players, startedAt);
+  const minigame = { id: 1, type: "sumoschubs", startedAt, duration: 40000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const e = arcade.players[me.id];
+
+  // OHNE den Cooldown zurückzusetzen — genau wie ein echtes Antippen.
+  handleArcadeInput(room, me, { action: "charge" });
+  handleArcadeInput(room, me, { action: "shove" });
+  assert.equal(e.chargeStart, null, "the shove has to be processed, not swallowed");
+
+  // Und ein anschliessender, sauberer Halt stösst wirklich.
+  handleArcadeInput(room, me, { action: "charge" });
+  e.chargeStart = Date.now() - SUMO_CHARGE_MS;
+  handleArcadeInput(room, me, { action: "shove" });
+  assert.equal(e.shoves, 1);
+  assert.equal(e.slips, 0);
 });

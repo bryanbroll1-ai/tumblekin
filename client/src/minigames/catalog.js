@@ -7,7 +7,8 @@ export const GESTURES = {
   swipeSide: { icon: "👆↔️", label: "Links/Rechts wischen" },
   swipeAny: { icon: "👆✳️", label: "In jede Richtung wischen" },
   hold: { icon: "👆⏺️", label: "Knopf gedrückt halten" },
-  pull: { icon: "👆🎯", label: "Ziehen und loslassen" }
+  pull: { icon: "👆🎯", label: "Ziehen und loslassen" },
+  charge: { icon: "👆💪", label: "Halten und loslassen" }
 };
 
 export const MINIGAME_CATALOG = [
@@ -26,7 +27,8 @@ export const MINIGAME_CATALOG = [
   { type: "messerwurf", title: "Messerwurf", family: "knife", gesture: "tap", help: "Wirf dein Messer in den drehenden Baumstamm – aber triff kein Messer der anderen, sonst bist du raus!" },
   { type: "turmbau", title: "Turmbau", family: "stack", gesture: "tap", help: "Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!" },
   { type: "bergsteiger", title: "Bergsteiger", family: "climb", gesture: "taps", help: "Tippe abwechselnd links und rechts, um die Wand hochzuklettern. Wer zuerst oben ist, gewinnt!" },
-  { type: "schleuderschuss", title: "Schleuderschuss", family: "sling", gesture: "pull", help: "Zieh die Schleuder zurück und lass los. Länge = Kraft, Richtung = Winkel — und die Scheibe weicht nach jedem Schuss zurück!" }
+  { type: "schleuderschuss", title: "Schleuderschuss", family: "sling", gesture: "pull", help: "Zieh die Schleuder zurück und lass los. Länge = Kraft, Richtung = Winkel — und die Scheibe weicht nach jedem Schuss zurück!" },
+  { type: "sumoschubs", title: "Sumo-Schubs", family: "sumo", gesture: "charge", help: "Halten lädt deinen Stoss auf, loslassen schubst den Stein weg. Aber lade nicht zu lange — dann rutschst du aus!" }
 ];
 
 export const ARCADE_TYPES = new Set(

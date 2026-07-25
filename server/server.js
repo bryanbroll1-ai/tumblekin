@@ -102,7 +102,8 @@ const MINIGAMES = [
   { type: "messerwurf", title: "Messerwurf", duration: 46000, arcadeFamily: "knife" },
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
-  { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" }
+  { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" },
+  { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -120,7 +121,8 @@ const ARCADE_CONFIGS = {
   messerwurf: { family: "knife", seed: 457 },
   turmbau: { family: "stack", seed: 461 },
   bergsteiger: { family: "climb", seed: 463 },
-  schleuderschuss: { family: "sling", seed: 467 }
+  schleuderschuss: { family: "sling", seed: 467 },
+  sumoschubs: { family: "sumo", seed: 479 }
 };
 
 // Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
@@ -137,6 +139,18 @@ const SLING_BASE_DISTANCE = 9;
 const SLING_DISTANCE_STEP = 1.6;
 const SLING_GRAVITY = 9.81;
 const SLING_MAX_SPEED = 15;
+
+// Sumo-Schubs: alle laden gleichzeitig auf und stossen den Stein von sich weg.
+// Wer zu lange lädt, rutscht aus und stösst gar nicht — das ist der Reiz, nicht
+// das Timing eines fremden Zeigers.
+const SUMO_RING_RADIUS = 1.0;          // normiert: Stein ausserhalb = Treffer
+const SUMO_CHARGE_MS = 1200;           // volle Kraft nach dieser Haltezeit
+const SUMO_OVERCHARGE_MS = 1650;       // ab hier rutscht man aus
+const SUMO_MIN_CHARGE_MS = 120;        // darunter zählt es als Antippen
+const SUMO_MAX_IMPULSE = 1.5;          // Geschwindigkeitsänderung bei Vollkraft
+const SUMO_FRICTION = 1.9;             // pro Sekunde
+const SUMO_HITS_OUT = 3;               // so viele Treffer und man ist raus
+const SUMO_SLIP_MS = 900;              // Erholung nach dem Ausrutschen
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1843,6 +1857,11 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "stack") {
     return { kind: "points", value: arcadePlayer.height || 0, label: "Etagen" };
   }
+  if (arcade.family === "sumo") {
+    return arcadePlayer.eliminated
+      ? { kind: "hits", value: arcadePlayer.hits || 0, label: "Treffer" }
+      : { kind: "points", value: arcadePlayer.score || 0, label: "Standfest" };
+  }
   if (arcade.family === "sling") {
     return { kind: "points", value: arcadePlayer.score || 0, label: "Ringpunkte" };
   }
@@ -2809,6 +2828,28 @@ function createArcadeState(type, players, startedAt) {
       entry.perfects = 0;
     });
   }
+  if (config.family === "sumo") {
+    arcade.stone = { x: 0, y: 0, vx: 0, vy: 0 };
+    arcade.ringRadius = SUMO_RING_RADIUS;
+    arcade.hitsOut = SUMO_HITS_OUT;
+    arcade.chargeMs = SUMO_CHARGE_MS;
+    arcade.overchargeMs = SUMO_OVERCHARGE_MS;
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      // Gleichmässig im Kreis; der Winkel ist auch die Stossrichtung.
+      const angle = (index / Math.max(1, players.length)) * Math.PI * 2 - Math.PI / 2;
+      entry.angle = angle;
+      entry.spotX = Math.cos(angle);
+      entry.spotY = Math.sin(angle);
+      entry.chargeStart = null;        // Zeitpunkt des Drückens
+      entry.lastShove = null;          // { power, at, slipped }
+      entry.shoves = 0;
+      entry.slips = 0;
+      entry.slipUntil = 0;
+      entry.hits = 0;
+      entry.eliminated = false;
+    });
+  }
   if (config.family === "sling") {
     arcade.shots = SLING_SHOTS;
     players.forEach((player, index) => {
@@ -3065,7 +3106,11 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0 };
+  // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
+  // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
+  // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
+  // Überladen galt. Die Mechanik begrenzt sich selbst — man muss halten.
   const cooldown = cooldowns[arcade.family] ?? 100;
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
   arcadePlayer.lastInputAt = now;
@@ -3318,6 +3363,53 @@ function handleArcadeInput(room, player, input) {
     }
     arcadePlayer.hasMoved = true;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "sumo") {
+    if (arcadePlayer.eliminated) return { ok: true };
+    if (now < arcadePlayer.slipUntil) return { ok: true };   // liegt noch am Boden
+
+    if (input.action === "charge") {
+      // Ein laufender Ladevorgang wird nicht zurückgesetzt, damit ein doppeltes
+      // Drücken den Balken nicht zurückwirft. Ein VERALTETER Ladevorgang schon:
+      // bei einem kurzen Antippen können `shove` und `charge` in vertauschter
+      // Reihenfolge eintreffen, wodurch ein Zeitstempel hängen blieb und der
+      // nächste Halt mit Sekunden Vorlauf sofort als Überladen galt.
+      const stale = arcadePlayer.chargeStart !== null
+        && now - arcadePlayer.chargeStart > SUMO_OVERCHARGE_MS;
+      if (arcadePlayer.chargeStart === null || stale) arcadePlayer.chargeStart = now;
+      arcadePlayer.hasMoved = true;
+      return { ok: true };
+    }
+    if (input.action !== "shove") return { ok: false, error: "Halten zum Aufladen, loslassen zum Stossen." };
+    if (arcadePlayer.chargeStart === null) return { ok: true };
+
+    const held = now - arcadePlayer.chargeStart;
+    arcadePlayer.chargeStart = null;
+    if (held < SUMO_MIN_CHARGE_MS) return { ok: true };       // nur angetippt
+
+    if (held > SUMO_OVERCHARGE_MS) {
+      // Überladen: der Kin rutscht aus, kein Stoss, kurze Auszeit.
+      arcadePlayer.slips += 1;
+      arcadePlayer.slipUntil = now + SUMO_SLIP_MS;
+      arcadePlayer.lastShove = { power: 0, at: now, slipped: true };
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+      return { ok: true };
+    }
+
+    const power = Math.min(1, held / SUMO_CHARGE_MS);
+    // Stoss zeigt vom eigenen Platz zur Mitte und weiter — der Stein fliegt
+    // also vom Stossenden weg.
+    const impulse = power * SUMO_MAX_IMPULSE;
+    arcade.stone.vx += -arcadePlayer.spotX * impulse;
+    arcade.stone.vy += -arcadePlayer.spotY * impulse;
+    arcadePlayer.shoves += 1;
+    arcadePlayer.lastShove = { power, at: now, slipped: false };
+    arcadePlayer.flash = power > 0.85 ? "good" : null;
+    arcadePlayer.lastHitAt = now;
+    arcadePlayer.hasMoved = true;
     return { ok: true };
   }
 
@@ -3602,6 +3694,13 @@ function updateArcade(room) {
     arcade.timingTarget = arcadeDynamicTimingTarget(arcade, cycle);
   }
   if (arcade.family === "target") updateArcadeTargets(arcade, now);
+
+  if (arcade.family === "sumo") {
+    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    updateSumoStone(room, minigame, arcade, dt, now);
+    return;
+  }
 
   if (arcade.family === "steer") {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
@@ -4032,6 +4131,9 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
   } else if (arcade.family === "sling") {
     done = room.players.every((player) => (arcade.players[player.id]?.shotsUsed || 0) >= arcade.shots);
+  } else if (arcade.family === "sumo") {
+    const alive = room.players.filter((player) => !arcade.players[player.id]?.eliminated);
+    done = room.players.length > 1 && alive.length <= 1;
   }
   if (done) {
     beginMinigameFinale(room, minigame);
@@ -4338,6 +4440,68 @@ function updateDirectWorld(room, minigame, arcade, elapsed, dt, now) {
       syncArcadeScore(minigame, player, entry);
     });
   }
+}
+
+// Steinphysik für Sumo-Schubs: Reibung, Rand-Check, Treffer und Ausscheiden.
+// Bewusst schlicht gehalten (ein Körper, keine Kollisionen), damit die Wertung
+// serverautoritativ bleibt, ohne den 90-ms-Tick zu belasten.
+function updateSumoStone(room, minigame, arcade, dt, now) {
+  const stone = arcade.stone;
+  if (!stone) return;
+
+  // Reibung bremst den Stein, sonst kreist er endlos.
+  const damp = Math.max(0, 1 - SUMO_FRICTION * dt);
+  stone.vx *= damp;
+  stone.vy *= damp;
+  stone.x += stone.vx * dt;
+  stone.y += stone.vy * dt;
+
+  const distance = Math.hypot(stone.x, stone.y);
+  if (distance > arcade.ringRadius) {
+    // Der Stein hat den Ring verlassen: der Spieler, dessen Platz am nächsten
+    // an der Austrittsrichtung liegt, kassiert den Treffer.
+    let victim = null;
+    let best = -Infinity;
+    const nx = stone.x / (distance || 1);
+    const ny = stone.y / (distance || 1);
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry || entry.eliminated) return;
+      // Skalarprodukt: grösster Wert = Platz liegt in Austrittsrichtung.
+      const alignment = entry.spotX * nx + entry.spotY * ny;
+      if (alignment > best) {
+        best = alignment;
+        victim = { player, entry };
+      }
+    });
+
+    if (victim) {
+      victim.entry.hits += 1;
+      victim.entry.flash = "bad";
+      victim.entry.lastHitAt = now;
+      victim.entry.lastHitFrom = { x: stone.x, y: stone.y, at: now };
+      if (victim.entry.hits >= arcade.hitsOut) {
+        victim.entry.eliminated = true;
+        victim.entry.eliminatedAt = now;
+      }
+    }
+
+    // Stein zurück in die Mitte, kurze Ruhe für den nächsten Schlagabtausch.
+    stone.x = 0;
+    stone.y = 0;
+    stone.vx = 0;
+    stone.vy = 0;
+    arcade.resetAt = now;
+  }
+
+  // Punkte: Standfestigkeit zählt, Stösse sind das Mittel dazu.
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry) return;
+    const survived = entry.eliminated ? 0 : 1000;
+    entry.score = survived + Math.max(0, (arcade.hitsOut - entry.hits)) * 100 + entry.shoves * 5;
+    syncArcadeScore(minigame, player, entry);
+  });
 }
 
 function updateArcadeWorld(arcade, elapsed, dt, now) {
@@ -4711,6 +4875,24 @@ function arcadeBotStep(room, bot) {
     if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
       handleArcadeInput(room, bot, { action: "drop" });
     }
+    return;
+  }
+  if (arcade.family === "sumo") {
+    if (player.eliminated) return;
+    const now = Date.now();
+    if (now < player.slipUntil) return;
+    const profile = botProfile(player);
+    // Bots laden auf und lassen los, bevor sie überladen — schwächere Bots
+    // verschätzen sich häufiger und rutschen dadurch aus.
+    if (player.chargeStart === null) {
+      // Nicht in jedem Tick neu ansetzen, sonst stossen Bots im Dauerfeuer.
+      if (Math.random() < 0.28) handleArcadeInput(room, bot, { action: "charge" });
+      return;
+    }
+    const held = now - player.chargeStart;
+    const slop = profile.level === "hard" ? 90 : profile.level === "normal" ? 220 : 420;
+    const target = SUMO_CHARGE_MS - slop / 2 + Math.random() * slop;
+    if (held >= target) handleArcadeInput(room, bot, { action: "shove" });
     return;
   }
   if (arcade.family === "sling") {
@@ -5283,6 +5465,14 @@ module.exports = {
     SLING_BASE_DISTANCE,
     SLING_DISTANCE_STEP,
     SLING_MAX_SPEED,
-    SLING_GRAVITY
+    SLING_GRAVITY,
+    SUMO_RING_RADIUS,
+    SUMO_CHARGE_MS,
+    SUMO_OVERCHARGE_MS,
+    SUMO_MIN_CHARGE_MS,
+    SUMO_MAX_IMPULSE,
+    SUMO_HITS_OUT,
+    SUMO_SLIP_MS,
+    updateSumoStone
   }
 };
