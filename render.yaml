@@ -1,0 +1,22 @@
+# Blueprint für Render (https://render.com) — erlaubt ein Deploy komplett per
+# Browser, ohne Terminal. Nach dem Anwenden gibt es eine dauerhafte
+# HTTPS-Adresse, die sich auch verschicken lässt.
+#
+# Hinweis zum Gratis-Tarif: der Dienst wird bei Inaktivität schlafen gelegt und
+# braucht beim nächsten Aufruf etwa eine Minute zum Aufwachen.
+services:
+  - type: web
+    name: tumblekin
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      # PORT wird von Render gesetzt; der Server liest ihn aus der Umgebung.
+      - key: NODE_ENV
+        value: production
+      # Entwickler-Werkzeug bleibt in einer öffentlichen Instanz aus.
+      - key: TUMBLEKIN_DEV_TOOLS
+        value: "0"
