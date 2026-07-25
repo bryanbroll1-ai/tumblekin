@@ -56,7 +56,7 @@ async function playOne() {
   const PORT = await freePort();
   const BASE = `http://127.0.0.1:${PORT}`;
   const server = spawn(process.execPath, ["server/server.js"], {
-    cwd: process.cwd(), env: { ...process.env, PORT: String(PORT) }, stdio: ["ignore", "pipe", "pipe"]
+    cwd: process.cwd(), env: { ...process.env, PORT: String(PORT), TUMBLEKIN_DEV_TOOLS: "1" }, stdio: ["ignore", "pipe", "pipe"]
   });
   let serverLog = "";
   server.stdout.on("data", (d) => { serverLog += d; });

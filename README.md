@@ -90,7 +90,7 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 ## Dev-Testmodus
 
-Der Dev-Testmodus ist im normalen Spiel ausgeblendet. Mit `http://localhost:3000/?dev=1` erscheint in der Lobby der Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 15 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
+Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 15 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
 
 ## Lokal testen
 
@@ -125,6 +125,24 @@ npm run board-sim -- 3       # drei Partien mit Sammelbilanz
 ```
 
 Braucht einmalig `npm install --no-save socket.io-client`. Wird in keiner Partie ein Stern gekauft, endet der Lauf mit Exit-Code 1 — genau dieser Fall hat aufgedeckt, dass ein zufällig platzierter Stern eine ganze Runde unerreichbar bleiben kann.
+
+## Veröffentlichung
+
+`RELEASE.md` beschreibt den Stand für ein Store-Release: was erledigt ist, was
+noch fehlt, und warum der heutige LAN-Aufbau mit selbst gehostetem Server so
+nicht in einen Store kann. Dort steht auch der Fahrplan von 15 auf 30
+Minispiele.
+
+Entwickler-Werkzeug (vier lokale Spieler, Challenges direkt starten) ist in
+Produktion aus und wird über eine Umgebungsvariable eingeschaltet:
+
+```bash
+TUMBLEKIN_DEV_TOOLS=1 npm start
+```
+
+Rechtliches: `LICENSE` (MIT), `THIRD-PARTY-NOTICES.md` für die eingebundenen
+Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
+`npm run icons` neu erzeugen.
 
 ## Architektur
 

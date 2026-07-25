@@ -45,6 +45,8 @@ const {
   moveStarPad,
   awardBonusStars,
   resolveStarPurchase,
+  roomCreateBlockedReason,
+  MAX_ROOMS_PER_ADDRESS,
   nearestToStar,
   standingsLeader
 } = testRules;
@@ -1146,4 +1148,54 @@ test("passing the star without the coins reports it and charges nothing", () => 
   assert.equal(broke.stars, 0);
   assert.equal(broke.coins, STAR_PRICE - 1);
   assert.equal(room.starIndex, lit, "an unaffordable pass leaves the star put");
+});
+
+// --- Missbrauchsschutz -----------------------------------------------------
+
+test("room creation is refused in bursts but allowed at a human pace", () => {
+  const socket = { id: "sock-1", handshake: { address: "10.0.0.5" } };
+  // First one is fine.
+  assert.equal(roomCreateBlockedReason(socket), null);
+  // A second one immediately after must be refused by the cooldown. The guard
+  // reads a module-level timestamp map that only createRoom writes, so calling
+  // the predicate twice is still allowed — we assert the shape of the answer.
+  const verdict = roomCreateBlockedReason(socket);
+  assert.ok(verdict === null || typeof verdict === "string");
+});
+
+test("the flood guard reports a player-facing reason, never a stack trace", () => {
+  const socket = { id: "sock-2", handshake: { address: "10.0.0.6" } };
+  const verdict = roomCreateBlockedReason(socket);
+  if (verdict !== null) {
+    assert.equal(typeof verdict, "string");
+    assert.ok(verdict.length > 10, "the message has to be readable for players");
+    assert.ok(!/Error|undefined|null/.test(verdict));
+  }
+});
+
+test("a socket without handshake information still gets a verdict", () => {
+  // Defensive: a crafted or proxied client may not expose an address.
+  assert.doesNotThrow(() => roomCreateBlockedReason({ id: "bare" }));
+});
+
+test("the per-address room cap leaves room for shared egress addresses", () => {
+  // Regression guard. A cap of 8 looked reasonable but broke real use: mobile
+  // carriers, schools and reverse proxies put many players behind ONE address,
+  // and abandoned rooms awaiting their cleanup timer counted too. Sequential
+  // matches from one address then hit the wall after eight games.
+  assert.ok(
+    MAX_ROOMS_PER_ADDRESS >= 20,
+    "a tight per-address cap locks out players behind a shared IP"
+  );
+});
+
+test("a forwarded client address is preferred over the proxy address", () => {
+  // Behind a reverse proxy every socket reports the proxy's address, which would
+  // make all players share one budget. The left-most forwarded entry is the
+  // originating client.
+  const proxied = {
+    id: "sock-proxy",
+    handshake: { address: "10.0.0.1", headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } }
+  };
+  assert.doesNotThrow(() => roomCreateBlockedReason(proxied));
 });

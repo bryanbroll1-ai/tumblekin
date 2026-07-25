@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin68";
-import { playerStatus } from "../game/Player.js?v=tumblekin68";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin68";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin69";
+import { playerStatus } from "../game/Player.js?v=tumblekin69";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin69";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -148,6 +148,17 @@ export class UIManager {
     };
   }
 
+  // Build version in the menu: the first thing needed for a support request.
+  showVersion(version) {
+    if (!version) return;
+    const target = this.el.gameMenu?.querySelector("[data-menu-view='main']");
+    if (!target || target.querySelector(".menu-version")) return;
+    const tag = document.createElement("p");
+    tag.className = "menu-version";
+    tag.textContent = `Version ${version}`;
+    target.appendChild(tag);
+  }
+
   // The floating in-game menu: settings plus a confirmed way out of a match.
   toggleGameMenu(open) {
     if (!this.el.gameMenu) return;
@@ -226,7 +237,10 @@ export class UIManager {
     const params = new URLSearchParams(window.location.search);
     const codeFromUrl = params.get("room");
     if (codeFromUrl) this.el.code.value = codeFromUrl.toUpperCase();
-    this.devToolsAllowed = params.get("dev") === "1";
+    // Requested via URL, but only granted once /config confirms this build
+    // ships dev tools (see loadConfig).
+    this.devToolsRequested = params.get("dev") === "1";
+    this.devToolsAllowed = false;
   }
 
   playerName() {
@@ -254,9 +268,15 @@ export class UIManager {
       const response = await fetch("/config");
       this.config = await response.json();
       this.lastQrCode = "";
+      // The URL flag only asks for dev tools; the server decides whether this
+      // build has them at all.
+      this.devToolsAllowed = this.devToolsRequested && this.config.devTools === true;
+      this.showVersion(this.config.version);
       if (this.state?.status === "lobby") this.renderLobby();
+      else if (this.state) this.render(this.state, this.myPlayerId);
     } catch (_error) {
       this.config = { lanUrls: [] };
+      this.devToolsAllowed = false;
     }
   }
 

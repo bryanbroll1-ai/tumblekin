@@ -7,6 +7,11 @@ const QRCode = require("qrcode");
 const { BOARD_DEFINITIONS, BOARD_SIZE, getBoard, publicBoard } = require("./boards");
 
 const PORT = Number(process.env.PORT || 3000);
+// Developer tooling (four local players, launching any challenge on demand) is
+// off unless explicitly enabled. A URL parameter alone must not unlock it, so
+// production builds cannot be talked into dev mode by a crafted client.
+const DEV_TOOLS_ENABLED = process.env.TUMBLEKIN_DEV_TOOLS === "1";
+const APP_VERSION = require("../package.json").version;
 const MAX_PLAYERS = 4;
 const MAX_ROUNDS = 5;
 const ARCADE_MARATHON_ROUNDS = 5;
@@ -223,6 +228,60 @@ const FLUX_BLOCKED = [[0, 0], [8, 0], [0, 8], [8, 8], [4, 4]];
 
 const rooms = new Map();
 
+// --- Abuse limits ----------------------------------------------------------
+// Harmless on a home WLAN, but a hosted server must not let one client fill
+// memory with empty rooms. Measured before adding this: 60 connections created
+// 60 rooms with nothing refused.
+const MAX_ROOMS_TOTAL = 400;
+// Deliberately generous: mobile carriers, schools and offices put many players
+// behind ONE egress address, and a reverse proxy can make every client look
+// identical. A tight per-address cap would lock out legitimate players — the
+// short burst cooldown below is what actually stops flooding.
+const MAX_ROOMS_PER_ADDRESS = 30;
+const ROOM_CREATE_COOLDOWN_MS = 1500;
+const lastRoomCreateAt = new Map();   // address -> timestamp
+
+function clientAddress(socket) {
+  // Behind a reverse proxy the socket address is the proxy; the forwarded
+  // header carries the real client. Take the left-most entry, which is the
+  // originating client.
+  const forwarded = socket.handshake?.headers?.["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length) {
+    const first = forwarded.split(",")[0].trim();
+    if (first) return first;
+  }
+  return socket.handshake?.address || socket.id;
+}
+
+// Counts only rooms that still have a connected player. A room whose players
+// all dropped is waiting for its cleanup timer (so a reconnect can rejoin) and
+// must not be held against whoever opened it — otherwise a player who plays
+// several short matches gets locked out of their own game.
+function roomsForAddress(address) {
+  let count = 0;
+  rooms.forEach((room) => {
+    if (room.createdBy !== address) return;
+    if (room.players.some((player) => player.connected !== false)) count += 1;
+  });
+  return count;
+}
+
+// Returns null when creating a room is allowed, otherwise a player-facing reason.
+function roomCreateBlockedReason(socket) {
+  if (rooms.size >= MAX_ROOMS_TOTAL) {
+    return "Der Server ist voll. Bitte später erneut versuchen.";
+  }
+  const address = clientAddress(socket);
+  const last = lastRoomCreateAt.get(address) || 0;
+  if (Date.now() - last < ROOM_CREATE_COOLDOWN_MS) {
+    return "Kurz warten, bevor du den nächsten Raum öffnest.";
+  }
+  if (roomsForAddress(address) >= MAX_ROOMS_PER_ADDRESS) {
+    return "Zu viele offene Räume von diesem Gerät.";
+  }
+  return null;
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -234,7 +293,9 @@ app.use("/vendor/three", express.static(path.join(__dirname, "../node_modules/th
 app.get("/health", (_req, res) => res.json({ ok: true, rooms: rooms.size }));
 app.get("/config", (_req, res) => {
   res.json({
-    lanUrls: getLocalAddresses().map((address) => `http://${address}:${PORT}`)
+    lanUrls: getLocalAddresses().map((address) => `http://${address}:${PORT}`),
+    version: APP_VERSION,
+    devTools: DEV_TOOLS_ENABLED
   });
 });
 app.get("/qr.svg", async (req, res) => {
@@ -261,6 +322,8 @@ app.get("/qr.svg", async (req, res) => {
 
 io.on("connection", (socket) => {
   socket.on("createRoom", (payload, reply) => {
+    const blocked = roomCreateBlockedReason(socket);
+    if (blocked) return replyError(reply, blocked);
     leaveCurrentRoom(socket, false, true);
 
     const code = makeRoomCode();
@@ -302,6 +365,8 @@ io.on("connection", (socket) => {
       cleanupTimer: null
     };
 
+    room.createdBy = clientAddress(socket);
+    lastRoomCreateAt.set(room.createdBy, Date.now());
     rooms.set(code, room);
     socket.join(code);
     socket.data.roomCode = code;
@@ -402,6 +467,7 @@ io.on("connection", (socket) => {
   socket.on("enableDevMode", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Testmodus ist in dieser Version deaktiviert.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann den Dev-Testmodus starten.");
     if (room.status !== "lobby") return replyError(reply, "Dev-Testmodus geht nur in der Lobby.");
     if (room.players.some((player) => player.id !== room.hostId && !player.isBot)) {
@@ -487,6 +553,7 @@ io.on("connection", (socket) => {
   socket.on("startDevMinigame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Challenge ist in dieser Version deaktiviert.");
     if (!isHost(socket, room) || !room.devMode) return replyError(reply, "Diese Aktion gehört zum lokalen Dev-Testmodus.");
     if (room.status !== "board" || room.phase !== "waitingRoll") {
       return replyError(reply, "Die nächste Challenge kann erst auf dem ruhenden Board starten.");
@@ -5115,6 +5182,8 @@ module.exports = {
     STACK_BLOCKS,
     CLIMB_HEIGHT,
     resolveGateRewards,
-    resolveStarPurchase
+    resolveStarPurchase,
+    roomCreateBlockedReason,
+    MAX_ROOMS_PER_ADDRESS
   }
 };

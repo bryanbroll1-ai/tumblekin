@@ -3299,3 +3299,12 @@ body[data-screen="minigame"] .game-menu-button {
   0%, 100% { transform: rotate(4deg) scale(1); }
   50% { transform: rotate(-3deg) scale(1.08); }
 }
+
+/* Build version in the menu — needed on every support request. */
+.menu-version {
+  margin: 2px 0 0;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-align: center;
+  color: var(--muted);
+}

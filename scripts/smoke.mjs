@@ -102,7 +102,7 @@ const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 const server = spawn(process.execPath, [path.join(ROOT, "server", "server.js")], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(port) },
+  env: { ...process.env, PORT: String(port), TUMBLEKIN_DEV_TOOLS: "1" },
   stdio: "ignore"
 });
 const stopServer = () => { if (!server.killed) server.kill(); };
