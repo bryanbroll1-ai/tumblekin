@@ -78,7 +78,7 @@ laufenden Kosten entstehen sollen.
 
 **Wichtig, nicht blockierend**
 
-- Inhaltsumfang: 15 von 30 geplanten Minispielen (Plan unten).
+- Inhaltsumfang: 16 von 30 geplanten Minispielen (Plan unten).
 - Nur eine Sprache (Deutsch). Store-Reichweite verlangt praktisch Englisch.
 - Kein Onboarding-Tutorial für die erste Partie.
 - Keine Fehlerberichterstattung; ein Absturz beim Spieler bleibt unsichtbar.
@@ -87,7 +87,7 @@ laufenden Kosten entstehen sollen.
 
 ## Fahrplan auf 30 Minispiele
 
-Die 15 vorhandenen deckten nur fünf Mechanik-Archetypen ab, und **Tippen war
+Die ursprünglichen 15 deckten nur fünf Mechanik-Archetypen ab, und **Tippen war
 mit sechs Spielen überrepräsentiert**. Die 15 neuen sind deshalb nach fehlenden
 Archetypen ausgewählt, nicht nach Thema — so unterscheiden sie sich wirklich,
 statt nur anders auszusehen.
@@ -97,7 +97,7 @@ Halten/Loslassen (2), Gedächtnis (1).
 
 | # | Titel | Archetyp (neu) | Geste | Physik/Animation |
 | --- | --- | --- | --- | --- |
-| 16 | Schleuderschuss | Zielen mit Zugkraft | ziehen + loslassen | Ballistik, Aufprall-Impulse |
+| ~~16~~ | ~~Schleuderschuss~~ | Zielen mit Zugkraft | ziehen + loslassen | **fertig** — Ballistik serverseitig, Landevorschau im Client |
 | 17 | Wackelturm | Konstruktion mit echtem Einsturz | ziehen | Starrkörper-Stapel, Kollaps |
 | 18 | Seifenkiste | Neigungssteuerung | Gerät kippen | Rampen, Federung, Drift |
 | 19 | Eierlauf | Balance halten (inverses Pendel) | Mikro-Kippen | Pendelphysik am Löffel |

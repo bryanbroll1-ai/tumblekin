@@ -47,6 +47,13 @@ const {
   resolveStarPurchase,
   roomCreateBlockedReason,
   MAX_ROOMS_PER_ADDRESS,
+  SLING_SHOTS,
+  SLING_RING_SCORES,
+  SLING_RING_RADII,
+  SLING_BASE_DISTANCE,
+  SLING_DISTANCE_STEP,
+  SLING_MAX_SPEED,
+  SLING_GRAVITY,
   nearestToStar,
   standingsLeader
 } = testRules;
@@ -71,10 +78,10 @@ test("board uses one readable field language", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 15);
+  assert.equal(MINIGAMES.length, 16);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "seilspringen", "turmbau", "zuendstoff"]
+    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "turmbau", "zuendstoff"]
   );
 });
 
@@ -1198,4 +1205,129 @@ test("a forwarded client address is preferred over the proxy address", () => {
     handshake: { address: "10.0.0.1", headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } }
   };
   assert.doesNotThrow(() => roomCreateBlockedReason(proxied));
+});
+
+
+// --- Schleuderschuss -------------------------------------------------------
+
+function slingRoom() {
+  const shooter = { id: "s1", name: "Schütze", isBot: false };
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("schleuderschuss", [shooter], startedAt);
+  const minigame = {
+    id: 1, type: "schleuderschuss", startedAt, duration: 28000,
+    arcade, scores: {}, lastInputAt: {}
+  };
+  const room = { currentMinigame: minigame, players: [shooter] };
+  // Schiesst ohne Rücksicht auf den Eingabe-Cooldown; der wird separat geprüft.
+  const shoot = (power, angle) => {
+    // Der Cooldown liegt am Arcade-Spieler; zurücksetzen, damit hier die
+    // Ballistik geprüft wird und nicht die Ratenbegrenzung.
+    arcade.players[shooter.id].lastInputAt = 0;
+    return handleArcadeInput(room, shooter, { action: "shoot", power, angle });
+  };
+  return { room, shooter, arcade, shoot };
+}
+
+// Die Kraft, die einen Schuss bei gegebenem Winkel genau auf die Distanz bringt.
+function perfectPower(distance, angleDeg) {
+  const angle = (angleDeg * Math.PI) / 180;
+  return Math.sqrt((distance * SLING_GRAVITY) / Math.sin(2 * angle)) / SLING_MAX_SPEED;
+}
+
+test("sling: a perfectly dosed shot is a bullseye", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  const power = perfectPower(entry.distance, 45);
+
+  const result = shoot(power, 45);
+  assert.equal(result.ok, true);
+  assert.equal(entry.rings[0], 0, "exact range has to hit the centre ring");
+  assert.equal(entry.bullseyes, 1);
+  assert.equal(entry.score, SLING_RING_SCORES[0]);
+});
+
+test("sling: too little power falls short and scores less or nothing", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  shoot(0.1, 45);
+  assert.equal(entry.rings[0], null, "a wildly short shot misses the target");
+  assert.equal(entry.score, 0);
+});
+
+test("sling: the target retreats after every shot", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  assert.equal(entry.distance, SLING_BASE_DISTANCE);
+  shoot(0.5, 45);
+  assert.equal(entry.distance, SLING_BASE_DISTANCE + SLING_DISTANCE_STEP);
+  shoot(0.5, 45);
+  assert.equal(entry.distance, SLING_BASE_DISTANCE + SLING_DISTANCE_STEP * 2);
+});
+
+test("sling: repeating the same shot cannot keep hitting", () => {
+  // Das ist der Kern des Spiels: weil das Ziel zurückweicht, muss jede Kraft
+  // neu dosiert werden. Zweimal derselbe perfekte Wurf darf nicht zweimal
+  // treffen.
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  const power = perfectPower(SLING_BASE_DISTANCE, 45);
+  shoot(power, 45);
+  shoot(power, 45);
+  assert.equal(entry.rings[0], 0);
+  assert.notEqual(entry.rings[1], 0, "the identical shot must fall short of the moved target");
+});
+
+test("sling: the shot count is capped", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  for (let i = 0; i < SLING_SHOTS + 4; i += 1) {
+    shoot(0.6, 45);
+  }
+  assert.equal(entry.shotsUsed, SLING_SHOTS);
+  assert.equal(entry.rings.length, SLING_SHOTS);
+});
+
+test("sling: power and angle are clamped server-side", () => {
+  // Ein manipulierter Client darf keine unmöglichen Werte durchdrücken.
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  shoot(999, 8000);
+  const shot = entry.lastShot;
+  assert.ok(shot.power <= 1 && shot.power >= 0, `power ${shot.power} out of range`);
+  assert.ok(shot.angleDeg >= 5 && shot.angleDeg <= 85, `angle ${shot.angleDeg} out of range`);
+  assert.ok(Number.isFinite(shot.range), "the range must stay a real number");
+});
+
+test("sling: garbage input does not corrupt the state", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  shoot("viel", null);
+  assert.ok(Number.isFinite(entry.score), "score stays a number");
+  assert.ok(Number.isFinite(entry.distance), "distance stays a number");
+});
+
+test("sling: wrong action is refused", () => {
+  const { room, shooter } = slingRoom();
+  const result = handleArcadeInput(room, shooter, { action: "drop" });
+  assert.equal(result.ok, false);
+});
+
+test("sling: closer rings are worth more", () => {
+  for (let i = 1; i < SLING_RING_SCORES.length; i += 1) {
+    assert.ok(SLING_RING_SCORES[i] < SLING_RING_SCORES[i - 1], "outer rings must score less");
+    assert.ok(SLING_RING_RADII[i] > SLING_RING_RADII[i - 1], "outer rings must be wider");
+  }
+});
+
+test("sling: rapid fire is blocked by the input cooldown", () => {
+  // Ohne Cooldown könnte man alle Schüsse in einem Frame abfeuern und die
+  // Zieldosierung völlig umgehen. Hier absichtlich OHNE den shoot-Helfer, der
+  // den Cooldown zurücksetzt.
+  const { room, shooter, arcade } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  for (let i = 0; i < 6; i += 1) {
+    handleArcadeInput(room, shooter, { action: "shoot", power: 0.6, angle: 45 });
+  }
+  assert.equal(entry.shotsUsed, 1, "only the first shot of a burst may count");
 });

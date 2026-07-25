@@ -101,7 +101,8 @@ const MINIGAMES = [
   { type: "kanonenflug", title: "Kanonenflug", duration: 16000, arcadeFamily: "cannon" },
   { type: "messerwurf", title: "Messerwurf", duration: 46000, arcadeFamily: "knife" },
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
-  { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" }
+  { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
+  { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -118,8 +119,24 @@ const ARCADE_CONFIGS = {
   kanonenflug: { family: "cannon", seed: 439 },
   messerwurf: { family: "knife", seed: 457 },
   turmbau: { family: "stack", seed: 461 },
-  bergsteiger: { family: "climb", seed: 463 }
+  bergsteiger: { family: "climb", seed: 463 },
+  schleuderschuss: { family: "sling", seed: 467 }
 };
+
+// Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
+// Ringe zählen nach Nähe zur Mitte; jeder Schuss zieht das Ziel weiter weg,
+// damit spätere Treffer mehr wert sind und Kraftdosierung wirklich zählt.
+const SLING_SHOTS = 5;
+const SLING_RING_SCORES = [100, 60, 30, 10];   // Bulls-eye nach außen
+// Toleranzen in Metern Abweichung von der Zieldistanz. Bewusst grosszügig:
+// mit Daumensteuerung sind 1 % Kraftunterschied ~1,6 px — enge Ringe (erster
+// Versuch: 0,12 m) machten das Spiel zu reinem Raten. Zusammen mit der
+// Landevorschau im Client bleibt es trotzdem Können statt Zufall.
+const SLING_RING_RADII = [0.35, 0.85, 1.6, 2.6];
+const SLING_BASE_DISTANCE = 9;
+const SLING_DISTANCE_STEP = 1.6;
+const SLING_GRAVITY = 9.81;
+const SLING_MAX_SPEED = 15;
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1826,6 +1843,9 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "stack") {
     return { kind: "points", value: arcadePlayer.height || 0, label: "Etagen" };
   }
+  if (arcade.family === "sling") {
+    return { kind: "points", value: arcadePlayer.score || 0, label: "Ringpunkte" };
+  }
   if (arcade.family === "climb") {
     return arcadePlayer.finishedAt
       ? { kind: "time", value: arcadePlayer.finishMs, label: "Gipfelzeit" }
@@ -2789,6 +2809,18 @@ function createArcadeState(type, players, startedAt) {
       entry.perfects = 0;
     });
   }
+  if (config.family === "sling") {
+    arcade.shots = SLING_SHOTS;
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      entry.shotsUsed = 0;
+      entry.rings = [];                  // getroffener Ring je Schuss (null = daneben)
+      entry.bullseyes = 0;
+      entry.distance = SLING_BASE_DISTANCE;
+      entry.lastShot = null;             // { power, angleDeg, ring, offset, at }
+      entry.lane = index;
+    });
+  }
   if (config.family === "climb") {
     arcade.height = CLIMB_HEIGHT;
     players.forEach((player) => {
@@ -3033,7 +3065,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400 };
   const cooldown = cooldowns[arcade.family] ?? 100;
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
   arcadePlayer.lastInputAt = now;
@@ -3284,6 +3316,47 @@ function handleArcadeInput(room, player, input) {
       arcadePlayer.flash = perfect ? "good" : null;
       arcadePlayer.lastHitAt = now;
     }
+    arcadePlayer.hasMoved = true;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "sling") {
+    if (input.action !== "shoot") return { ok: false, error: "Ziehen und loslassen, um zu schiessen." };
+    if (arcadePlayer.shotsUsed >= arcade.shots) return { ok: true };
+
+    // Der Client schickt Zugkraft (0..1) und Winkel in Grad. Beides wird hier
+    // geklemmt — der Server rechnet die Flugbahn, nicht der Client.
+    const power = clamp(Number(input.power) || 0, 0, 1);
+    const angleDeg = clamp(Number(input.angle) || 0, 5, 85);
+    const speed = power * SLING_MAX_SPEED;
+    const angle = (angleDeg * Math.PI) / 180;
+
+    // Schiefer Wurf auf gleicher Höhe: Reichweite = v² · sin(2θ) / g.
+    const range = (speed * speed * Math.sin(2 * angle)) / SLING_GRAVITY;
+    const offset = range - arcadePlayer.distance;      // + = zu weit, - = zu kurz
+    const miss = Math.abs(offset);
+
+    let ring = null;
+    for (let index = 0; index < SLING_RING_RADII.length; index += 1) {
+      if (miss <= SLING_RING_RADII[index]) { ring = index; break; }
+    }
+
+    arcadePlayer.shotsUsed += 1;
+    arcadePlayer.rings.push(ring);
+    if (ring === 0) arcadePlayer.bullseyes += 1;
+    arcadePlayer.lastShot = { power, angleDeg, range, offset, ring, at: now };
+    arcadePlayer.flash = ring === 0 ? "good" : (ring === null ? "bad" : null);
+    arcadePlayer.lastHitAt = now;
+
+    // Das Ziel weicht nach jedem Schuss zurück: gleiche Kraft trifft nicht
+    // zweimal, jeder Treffer muss neu dosiert werden.
+    arcadePlayer.distance += SLING_DISTANCE_STEP;
+
+    arcadePlayer.score = arcadePlayer.rings.reduce(
+      (sum, hit) => sum + (hit === null ? 0 : SLING_RING_SCORES[hit]),
+      0
+    );
     arcadePlayer.hasMoved = true;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
@@ -3957,6 +4030,8 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     });
   } else if (arcade.family === "climb") {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
+  } else if (arcade.family === "sling") {
+    done = room.players.every((player) => (arcade.players[player.id]?.shotsUsed || 0) >= arcade.shots);
   }
   if (done) {
     beginMinigameFinale(room, minigame);
@@ -4638,6 +4713,23 @@ function arcadeBotStep(room, bot) {
     }
     return;
   }
+  if (arcade.family === "sling") {
+    if ((player.shotsUsed || 0) >= arcade.shots) return;
+    const profile = botProfile(player);
+    // Bots pick a plausible angle, then solve for the power that would land the
+    // shot dead centre — and miss it by an amount their skill level allows.
+    const angleDeg = 35 + Math.random() * 20;
+    const angle = (angleDeg * Math.PI) / 180;
+    const perfectSpeed = Math.sqrt((player.distance * SLING_GRAVITY) / Math.sin(2 * angle));
+    const spread = profile.level === "hard" ? 0.035 : profile.level === "normal" ? 0.075 : 0.14;
+    const power = clamp(
+      perfectSpeed / SLING_MAX_SPEED + (Math.random() - 0.5) * 2 * spread,
+      0.05,
+      1
+    );
+    handleArcadeInput(room, bot, { action: "shoot", power, angle: angleDeg });
+    return;
+  }
   if (arcade.family === "climb") {
     if (player.finishedAt) return;
     const profile = botProfile(player);
@@ -5184,6 +5276,13 @@ module.exports = {
     resolveGateRewards,
     resolveStarPurchase,
     roomCreateBlockedReason,
-    MAX_ROOMS_PER_ADDRESS
+    MAX_ROOMS_PER_ADDRESS,
+    SLING_SHOTS,
+    SLING_RING_SCORES,
+    SLING_RING_RADII,
+    SLING_BASE_DISTANCE,
+    SLING_DISTANCE_STEP,
+    SLING_MAX_SPEED,
+    SLING_GRAVITY
   }
 };

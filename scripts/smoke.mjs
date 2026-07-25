@@ -17,7 +17,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ALL_GAMES = [
   "bounceArena", "finishRush", "colorEscape", "nervenprobe", "lichtwaechter",
   "ballonPump", "fassrolle", "zuendstoff", "muenzregen", "blobklopfe",
-  "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger"
+  "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger",
+  "schleuderschuss"
 ];
 
 const argv = process.argv.slice(2);

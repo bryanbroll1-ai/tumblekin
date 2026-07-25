@@ -6,7 +6,8 @@ export const GESTURES = {
   swipeUp: { icon: "👆⬆️", label: "Nach oben wischen" },
   swipeSide: { icon: "👆↔️", label: "Links/Rechts wischen" },
   swipeAny: { icon: "👆✳️", label: "In jede Richtung wischen" },
-  hold: { icon: "👆⏺️", label: "Knopf gedrückt halten" }
+  hold: { icon: "👆⏺️", label: "Knopf gedrückt halten" },
+  pull: { icon: "👆🎯", label: "Ziehen und loslassen" }
 };
 
 export const MINIGAME_CATALOG = [
@@ -24,7 +25,8 @@ export const MINIGAME_CATALOG = [
   { type: "kanonenflug", title: "Kanonenflug", family: "cannon", gesture: "taps", help: "Tipp 1 stoppt die Kraft, Tipp 2 den Abschusswinkel. Volle Power bei 45° fliegt am weitesten!" },
   { type: "messerwurf", title: "Messerwurf", family: "knife", gesture: "tap", help: "Wirf dein Messer in den drehenden Baumstamm – aber triff kein Messer der anderen, sonst bist du raus!" },
   { type: "turmbau", title: "Turmbau", family: "stack", gesture: "tap", help: "Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!" },
-  { type: "bergsteiger", title: "Bergsteiger", family: "climb", gesture: "taps", help: "Tippe abwechselnd links und rechts, um die Wand hochzuklettern. Wer zuerst oben ist, gewinnt!" }
+  { type: "bergsteiger", title: "Bergsteiger", family: "climb", gesture: "taps", help: "Tippe abwechselnd links und rechts, um die Wand hochzuklettern. Wer zuerst oben ist, gewinnt!" },
+  { type: "schleuderschuss", title: "Schleuderschuss", family: "sling", gesture: "pull", help: "Zieh die Schleuder zurück und lass los. Länge = Kraft, Richtung = Winkel — und die Scheibe weicht nach jedem Schuss zurück!" }
 ];
 
 export const ARCADE_TYPES = new Set(

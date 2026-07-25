@@ -3308,3 +3308,50 @@ body[data-screen="minigame"] .game-menu-button {
   text-align: center;
   color: var(--muted);
 }
+
+/* --- Schleuderschuss: Zieh-Pad ----------------------------------------- */
+.sling-pad {
+  position: relative;
+  min-height: var(--touch);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  background: rgba(21, 33, 38, 0.72);
+  touch-action: none;             /* Ziehen darf die Seite nicht scrollen */
+  overflow: hidden;
+}
+
+.sling-pad-hint {
+  font-size: 0.82rem;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.72);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Zugvektor: Länge zeigt die Kraft, Drehung den Abschusswinkel. */
+.sling-pad-vector {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 6px;
+  height: calc(14px + var(--sling-power, 0) * 74px);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffe36b, #ff9f4a);
+  transform-origin: bottom center;
+  transform: translateX(-50%) rotate(calc(180deg - var(--sling-angle, 45deg)));
+  box-shadow: 0 0 12px rgba(255, 227, 107, 0.6);
+}
+
+.sling-readout {
+  display: flex;
+  gap: 10px;
+  align-self: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.82);
+  color: #ffe36b;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
