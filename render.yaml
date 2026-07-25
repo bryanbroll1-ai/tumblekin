@@ -10,6 +10,10 @@ services:
     runtime: node
     plan: free
     region: frankfurt
+    # Ausdrücklich dieser Zweig, NICHT der Standardzweig: auf `main` liegen
+    # bisher nur 15 Minispiele, hier sind es 23. Ohne diese Zeile würde Render
+    # die alte Fassung ausliefern.
+    branch: claude/improve-minigames-animations-7wfix0
     buildCommand: npm install --omit=dev
     startCommand: npm start
     healthCheckPath: /health
