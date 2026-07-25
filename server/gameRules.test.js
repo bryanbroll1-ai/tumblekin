@@ -32,7 +32,21 @@ const {
   nearestLowerCanopyLeaf,
   refreshFluxScores,
   updateArcade,
-  resolveGateRewards
+  resolveGateRewards,
+  STAR_PRICE,
+  COIN_FIELD_REWARD,
+  NORMAL_FIELD_REWARD,
+  TRAP_FIELD_COST,
+  LUCK_FIELD_STAKE,
+  LUCK_FIELD_WIN,
+  MAX_ITEMS,
+  ITEM_DEFINITIONS,
+  consumeItem,
+  moveStarPad,
+  awardBonusStars,
+  resolveStarPurchase,
+  nearestToStar,
+  standingsLeader
 } = testRules;
 
 function player(overrides = {}) {
@@ -44,8 +58,8 @@ function player(overrides = {}) {
   };
 }
 
-test("board uses one readable, simplified field language", () => {
-  const allowed = new Set(["start", "normal", "challenge", "gate"]);
+test("board uses one readable field language", () => {
+  const allowed = new Set(["start", "normal", "coin", "item", "luck", "trap", "star", "challenge", "gate"]);
   assert.equal(FIELD_TYPES.length, 32);
   assert.ok(FIELD_TYPES.every((type) => allowed.has(type)));
   assert.deepEqual(
@@ -72,6 +86,16 @@ test("three themed boards share a clear field grammar", () => {
     assert.equal(board.fieldTypes.filter((type) => type === "gate").length, 4);
     // Simple loop: every field has exactly one way forward (no shortcuts).
     assert.ok(board.routes.every((routes) => routes.length === 1));
+    // Every board carries the full field mix so players learn one rule set.
+    ["coin", "item", "luck", "trap", "star", "challenge"].forEach((type) => {
+      assert.ok(
+        board.fieldTypes.includes(type),
+        `${board.id} is missing ${type} fields`
+      );
+    });
+    // The star has to have somewhere to travel to.
+    assert.ok(board.starPads.length >= 2, `${board.id} needs multiple star pads`);
+    board.starPads.forEach((pad) => assert.equal(board.fieldTypes[pad], "star"));
   });
 });
 
@@ -98,23 +122,24 @@ test("gate rewards never create a second board currency", () => {
   assert.equal(runner.coins, GATE_COIN_BONUS);
 });
 
-test("field effects are simple: coins only", () => {
+test("plain and start fields pay the same modest reward", () => {
   const runner = player({ coins: 1 });
-  // Every normal field pays the same modest coin reward — one field language.
-  assert.equal(applyFieldEffect(runner, "normal").coins, 2);
-  assert.equal(runner.coins, 3);
-  assert.equal(applyFieldEffect(runner, "start").coins, 2);
-  assert.equal(runner.coins, 5);
+  assert.equal(applyFieldEffect(runner, "normal").coins, NORMAL_FIELD_REWARD);
+  assert.equal(runner.coins, 1 + NORMAL_FIELD_REWARD);
+  assert.equal(applyFieldEffect(runner, "start").coins, NORMAL_FIELD_REWARD);
+  assert.equal(runner.coins, 1 + NORMAL_FIELD_REWARD * 2);
+  // Challenge fields pay nothing themselves — the minigame does the paying.
   assert.equal(applyFieldEffect(runner, "challenge").coins, 0);
 });
 
-test("final standings are ordered by coins only", () => {
+test("final standings rank stars first, then coins", () => {
   const standings = [
-    player({ id: "second", coins: 8 }),
-    player({ id: "rich", coins: 99 }),
-    player({ id: "third", coins: 1 })
+    player({ id: "coinRich", stars: 1, coins: 99 }),
+    player({ id: "starLord", stars: 3, coins: 0 }),
+    player({ id: "middle", stars: 1, coins: 100 }),
+    player({ id: "last", stars: 0, coins: 500 })
   ].sort(compareStanding);
-  assert.deepEqual(standings.map((entry) => entry.id), ["rich", "second", "third"]);
+  assert.deepEqual(standings.map((entry) => entry.id), ["starLord", "middle", "coinRich", "last"]);
 });
 
 test("canopy finish time outranks progress and faster finishes win", () => {
@@ -805,4 +830,320 @@ test("bergsteiger: alternating hands climb, a wrong hand slips", () => {
   const higher = arcadeRankingScore(arcade, { rung: 12, finishedAt: null });
   const lower = arcadeRankingScore(arcade, { rung: 4, finishedAt: null });
   assert.ok(higher > lower, "climbing higher ranks better");
+});
+
+
+// --- Board economy: stars, items and risk fields ---------------------------
+
+function boardPlayer(overrides = {}) {
+  return {
+    id: overrides.id || "p1",
+    name: overrides.name || "Spieler",
+    coins: 10,
+    stars: 0,
+    items: [],
+    shielded: false,
+    nextRollHalved: false,
+    pendingItem: null,
+    wins: 0,
+    position: 0,
+    ...overrides
+  };
+}
+
+function boardRoom(overrides = {}) {
+  return {
+    boardId: "mossback",
+    starIndex: null,
+    bonusStars: [],
+    players: [],
+    ...overrides
+  };
+}
+
+test("coin fields pay more than plain fields", () => {
+  const rich = boardPlayer();
+  const effect = applyFieldEffect(rich, "coin");
+  assert.equal(effect.coins, COIN_FIELD_REWARD);
+  assert.equal(rich.coins, 10 + COIN_FIELD_REWARD);
+  assert.ok(COIN_FIELD_REWARD > NORMAL_FIELD_REWARD);
+});
+
+test("item fields hand out an item and respect the hand limit", () => {
+  const collector = boardPlayer();
+  const effect = applyFieldEffect(collector, "item");
+  assert.equal(collector.items.length, 1);
+  assert.ok(ITEM_DEFINITIONS.some((item) => item.id === effect.item));
+
+  // A full hand converts into coins instead of silently dropping the item.
+  const full = boardPlayer({ items: ["shield", "shield", "shield"] });
+  const fallback = applyFieldEffect(full, "item");
+  assert.equal(full.items.length, MAX_ITEMS);
+  assert.equal(fallback.coins, NORMAL_FIELD_REWARD);
+});
+
+test("traps cost coins but never push a player negative", () => {
+  const victim = boardPlayer({ coins: 100 });
+  applyFieldEffect(victim, "trap");
+  assert.equal(victim.coins, 100 - TRAP_FIELD_COST);
+
+  const broke = boardPlayer({ coins: 3 });
+  const effect = applyFieldEffect(broke, "trap");
+  assert.equal(broke.coins, 0);
+  assert.equal(effect.coins, -3);
+});
+
+test("a shield blocks one trap and is then used up", () => {
+  const guarded = boardPlayer({ coins: 50, shielded: true });
+  const blocked = applyFieldEffect(guarded, "trap");
+  assert.equal(blocked.blocked, true);
+  assert.equal(guarded.coins, 50, "shielded trap must not cost coins");
+  assert.equal(guarded.shielded, false, "shield is consumed");
+
+  // The next trap hits for real.
+  applyFieldEffect(guarded, "trap");
+  assert.equal(guarded.coins, 50 - TRAP_FIELD_COST);
+});
+
+test("luck fields only gamble what the player can cover", () => {
+  const poor = boardPlayer({ coins: LUCK_FIELD_STAKE - 1 });
+  const effect = applyFieldEffect(poor, "luck");
+  assert.equal(effect.coins, NORMAL_FIELD_REWARD, "too poor to gamble pays a consolation");
+
+  // With enough coins the outcome is one of exactly two swings.
+  const gambler = boardPlayer({ coins: 100 });
+  const result = applyFieldEffect(gambler, "luck");
+  assert.ok(result.gamble === "win" || result.gamble === "loss");
+  assert.ok(gambler.coins === 100 + LUCK_FIELD_WIN || gambler.coins === 100 - LUCK_FIELD_STAKE);
+});
+
+test("only the lit star pad sells a star", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[0];
+  const darkPad = board.starPads[1];
+
+  const buyer = boardPlayer({ coins: STAR_PRICE, position: darkPad });
+  const room = boardRoom({ starIndex: litPad, players: [buyer] });
+  const dark = applyFieldEffect(buyer, "star", room);
+  assert.equal(dark.starLit, false);
+  assert.equal(buyer.stars, 0, "a dark pad must not sell a star");
+  assert.equal(buyer.coins, STAR_PRICE + NORMAL_FIELD_REWARD);
+});
+
+test("buying a star costs coins and moves the star elsewhere", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[0];
+  const buyer = boardPlayer({ coins: STAR_PRICE + 5, position: litPad });
+  const room = boardRoom({ starIndex: litPad, players: [buyer] });
+
+  const effect = applyFieldEffect(buyer, "star", room);
+  assert.equal(effect.starGained, true);
+  assert.equal(buyer.stars, 1);
+  assert.equal(buyer.coins, 5);
+  assert.notEqual(room.starIndex, litPad, "the star must travel after a sale");
+  assert.ok(board.starPads.includes(room.starIndex));
+});
+
+test("a star is refused when the player cannot pay", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[0];
+  const buyer = boardPlayer({ coins: STAR_PRICE - 1, position: litPad });
+  const room = boardRoom({ starIndex: litPad, players: [buyer] });
+
+  const effect = applyFieldEffect(buyer, "star", room);
+  assert.equal(effect.starAffordable, false);
+  assert.equal(buyer.stars, 0);
+  assert.equal(buyer.coins, STAR_PRICE - 1, "a failed purchase must not charge");
+  assert.equal(room.starIndex, litPad, "the star stays put when nothing was sold");
+});
+
+test("the star always lands on a real pad and prefers to move", () => {
+  const room = boardRoom({ starIndex: null, players: [boardPlayer({ position: 0 })] });
+  const board = getBoard("mossback");
+  for (let i = 0; i < 50; i += 1) {
+    const previous = room.starIndex;
+    const next = moveStarPad(room, { avoid: previous });
+    assert.ok(board.starPads.includes(next));
+    if (board.starPads.length > 1 && previous !== null) {
+      assert.notEqual(next, previous, "with several pads the star should relocate");
+    }
+  }
+});
+
+test("the lit star pad stays within reach of the trailing player", () => {
+  // Regression guard: a uniformly random pad could sit 21+ fields ahead, which
+  // a player covering ~17 fields per match can never reach. A whole game then
+  // passes with the star economy switched off.
+  const board = getBoard("mossback");
+  const size = board.fieldTypes.length;
+  const trailing = boardPlayer({ id: "back", position: 0 });
+  const leader = boardPlayer({ id: "front", position: 12 });
+  const room = boardRoom({ starIndex: null, players: [trailing, leader] });
+
+  for (let i = 0; i < 200 ; i += 1) {
+    const pad = moveStarPad(room, { avoid: room.starIndex });
+    const distance = (pad - trailing.position + size) % size;
+    assert.ok(
+      distance >= 2 && distance <= 14,
+      `pad ${pad} is ${distance} fields from the trailing player — out of reach`
+    );
+  }
+});
+
+test("the star still moves when no pad is comfortably reachable", () => {
+  // Standing right on top of a pad must not deadlock the picker.
+  const board = getBoard("mossback");
+  const onPad = boardPlayer({ position: board.starPads[0] });
+  const room = boardRoom({ starIndex: board.starPads[0], players: [onPad] });
+  const next = moveStarPad(room, { avoid: board.starPads[0] });
+  assert.ok(board.starPads.includes(next));
+  assert.notEqual(next, board.starPads[0]);
+});
+
+test("stars decide the standing, coins only break ties", () => {
+  const starPlayer = boardPlayer({ id: "a", stars: 2, coins: 0 });
+  const coinPlayer = boardPlayer({ id: "b", stars: 1, coins: 999 });
+  assert.ok(compareStanding(starPlayer, coinPlayer) < 0, "more stars must win");
+
+  const tieRich = boardPlayer({ id: "c", stars: 3, coins: 40 });
+  const tiePoor = boardPlayer({ id: "d", stars: 3, coins: 10 });
+  assert.ok(compareStanding(tieRich, tiePoor) < 0, "equal stars fall back to coins");
+});
+
+test("double dice item is armed for the next roll", () => {
+  const user = boardPlayer({ items: ["doubleDice"] });
+  const room = boardRoom({ players: [user] });
+  const result = consumeItem(room, user, "doubleDice");
+  assert.equal(result.ok, true);
+  assert.equal(user.pendingItem, "doubleDice");
+  assert.equal(user.items.length, 0, "the item is spent");
+});
+
+test("using an item you do not hold is refused", () => {
+  const user = boardPlayer({ items: [] });
+  const room = boardRoom({ players: [user] });
+  const result = consumeItem(room, user, "goldDice");
+  assert.equal(result.ok, false);
+});
+
+test("the swap bell trades places with whoever is closest to the star", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[1];
+  const me = boardPlayer({ id: "me", items: ["swapBell"], position: 0 });
+  // `close` sits just before the star, `far` just after it (a full lap away).
+  const close = boardPlayer({ id: "close", position: litPad - 1 });
+  const far = boardPlayer({ id: "far", position: (litPad + 1) % 32 });
+  const room = boardRoom({ starIndex: litPad, players: [me, close, far] });
+
+  const result = consumeItem(room, me, "swapBell");
+  assert.equal(result.ok, true);
+  assert.equal(result.targetId, "close");
+  assert.equal(me.position, litPad - 1, "we take the good spot");
+  assert.equal(close.position, 0, "they get ours");
+});
+
+test("a shielded rival blocks the swap bell and burns their shield", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[1];
+  const me = boardPlayer({ id: "me", items: ["swapBell"], position: 0 });
+  const rival = boardPlayer({ id: "rival", position: litPad - 1, shielded: true });
+  const room = boardRoom({ starIndex: litPad, players: [me, rival] });
+
+  const result = consumeItem(room, me, "swapBell");
+  assert.equal(result.ok, true);
+  assert.equal(result.blockedBy, "rival");
+  assert.equal(me.position, 0, "positions stay put when blocked");
+  assert.equal(rival.position, litPad - 1);
+  assert.equal(rival.shielded, false, "the shield is spent blocking");
+  assert.equal(me.items.length, 0, "our item is spent either way");
+});
+
+test("the sticky trap halves the leader's next roll", () => {
+  const me = boardPlayer({ id: "me", items: ["stickyTrap"], stars: 0 });
+  const leader = boardPlayer({ id: "leader", stars: 3 });
+  const tail = boardPlayer({ id: "tail", stars: 0, coins: 1 });
+  const room = boardRoom({ players: [me, leader, tail] });
+
+  const result = consumeItem(room, me, "stickyTrap");
+  assert.equal(result.ok, true);
+  assert.equal(result.targetId, "leader", "it must target the player in front");
+  assert.equal(leader.nextRollHalved, true);
+  assert.equal(tail.nextRollHalved, false);
+});
+
+test("bonus stars reward the richest and the best challenge player", () => {
+  const rich = boardPlayer({ id: "rich", coins: 80, wins: 0, stars: 0 });
+  const winner = boardPlayer({ id: "winner", coins: 5, wins: 4, stars: 0 });
+  const room = boardRoom({ players: [rich, winner] });
+
+  const bonuses = awardBonusStars(room);
+  assert.equal(rich.stars, 1, "most coins is worth a star");
+  assert.equal(winner.stars, 1, "most challenge wins is worth a star");
+  assert.equal(bonuses.length, 2);
+});
+
+test("bonus stars are skipped when nobody qualifies", () => {
+  const broke = boardPlayer({ id: "a", coins: 0, wins: 0 });
+  const alsoBroke = boardPlayer({ id: "b", coins: 0, wins: 0 });
+  const room = boardRoom({ players: [broke, alsoBroke] });
+
+  awardBonusStars(room);
+  assert.equal(broke.stars, 0);
+  assert.equal(alsoBroke.stars, 0);
+});
+
+test("passing over the lit star pad buys the star", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[1];             // 13 on mossback
+  const buyer = boardPlayer({ coins: STAR_PRICE + 3 });
+  const room = boardRoom({ starIndex: lit, players: [buyer] });
+
+  // A path that runs through the pad and stops beyond it.
+  const path = [lit - 2, lit - 1, lit, lit + 1, lit + 2];
+  const result = resolveStarPurchase(buyer, path, room);
+  assert.ok(result, "passing the pad must trigger a purchase");
+  assert.equal(result.starGained, true);
+  assert.equal(buyer.stars, 1);
+  assert.equal(buyer.coins, 3);
+  assert.notEqual(room.starIndex, lit, "the star moves on after a pass-buy");
+});
+
+test("the landing field is left to applyFieldEffect, not the pass check", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[1];
+  const buyer = boardPlayer({ coins: STAR_PRICE + 3 });
+  const room = boardRoom({ starIndex: lit, players: [buyer] });
+
+  // Path ENDS on the pad → the pass check must stay out of it, otherwise the
+  // player would be charged twice for one star.
+  const result = resolveStarPurchase(buyer, [lit - 1, lit], room);
+  assert.equal(result, null);
+  assert.equal(buyer.stars, 0);
+  assert.equal(buyer.coins, STAR_PRICE + 3);
+});
+
+test("passing a dark star pad does nothing", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[0];
+  const dark = board.starPads[2];
+  const walker = boardPlayer({ coins: 99 });
+  const room = boardRoom({ starIndex: lit, players: [walker] });
+
+  const result = resolveStarPurchase(walker, [dark - 1, dark, dark + 1], room);
+  assert.equal(result, null);
+  assert.equal(walker.stars, 0);
+  assert.equal(walker.coins, 99);
+});
+
+test("passing the star without the coins reports it and charges nothing", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[1];
+  const broke = boardPlayer({ coins: STAR_PRICE - 1 });
+  const room = boardRoom({ starIndex: lit, players: [broke] });
+
+  const result = resolveStarPurchase(broke, [lit - 1, lit, lit + 1], room);
+  assert.equal(result.affordable, false);
+  assert.equal(broke.stars, 0);
+  assert.equal(broke.coins, STAR_PRICE - 1);
+  assert.equal(room.starIndex, lit, "an unaffordable pass leaves the star put");
 });

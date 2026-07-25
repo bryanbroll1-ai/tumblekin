@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin66">
+    <link rel="stylesheet" href="/style.css?v=tumblekin68">
   </head>
   <body>
     <main id="app">
@@ -66,7 +66,7 @@
             </div>
             <p class="eyebrow">Kleine Crew. Große Kettenreaktion.</p>
             <h1 id="start-title"><span>Tumble</span><strong>Kin</strong></h1>
-            <p>Sammle Münzen, trickse deine Crew aus und bring drei lebendige Welten in Bewegung.</p>
+            <p>Jage Sterne, trickse deine Crew aus und bring drei lebendige Welten in Bewegung.</p>
           </div>
 
           <form id="start-form" class="panel form-panel">
@@ -124,7 +124,7 @@
             <div id="mode-options" class="mode-options">
               <button type="button" data-mode="board" class="mode-option is-active">
                 <strong>🎲 Brettspiel</strong>
-                <span>Würfeln, Felder, Minispiele – die meisten Münzen gewinnen.</span>
+                <span>Würfeln, Felder, Items, Minispiele – die meisten Sterne gewinnen.</span>
               </button>
               <button type="button" data-mode="arcade" class="mode-option">
                 <strong>🏆 Minispiel-Marathon</strong>
@@ -170,11 +170,14 @@
           </div>
         </div>
 
-        <div id="board-canvas-wrap" class="board-canvas-wrap" aria-label="3D-Spielbrett"></div>
+        <div id="board-canvas-wrap" class="board-canvas-wrap" aria-label="3D-Spielbrett">
+          <div id="star-tracker" class="star-tracker" role="status" aria-live="polite" hidden></div>
+        </div>
 
         <div class="board-bottom">
           <div id="board-dev-controller" class="dev-controller" hidden></div>
           <div id="score-strip" class="score-strip"></div>
+          <div id="item-bar" class="item-bar" role="group" aria-label="Deine Items" hidden></div>
           <div class="panel turn-panel">
             <div class="turn-copy">
               <p id="board-message">Warte auf den nächsten Zug.</p>
@@ -239,6 +242,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin66"></script>
+    <script type="module" src="/src/main.js?v=tumblekin68"></script>
   </body>
 </html>

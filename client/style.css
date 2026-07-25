@@ -1324,6 +1324,173 @@ body[data-screen="minigame"] .game-menu-button {
   color: var(--yellow);
 }
 
+/* Stars are the win condition, so they read first and loudest. */
+.score-chip .star-count {
+  color: #ffe36b;
+  margin-right: 6px;
+  text-shadow: 0 0 8px rgba(255, 227, 107, 0.5);
+}
+
+/* --- Star tracker: the board's north star, literally -------------------- */
+.star-tracker {
+  position: absolute;
+  z-index: 12;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 10px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.84);
+  box-shadow: var(--shadow);
+  color: #ffffff;
+  pointer-events: none;
+  max-width: calc(100% - 24px);
+}
+
+.star-tracker-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.star-tracker-copy {
+  display: grid;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.star-tracker-copy strong {
+  font-size: 0.86rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.star-tracker-copy small {
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.66);
+  white-space: nowrap;
+}
+
+/* Within a couple of rolls: warm up the badge so the chase reads as urgent. */
+.star-tracker.is-close {
+  background: rgba(120, 78, 12, 0.9);
+  box-shadow: 0 0 0 2px rgba(255, 227, 107, 0.55), var(--shadow);
+}
+
+.star-tracker.is-close .star-tracker-icon {
+  animation: star-tracker-pulse 1s ease-in-out infinite;
+}
+
+.star-tracker.is-here {
+  background: rgba(255, 209, 92, 0.95);
+  color: #4a3708;
+}
+
+.star-tracker.is-here .star-tracker-copy small {
+  color: rgba(74, 55, 8, 0.72);
+}
+
+@keyframes star-tracker-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.22); }
+}
+
+/* --- Item bar: the board's one real decision point ---------------------- */
+.item-bar {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(21, 33, 38, 0.82);
+  box-shadow: var(--shadow);
+}
+
+.item-bar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.item-shield,
+.item-armed {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(123, 208, 255, 0.22);
+  color: #bfe9ff;
+}
+
+.item-armed {
+  background: rgba(255, 227, 107, 0.22);
+  color: #ffe36b;
+}
+
+.item-cards {
+  display: flex;
+  gap: 8px;
+}
+
+.item-card {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  gap: 2px;
+  place-items: center;
+  padding: 8px 6px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  color: #ffffff;
+  font-weight: 900;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.item-card:not(:disabled):active {
+  transform: scale(0.94);
+}
+
+/* Live on your turn: a warm ring invites the tap. */
+.item-card:not(:disabled) {
+  border-color: rgba(255, 227, 107, 0.7);
+  box-shadow: 0 0 0 1px rgba(255, 227, 107, 0.25) inset;
+}
+
+.item-card:disabled {
+  opacity: 0.45;
+}
+
+.item-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.item-name {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.item-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .turn-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(200px, 44%);

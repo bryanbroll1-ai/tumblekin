@@ -12,6 +12,63 @@ const MAX_ROUNDS = 5;
 const ARCADE_MARATHON_ROUNDS = 5;
 const STARTING_COINS = 10;
 const GATE_COIN_BONUS = 5;
+
+// --- Board economy ---------------------------------------------------------
+// Coins are no longer the goal, they are the means: the goal is stars, and the
+// star only ever sits on ONE of the board's star pads. That gives every roll a
+// target ("can I reach it?") and every coin a purpose ("can I afford it?").
+const STAR_PRICE = 20;
+const COIN_FIELD_REWARD = 6;
+const NORMAL_FIELD_REWARD = 2;
+const TRAP_FIELD_COST = 8;
+const LUCK_FIELD_STAKE = 10;
+const LUCK_FIELD_WIN = 25;
+const MAX_ITEMS = 3;
+// Final-round bonus stars keep last place playing: nobody is mathematically
+// out until the very end.
+const BONUS_STAR_COINS = 1;
+const BONUS_STAR_WINS = 1;
+
+const ITEM_DEFINITIONS = [
+  {
+    id: "doubleDice",
+    name: "Doppelwürfel",
+    icon: "🎲",
+    help: "Würfelt zweimal und addiert — die beste Chance, den Stern zu erreichen."
+  },
+  {
+    id: "goldDice",
+    name: "Goldwürfel",
+    icon: "✨",
+    help: "Garantiert eine hohe Zahl (7–9)."
+  },
+  {
+    id: "swapBell",
+    name: "Tauschglocke",
+    icon: "🔔",
+    help: "Tauscht deine Position mit dem Spieler, der dem Stern am nächsten ist."
+  },
+  {
+    id: "stickyTrap",
+    name: "Klebefalle",
+    icon: "🍯",
+    help: "Halbiert den nächsten Wurf des Führenden."
+  },
+  {
+    id: "shield",
+    name: "Schutzschild",
+    icon: "🛡️",
+    help: "Blockt die nächste Falle oder fremde Item-Wirkung."
+  }
+];
+
+function itemDefinition(id) {
+  return ITEM_DEFINITIONS.find((item) => item.id === id) || null;
+}
+
+function randomItemId() {
+  return ITEM_DEFINITIONS[Math.floor(Math.random() * ITEM_DEFINITIONS.length)].id;
+}
 const RESULT_HOLD_MS = 6500;
 // When a round is decided early (last one standing, everyone finished), the
 // scene keeps playing for this long — winners celebrate on camera — before
@@ -227,6 +284,8 @@ io.on("connection", (socket) => {
       players: [player],
       round: 1,
       maxRounds: MAX_ROUNDS,
+      starIndex: null,
+      bonusStars: [],
       currentTurnIndex: 0,
       minigameCounter: 0,
       devMode: false,
@@ -467,6 +526,38 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
+  socket.on("useItem", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    const player = room.players.find((candidate) => candidate.id === payload?.playerId)
+      || room.players.find((candidate) => candidate.id === socket.data.playerId);
+    if (!player) return replyError(reply, "Spieler nicht gefunden.");
+    if (!canControl(socket, player)) return replyError(reply, "Du steuerst diesen Spieler nicht.");
+    // Items are a pre-roll decision: only on your own turn, before you move.
+    if (room.status !== "board" || room.phase !== "waitingRoll") {
+      return replyError(reply, "Items gehen nur vor dem Würfeln.");
+    }
+    if (getCurrentPlayer(room)?.id !== player.id) {
+      return replyError(reply, "Du bist nicht am Zug.");
+    }
+    if (player.pendingItem) return replyError(reply, "Ein Würfel-Item ist schon aktiv.");
+
+    const result = consumeItem(room, player, String(payload?.itemId || ""));
+    if (!result.ok) return replyError(reply, result.error || "Item konnte nicht benutzt werden.");
+
+    room.lastMessage = result.message;
+    io.to(room.code).emit("itemUsed", {
+      playerId: player.id,
+      name: player.name,
+      item: result.item,
+      targetId: result.targetId || null,
+      blockedBy: result.blockedBy || null,
+      message: result.message
+    });
+    emitRoom(room);
+    reply?.({ ok: true });
+  });
+
   socket.on("restartGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
@@ -492,6 +583,13 @@ function createPlayer({ id, name, color, isHost = false, isBot = false, isLocalD
     controllerId,
     connected: true,
     coins: STARTING_COINS,
+    stars: 0,
+    items: [],
+    shielded: false,
+    // Halves the next roll (Klebefalle). Kept separate from nextRollPenalty so
+    // a flat penalty and a halving can never silently overwrite each other.
+    nextRollHalved: false,
+    pendingItem: null,
     wins: 0,
     position: 0,
     diceValue: null,
@@ -499,6 +597,58 @@ function createPlayer({ id, name, color, isHost = false, isBot = false, isLocalD
     nextRollPenalty: 0,
     minigameScore: 0
   };
+}
+
+// Resets everything the board economy tracks. Used on game start and restart so
+// a rematch never inherits stars, items or pending item effects.
+function resetBoardProgress(player) {
+  player.coins = STARTING_COINS;
+  player.stars = 0;
+  player.items = [];
+  player.shielded = false;
+  player.nextRollHalved = false;
+  player.pendingItem = null;
+  player.nextRollBoost = 0;
+  player.nextRollPenalty = 0;
+  player.position = 0;
+  player.diceValue = null;
+}
+
+// How far ahead of the pack a freshly lit star pad may sit. A player rolls
+// about 3.5 per turn, so this window is roughly "two to four turns away":
+// close enough to race for, far enough that it is not free.
+const STAR_REACH_MIN = 2;
+const STAR_REACH_MAX = 14;
+
+// The lit star pad. Two rules matter here, and both were learned from watching
+// a full match play out:
+//   1. It must MOVE after a sale, or the board has a static target.
+//   2. It must be REACHABLE. Picking uniformly at random left the star sitting
+//      on a pad the pack could never reach within the round limit, which made
+//      the whole star economy dead weight for an entire game.
+function moveStarPad(room, { avoid = null } = {}) {
+  const board = getBoard(room.boardId);
+  const pads = board.starPads || [];
+  if (!pads.length) {
+    room.starIndex = null;
+    return null;
+  }
+  const size = board.fieldTypes.length;
+  const candidates = pads.filter((pad) => pad !== avoid);
+  const pool = candidates.length ? candidates : pads;
+
+  // Measure from the player who is furthest back, so a trailing player always
+  // has a shot at the star too.
+  const positions = (room.players || []).map((player) => player.position || 0);
+  const anchor = positions.length ? Math.min(...positions) : 0;
+  const reachable = pool.filter((pad) => {
+    const distance = (pad - anchor + size) % size;
+    return distance >= STAR_REACH_MIN && distance <= STAR_REACH_MAX;
+  });
+
+  const finalPool = reachable.length ? reachable : pool;
+  room.starIndex = finalPool[Math.floor(Math.random() * finalPool.length)];
+  return room.starIndex;
 }
 
 function startGame(room) {
@@ -511,15 +661,13 @@ function startGame(room) {
   room.resultEndsAt = null;
   room.players.forEach((player, index) => {
     player.isHost = player.id === room.hostId;
+    resetBoardProgress(player);
     // Single mode keeps the lobby tally running across games.
-    if (room.mode !== "single") {
+    if (room.mode === "single") {
       player.coins = STARTING_COINS;
+    } else {
       player.wins = 0;
     }
-    player.position = 0;
-    player.diceValue = null;
-    player.nextRollBoost = 0;
-    player.nextRollPenalty = 0;
     player.minigameScore = 0;
     player.color = COLORS[index % COLORS.length];
   });
@@ -541,7 +689,10 @@ function startGame(room) {
 
   room.status = "board";
   room.phase = "waitingRoll";
-  room.lastMessage = `${getBoard(room.boardId).name} erwacht.`;
+  room.bonusStars = [];
+  // Light the first star pad — the board needs a visible target from turn one.
+  moveStarPad(room);
+  room.lastMessage = `${getBoard(room.boardId).name} erwacht. Der Stern leuchtet!`;
 }
 
 // A shuffled selection of distinct minigames for the marathon mode.
@@ -569,12 +720,8 @@ function resetToLobby(room) {
   room.arcadePlan = [];
   room.arcadeRoundIndex = 0;
   room.players.forEach((player, index) => {
-    player.coins = STARTING_COINS;
+    resetBoardProgress(player);
     player.wins = 0;
-    player.position = 0;
-    player.diceValue = null;
-    player.nextRollBoost = 0;
-    player.nextRollPenalty = 0;
     player.minigameScore = 0;
     player.color = COLORS[index % COLORS.length];
   });
@@ -592,12 +739,31 @@ function performRoll(room, player) {
   }
 
   room.phase = "moving";
-  const baseDice = 1 + Math.floor(Math.random() * 6);
+  // Item effects resolve here so the roll itself stays the single source of
+  // truth for how far a player moves.
+  const pending = player.pendingItem;
+  player.pendingItem = null;
+  let baseDice;
+  let diceNote = null;
+  if (pending === "doubleDice") {
+    baseDice = (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6));
+    diceNote = "Doppelwürfel";
+  } else if (pending === "goldDice") {
+    baseDice = 7 + Math.floor(Math.random() * 3);
+    diceNote = "Goldwürfel";
+  } else {
+    baseDice = 1 + Math.floor(Math.random() * 6);
+  }
   const boost = player.nextRollBoost || 0;
   const penalty = player.nextRollPenalty || 0;
   player.nextRollBoost = 0;
   player.nextRollPenalty = 0;
-  const dice = clamp(baseDice + boost - penalty, 1, 9);
+  let dice = clamp(baseDice + boost - penalty, 1, 12);
+  if (player.nextRollHalved) {
+    player.nextRollHalved = false;
+    dice = Math.max(1, Math.floor(dice / 2));
+    diceNote = diceNote ? `${diceNote}, halbiert` : "halbiert";
+  }
   const board = getBoard(room.boardId);
   const from = player.position;
   const pathSteps = buildBoardPath(board, from, dice);
@@ -618,7 +784,8 @@ function performRoll(room, player) {
     stepDurationMs: BOARD_STEP_MS,
     movementDurationMs,
     durationMs: DICE_REVEAL_MS + movementDurationMs,
-    message: `${player.name} würfelt ${formatDiceRoll(baseDice, boost, penalty, dice)}.`
+    diceNote,
+    message: `${player.name} würfelt ${formatDiceRoll(baseDice, boost, penalty, dice)}${diceNote ? ` (${diceNote})` : ""}.`
   };
   room.lastMove = move;
   room.lastMessage = `${player.name} zieht ${dice} Felder.`;
@@ -630,12 +797,19 @@ function performRoll(room, player) {
     if (room.status !== "board" || room.phase !== "moving") return;
     player.position = to;
     const gateEffects = resolveGateRewards(player, pathSteps, board);
-    const fieldEffect = applyFieldEffect(player, fieldType);
-    const messages = [...gateEffects.map((effect) => effect.message), fieldEffect.message].filter(Boolean);
+    // Passing the lit star pad buys the star before the landing field resolves.
+    const starPass = resolveStarPurchase(player, pathSteps, room);
+    const fieldEffect = applyFieldEffect(player, fieldType, room);
+    const messages = [
+      ...gateEffects.map((effect) => effect.message),
+      starPass?.message,
+      fieldEffect.message
+    ].filter(Boolean);
     const landing = {
       ...move,
       fieldEffect,
       gateEffects,
+      starPass,
       message: messages.join(" ")
     };
     room.lastMove = landing;
@@ -669,6 +843,42 @@ function buildBoardPath(board, from, steps) {
   return path;
 }
 
+// Buying the star by LANDING exactly on the lit pad turned out to be nearly
+// unreachable: five rolls per player cover ~17 of 32 fields, so a whole match
+// could pass without a single star changing hands. Passing over the lit pad
+// buys it too, which makes the star a real target and gives the dice-boosting
+// items an obvious purpose.
+function resolveStarPurchase(player, pathSteps, room) {
+  if (!room) return null;
+  const lit = room.starIndex;
+  if (lit === null || lit === undefined) return null;
+  // The landing field is handled by applyFieldEffect, so only look at the
+  // fields genuinely passed through.
+  const passed = pathSteps.slice(0, -1);
+  if (!passed.includes(lit)) return null;
+  if (player.coins < STAR_PRICE) {
+    return {
+      type: "starPass",
+      fieldIndex: lit,
+      coins: 0,
+      affordable: false,
+      message: `Am Stern vorbei — ${STAR_PRICE} Münzen nötig, du hast ${player.coins}.`
+    };
+  }
+  player.coins -= STAR_PRICE;
+  player.stars += 1;
+  const movedTo = moveStarPad(room, { avoid: lit });
+  return {
+    type: "starPass",
+    fieldIndex: lit,
+    coins: -STAR_PRICE,
+    affordable: true,
+    starGained: true,
+    starMovedTo: movedTo,
+    message: `⭐ Im Vorbeigehen einen Stern geschnappt! (-${STAR_PRICE} Münzen)`
+  };
+}
+
 function resolveGateRewards(player, pathSteps, board = BOARD_DEFINITIONS[0]) {
   return pathSteps
     .filter((fieldIndex) => board.fieldTypes[fieldIndex] === "gate")
@@ -684,17 +894,192 @@ function resolveGateRewards(player, pathSteps, board = BOARD_DEFINITIONS[0]) {
     });
 }
 
-function applyFieldEffect(player, fieldType) {
-  // Every normal field simply pays a couple of coins — one field language,
-  // no punishing squares to read.
+// Resolves what landing on a field does. `room` is optional so the pure coin
+// fields stay unit-testable without a room; star fields need it for the pad.
+function applyFieldEffect(player, fieldType, room = null) {
   if (fieldType === "normal" || fieldType === "start") {
-    player.coins += 2;
-    return { type: fieldType, coins: 2, message: "+2 Münzen." };
+    player.coins += NORMAL_FIELD_REWARD;
+    return { type: fieldType, coins: NORMAL_FIELD_REWARD, message: `+${NORMAL_FIELD_REWARD} Münzen.` };
   }
+
+  if (fieldType === "coin") {
+    player.coins += COIN_FIELD_REWARD;
+    return { type: fieldType, coins: COIN_FIELD_REWARD, message: `Münzader: +${COIN_FIELD_REWARD} Münzen!` };
+  }
+
+  if (fieldType === "item") {
+    if (player.items.length >= MAX_ITEMS) {
+      player.coins += NORMAL_FIELD_REWARD;
+      return {
+        type: fieldType,
+        coins: NORMAL_FIELD_REWARD,
+        message: `Hände voll — dafür +${NORMAL_FIELD_REWARD} Münzen.`
+      };
+    }
+    const id = randomItemId();
+    player.items.push(id);
+    const item = itemDefinition(id);
+    return { type: fieldType, coins: 0, item: id, message: `${item.icon} ${item.name} erhalten!` };
+  }
+
+  if (fieldType === "trap") {
+    if (player.shielded) {
+      player.shielded = false;
+      return { type: fieldType, coins: 0, blocked: true, message: "🛡️ Schild hält die Falle ab!" };
+    }
+    const lost = Math.min(TRAP_FIELD_COST, player.coins);
+    player.coins -= lost;
+    return { type: fieldType, coins: -lost, message: lost ? `Falle! -${lost} Münzen.` : "Falle – aber die Taschen sind leer." };
+  }
+
+  if (fieldType === "luck") {
+    // Risk/reward: you only gamble what you can cover, and losing still leaves
+    // you on the board — the swing should sting, not eliminate.
+    if (player.coins < LUCK_FIELD_STAKE) {
+      player.coins += NORMAL_FIELD_REWARD;
+      return {
+        type: fieldType,
+        coins: NORMAL_FIELD_REWARD,
+        message: `Zu wenig Einsatz — dafür +${NORMAL_FIELD_REWARD} Münzen.`
+      };
+    }
+    const won = Math.random() < 0.5;
+    if (won) {
+      player.coins += LUCK_FIELD_WIN;
+      return { type: fieldType, coins: LUCK_FIELD_WIN, gamble: "win", message: `Glückstreffer! +${LUCK_FIELD_WIN} Münzen!` };
+    }
+    player.coins -= LUCK_FIELD_STAKE;
+    return { type: fieldType, coins: -LUCK_FIELD_STAKE, gamble: "loss", message: `Danebengesetzt: -${LUCK_FIELD_STAKE} Münzen.` };
+  }
+
+  if (fieldType === "star") {
+    const lit = room ? room.starIndex === player.position : false;
+    if (!lit) {
+      player.coins += NORMAL_FIELD_REWARD;
+      return {
+        type: fieldType,
+        coins: NORMAL_FIELD_REWARD,
+        starLit: false,
+        message: `Sternenpodest ist dunkel — +${NORMAL_FIELD_REWARD} Münzen.`
+      };
+    }
+    if (player.coins < STAR_PRICE) {
+      return {
+        type: fieldType,
+        coins: 0,
+        starLit: true,
+        starAffordable: false,
+        message: `Ein Stern kostet ${STAR_PRICE} Münzen — dir fehlen ${STAR_PRICE - player.coins}.`
+      };
+    }
+    player.coins -= STAR_PRICE;
+    player.stars += 1;
+    const from = player.position;
+    const to = room ? moveStarPad(room, { avoid: from }) : null;
+    return {
+      type: fieldType,
+      coins: -STAR_PRICE,
+      starLit: true,
+      starAffordable: true,
+      starGained: true,
+      starMovedTo: to,
+      message: `⭐ Stern gekauft! (-${STAR_PRICE} Münzen) Der Stern zieht weiter.`
+    };
+  }
+
   if (fieldType === "gate") {
     return { type: fieldType, coins: 0, message: "" };
   }
   return { type: "challenge", coins: 0, message: "Challenge-Feld: Ein Minispiel startet." };
+}
+
+// --- Items -----------------------------------------------------------------
+// Items are spent BEFORE rolling, which is where the board's only real
+// decisions live: hoard for the star run, or spend now to block a rival?
+function consumeItem(room, player, itemId) {
+  const slot = player.items.indexOf(itemId);
+  if (slot === -1) return { ok: false, error: "Dieses Item hast du nicht." };
+  const definition = itemDefinition(itemId);
+  if (!definition) return { ok: false, error: "Unbekanntes Item." };
+
+  const rivals = room.players.filter((candidate) => candidate.id !== player.id);
+
+  if (itemId === "doubleDice") {
+    player.pendingItem = "doubleDice";
+  } else if (itemId === "goldDice") {
+    player.pendingItem = "goldDice";
+  } else if (itemId === "shield") {
+    player.shielded = true;
+  } else if (itemId === "swapBell") {
+    // Swap with whoever is closest to the lit star — the aggressive play.
+    const target = nearestToStar(room, rivals);
+    if (!target) return { ok: false, error: "Kein Gegner zum Tauschen." };
+    if (target.shielded) {
+      target.shielded = false;
+      player.items.splice(slot, 1);
+      return {
+        ok: true,
+        item: itemId,
+        blockedBy: target.id,
+        message: `${definition.icon} ${target.name} blockt den Tausch mit dem Schild!`
+      };
+    }
+    const mine = player.position;
+    player.position = target.position;
+    target.position = mine;
+    player.items.splice(slot, 1);
+    return {
+      ok: true,
+      item: itemId,
+      targetId: target.id,
+      message: `${definition.icon} Platztausch mit ${target.name}!`
+    };
+  } else if (itemId === "stickyTrap") {
+    const target = standingsLeader(rivals);
+    if (!target) return { ok: false, error: "Kein Gegner zum Bremsen." };
+    if (target.shielded) {
+      target.shielded = false;
+      player.items.splice(slot, 1);
+      return {
+        ok: true,
+        item: itemId,
+        blockedBy: target.id,
+        message: `${definition.icon} ${target.name} blockt die Klebefalle!`
+      };
+    }
+    target.nextRollHalved = true;
+    player.items.splice(slot, 1);
+    return {
+      ok: true,
+      item: itemId,
+      targetId: target.id,
+      message: `${definition.icon} ${target.name} klebt fest — nächster Wurf halbiert.`
+    };
+  }
+
+  player.items.splice(slot, 1);
+  return { ok: true, item: itemId, message: `${definition.icon} ${definition.name} aktiviert.` };
+}
+
+// Closest rival to the lit star, measured forward along the loop.
+function nearestToStar(room, candidates) {
+  if (room.starIndex === null || room.starIndex === undefined) return standingsLeader(candidates);
+  const size = getBoard(room.boardId).fieldTypes.length;
+  let best = null;
+  let bestDistance = Infinity;
+  candidates.forEach((candidate) => {
+    const distance = (room.starIndex - candidate.position + size) % size;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  });
+  return best;
+}
+
+// The player currently ahead on the overall standing (stars, then coins).
+function standingsLeader(candidates) {
+  return [...candidates].sort(compareStanding)[0] || null;
 }
 
 function formatDiceRoll(baseDice, boost, penalty, result) {
@@ -1464,16 +1849,48 @@ function finishGame(room) {
     room.lastMessage = "Die meisten Siege gewinnen den Marathon.";
     return;
   }
+  awardBonusStars(room);
   const standings = [...room.players].sort(compareStanding);
   const leader = standings[0];
   room.winnerIds = room.players
-    .filter((player) => player.coins === leader?.coins)
+    .filter((player) => player.stars === leader?.stars && player.coins === leader?.coins)
     .map((player) => player.id);
-  room.lastMessage = "Die meisten Münzen gewinnen.";
+  room.lastMessage = "Die meisten Sterne gewinnen.";
 }
 
+// Stars decide the game; coins only break ties. This is what turns coins from
+// a score into a currency you spend.
 function compareStanding(a, b) {
-  return b.coins - a.coins;
+  return (b.stars - a.stars) || (b.coins - a.coins);
+}
+
+// End-of-game bonus stars. Two categories so a player who never reached a star
+// pad still has something to play for right to the last roll — and so a runaway
+// leader can still be caught on the final reveal.
+function awardBonusStars(room) {
+  const bonuses = [];
+  const award = (player, stars, label) => {
+    if (!player || stars <= 0) return;
+    player.stars += stars;
+    bonuses.push({ playerId: player.id, name: player.name, stars, label });
+  };
+
+  const richest = Math.max(...room.players.map((player) => player.coins));
+  if (richest > 0) {
+    room.players
+      .filter((player) => player.coins === richest)
+      .forEach((player) => award(player, BONUS_STAR_COINS, "Meiste Münzen"));
+  }
+
+  const mostWins = Math.max(...room.players.map((player) => player.wins || 0));
+  if (mostWins > 0) {
+    room.players
+      .filter((player) => (player.wins || 0) === mostWins)
+      .forEach((player) => award(player, BONUS_STAR_WINS, "Meiste Challenge-Siege"));
+  }
+
+  room.bonusStars = bonuses;
+  return bonuses;
 }
 
 function createCanopyState(players, startedAt) {
@@ -4387,6 +4804,11 @@ function serializeRoom(room) {
       isLocalDev: player.isLocalDev,
       connected: player.connected,
       coins: player.coins,
+      stars: player.stars || 0,
+      items: [...(player.items || [])],
+      shielded: Boolean(player.shielded),
+      pendingItem: player.pendingItem || null,
+      nextRollHalved: Boolean(player.nextRollHalved),
       wins: player.wins || 0,
       position: player.position,
       diceValue: player.diceValue,
@@ -4400,6 +4822,10 @@ function serializeRoom(room) {
     lastMove: room.lastMove,
     lastMessage: room.lastMessage,
     winnerIds: room.winnerIds,
+    starIndex: room.starIndex ?? null,
+    starPrice: STAR_PRICE,
+    bonusStars: room.bonusStars || [],
+    itemCatalog: ITEM_DEFINITIONS,
     serverTime: Date.now()
   };
 }
@@ -4626,6 +5052,21 @@ module.exports = {
     GATE_COIN_BONUS,
     MINIGAMES,
     applyFieldEffect,
+    STAR_PRICE,
+    COIN_FIELD_REWARD,
+    NORMAL_FIELD_REWARD,
+    TRAP_FIELD_COST,
+    LUCK_FIELD_STAKE,
+    LUCK_FIELD_WIN,
+    MAX_ITEMS,
+    ITEM_DEFINITIONS,
+    itemDefinition,
+    consumeItem,
+    moveStarPad,
+    awardBonusStars,
+    resetBoardProgress,
+    nearestToStar,
+    standingsLeader,
 
     arcadeRankingScore,
     bounceResultScore,
@@ -4673,6 +5114,7 @@ module.exports = {
     KNIFE_MIN_GAP_DEG,
     STACK_BLOCKS,
     CLIMB_HEIGHT,
-    resolveGateRewards
+    resolveGateRewards,
+    resolveStarPurchase
   }
 };

@@ -34,13 +34,15 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 - **Runa, die Wurzelwanderin:** Wurzelpfade auf dem Rücken einer lebenden Waldhüterin mit Herzbaum und Pilzmarkt.
 - **Kesselwinds Wolkenküche:** Eine ansteigende Dampfspirale zwischen Kochinseln, einem lebendigen Kessel und hüpfenden Wolkenköchen.
 - **Gezeitenwerk Nautilus:** Ein Rundweg über Zahnräder, Turbine, Leuchtturm und eine winzige Wartungscrew.
-- Jedes Brett besitzt 32 Felder, vier Themenzonen, vier Abzweigungen und eine eigene kostenpflichtige Abkürzung.
+- Jedes Brett besitzt 32 Felder in vier Themenzonen und läuft als eine klare Schleife — keine Abzweigungen, damit der Weg auf dem Handy immer lesbar bleibt.
 - Eine Kamera-State-Machine inszeniert Übersicht, Zugbeginn, Würfel, Laufweg, Landung, Ereignis und Rückkehr.
 - Jeder Feldtyp hat eine eigene Pastellfarbe und ein eingelassenes Symbol; die genaue Wirkung erscheint bei der Landung.
-- Münzen sind die einzige Brettwährung. Jedes passierte Bandtor zahlt fünf Bonusmünzen aus.
-- Münz-, Haken-, Rückenwind-, Stupser- und Challenge-Felder haben jeweils eine eindeutige Wirkung.
-- Stupser bremsen vor dem Würfeln automatisch den in der Gesamtwertung führenden Rivalen.
-- Nach fünf Runden gewinnen die meisten Münzen.
+- **Sterne gewinnen das Spiel, Münzen kaufen sie.** Ein Stern kostet 20 Münzen und steht immer auf genau einem von vier Sternenpodesten — landest oder läufst du darüber, ist er deiner, und er springt weiter.
+- Der Stern leuchtet nur auf Podesten in Reichweite des hintersten Spielers, damit das Ziel die ganze Partie erreichbar bleibt.
+- Feldsprache: Münzader (+6), Itemfeld, Glücksfeld (10 Münzen auf 50/50 für +25), Falle (-8), Sternenpodest, Challenge und Bandtor (+5 beim Passieren).
+- **Items** werden vor dem Würfeln eingesetzt: Doppelwürfel, Goldwürfel, Tauschglocke, Klebefalle und Schutzschild. Maximal drei auf der Hand.
+- Am Ende gibt es Bonus-Sterne für die meisten Münzen und die meisten Challenge-Siege — niemand ist vor dem letzten Wurf ausgeschieden.
+- Nach fünf Runden gewinnen die meisten Sterne; Münzen entscheiden nur Gleichstände.
 
 ## 15 Challenges
 
@@ -114,6 +116,15 @@ npx playwright install chromium
 ```
 
 Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIUM_PATH=/pfad/zu/chrome` verwenden. Der Server wird automatisch gestartet und wieder beendet; der Exit-Code ist 0 nur, wenn alle geprüften Minispiele sauber rendern.
+
+Balance des Bretts prüfen — spielt komplette Partien gegen den echten Server und berichtet, ob der Stern wandert, gekauft wird und alle Feldtypen feuern:
+
+```bash
+npm run board-sim            # eine Partie
+npm run board-sim -- 3       # drei Partien mit Sammelbilanz
+```
+
+Braucht einmalig `npm install --no-save socket.io-client`. Wird in keiner Partie ein Stern gekauft, endet der Lauf mit Exit-Code 1 — genau dieser Fall hat aufgedeckt, dass ein zufällig platzierter Stern eine ganze Runde unerreichbar bleiben kann.
 
 ## Architektur
 

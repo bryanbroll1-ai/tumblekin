@@ -1,9 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin66";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin66";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin66";
+import { drawDiceFace } from "./Dice.js?v=tumblekin68";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin68";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin68";
+import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin68";
 
-const EVENT_FIELDS = new Set(["challenge", "gate"]);
+const EVENT_FIELDS = new Set(["challenge", "gate", "star", "coin", "item", "luck", "trap"]);
 const CAMERA_DAMPING = 6.5;
 
 export class BoardGame {
@@ -46,6 +47,10 @@ export class BoardGame {
 
     this.fieldMeshes = [];
     this.fieldPositions = [];
+    this.starBeacon = null;
+    this.lastStarIndex = null;
+    this.bursts = null;
+    this.floaters = null;
     this.tokens = new Map();
     this.animations = new Map();
     this.animatingPlayers = new Set();
@@ -83,6 +88,7 @@ export class BoardGame {
       this.lastFieldSignature = signature;
     }
     this.syncPlayers(state);
+    this.syncStarBeacon(state);
     this.highlightCurrent(state);
     const currentChanged = state.currentPlayerId !== this.lastCurrentPlayerId;
     const returning = previousState && previousState.status !== "board" && state.status === "board";
@@ -90,6 +96,45 @@ export class BoardGame {
     else if (!boardChanged && currentChanged && state.phase === "waitingRoll") this.setCameraMode("turn", { duration: 1000, fieldIndex: state.players.find((player) => player.id === state.currentPlayerId)?.position });
     this.lastCurrentPlayerId = state.currentPlayerId;
     this.lastBoardStatus = state.status;
+  }
+
+  // Parks the beacon on the lit star pad. Called on every state update, so it
+  // follows the star as it jumps after each sale.
+  syncStarBeacon(state) {
+    const index = state.starIndex;
+    // fieldPositions are expressed in world/boardGroup space, so the beacon and
+    // the effect systems must be parented there too — attaching them to the
+    // scene root put them in a different coordinate space and off screen.
+    if (!this.bursts) this.bursts = new CubeBurst(this.fxGroup);
+    if (!this.floaters) this.floaters = new FloatingText(this.fxGroup);
+    if (!this.starBeacon) {
+      this.starBeacon = createStarBeacon();
+      this.fxGroup.add(this.starBeacon);
+    }
+    if (index === null || index === undefined || !this.fieldPositions[index]) {
+      this.starBeacon.visible = false;
+      this.lastStarIndex = null;
+      return;
+    }
+    this.starBeacon.visible = true;
+    if (index === this.lastStarIndex) return;
+    const spot = this.fieldPositions[index];
+    this.starBeacon.position.set(spot.x, spot.y + 1.35, spot.z);
+    // A burst on arrival sells the "the star moved!" moment.
+    if (this.lastStarIndex !== null) {
+      this.spawnStarArrival(spot);
+    }
+    this.lastStarIndex = index;
+  }
+
+  // Confetti when the star relocates to a new pad.
+  spawnStarArrival(spot) {
+    if (!this.bursts) return;
+    this.bursts.spawn(
+      new THREE.Vector3(spot.x, spot.y + 0.4, spot.z),
+      ["#ffe36b", "#ffb400", "#ffffff"],
+      { count: 18, speed: 1.8, up: 2.2, size: 0.07, life: 0.8, drag: 1.4 }
+    );
   }
 
   setActive(active) {
@@ -132,10 +177,67 @@ export class BoardGame {
       fieldIndex: landing.to
     });
     const token = this.tokens.get(landing.playerId);
-    // Items and challenges get a happy hop; ordinary fields a soft landing.
-    const reactionType = landing.fieldType === "challenge" ? "cheer" : "land";
+    const effect = landing.fieldEffect || {};
+    // A star buy or a gamble win is worth a celebration; a trap or a lost bet
+    // gets the sad slump. Everything else keeps the soft landing.
+    const good = effect.starGained || effect.gamble === "win" || (effect.coins || 0) >= 6;
+    const bad = effect.gamble === "loss" || (effect.coins || 0) < 0;
+    let reactionType = "land";
+    if (landing.fieldType === "challenge" || good) reactionType = "cheer";
+    else if (bad) reactionType = "stumble";
     if (token) token.userData.reaction = { type: reactionType, startedAt: performance.now() };
-    this.createLandingBurst(landing.to, landing.fieldType, Boolean(landing.gateEffects?.some((effect) => effect.coins > 0)));
+    this.createLandingBurst(landing.to, landing.fieldType, Boolean(landing.gateEffects?.some((gate) => gate.coins > 0)));
+    this.celebrateFieldEffect(landing, effect);
+  }
+
+  // Pop-up text and confetti tuned to what actually happened, so the board
+  // reads at a glance instead of only through the message bar.
+  celebrateFieldEffect(landing, effect) {
+    const spot = this.fieldPositions[landing.to];
+    if (!spot || !this.floaters) return;
+    const at = new THREE.Vector3(spot.x, spot.y + 0.75, spot.z);
+
+    if (effect.starGained) {
+      this.floaters.pop(at, "⭐ STERN!", { color: "#ffe36b", size: 0.5, life: 1.5, rise: 1.2 });
+      this.bursts?.spawn(at, ["#ffe36b", "#ffb400", "#ffffff"], { count: 30, speed: 2.6, up: 3, size: 0.09, life: 1.1, drag: 1.1 });
+      this.bursts?.ring(new THREE.Vector3(spot.x, spot.y + 0.12, spot.z), "#ffe36b", { radius: 2.4, life: 0.8, opacity: 0.7, y: spot.y + 0.12 });
+      return;
+    }
+    if (effect.type === "star" && effect.starAffordable === false) {
+      this.floaters.pop(at, "Zu teuer!", { color: "#ff9aa8", size: 0.34, life: 1.1 });
+      return;
+    }
+    if (effect.item) {
+      this.floaters.pop(at, "ITEM!", { color: "#7bd0ff", size: 0.4, life: 1.2, rise: 1 });
+      this.bursts?.spawn(at, ["#7bd0ff", "#ffffff"], { count: 14, speed: 1.8, up: 2, size: 0.07, life: 0.8, drag: 1.5 });
+      return;
+    }
+    if (effect.gamble === "win") {
+      this.floaters.pop(at, `+${effect.coins}`, { color: "#ffe36b", size: 0.46, life: 1.2, rise: 1 });
+      this.bursts?.spawn(at, ["#ffd45c", "#ffffff", "#b98cff"], { count: 22, speed: 2.2, up: 2.6, size: 0.08, life: 0.9, drag: 1.3 });
+      return;
+    }
+    if (effect.gamble === "loss") {
+      this.floaters.pop(at, `${effect.coins}`, { color: "#b98cff", size: 0.38, life: 1 });
+      return;
+    }
+    if (effect.blocked) {
+      this.floaters.pop(at, "🛡️ GEBLOCKT", { color: "#7bd0ff", size: 0.38, life: 1.2 });
+      return;
+    }
+    if ((effect.coins || 0) < 0) {
+      this.floaters.pop(at, `${effect.coins}`, { color: "#ff9aa8", size: 0.4, life: 1.1 });
+      this.bursts?.ring(new THREE.Vector3(spot.x, spot.y + 0.1, spot.z), "#ff6b7f", { radius: 1.4, life: 0.5, y: spot.y + 0.1 });
+      return;
+    }
+    if ((effect.coins || 0) > 0) {
+      this.floaters.pop(at, `+${effect.coins}`, {
+        color: effect.coins >= 6 ? "#ffe36b" : "#ffffff",
+        size: effect.coins >= 6 ? 0.4 : 0.3,
+        life: 0.85,
+        rise: 0.8
+      });
+    }
   }
 
   prepareMinigame() {
@@ -982,9 +1084,73 @@ export class BoardGame {
     this.camera.fov += (pose.fov - this.camera.fov) * damping;
     this.camera.updateProjectionMatrix();
     this.camera.lookAt(this.cameraTarget);
+    updateStarBeacon(this.starBeacon, now);
+    this.bursts?.update(dt);
+    this.floaters?.update(dt);
     this.renderer.render(this.scene, this.camera);
     requestAnimationFrame(this.loop);
   };
+}
+
+// The lit star pad's beacon: a big slowly spinning star on a column of light.
+// This is the board's single most important read — it is the thing everybody is
+// racing toward, so it is deliberately the tallest, brightest object in frame.
+function createStarBeacon() {
+  const group = new THREE.Group();
+
+  const shape = new THREE.Shape();
+  const points = 5;
+  const outer = 0.3;
+  const inner = 0.13;
+  for (let i = 0; i < points * 2; i += 1) {
+    const radius = i % 2 === 0 ? outer : inner;
+    const angle = (i * Math.PI) / points - Math.PI / 2;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  const star = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 1 }),
+    new THREE.MeshLambertMaterial({ color: "#ffe36b", emissive: "#ffb400", emissiveIntensity: 0.55 })
+  );
+  star.castShadow = true;
+  group.add(star);
+
+  // Light column so the pad is findable even when the star is off screen.
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.14, 0.26, 1.25, 12, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: "#ffe36b", transparent: true, opacity: 0.16,
+      side: THREE.DoubleSide, depthWrite: false
+    })
+  );
+  beam.position.y = -0.62;
+  group.add(beam);
+
+  // Ground halo that pulses, so the exact tile is unambiguous.
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(0.3, 0.42, 24),
+    new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = -1.24;
+  group.add(halo);
+
+  group.userData = { star, beam, halo };
+  group.visible = false;
+  return group;
+}
+
+function updateStarBeacon(beacon, now) {
+  if (!beacon?.visible) return;
+  const { star, beam, halo } = beacon.userData;
+  star.rotation.y = now / 900;
+  star.position.y = Math.sin(now / 620) * 0.07;
+  const pulse = 0.5 + Math.sin(now / 420) * 0.5;
+  beam.material.opacity = 0.1 + pulse * 0.12;
+  halo.material.opacity = 0.32 + pulse * 0.26;
+  halo.scale.setScalar(1 + pulse * 0.14);
 }
 
 function createConnector(from, to, { shortcut = false, theme, wrap = false }) {
@@ -1692,10 +1858,87 @@ function drawFieldIcon(ctx, type) {
     ctx.fill();
     return;
   }
+  if (type === "coin") {
+    // A fat coin with a slot, so it reads as money at tile size.
+    ctx.beginPath();
+    ctx.arc(64, 64, 30, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(64, 64, 14, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  if (type === "item") {
+    // Question mark in a box: the universal "surprise" language.
+    ctx.lineWidth = 10;
+    roundRectPath(ctx, 30, 30, 68, 68, 14);
+    ctx.stroke();
+    ctx.font = "900 54px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("?", 64, 66);
+    return;
+  }
+  if (type === "luck") {
+    // A diamond split light/dark — a coin flip you can read at a glance.
+    ctx.beginPath();
+    ctx.moveTo(64, 26);
+    ctx.lineTo(102, 64);
+    ctx.lineTo(64, 102);
+    ctx.lineTo(26, 64);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(64, 26);
+    ctx.lineTo(102, 64);
+    ctx.lineTo(64, 102);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+  if (type === "trap") {
+    // A bold cross — the only field that takes something away.
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    ctx.moveTo(36, 36);
+    ctx.lineTo(92, 92);
+    ctx.moveTo(92, 36);
+    ctx.lineTo(36, 92);
+    ctx.stroke();
+    return;
+  }
+  if (type === "star") {
+    drawStarPath(ctx, 64, 64, 38, 17);
+    ctx.fill();
+    return;
+  }
   ctx.font = "900 72px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("!", 64, 67);
+}
+
+function roundRectPath(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
+}
+
+function drawStarPath(ctx, cx, cy, outer, inner, points = 5) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i += 1) {
+    const radius = i % 2 === 0 ? outer : inner;
+    const angle = (i * Math.PI) / points - Math.PI / 2;
+    const x = cx + Math.cos(angle) * radius;
+    const y = cy + Math.sin(angle) * radius;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
 }
 
 // Flat white chevron lying on the path, pointing toward the next field.

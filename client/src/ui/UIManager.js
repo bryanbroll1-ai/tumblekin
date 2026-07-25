@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin66";
-import { playerStatus } from "../game/Player.js?v=tumblekin66";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin66";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin68";
+import { playerStatus } from "../game/Player.js?v=tumblekin68";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin68";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -116,6 +116,8 @@ export class UIManager {
       boardZone: document.getElementById("board-zone-label"),
       currentPlayer: document.getElementById("current-player-label"),
       scoreStrip: document.getElementById("score-strip"),
+      itemBar: document.getElementById("item-bar"),
+      starTracker: document.getElementById("star-tracker"),
       boardMessage: document.getElementById("board-message"),
       diceLabel: document.getElementById("dice-label"),
       rollDice: document.getElementById("roll-dice"),
@@ -403,13 +405,95 @@ export class UIManager {
     this.el.rollDice.textContent = myTurn ? "Würfeln" : (current?.connected === false ? "Offline" : (current?.isBot ? "Bot würfelt ..." : "Warten"));
     this.el.scoreStrip.innerHTML = state.players.map((player, index) => `
       <div class="score-chip ${player.id === current?.id ? "current" : ""} ${player.connected === false ? "offline" : ""}"
-        style="--chip-color:${player.color}" title="${escapeHtml(player.name)}: ${player.coins} Münzen">
+        style="--chip-color:${player.color}"
+        title="${escapeHtml(player.name)}: ${player.stars || 0} Sterne, ${player.coins} Münzen">
         <span class="player-dot avatar-${index % 4}" style="background:${player.color}"></span>
         <span class="score-name">${escapeHtml(shortName(player.name))}</span>
-        <strong><span class="coin-count">● ${player.coins}</span></strong>
+        <strong><span class="star-count">★ ${player.stars || 0}</span><span class="coin-count">● ${player.coins}</span></strong>
       </div>
     `).join("");
+    this.renderStarTracker(state);
+    this.renderItemBar(state, myTurn);
     this.renderDevControllers();
+  }
+
+  // The lit star is the whole point of the board, but the camera follows the
+  // active player, so the 3D beacon is frequently off screen. This tracker
+  // always answers the two questions that drive the turn: how far away is the
+  // star, and can I afford it?
+  renderStarTracker(state) {
+    const el = this.el.starTracker;
+    if (!el) return;
+    const index = state.starIndex;
+    const size = state.fieldTypes?.length || 32;
+    const me = getMyPlayer(state, this.getControlledPlayerId()) || getMyPlayer(state, this.myPlayerId);
+    if (index === null || index === undefined || !me) {
+      el.hidden = true;
+      return;
+    }
+    const distance = (index - (me.position || 0) + size) % size;
+    const price = state.starPrice ?? 20;
+    const short = Math.max(0, price - me.coins);
+    el.hidden = false;
+    el.classList.toggle("is-close", distance > 0 && distance <= 6);
+    el.classList.toggle("is-here", distance === 0);
+    el.innerHTML = `
+      <span class="star-tracker-icon">⭐</span>
+      <span class="star-tracker-copy">
+        <strong>${distance === 0 ? "Du stehst am Stern!" : `${distance} ${distance === 1 ? "Feld" : "Felder"}`}</strong>
+        <small>${short > 0 ? `noch ${short} Münzen nötig` : `${price} Münzen — bezahlbar!`}</small>
+      </span>
+    `;
+  }
+
+  // Your hand of items. Only tappable on your own turn before rolling — that
+  // is the board's real decision point, so the bar makes it obvious when it is
+  // live and greys out otherwise instead of vanishing.
+  renderItemBar(state, myTurn) {
+    const bar = this.el.itemBar;
+    if (!bar) return;
+    const mine = getMyPlayer(state, this.getControlledPlayerId()) || getMyPlayer(state, this.myPlayerId);
+    const items = mine?.items || [];
+    const catalog = state.itemCatalog || [];
+
+    if (!items.length) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      return;
+    }
+    bar.hidden = false;
+    const armed = Boolean(mine?.pendingItem);
+    const usable = myTurn && !armed;
+    bar.innerHTML = `
+      <div class="item-bar-head">
+        <span>Deine Items</span>
+        ${mine?.shielded ? '<span class="item-shield">🛡️ Schild aktiv</span>' : ""}
+        ${armed ? '<span class="item-armed">Würfel-Item bereit</span>' : ""}
+      </div>
+      <div class="item-cards">
+        ${items.map((id, slot) => {
+          const meta = catalog.find((entry) => entry.id === id) || { icon: "❔", name: id, help: "" };
+          return `
+            <button type="button" class="item-card" data-item-id="${escapeHtml(id)}" data-slot="${slot}"
+              ${usable ? "" : "disabled"} title="${escapeHtml(meta.help || "")}">
+              <span class="item-icon">${meta.icon}</span>
+              <span class="item-name">${escapeHtml(meta.name)}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+      <p class="item-hint">${usable
+        ? "Vor dem Würfeln einsetzen."
+        : (armed ? "Jetzt würfeln — das Item wirkt auf diesen Wurf." : "Nur an deinem Zug einsetzbar.")}</p>
+    `;
+    bar.querySelectorAll("[data-item-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.itemId;
+        this.feedback?.sound("lock");
+        this.feedback?.vibrate(14);
+        this.safeAction(() => this.handlers.useItem(id));
+      });
+    });
   }
 
   renderMinigame() {

@@ -1,22 +1,22 @@
-import { BoardGame } from "./game/BoardGame.js?v=tumblekin66";
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin66";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin66";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin66";
-import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin66";
-import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin66";
-import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin66";
-import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin66";
-import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin66";
-import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin66";
-import { BombPass } from "./minigames/BombPass.js?v=tumblekin66";
-import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin66";
-import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin66";
-import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin66";
-import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin66";
-import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin66";
-import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin66";
-import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin66";
-import { Feedback } from "./game/Feedback.js?v=tumblekin66";
+import { BoardGame } from "./game/BoardGame.js?v=tumblekin68";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin68";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin68";
+import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin68";
+import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin68";
+import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin68";
+import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin68";
+import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin68";
+import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin68";
+import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin68";
+import { BombPass } from "./minigames/BombPass.js?v=tumblekin68";
+import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin68";
+import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin68";
+import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin68";
+import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin68";
+import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin68";
+import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin68";
+import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin68";
+import { Feedback } from "./game/Feedback.js?v=tumblekin68";
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
@@ -33,6 +33,10 @@ let resumeInFlight = false;
 const SESSION_KEY = "tumblekin-session";
 
 const board = new BoardGame(document.getElementById("board-canvas-wrap"), feedback);
+if (new URLSearchParams(location.search).has("dev")) {
+  window.__board = board;
+  window.__state = () => currentState;
+}
 const ui = new UIManager({
   createRoom: async (name) => {
     const response = await network.request("createRoom", { name });
@@ -63,7 +67,12 @@ const ui = new UIManager({
   startGame: () => network.request("startGame", { code: currentState?.code }),
   startDevMinigame: (type) => network.request("startDevMinigame", { code: currentState?.code, type }),
   rollDice: () => network.request("rollDice", { code: currentState?.code, playerId: ui.getControlledPlayerId() }),
-  restartGame: () => network.request("restartGame", { code: currentState?.code })
+  restartGame: () => network.request("restartGame", { code: currentState?.code }),
+  useItem: (itemId) => network.request("useItem", {
+    code: currentState?.code,
+    playerId: ui.getControlledPlayerId(),
+    itemId
+  })
 }, feedback);
 
 network.on("state", handleState);
@@ -99,6 +108,11 @@ network.on("minigameUpdate", (update) => {
   if (activeMinigameId === update.id) {
     activeMinigame?.handleUpdate(update);
   }
+});
+network.on("itemUsed", (event) => {
+  feedback.sound(event.blockedBy ? "error" : "lock");
+  feedback.vibrate(event.blockedBy ? [22, 18, 26] : [14, 10, 20]);
+  ui.showToast(event.message || "Item benutzt.");
 });
 network.on("roomNotice", (notice) => {
   if (notice?.severity === "error") feedback.sound("error");
