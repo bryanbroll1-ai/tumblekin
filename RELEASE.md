@@ -63,7 +63,7 @@ laufenden Kosten entstehen sollen.
 | Barrierefreiheit | Fokusringe für Tastatur/Switch, `prefers-reduced-motion` wirkt auch auf die 3D-Szenen |
 | Gerätestufen | schwache Hardware bekommt weniger Pixel, kleinere Schattenmaps, kein Antialiasing |
 | Missbrauchsschutz | Raum-Flooding begrenzt (Cooldown, Gerätelimit, Gesamtobergrenze). Vorher legten 60 Verbindungen 60 Räume an, jetzt 1 von 40 im Burst — regulärer Beitritt unbeeinträchtigt |
-| Tests | 145 Regeltests, Browser-Rauchtest über alle Minispiele, Board-Simulator fürs Balancing |
+| Tests | 159 Regeltests, Browser-Rauchtest über alle Minispiele, Board-Simulator fürs Balancing |
 
 ## Offen vor einem Release
 
@@ -78,7 +78,7 @@ laufenden Kosten entstehen sollen.
 
 **Wichtig, nicht blockierend**
 
-- Inhaltsumfang: 21 von 30 geplanten Minispielen (Plan unten).
+- Inhaltsumfang: 22 von 30 geplanten Minispielen (Plan unten).
 - Nur eine Sprache (Deutsch). Store-Reichweite verlangt praktisch Englisch.
 - Kein Onboarding-Tutorial für die erste Partie.
 - Keine Fehlerberichterstattung; ein Absturz beim Spieler bleibt unsichtbar.
@@ -103,7 +103,7 @@ Aufladen/Stossen, Rhythmus, Reaktion gegen Täuschung und Pfadverfolgung.
 | 18 | Seifenkiste | Neigungssteuerung | Gerät kippen | Rampen, Federung, Drift |
 | 19 | Eierlauf | Balance halten (inverses Pendel) | Mikro-Kippen | Pendelphysik am Löffel |
 | ~~20~~ | ~~Tellerdreher~~ | Mehrere Objekte gleichzeitig halten | tippen (statt wischen) | **fertig** — Handvorrat serverseitig; Tippen statt Wischen, weil sechs Ziele auf dem Handy gezielt getroffen werden müssen |
-| 21 | Angelduell | Widerstand ausspielen | halten + Rhythmus | Seilspannung, Fischzug |
+| ~~21~~ | ~~Angelduell~~ | Widerstand ausspielen | halten + im Schub loslassen | **fertig** — Schnurspannung und Kampfplan serverseitig, Gier gegen Riss |
 | ~~22~~ | ~~Sumo-Schubs~~ | Aufladen und stossen | halten + loslassen | **fertig** — Steinphysik serverseitig, Überladen rutscht aus |
 | ~~23~~ | ~~Trampolin~~ | Rhythmus-Timing | Takt-Tippen | **fertig** — Taktplan serverseitig, Resonanz und Taktanzeige |
 | 24 | Kranstapler | Trägheit zähmen | tippen + ziehen | Pendelnde Last am Seil |

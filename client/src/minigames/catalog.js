@@ -12,7 +12,8 @@ export const GESTURES = {
   rhythm: { icon: "👆🎵", label: "Im Takt tippen" },
   react: { icon: "👆⚡", label: "Blitzschnell tippen" },
   trace: { icon: "👆〰️", label: "Finger auf der Spur führen" },
-  plates: { icon: "👆🌀", label: "Teller antippen" }
+  plates: { icon: "👆🌀", label: "Teller antippen" },
+  fish: { icon: "👆🎣", label: "Halten und im Schub loslassen" }
 };
 
 export const MINIGAME_CATALOG = [
@@ -36,7 +37,8 @@ export const MINIGAME_CATALOG = [
   { type: "trampolin", title: "Trampolin", family: "bounce", gesture: "rhythm", help: "Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller!" },
   { type: "falschsignal", title: "Falschsignal", family: "feint", gesture: "react", help: "Nur der runde grüne Kreis, der BLEIBT, ist echt. Falsche Farbe, falsche Form und kurzes Aufblitzen kosten Punkte — schnell tippen bringt mehr, zu schnell bringt Minus." },
   { type: "spurmaler", title: "Spurmaler", family: "trace", gesture: "trace", help: "Zieh den Finger auf der Spur nach oben und mal sie aus. Verlässt du das Band, reisst der Strich ab — jede geschaffte Runde bringt eine neue Kurve." },
-  { type: "tellerdreher", title: "Tellerdreher", family: "plates", gesture: "plates", help: "Tippe den Teller an, der am langsamsten dreht. Du hast nur EINE Hand: jeder Griff kostet Vorrat, und ein voller Teller verschluckt ihn. Immer mehr Teller kommen dazu." }
+  { type: "tellerdreher", title: "Tellerdreher", family: "plates", gesture: "plates", help: "Tippe den Teller an, der am langsamsten dreht. Du hast nur EINE Hand: jeder Griff kostet Vorrat, und ein voller Teller verschluckt ihn. Immer mehr Teller kommen dazu." },
+  { type: "angelduell", title: "Angelduell", family: "fish", gesture: "fish", help: "Halten holt den Fisch ein und spannt die Schnur. Wenn er zieht, steigt die Spannung viermal so schnell — dann loslassen, sonst reisst sie. Wer sie ausreizt, ist schneller." }
 ];
 
 export const ARCADE_TYPES = new Set(

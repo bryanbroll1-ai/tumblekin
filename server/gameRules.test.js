@@ -108,6 +108,20 @@ const {
   plateCountAt,
   plateDecayAt,
   plateScore,
+  FISH_DURATION_MS,
+  FISH_REEL_SPEED,
+  FISH_SLIP_SPEED,
+  FISH_TENSION_CALM,
+  FISH_TENSION_SURGE,
+  FISH_RELAX,
+  FISH_HOLD_GRACE_MS,
+  FISH_SNAP_PAUSE_MS,
+  FISH_SNAP_COST,
+  FISH_LANDED_POINTS,
+  FISH_LEAD_IN_MS,
+  buildFishPhases,
+  fishSurging,
+  fishScore,
   nearestToStar,
   standingsLeader
 } = testRules;
@@ -132,10 +146,10 @@ test("board uses one readable field language", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 21);
+  assert.equal(MINIGAMES.length, 22);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "spurmaler", "sumoschubs", "tellerdreher", "trampolin", "turmbau", "zuendstoff"]
+    ["angelduell", "ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "spurmaler", "sumoschubs", "tellerdreher", "trampolin", "turmbau", "zuendstoff"]
   );
 });
 
@@ -2387,4 +2401,200 @@ test("plates: unknown plate and wrong action are refused", () => {
   assert.equal(handleArcadeInput(room, me, { action: "jump" }).ok, false);
   assert.equal(handleArcadeInput(room, me, { action: "spin", plate: 99 }).ok, false);
   assert.equal(handleArcadeInput(room, me, { action: "spin", plate: "x" }).ok, false);
+});
+
+// --- Angelduell ------------------------------------------------------------
+
+function fishRoom() {
+  const players = [{ id: "a1", name: "Angler", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("angelduell", players, startedAt);
+  const minigame = { id: 1, type: "angelduell", startedAt, duration: FISH_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+
+  // Wie bei den anderen Tick-Spielen: der Tick deckelt seinen Zeitschritt auf
+  // 0.2 s, und Halte-Ping wie Pause hängen an der ECHTEN Uhr. Beides muss der
+  // Test nachbilden, sonst misst er etwas anderes als das Spiel.
+  const STEP = 100;
+  // `holding` darf auch eine Funktion sein: so lässt sich eine Strategie
+  // spielen, die auf den Zustand REAGIERT — und nur so ist ein Vergleich
+  // zwischen Gier und Können ehrlich.
+  const advance = (ms, { holding = false, stopOnSnap = false } = {}) => {
+    let left = ms;
+    while (left > 0) {
+      const chunk = Math.min(STEP, left);
+      const now = Date.now();
+      const snapsBefore = entry.snaps;
+      const wants = typeof holding === "function" ? holding(entry) : holding;
+      arcade.lastUpdateAt = now - chunk;
+      entry.hookedAt -= chunk;
+      if (entry.pauseUntil) entry.pauseUntil -= chunk;
+      // Halten heisst: es kam gerade ein Ping.
+      entry.lastReelAt = wants ? now : entry.lastReelAt - chunk;
+      updateArcade(room);
+      left -= chunk;
+      if (stopOnSnap && entry.snaps > snapsBefore) return true;
+    }
+    return false;
+  };
+  const reel = () => {
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "reel" });
+  };
+  // Setzt den Fisch in eine ruhige bzw. kämpfende Phase.
+  const intoCalm = () => { entry.hookedAt = Date.now(); };
+  const intoSurge = () => { entry.hookedAt = Date.now() - entry.phases[0].at - 50; };
+  return { room, me, arcade, entry, minigame, advance, reel, intoCalm, intoSurge };
+}
+
+test("fish: the fight alternates calm and surge and covers the round", () => {
+  const phases = buildFishPhases(509, 0, FISH_DURATION_MS);
+  assert.ok(phases.length >= 8, `only ${phases.length} surges in a round`);
+  assert.ok(phases[0].at >= FISH_LEAD_IN_MS, "the fish needs a moment before its first surge");
+  for (let i = 0; i < phases.length; i += 1) {
+    assert.ok(phases[i].until > phases[i].at, "a surge has to last");
+    if (i > 0) assert.ok(phases[i].at > phases[i - 1].until, "surges must not overlap");
+  }
+});
+
+test("fish: every fish fights differently", () => {
+  const shape = (index) => buildFishPhases(509, index, FISH_DURATION_MS).slice(0, 4).map((p) => Math.round(p.at)).join(",");
+  assert.notEqual(shape(1), shape(0), "the next fish has to fight to its own plan");
+  assert.notEqual(shape(2), shape(1));
+});
+
+test("fish: surging is only true inside a surge window", () => {
+  const phases = buildFishPhases(509, 0, FISH_DURATION_MS);
+  const first = phases[0];
+  assert.equal(fishSurging(phases, first.at - 1), false);
+  assert.equal(fishSurging(phases, first.at + 1), true);
+  assert.equal(fishSurging(phases, first.until + 1), false);
+});
+
+test("fish: holding reels in and builds tension", () => {
+  const { entry, advance, intoCalm } = fishRoom();
+  intoCalm();
+  advance(1000, { holding: true });
+  assert.ok(entry.distance < 1, "holding has to bring the fish closer");
+  assert.ok(entry.tension > 0, "and put tension on the line");
+  assert.equal(entry.snaps, 0);
+});
+
+test("fish: letting go relaxes the line but loses ground", () => {
+  const { entry, advance, intoCalm } = fishRoom();
+  intoCalm();
+  advance(1500, { holding: true });
+  const pulled = entry.distance;
+  const tense = entry.tension;
+  advance(600, { holding: false });
+  assert.ok(entry.tension < tense, "releasing has to drop the tension");
+  assert.ok(entry.distance > pulled, "and let the fish take line back");
+  assert.ok(entry.distance <= 1);
+});
+
+test("fish: holding through a surge snaps the line much faster", () => {
+  const calm = fishRoom();
+  calm.intoCalm();
+  calm.advance(1000, { holding: true });
+
+  const fight = fishRoom();
+  fight.intoSurge();
+  fight.advance(1000, { holding: true });
+  assert.ok(fight.entry.surging, "the test has to actually be inside a surge");
+  assert.ok(
+    fight.entry.tension > calm.entry.tension * 2,
+    `surge tension ${fight.entry.tension} vs calm ${calm.entry.tension}`
+  );
+});
+
+test("fish: a snapped line costs the fish and pauses the fight", () => {
+  const { entry, advance, intoSurge } = fishRoom();
+  intoSurge();
+  // Genau im Moment des Risses prüfen: läuft der Tick weiter, holt der
+  // Dauerhaltende sofort den nächsten Fisch ein und die Werte sind wieder
+  // unterwegs.
+  const snapped = advance(4000, { holding: true, stopOnSnap: true });
+  assert.equal(snapped, true, "holding through a long surge has to snap");
+  assert.equal(entry.snaps, 1);
+  assert.equal(entry.distance, 1, "the fish is gone");
+  assert.equal(entry.tension, 0);
+  assert.ok(entry.pauseUntil > Date.now(), "and there is a moment before the next bite");
+});
+
+test("fish: reeling is refused while the line is being re-cast", () => {
+  const { entry, reel, intoSurge, advance } = fishRoom();
+  intoSurge();
+  advance(3000, { holding: true });
+  const before = entry.lastReelAt;
+  reel();
+  assert.equal(entry.lastReelAt, before, "no reeling during the pause");
+});
+
+test("fish: landing a fish banks points and hooks the next one", () => {
+  const { entry, advance, intoCalm } = fishRoom();
+  // Ruhig einholen, zwischendurch lösen, damit die Schnur hält.
+  for (let round = 0; round < 14; round += 1) {
+    intoCalm();
+    advance(900, { holding: true });
+    advance(600, { holding: false });
+    if (entry.landed > 0) break;
+  }
+  assert.ok(entry.landed >= 1, `no fish landed, distance ${entry.distance}, snaps ${entry.snaps}`);
+  assert.equal(entry.distance, 1, "the next fish starts far away again");
+  assert.ok(entry.score >= FISH_LANDED_POINTS - FISH_SNAP_COST);
+});
+
+test("fish: the score counts fish, the started one and the snaps", () => {
+  assert.equal(fishScore({ landed: 2, distance: 1, snaps: 0 }), 2 * FISH_LANDED_POINTS);
+  assert.equal(fishScore({ landed: 2, distance: 1, snaps: 3 }), 2 * FISH_LANDED_POINTS - 3 * FISH_SNAP_COST);
+  // Ein halb eingeholter Fisch zählt anteilig — niemand steht bei null.
+  assert.equal(fishScore({ landed: 0, distance: 0.5, snaps: 0 }), FISH_LANDED_POINTS / 2);
+});
+
+test("fish: reading the fish beats holding on regardless", () => {
+  // Der erste Versuch verglich Dauerhalten mit einem STARREN Rhythmus — der
+  // rutschte genauso oft in einen Schub und riss gleich oft. Das Können des
+  // Spiels ist nicht "ab und zu loslassen", sondern auf den Fisch REAGIEREN.
+  const greedy = fishRoom();
+  greedy.advance(16000, { holding: true });
+
+  const reader = fishRoom();
+  reader.advance(16000, { holding: (entry) => !entry.surging && entry.tension < 0.72 });
+
+  assert.ok(
+    greedy.entry.snaps > reader.entry.snaps,
+    `greedy snapped ${greedy.entry.snaps}, reader ${reader.entry.snaps}`
+  );
+  assert.ok(
+    fishScore(reader.entry) > fishScore(greedy.entry),
+    `reader ${fishScore(reader.entry)} vs greedy ${fishScore(greedy.entry)}`
+  );
+});
+
+test("fish: a rigid rhythm is not enough — the surge has to be watched", () => {
+  // Gegenprobe zum Test darüber: wer stur im Takt hält und löst, ohne auf den
+  // Fisch zu schauen, reisst trotzdem. Sonst wäre das Spiel blindes Takten.
+  const blind = fishRoom();
+  for (let round = 0; round < 16; round += 1) {
+    blind.advance(700, { holding: true });
+    blind.advance(300, { holding: false });
+  }
+  assert.ok(blind.entry.snaps > 0, "a rhythm that ignores the surge has to snap sometimes");
+});
+
+test("fish: the result reports points, fish and snaps", () => {
+  const { arcade, entry, advance, intoCalm } = fishRoom();
+  intoCalm();
+  advance(1000, { holding: true });
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "catch");
+  assert.equal(detail.landed, entry.landed);
+  assert.ok(detail.progress > 0, "the started fish has to show up");
+});
+
+test("fish: wrong action is refused", () => {
+  const { room, me } = fishRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "spin" }).ok, false);
 });

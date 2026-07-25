@@ -90,6 +90,7 @@ const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 // darum hier oben, wo der Katalog die Länge schon braucht.
 const FEINT_DURATION_MS = 32000;
 const PLATE_DURATION_MS = 34000;
+const FISH_DURATION_MS = 34000;
 
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
@@ -113,7 +114,8 @@ const MINIGAMES = [
   { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" },
   { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
   { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" },
-  { type: "tellerdreher", title: "Tellerdreher", duration: PLATE_DURATION_MS, arcadeFamily: "plates" }
+  { type: "tellerdreher", title: "Tellerdreher", duration: PLATE_DURATION_MS, arcadeFamily: "plates" },
+  { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -136,7 +138,8 @@ const ARCADE_CONFIGS = {
   trampolin: { family: "bounce", seed: 487 },
   falschsignal: { family: "feint", seed: 491 },
   spurmaler: { family: "trace", seed: 499 },
-  tellerdreher: { family: "plates", seed: 503 }
+  tellerdreher: { family: "plates", seed: 503 },
+  angelduell: { family: "fish", seed: 509 }
 };
 
 // Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
@@ -249,6 +252,33 @@ const PLATE_RESPAWN_SPIN = 0.5;
 const PLATE_DROP_COST = 60;
 const PLATE_POINTS_PER_SECOND = 10;    // je drehender Teller
 const PLATE_WOBBLE_AT = 0.34;          // ab hier wackelt der Teller sichtbar
+
+// Angelduell: der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
+// baut Spannung auf, Loslassen lässt sie sinken. Der Fisch wehrt sich in
+// Schüben — wer dann weiter einholt, kommt schneller voran, riskiert aber den
+// Riss. Das ist die ganze Entscheidung, und sie stellt sich alle paar Sekunden neu.
+// Gespielt geeicht, nicht geschätzt. Mit den ersten Werten riss NIE eine
+// Schnur und alle vier landeten exakt drei Fische — 5% Abstand über das ganze
+// Feld. Der Grund: Loslassen kostete fast nichts (0.055/s) und der Schub riss
+// fast sicher (0.95/s), also war "im Schub loslassen" ohne Abwägung richtig.
+// Jetzt kostet Loslassen echten Weg, und ein kurzer Schub lässt sich mit
+// niedriger Spannung durchhalten — genau dort liegt die Entscheidung. Ein
+// langer Schub bestraft dieselbe Gier.
+const FISH_REEL_SPEED = 0.30;          // Weg pro Sekunde beim Einholen
+const FISH_SLIP_SPEED = 0.13;          // der Fisch entfernt sich, wenn man löst
+const FISH_TENSION_CALM = 0.26;        // Spannungsaufbau beim ruhigen Einholen
+const FISH_TENSION_SURGE = 0.62;       // im Schub — hier wird es eng
+const FISH_RELAX = 0.45;               // Spannungsabbau beim Loslassen
+const FISH_HOLD_GRACE_MS = 190;        // so lange gilt ein Halte-Ping
+const FISH_SNAP_PAUSE_MS = 1400;       // Pause nach einem Riss
+const FISH_SNAP_COST = 80;
+const FISH_LANDED_POINTS = 300;
+const FISH_CALM_MIN_MS = 1400;         // Länge der ruhigen Phase
+const FISH_CALM_MAX_MS = 2600;
+const FISH_SURGE_MIN_MS = 900;         // Länge eines Schubs
+const FISH_SURGE_MAX_MS = 1600;
+const FISH_LEAD_IN_MS = 900;           // Ruhe, bevor der erste Schub kommt
+const FISH_MAX_CATCH = 20;             // Sicherheitsnetz
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1524,7 +1554,9 @@ function scheduleBotMinigameInputs(room) {
       // trace ist eine Zugbewegung, plates ein Wechseln zwischen sechs Zielen —
       // beide brauchen Handrate, nicht Entscheidungsrate. Bei ~300 ms käme ein
       // Bot hier nur auf 1.0 Schwung pro Sekunde, gebraucht werden bis zu 1.56.
-      const fastHand = minigame.arcade.family === "trace" || minigame.arcade.family === "plates";
+      // fish braucht ebenfalls einen dichten Takt: Halten wird als Ping gemeldet,
+      // und bei ~300 ms Abstand würde ein Ping-Fenster von 190 ms Lücken lassen.
+      const fastHand = ["trace", "plates", "fish"].includes(minigame.arcade.family);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
@@ -1975,6 +2007,16 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
       bestMs: arcadePlayer.bestMs,
       mistakes: arcadePlayer.falseStarts || 0,
+      label: "Punkte"
+    };
+  }
+  if (arcade.family === "fish") {
+    return {
+      kind: "catch",
+      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
+      landed: arcadePlayer.landed || 0,
+      progress: Math.round((1 - clamp(arcadePlayer.distance ?? 1, 0, 1)) * 100),
+      mistakes: arcadePlayer.snaps || 0,
       label: "Punkte"
     };
   }
@@ -3028,6 +3070,28 @@ function createArcadeState(type, players, startedAt) {
       entry.lastSpinAt = 0;
     });
   }
+  if (config.family === "fish") {
+    arcade.tensionCalm = FISH_TENSION_CALM;
+    arcade.tensionSurge = FISH_TENSION_SURGE;
+    arcade.reelSpeed = FISH_REEL_SPEED;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.catchIndex = 0;
+      entry.phases = buildFishPhases(config.seed, 0, FISH_DURATION_MS);
+      entry.hookedAt = startedAt;      // Beginn des aktuellen Fisches
+      entry.distance = 1;              // 1 = weit weg, 0 = gelandet
+      entry.tension = 0;
+      entry.holding = false;
+      entry.surging = false;
+      entry.lastReelAt = 0;
+      entry.landed = 0;
+      entry.snaps = 0;
+      entry.pauseUntil = 0;
+      entry.lastSnapAt = 0;
+      entry.lastLandedAt = 0;
+      entry.bestDistance = 1;
+    });
+  }
   if (config.family === "bounce") {
     arcade.beatStartMs = BOUNCE_BEAT_START_MS;
     arcade.perfectMs = BOUNCE_PERFECT_MS;
@@ -3323,7 +3387,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0, fish: 60 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -3671,6 +3735,16 @@ function handleArcadeInput(room, player, input) {
     arcadePlayer.flash = "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "fish") {
+    if (input.action !== "reel") return { ok: false, error: "Halte den Knopf, um einzuholen." };
+    if (now < arcadePlayer.pauseUntil) return { ok: true };
+    // Halten heisst: es kam gerade ein Ping. Der Tick macht die Arbeit — so
+    // hängt die Spannung an der Zeit und nicht an der Ping-Rate des Geräts.
+    arcadePlayer.lastReelAt = now;
+    arcadePlayer.hasMoved = true;
     return { ok: true };
   }
 
@@ -4134,6 +4208,66 @@ function updateArcade(room) {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
     updateSumoStone(room, minigame, arcade, dt, now);
+    return;
+  }
+
+  if (arcade.family === "fish") {
+    const dt = Math.min(0.2, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+
+      const sinceHook = Math.max(0, now - entry.hookedAt);
+      entry.surging = fishSurging(entry.phases, sinceHook);
+      // Nach einem Riss braucht der neue Fisch einen Moment, bis er anbeisst.
+      if (now < entry.pauseUntil) {
+        entry.holding = false;
+        entry.tension = Math.max(0, entry.tension - FISH_RELAX * dt);
+        return;
+      }
+      entry.holding = now - entry.lastReelAt < FISH_HOLD_GRACE_MS;
+
+      if (entry.holding) {
+        entry.distance = Math.max(0, entry.distance - FISH_REEL_SPEED * dt);
+        entry.tension += (entry.surging ? FISH_TENSION_SURGE : FISH_TENSION_CALM) * dt;
+      } else {
+        // Loslassen entspannt die Schnur, kostet aber Weg: der Fisch zieht ab.
+        entry.tension = Math.max(0, entry.tension - FISH_RELAX * dt);
+        entry.distance = Math.min(1, entry.distance + FISH_SLIP_SPEED * dt);
+      }
+      entry.bestDistance = Math.min(entry.bestDistance, entry.distance);
+
+      if (entry.tension >= 1) {
+        // Schnur gerissen: der Fisch ist weg, ein neuer beisst gleich an.
+        entry.snaps += 1;
+        entry.lastSnapAt = now;
+        entry.tension = 0;
+        entry.distance = 1;
+        entry.bestDistance = 1;
+        entry.pauseUntil = now + FISH_SNAP_PAUSE_MS;
+        entry.catchIndex += 1;
+        entry.hookedAt = now + FISH_SNAP_PAUSE_MS;
+        entry.phases = buildFishPhases(arcade.seed, entry.catchIndex, minigame.duration);
+        entry.flash = "bad";
+        entry.lastHitAt = now;
+      } else if (entry.distance <= 0 && entry.landed < FISH_MAX_CATCH) {
+        // Gelandet: der nächste Fisch hängt sofort, mit eigenem Kampfplan.
+        entry.landed += 1;
+        entry.lastLandedAt = now;
+        entry.tension = 0;
+        entry.distance = 1;
+        entry.bestDistance = 1;
+        entry.catchIndex += 1;
+        entry.hookedAt = now;
+        entry.phases = buildFishPhases(arcade.seed, entry.catchIndex, minigame.duration);
+        entry.flash = "good";
+        entry.lastHitAt = now;
+      }
+
+      entry.score = fishScore(entry);
+      syncArcadeScore(minigame, player, entry);
+    });
     return;
   }
 
@@ -5021,6 +5155,45 @@ function traceOffset(seed, lap, x, y) {
   return Math.abs(x - tracePathX(seed, lap, clamp(y, 0, 1)));
 }
 
+// Der Kampfplan eines Fisches: abwechselnd Ruhe und Schub, aus dem Seed
+// erzeugt. Client und Server leiten ihn aus derselben Funktion ab, damit die
+// Anzeige exakt das zeigt, was gewertet wird.
+function buildFishPhases(seed, catchIndex, durationMs) {
+  const phases = [];
+  let at = FISH_LEAD_IN_MS;
+  let index = 0;
+  const base = seed + catchIndex * 131;
+  while (at < durationMs) {
+    const calm = FISH_CALM_MIN_MS + arcadeNoise(base + index * 17) * (FISH_CALM_MAX_MS - FISH_CALM_MIN_MS);
+    const surge = FISH_SURGE_MIN_MS + arcadeNoise(base + index * 29) * (FISH_SURGE_MAX_MS - FISH_SURGE_MIN_MS);
+    phases.push({ index, at: at + calm, until: at + calm + surge });
+    at += calm + surge;
+    index += 1;
+  }
+  return phases;
+}
+
+// Der Schub, in dem der Fisch gerade steckt — oder null. `elapsed` zählt ab dem
+// Anbiss, nicht ab Rundenbeginn: jeder neue Fisch fängt mit seinem eigenen Plan an.
+function activeFishPhase(phases, elapsed) {
+  for (const phase of phases) {
+    if (elapsed >= phase.at && elapsed < phase.until) return phase;
+    if (phase.at > elapsed) break;
+  }
+  return null;
+}
+
+function fishSurging(phases, elapsed) {
+  return activeFishPhase(phases, elapsed) !== null;
+}
+
+// Wertung: gelandete Fische, der angefangene Weg und ein Abzug je Riss.
+function fishScore(entry) {
+  const landed = (entry.landed || 0) * FISH_LANDED_POINTS;
+  const progress = Math.round((1 - clamp(entry.distance ?? 1, 0, 1)) * FISH_LANDED_POINTS);
+  return landed + progress - (entry.snaps || 0) * FISH_SNAP_COST;
+}
+
 // Wie viele Teller zu diesem Zeitpunkt in der Runde stehen. Sie kommen einzeln
 // dazu, damit sich die Aufmerksamkeit immer weiter aufteilen muss.
 function plateCountAt(elapsed) {
@@ -5516,6 +5689,59 @@ function arcadeBotStep(room, bot) {
     if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
       handleArcadeInput(room, bot, { action: "drop" });
     }
+    return;
+  }
+  if (arcade.family === "fish") {
+    const now = Date.now();
+    if (now < player.pauseUntil) return;
+    const profile = botProfile(player);
+    // Der Bot spielt die Spannung, nicht die Uhr: er hält, bis sie seine
+    // persönliche Schmerzgrenze erreicht, und lässt dann los. Ein starker Bot
+    // geht näher ans Limit und erkennt den Schub zuverlässiger.
+    // Schmerzgrenze und Blickabstand müssen ZUSAMMEN passen. Mit 0.58/0.70/0.82
+    // und den Blickabständen unten landete der schlimmste Fall bei 0.90 bis 0.94
+    // — kein Bot konnte je reissen, egal wie unaufmerksam er war. Jetzt liegt
+    // ceiling + Schubaufbau·Blickabstand beim schwachen Bot über 1.0 (er zieht
+    // also gelegentlich über), beim mittleren knapp darüber und beim starken
+    // darunter. Höhere Grenzen heissen auch: er holt mehr ein — Gier und Risiko
+    // hängen zusammen, wie beim Spieler.
+    const ceiling = profile.level === "hard" ? 0.84 : profile.level === "normal" ? 0.80 : 0.74;
+    const resume = ceiling * 0.42;
+    // Ob er den Schub überhaupt bemerkt, entscheidet sein Können — genau das
+    // unterscheidet ihn vom Spieler, der ihn sieht.
+    const notices = profile.level === "hard" ? 0.92 : profile.level === "normal" ? 0.72 : 0.45;
+    if (player.botLetGo === undefined) player.botLetGo = false;
+
+    // EINMAL pro Schub entscheiden, ob der Bot ihn bemerkt. Je Tick neu gewürfelt
+    // addiert sich die Wahrscheinlichkeit auf: bei sieben Ticks pro Sekunde
+    // bemerkte selbst der schwächste Bot mit 0.45 jeden Schub zu 99% — gemessen
+    // riss in vier Runden keine einzige Schnur, und der ganze Reiz des Spiels
+    // fiel damit aus.
+    const phase = activeFishPhase(player.phases, Math.max(0, now - player.hookedAt));
+    const key = phase ? `${player.catchIndex}:${phase.index}` : null;
+    if (key && player.botSurgeSeen !== key) {
+      player.botSurgeSeen = key;
+      player.botNoticed = Math.random() < notices;
+    }
+    const seesSurge = Boolean(phase) && player.botNoticed;
+
+    // Der Bot schaut nicht in jedem Tick auf die Schnur. Tat er das, konnte er
+    // strukturell NIE reissen: bei 0.62 Spannung pro Sekunde und einem Blick
+    // alle 150 ms liess er immer rechtzeitig los, und in vier gespielten Runden
+    // riss keine einzige Schnur. Wer seltener hinschaut, überzieht — und genau
+    // das trennt hier Können von Glück.
+    const checkMs = profile.level === "hard" ? 200 : profile.level === "normal" ? 340 : 560;
+    if (player.botCheckAt === undefined) player.botCheckAt = 0;
+    if (now >= player.botCheckAt) {
+      player.botCheckAt = now + checkMs;
+      if (player.botLetGo) {
+        if (player.tension <= resume && !seesSurge) player.botLetGo = false;
+      } else if (player.tension >= ceiling || seesSurge) {
+        player.botLetGo = true;
+      }
+    }
+    if (player.botLetGo) return;    // hält nicht, also kein Ping
+    handleArcadeInput(room, bot, { action: "reel" });
     return;
   }
   if (arcade.family === "plates") {
@@ -6272,6 +6498,21 @@ module.exports = {
     PLATE_DURATION_MS,
     plateCountAt,
     plateDecayAt,
-    plateScore
+    plateScore,
+    FISH_DURATION_MS,
+    FISH_REEL_SPEED,
+    FISH_SLIP_SPEED,
+    FISH_TENSION_CALM,
+    FISH_TENSION_SURGE,
+    FISH_RELAX,
+    FISH_HOLD_GRACE_MS,
+    FISH_SNAP_PAUSE_MS,
+    FISH_SNAP_COST,
+    FISH_LANDED_POINTS,
+    FISH_LEAD_IN_MS,
+    buildFishPhases,
+    activeFishPhase,
+    fishSurging,
+    fishScore
   }
 };

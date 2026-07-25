@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin76";
-import { playerStatus } from "../game/Player.js?v=tumblekin76";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin76";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin77";
+import { playerStatus } from "../game/Player.js?v=tumblekin77";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin77";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -813,6 +813,13 @@ function formatResultMetric(entry) {
     const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehlgriffe")}` : "";
     return `${detail.value} ${detail.label}${best}${slips}`;
   }
+  if (detail.kind === "catch") {
+    // Punkte entscheiden; die Fische und der angefangene zeigen, woher sie
+    // kommen, die Risse, was sie gekostet haben.
+    const started = detail.progress ? ` + ${detail.progress}%` : "";
+    const snaps = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Risse")}` : "";
+    return `${detail.value} ${detail.label} · ${countNoun(detail.landed, "Fische")}${started}${snaps}`;
+  }
   if (detail.kind === "plateTime") {
     // Punkte entscheiden; Tellersekunden zeigen, wie viel gleichzeitig lief,
     // und die gefallenen Teller, was es gekostet hat.
@@ -842,6 +849,8 @@ const SINGULAR_NOUNS = {
   "Fehlgriffe": "Fehlgriff",
   "Abrutscher": "Abrutscher",
   "Teller verloren": "Teller verloren",
+  "Fische": "Fisch",
+  "Risse": "Riss",
   "Runden": "Runde",
   "Punkte": "Punkt"
 };

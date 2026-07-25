@@ -6,15 +6,15 @@ import {
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin76";
+} from "./VoxelKit.js?v=tumblekin77";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin76";
-import { shakeScale } from "./Quality.js?v=tumblekin76";
+} from "./SceneKit.js?v=tumblekin77";
+import { shakeScale } from "./Quality.js?v=tumblekin77";
 
 // Spurmaler — eine geschwungene Spur läuft von unten nach oben. Der eigene Kin
 // reitet als Pinsel darauf und malt sie aus, solange der Finger im Toleranzband
