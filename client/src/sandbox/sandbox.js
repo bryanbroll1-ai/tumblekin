@@ -5,8 +5,8 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "../minigames/VoxelKit.js?v=tumblekin70";
-import { ENVIRONMENT_SETS, OBSTACLE_TYPES, createEnvironment, createObstacle } from "./EnvironmentKit.js?v=tumblekin70";
+} from "../minigames/VoxelKit.js?v=tumblekin71";
+import { ENVIRONMENT_SETS, OBSTACLE_TYPES, createEnvironment, createObstacle } from "./EnvironmentKit.js?v=tumblekin71";
 
 const PLAYER_COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 const PLAYER_NAMES = ["Spieler 1", "Spieler 2", "Spieler 3", "Spieler 4"];

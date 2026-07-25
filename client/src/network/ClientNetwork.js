@@ -1,7 +1,13 @@
 export class ClientNetwork {
   constructor() {
+    // Polling zuerst, dann Upgrade auf WebSocket — die proxy-sichere Reihenfolge.
+    // Mit WebSocket an erster Stelle scheitert die Verbindung komplett, sobald
+    // etwas dazwischen den Upgrade ablehnt (gemessen: 403 beim Handshake hinter
+    // einem Proxy). Über Polling kommt die Sitzung zustande und wird danach
+    // automatisch aufgewertet, wenn der Weg frei ist.
     this.socket = window.io({
-      transports: ["websocket", "polling"]
+      transports: ["polling", "websocket"],
+      upgrade: true
     });
     this.clockOffset = 0;
   }

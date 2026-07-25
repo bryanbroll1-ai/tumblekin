@@ -20,6 +20,9 @@ Danach `http://localhost:3000` öffnen. Der Server zeigt zusätzlich die passend
 
 ## Auf Smartphones spielen
 
+Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
+**[TESTEN-AUF-DEM-HANDY.md](TESTEN-AUF-DEM-HANDY.md)**
+
 1. Rechner und Smartphones mit demselben WLAN verbinden.
 2. Auf einem Gerät eine Party starten.
 3. Den QR-Code scannen oder die WLAN-Adresse plus Raumcode verwenden.
