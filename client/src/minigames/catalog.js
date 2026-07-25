@@ -9,7 +9,8 @@ export const GESTURES = {
   hold: { icon: "👆⏺️", label: "Knopf gedrückt halten" },
   pull: { icon: "👆🎯", label: "Ziehen und loslassen" },
   charge: { icon: "👆💪", label: "Halten und loslassen" },
-  rhythm: { icon: "👆🎵", label: "Im Takt tippen" }
+  rhythm: { icon: "👆🎵", label: "Im Takt tippen" },
+  react: { icon: "👆⚡", label: "Blitzschnell tippen" }
 };
 
 export const MINIGAME_CATALOG = [
@@ -30,7 +31,8 @@ export const MINIGAME_CATALOG = [
   { type: "bergsteiger", title: "Bergsteiger", family: "climb", gesture: "taps", help: "Tippe abwechselnd links und rechts, um die Wand hochzuklettern. Wer zuerst oben ist, gewinnt!" },
   { type: "schleuderschuss", title: "Schleuderschuss", family: "sling", gesture: "pull", help: "Zieh die Schleuder zurück und lass los. Länge = Kraft, Richtung = Winkel — und die Scheibe weicht nach jedem Schuss zurück!" },
   { type: "sumoschubs", title: "Sumo-Schubs", family: "sumo", gesture: "charge", help: "Halten lädt deinen Stoss auf, loslassen schubst den Stein weg. Aber lade nicht zu lange — dann rutschst du aus!" },
-  { type: "trampolin", title: "Trampolin", family: "bounce", gesture: "rhythm", help: "Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller!" }
+  { type: "trampolin", title: "Trampolin", family: "bounce", gesture: "rhythm", help: "Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller!" },
+  { type: "falschsignal", title: "Falschsignal", family: "feint", gesture: "react", help: "Nur der runde grüne Kreis, der BLEIBT, ist echt. Falsche Farbe, falsche Form und kurzes Aufblitzen kosten Punkte — schnell tippen bringt mehr, zu schnell bringt Minus." }
 ];
 
 export const ARCADE_TYPES = new Set(

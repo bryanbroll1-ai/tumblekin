@@ -78,7 +78,7 @@ laufenden Kosten entstehen sollen.
 
 **Wichtig, nicht blockierend**
 
-- Inhaltsumfang: 18 von 30 geplanten Minispielen (Plan unten).
+- Inhaltsumfang: 19 von 30 geplanten Minispielen (Plan unten).
 - Nur eine Sprache (Deutsch). Store-Reichweite verlangt praktisch Englisch.
 - Kein Onboarding-Tutorial für die erste Partie.
 - Keine Fehlerberichterstattung; ein Absturz beim Spieler bleibt unsichtbar.
@@ -110,7 +110,7 @@ Halten/Loslassen (2), Gedächtnis (1).
 | 26 | Farbenjagd | Flächenkontrolle | wischen | Terrain-Einfärbung, Verdrängung |
 | 27 | Spurmaler | Pfad nachfahren | Finger führen | Kurvenverfolgung, Toleranzband |
 | 28 | Doppelgriff | Zwei Finger koordinieren | Multitouch | Zwei gekoppelte Körper |
-| 29 | Falschsignal | Reaktion gegen Täuschung | tippen | Fehlsignale, Schrecksprünge |
+| ~~29~~ | ~~Falschsignal~~ | Reaktion gegen Täuschung | tippen | **fertig** — Signalplan serverseitig, drei Fälschungsarten plus Antäuscher |
 | 30 | Kartenbluff | Verdeckte Information | tippen | Reaktionen der Figuren aufs Bluffen |
 
 Zwei Punkte, die beim Umsetzen Arbeit bedeuten:

@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin73";
-import { playerStatus } from "../game/Player.js?v=tumblekin73";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin73";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin74";
+import { playerStatus } from "../game/Player.js?v=tumblekin74";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin74";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -806,6 +806,13 @@ function formatResultMetric(entry) {
   }
   if (detail.kind === "precision") return `${detail.value} ${detail.label}`;
   if (detail.kind === "points") return `${detail.value} ${detail.label}`;
+  if (detail.kind === "reaction") {
+    // Punkte sind die Wertung; die beste Reaktionszeit und die Fehlgriffe
+    // erzählen daneben, WIE die Punkte zustande kamen.
+    const best = detail.bestMs === null || detail.bestMs === undefined ? "" : ` · ${formatMilliseconds(detail.bestMs)} schnellste`;
+    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehlgriffe")}` : "";
+    return `${detail.value} ${detail.label}${best}${slips}`;
+  }
   return `${formatScore(entry?.score)} Punkte`;
 }
 
@@ -819,6 +826,7 @@ const SINGULAR_NOUNS = {
   "Pässe": "Pass",
   "Ziele": "Ziel",
   "Rauswürfe": "Rauswurf",
+  "Fehlgriffe": "Fehlgriff",
   "Punkte": "Punkt"
 };
 

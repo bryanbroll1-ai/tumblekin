@@ -70,6 +70,17 @@ const {
   BOUNCE_MAX_HEIGHT,
   bounceBeatTime,
   bounceNearestBeat,
+  FEINT_DURATION_MS,
+  FEINT_GO_WINDOW_MS,
+  FEINT_FLICKER_MS,
+  FEINT_MAX_POINTS,
+  FEINT_MIN_POINTS,
+  FEINT_FALSE_START,
+  FEINT_LOCK_MS,
+  FEINT_DOUBLE_TAP_MS,
+  buildFeintSignals,
+  activeFeintSignal,
+  feintPoints,
   nearestToStar,
   standingsLeader
 } = testRules;
@@ -94,10 +105,10 @@ test("board uses one readable field language", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 18);
+  assert.equal(MINIGAMES.length, 19);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "sumoschubs", "trampolin", "turmbau", "zuendstoff"]
+    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "sumoschubs", "trampolin", "turmbau", "zuendstoff"]
   );
 });
 
@@ -1719,5 +1730,234 @@ test("bounce: the score rewards the best height and the best streak", () => {
 test("bounce: wrong action is refused", () => {
   const { room, me } = bounceRoom();
   const result = handleArcadeInput(room, me, { action: "shove" });
+  assert.equal(result.ok, false);
+});
+
+// --- Falschsignal ----------------------------------------------------------
+
+function feintRoom() {
+  const players = [{ id: "f1", name: "Späher", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("falschsignal", players, startedAt);
+  const minigame = { id: 1, type: "falschsignal", startedAt, duration: FEINT_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  // Springt zur Spielzeit `gameMs`, statt echte Zeit abzuwarten. Der Server
+  // prüft Nachzittern-Fenster und Sperre in ECHTER Zeit — die Zeitstempel des
+  // letzten Tipps müssen also mitwandern, sonst liegen zwei Tipps aus dem Test
+  // 0 ms auseinander, obwohl zwischen den Signalen fast eine Sekunde liegt.
+  let lastActionGameMs = null;
+  const shiftTo = (gameMs) => {
+    minigame.startedAt = Date.now() - gameMs;
+    if (lastActionGameMs !== null) {
+      if (entry.lastReact) entry.lastReact.at = minigame.startedAt + lastActionGameMs;
+      if (entry.lockUntil) entry.lockUntil = minigame.startedAt + lastActionGameMs + FEINT_LOCK_MS;
+    }
+    lastActionGameMs = gameMs;
+    entry.lastInputAt = 0;
+  };
+  // Tippt `offsetMs` nach dem Beginn des Signals `index`.
+  const reactTo = (index, offsetMs) => {
+    shiftTo(arcade.signals[index].at + offsetMs);
+    return handleArcadeInput(room, me, { action: "react" });
+  };
+  // Tippt in eine Lücke, in der kein Signal leuchtet.
+  const reactEarly = (index) => {
+    shiftTo(arcade.signals[index].at - 300);
+    return handleArcadeInput(room, me, { action: "react" });
+  };
+  const firstOfKind = (kind) => arcade.signals.findIndex((signal) => signal.kind === kind);
+  return { room, me, arcade, entry, minigame, reactTo, reactEarly, firstOfKind, shiftTo };
+}
+
+test("feint: the signal plan fills the round and mixes real with fake", () => {
+  const signals = buildFeintSignals(491, FEINT_DURATION_MS);
+  assert.ok(signals.length >= 8, `only ${signals.length} signals in ${FEINT_DURATION_MS} ms`);
+  // Kein Signal darf über das Rundenende hinausragen.
+  signals.forEach((signal) => {
+    assert.ok(signal.at + signal.windowMs <= FEINT_DURATION_MS, `signal ${signal.index} outlives the round`);
+  });
+  // Zeitlich sortiert und ohne Überlappung — activeFeintSignal verlässt sich darauf.
+  for (let i = 1; i < signals.length; i += 1) {
+    assert.ok(signals[i].at > signals[i - 1].at + signals[i - 1].windowMs, "signals must not overlap");
+  }
+  const gos = signals.filter((signal) => signal.kind === "go");
+  assert.ok(gos.length >= 2, "a round needs real signals");
+  // Fälschungen müssen überwiegen, sonst zahlt sich blindes Tippen aus.
+  assert.ok(gos.length < signals.length / 2, `${gos.length}/${signals.length} real is too generous`);
+});
+
+test("feint: the fake kinds all appear and the flicker is too short to be real", () => {
+  const kinds = new Set(buildFeintSignals(491, FEINT_DURATION_MS).map((signal) => signal.kind));
+  assert.ok(kinds.has("go"));
+  assert.ok(kinds.size >= 3, `only ${[...kinds]} in one round`);
+  assert.ok(FEINT_FLICKER_MS < FEINT_GO_WINDOW_MS / 3, "the feint has to read as a flicker");
+});
+
+test("feint: neither the real signal nor a single fake takes over the round", () => {
+  // Über mehrere Seeds, damit ein glücklicher Startwert nichts vertuscht.
+  for (const seed of [491, 100, 7, 55, 913]) {
+    const kinds = buildFeintSignals(seed, FEINT_DURATION_MS).map((signal) => signal.kind);
+    // Kein Durststrecke ohne echtes Signal, sonst fühlt sich die Runde kaputt an.
+    let drought = 0;
+    let worst = 0;
+    kinds.forEach((kind) => {
+      drought = kind === "go" ? 0 : drought + 1;
+      worst = Math.max(worst, drought);
+    });
+    assert.ok(worst <= 4, `seed ${seed} had ${worst} fakes in a row`);
+    // Und keine Fälschung wiederholt sich dreimal hintereinander — das würde
+    // sie verraten, statt zu täuschen.
+    for (let i = 2; i < kinds.length; i += 1) {
+      const triple = kinds[i] === kinds[i - 1] && kinds[i] === kinds[i - 2];
+      assert.ok(!triple || kinds[i] === "go", `seed ${seed}: ${kinds[i]} three times in a row`);
+    }
+    // Alle drei Fälschungen müssen vorkommen.
+    ["colour", "shape", "flicker"].forEach((kind) => {
+      assert.ok(kinds.includes(kind), `seed ${seed} never showed ${kind}`);
+    });
+  }
+});
+
+test("feint: blind mashing has a negative expected value", () => {
+  // Die Rechnung hinter FEINT_FALSE_START: bei einem echten Signal pro Block
+  // muss Dauertippen unterm Strich kosten — sonst ist Zusehen die schwächere
+  // Strategie und das Spielprinzip fällt zusammen.
+  for (const seed of [491, 100, 7, 55, 913]) {
+    const signals = buildFeintSignals(seed, FEINT_DURATION_MS);
+    const gos = signals.filter((signal) => signal.kind === "go").length;
+    // Bester Fall für den Dauertipper: jeder Treffer nahezu sofort.
+    const mash = gos * feintPoints(0) - (signals.length - gos) * FEINT_FALSE_START;
+    assert.ok(mash < 0, `seed ${seed}: mashing would earn ${mash}`);
+  }
+});
+
+test("feint: only the lit signal is active", () => {
+  const signals = buildFeintSignals(491, FEINT_DURATION_MS);
+  const first = signals[0];
+  assert.equal(activeFeintSignal(signals, first.at - 1), null, "nothing is lit before the first signal");
+  assert.equal(activeFeintSignal(signals, first.at)?.index, first.index);
+  assert.equal(activeFeintSignal(signals, first.at + first.windowMs)?.index, first.index);
+  assert.equal(activeFeintSignal(signals, first.at + first.windowMs + 1), null, "the window has to close");
+});
+
+test("feint: reacting fast pays more than reacting late", () => {
+  assert.equal(feintPoints(0), FEINT_MAX_POINTS);
+  assert.equal(feintPoints(FEINT_GO_WINDOW_MS), FEINT_MIN_POINTS);
+  assert.ok(feintPoints(150) > feintPoints(600), "faster has to be worth more");
+  // Auch ein spätes Erkennen bringt noch etwas — Nichtstun bringt nichts.
+  assert.ok(FEINT_MIN_POINTS > 0);
+});
+
+test("feint: hitting the real signal scores by reaction time", () => {
+  const fast = feintRoom();
+  const go = fast.firstOfKind("go");
+  fast.reactTo(go, 80);
+  assert.equal(fast.entry.hits, 1);
+  assert.equal(fast.entry.falseStarts, 0);
+  assert.ok(fast.entry.score > 0);
+  assert.ok(fast.entry.bestMs !== null && fast.entry.bestMs < 200);
+
+  const slow = feintRoom();
+  slow.reactTo(slow.firstOfKind("go"), 700);
+  assert.equal(slow.entry.hits, 1);
+  assert.ok(slow.entry.score < fast.entry.score, "a slow hit must score less");
+});
+
+test("feint: tapping a fake costs points and locks briefly", () => {
+  const { entry, arcade, reactTo, firstOfKind } = feintRoom();
+  const fake = firstOfKind("colour") >= 0 ? firstOfKind("colour") : firstOfKind("shape");
+  assert.ok(fake >= 0, "the plan needs a visible fake to tap");
+  reactTo(fake, 60);
+  assert.equal(entry.falseStarts, 1);
+  assert.equal(entry.hits, 0);
+  assert.equal(entry.score, -FEINT_FALSE_START);
+  assert.ok(entry.lockUntil > Date.now(), "a false start has to lock the button");
+  assert.equal(entry.lastReact.kind, arcade.signals[fake].kind);
+});
+
+test("feint: tapping into an empty gap is a false start too", () => {
+  const { entry, reactEarly, firstOfKind } = feintRoom();
+  reactEarly(firstOfKind("go"));
+  assert.equal(entry.falseStarts, 1);
+  assert.equal(entry.hits, 0);
+  assert.equal(entry.score, -FEINT_FALSE_START);
+});
+
+test("feint: each signal can only be scored once", () => {
+  const { entry, reactTo, firstOfKind } = feintRoom();
+  const go = firstOfKind("go");
+  reactTo(go, 60);
+  const afterFirst = entry.score;
+  // Nochmals dasselbe Signal, weit hinter dem Nachzittern-Fenster.
+  reactTo(go, 60 + FEINT_DOUBLE_TAP_MS + 50);
+  assert.equal(entry.hits, 1, "one real signal is one hit");
+  assert.equal(entry.score, afterFirst, "mashing a hit signal must not stack points");
+  assert.equal(entry.falseStarts, 0, "and must not count as a false start either");
+});
+
+test("feint: the lock swallows taps until it expires", () => {
+  const { room, me, entry, reactTo, firstOfKind } = feintRoom();
+  const fake = firstOfKind("colour") >= 0 ? firstOfKind("colour") : firstOfKind("shape");
+  reactTo(fake, 60);
+  const locked = entry.score;
+  // Ein weiterer Griff während der Sperre darf nicht noch einmal kosten.
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "react" });
+  assert.equal(entry.score, locked, "a locked tap must be free");
+  assert.equal(entry.falseStarts, 1);
+});
+
+test("feint: mashing cannot beat clean play", () => {
+  const clean = feintRoom();
+  clean.arcade.signals.forEach((signal) => {
+    if (signal.kind === "go") clean.reactTo(signal.index, 120);
+  });
+
+  const masher = feintRoom();
+  // Tippt bei JEDEM Signal, inklusive aller Fälschungen. Die Sperre nach einem
+  // Fehlgriff wird für diesen Test bewusst nicht abgewartet — das ist der
+  // günstigste Fall für den Dauertipper.
+  masher.arcade.signals.forEach((signal) => {
+    masher.entry.lockUntil = 0;
+    masher.reactTo(signal.index, 60);
+  });
+  assert.ok(masher.entry.falseStarts > masher.entry.hits, "mashing has to draw more fakes than hits");
+  assert.ok(
+    masher.entry.score < clean.entry.score,
+    `mashing (${masher.entry.score}) must not beat clean play (${clean.entry.score})`
+  );
+  // Und die Wertung darf das Minus nicht in einen Vorteil verwandeln.
+  assert.ok(masher.entry.score <= 0, `mashing scored ${masher.entry.score}`);
+});
+
+test("feint: a missed real signal costs nothing but closes", () => {
+  const { room, entry, arcade, minigame } = feintRoom();
+  const last = arcade.signals[arcade.signals.length - 1];
+  minigame.startedAt = Date.now() - (last.at + last.windowMs + 50);
+  updateArcade(room);
+  const gos = arcade.signals.filter((signal) => signal.kind === "go").length;
+  assert.equal(entry.missed, gos, "every unplayed real signal has to be booked as missed");
+  assert.equal(entry.score, 0, "waiting must not cost points");
+  // Ein abgelaufenes Fenster lässt sich nicht nachträglich einlösen.
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, { id: "f1", name: "Späher" }, { action: "react" });
+  assert.equal(entry.hits, 0);
+});
+
+test("feint: the result reports points, best reaction and false starts", () => {
+  const { arcade, entry, reactTo, firstOfKind } = feintRoom();
+  reactTo(firstOfKind("go"), 120);
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "reaction");
+  assert.ok(detail.value > 0);
+  assert.equal(detail.bestMs, entry.bestMs);
+  assert.equal(detail.mistakes, 0);
+});
+
+test("feint: wrong action is refused", () => {
+  const { room, me } = feintRoom();
+  const result = handleArcadeInput(room, me, { action: "jump" });
   assert.equal(result.ok, false);
 });

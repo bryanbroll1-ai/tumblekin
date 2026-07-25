@@ -1,6 +1,6 @@
 # Tumblekin
 
-Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 18 touch-optimierten Challenges gegeneinander an.
+Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 19 touch-optimierten Challenges gegeneinander an.
 
 ## Start
 
@@ -47,7 +47,7 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 - Am Ende gibt es Bonus-Sterne für die meisten Münzen und die meisten Challenge-Siege — niemand ist vor dem letzten Wurf ausgeschieden.
 - Nach fünf Runden gewinnen die meisten Sterne; Münzen entscheiden nur Gleichstände.
 
-## 18 Challenges
+## 19 Challenges
 
 Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden und setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks und Klacks über Web Audio). Jede läuft als eigene Three.js-Szene mit den gemeinsamen Voxel-Figuren.
 
@@ -86,6 +86,10 @@ Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden u
 
 - **Trampolin:** Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie — und der Takt wird immer schneller.
 
+### Blitzschnell tippen
+
+- **Falschsignal:** Nur der runde grüne Kreis, der *bleibt*, ist echt. Falsche Farbe, falsche Form und der kurz aufblitzende Antäuscher kosten Punkte — schnell reagieren bringt mehr, zu schnell bringt Minus.
+
 ### Halten und loslassen
 
 - **Sumo-Schubs:** Halten lädt den Stoss auf, Loslassen schubst den Stein weg — aber zu lange geladen heisst ausrutschen. Rollt der Stein über deine Kante, kassierst du einen Treffer; drei Treffer und du bist raus.
@@ -105,7 +109,7 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 ## Dev-Testmodus
 
-Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 18 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
+Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 19 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
 
 ## Lokal testen
 
@@ -118,7 +122,7 @@ npm test
 Rauchtest im echten Browser — startet den Server auf einem freien Port, öffnet jedes Minispiel, spielt ein paar Sekunden und meldet Render- und Konsolenfehler:
 
 ```bash
-npm run smoke                # alle 18 Minispiele
+npm run smoke                # alle 19 Minispiele
 npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 ```
@@ -163,7 +167,7 @@ Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
 
 - Express liefert PWA, Three.js und Clientmodule aus.
 - Socket.io synchronisiert Raum, Board, Challenge-Inputs, Resultate und Reconnects.
-- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und alle 18 Challenges.
+- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und alle 19 Challenges.
 - Service Worker, Manifest und App-Icon erlauben die Installation auf dem Homescreen.
 
 Gemeinsame Bausteine der Minispiele:

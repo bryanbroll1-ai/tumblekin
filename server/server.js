@@ -85,6 +85,11 @@ const BOARD_STEP_MS = 250;
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 
+// Der Signalplan von Falschsignal muss genau so lang sein wie die Runde, sonst
+// endet das Spiel mitten in einem Signal oder läuft am Ende leer weiter. Steht
+// darum hier oben, wo der Katalog die Länge schon braucht.
+const FEINT_DURATION_MS = 32000;
+
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
   { type: "bounceArena", title: "Bumper Bloom", duration: 18000 },
@@ -104,7 +109,8 @@ const MINIGAMES = [
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
   { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" },
   { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" },
-  { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" }
+  { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" },
+  { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -124,7 +130,8 @@ const ARCADE_CONFIGS = {
   bergsteiger: { family: "climb", seed: 463 },
   schleuderschuss: { family: "sling", seed: 467 },
   sumoschubs: { family: "sumo", seed: 479 },
-  trampolin: { family: "bounce", seed: 487 }
+  trampolin: { family: "bounce", seed: 487 },
+  falschsignal: { family: "feint", seed: 491 }
 };
 
 // Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
@@ -166,6 +173,28 @@ const BOUNCE_GAIN_PERFECT = 1.0;
 const BOUNCE_GAIN_GOOD = 0.45;
 const BOUNCE_MISS_PENALTY = 1.2;       // Höhenverlust bei Fehltritt
 const BOUNCE_MAX_HEIGHT = 24;
+
+// Falschsignal: nur das ECHTE Signal darf angetippt werden. Die Fälschungen
+// sehen absichtlich ähnlich aus, und ein Antäuscher blitzt zu kurz auf, um echt
+// zu sein. Wer auf eine Fälschung tippt, verliert Punkte — Abwarten kostet
+// nichts, bringt aber auch nichts.
+const FEINT_LEAD_IN_MS = 1400;         // Ruhe vor dem ersten Signal
+const FEINT_GAP_MIN_MS = 900;          // Abstand zwischen Signalen
+const FEINT_GAP_MAX_MS = 2200;
+const FEINT_GO_WINDOW_MS = 900;        // so lange gilt ein echtes Signal
+const FEINT_FAKE_WINDOW_MS = 700;
+const FEINT_FLICKER_MS = 130;          // Antäuscher: zu kurz für echt
+const FEINT_MIN_POINTS = 60;           // am Ende des Fensters
+const FEINT_MAX_POINTS = 500;          // bei sofortiger Reaktion
+// Der Abzug ist bewusst höher als der halbe Treffer: bei einem echten Signal
+// pro Dreierblock muss blindes Dauertippen unterm Strich Punkte KOSTEN. Ein
+// einzelner Fehlgriff bleibt trotzdem aufholbar, weil ein guter Treffer mehr
+// bringt als ein Fehlgriff nimmt.
+const FEINT_FALSE_START = 300;         // Abzug für einen Fehlgriff
+const FEINT_LOCK_MS = 650;             // Sperre nach einem Fehlgriff
+const FEINT_DOUBLE_TAP_MS = 260;       // Nachzittern nach einem Treffer ignorieren
+const FEINT_FAKE_KINDS = ["colour", "shape", "flicker"];
+const FEINT_BLOCK = 3;                 // je Dreierblock genau ein echtes Signal
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1875,6 +1904,15 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "bounce") {
     return { kind: "points", value: Math.round((arcadePlayer.best || 0) * 10) / 10, label: "Höhe" };
   }
+  if (arcade.family === "feint") {
+    return {
+      kind: "reaction",
+      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
+      bestMs: arcadePlayer.bestMs,
+      mistakes: arcadePlayer.falseStarts || 0,
+      label: "Punkte"
+    };
+  }
   if (arcade.family === "sumo") {
     return arcadePlayer.eliminated
       ? { kind: "hits", value: arcadePlayer.hits || 0, label: "Treffer" }
@@ -2846,6 +2884,22 @@ function createArcadeState(type, players, startedAt) {
       entry.perfects = 0;
     });
   }
+  if (config.family === "feint") {
+    arcade.signals = buildFeintSignals(config.seed, FEINT_DURATION_MS);
+    arcade.goWindowMs = FEINT_GO_WINDOW_MS;
+    arcade.maxPoints = FEINT_MAX_POINTS;
+    arcade.falseStartCost = FEINT_FALSE_START;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.hits = 0;
+      entry.falseStarts = 0;
+      entry.missed = 0;
+      entry.bestMs = null;
+      entry.handled = {};              // Signalindex -> true (einmal pro Signal)
+      entry.lockUntil = 0;             // Sperre nach einem Fehlgriff
+      entry.lastReact = null;          // { kind, points, reactionMs, at }
+    });
+  }
   if (config.family === "bounce") {
     arcade.beatStartMs = BOUNCE_BEAT_START_MS;
     arcade.perfectMs = BOUNCE_PERFECT_MS;
@@ -3141,11 +3195,14 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
   // Überladen galt. Die Mechanik begrenzt sich selbst — man muss halten.
+  // bounce und feint ebenso ohne Cooldown: dort IST der Tippzeitpunkt die
+  // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
+  // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
   const cooldown = cooldowns[arcade.family] ?? 100;
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
   arcadePlayer.lastInputAt = now;
@@ -3434,6 +3491,49 @@ function handleArcadeInput(room, player, input) {
     arcadePlayer.lastHitAt = now;
     arcadePlayer.score = Math.round(arcadePlayer.best * 100) + arcadePlayer.bestStreak * 25;
     arcadePlayer.hasMoved = true;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "feint") {
+    if (input.action !== "react") return { ok: false, error: "Tippe nur beim echten Signal." };
+    if (now < arcadePlayer.lockUntil) return { ok: true };     // noch gesperrt
+    // Nach einem Treffer zittert der Daumen gern nach. Dieses Nachtippen darf
+    // nicht als Fehlgriff zählen, sonst kostet jeder Treffer Punkte.
+    const last = arcadePlayer.lastReact;
+    if (last && last.kind === "go" && now - last.at < FEINT_DOUBLE_TAP_MS) return { ok: true };
+
+    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
+    const signal = activeFeintSignal(arcade.signals, elapsed);
+    arcadePlayer.hasMoved = true;
+
+    if (signal && signal.kind === "go") {
+      if (arcadePlayer.handled[signal.index]) return { ok: true };
+      arcadePlayer.handled[signal.index] = true;
+      const reactionMs = Math.round(elapsed - signal.at);
+      const points = feintPoints(reactionMs, signal.windowMs);
+      arcadePlayer.hits += 1;
+      arcadePlayer.score += points;
+      arcadePlayer.bestMs = arcadePlayer.bestMs === null ? reactionMs : Math.min(arcadePlayer.bestMs, reactionMs);
+      arcadePlayer.lastReact = { kind: "go", points, reactionMs, at: now };
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+      syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+      return { ok: true };
+    }
+
+    // Fehlgriff: entweder auf eine Fälschung getippt oder ins Leere. Beides
+    // kostet Punkte und sperrt kurz. Der Abzug darf den Punktestand unter Null
+    // drücken — syncArcadeScore blendet das für die Wertung bei 0 ab, aber ein
+    // Dauertipper gräbt sich so tief ein, dass er sich nicht mehr erholt.
+    const fake = signal ? signal.kind : "early";
+    if (signal) arcadePlayer.handled[signal.index] = true;
+    arcadePlayer.falseStarts += 1;
+    arcadePlayer.score -= FEINT_FALSE_START;
+    arcadePlayer.lockUntil = now + FEINT_LOCK_MS;
+    arcadePlayer.lastReact = { kind: fake, points: -FEINT_FALSE_START, reactionMs: null, at: now };
+    arcadePlayer.flash = "bad";
+    arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
@@ -3771,6 +3871,27 @@ function updateArcade(room) {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
     updateSumoStone(room, minigame, arcade, dt, now);
+    return;
+  }
+
+  if (arcade.family === "feint") {
+    // Verpasste echte Signale werden hier abgeschlossen: der Client zeigt sie
+    // als verpasst an, und ein abgelaufenes Fenster kann nicht mehr nachträglich
+    // gewertet werden. Kosten tut ein verpasstes Signal nichts — Abwarten ist
+    // erlaubt, es bringt nur eben keine Punkte.
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      arcade.signals.forEach((signal) => {
+        if (signal.kind !== "go") return;
+        if (elapsed <= signal.at + signal.windowMs) return;
+        if (entry.handled[signal.index]) return;
+        entry.handled[signal.index] = true;
+        entry.missed += 1;
+      });
+      syncArcadeScore(minigame, player, entry);
+    });
     return;
   }
 
@@ -4514,6 +4635,58 @@ function updateDirectWorld(room, minigame, arcade, elapsed, dt, now) {
   }
 }
 
+// Signalplan für Falschsignal. Aus dem Seed erzeugt, damit alle Clients
+// dieselbe Folge sehen und der Server sie autoritativ auswerten kann.
+function buildFeintSignals(seed, durationMs) {
+  const signals = [];
+  let at = FEINT_LEAD_IN_MS;
+  let index = 0;
+  while (at < durationMs - FEINT_GO_WINDOW_MS) {
+    const roll = arcadeNoise(seed + index * 13);
+    // Blockweise geplant: in jedem Dreierblock ist GENAU ein Signal echt. Ein
+    // freier Würfel pro Signal traf beides — mit einem Seed war die Hälfte echt
+    // (blindes Tippen zahlte sich aus), mit dem nächsten kamen fünf Fälschungen
+    // in Folge und die Runde fühlte sich kaputt an. Die Position im Block bleibt
+    // zufällig, die Mischung nicht.
+    const block = Math.floor(index / FEINT_BLOCK);
+    const goSlot = Math.min(FEINT_BLOCK - 1, Math.floor(arcadeNoise(seed + block * 29) * FEINT_BLOCK));
+    const slot = index % FEINT_BLOCK;
+    const isGo = slot === goSlot;
+    // Die Fälschungen rotieren, statt frei gewürfelt zu werden. Gewürfelt kam
+    // dreimal dieselbe Fälschung in Folge — das lehrt "diese Farbe ist immer
+    // falsch" — und der Antäuscher tauchte kaum auf. So sind die beiden
+    // Fälschungen eines Blocks immer verschieden und alle drei Arten kommen dran.
+    const fakeSlot = slot > goSlot ? slot - 1 : slot;
+    const rotation = Math.floor(arcadeNoise(seed + block * 41) * FEINT_FAKE_KINDS.length);
+    const kind = isGo
+      ? "go"
+      : FEINT_FAKE_KINDS[(block + fakeSlot + rotation) % FEINT_FAKE_KINDS.length];
+    const windowMs = kind === "go"
+      ? FEINT_GO_WINDOW_MS
+      : (kind === "flicker" ? FEINT_FLICKER_MS : FEINT_FAKE_WINDOW_MS);
+    signals.push({ index, at, kind, windowMs });
+    at += windowMs + FEINT_GAP_MIN_MS + roll * (FEINT_GAP_MAX_MS - FEINT_GAP_MIN_MS);
+    index += 1;
+  }
+  return signals;
+}
+
+// Das Signal, das zum Zeitpunkt `elapsed` gerade leuchtet — oder null.
+function activeFeintSignal(signals, elapsed) {
+  for (const signal of signals) {
+    if (elapsed >= signal.at && elapsed <= signal.at + signal.windowMs) return signal;
+    if (signal.at > elapsed) break;      // Plan ist zeitlich sortiert
+  }
+  return null;
+}
+
+// Punkte für eine Reaktion. Sofort = volle Punktzahl, am Ende des Fensters
+// bleibt ein Rest, damit auch ein spätes Erkennen besser ist als Nichtstun.
+function feintPoints(reactionMs, windowMs = FEINT_GO_WINDOW_MS) {
+  const share = clamp(1 - Math.max(0, reactionMs) / windowMs, 0, 1);
+  return Math.round(FEINT_MIN_POINTS + (FEINT_MAX_POINTS - FEINT_MIN_POINTS) * share);
+}
+
 // Zeitpunkt des n-ten Taktschlags, relativ zum Spielstart. Die Schläge werden
 // geometrisch schneller, bis BOUNCE_BEAT_MIN_MS erreicht ist. Client und Server
 // leiten die Taktzeiten aus derselben Funktion ab.
@@ -4981,6 +5154,40 @@ function arcadeBotStep(room, bot) {
     if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
       handleArcadeInput(room, bot, { action: "drop" });
     }
+    return;
+  }
+  if (arcade.family === "feint") {
+    const now = Date.now();
+    if (now < player.lockUntil) return;
+    const profile = botProfile(player);
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    const signal = activeFeintSignal(arcade.signals, elapsed);
+    if (!signal || player.handled[signal.index]) return;
+    const since = elapsed - signal.at;
+
+    if (signal.kind === "go") {
+      // Der Bot-Tick läuft nur alle ~300 ms, deshalb ist die Zielzeit die
+      // untere Grenze: der Bot tippt beim ersten Tick danach.
+      const target = profile.reactionMs * 0.55 + Math.random() * profile.spreadMs * 0.4;
+      if (since >= target) handleArcadeInput(room, bot, { action: "react" });
+      return;
+    }
+
+    // Fälschungen: pro Signal EINMAL entscheiden, ob der Bot hereinfällt —
+    // sonst würde die Wahrscheinlichkeit über die Ticks aufaddieren und jeder
+    // Bot in jede Falle tappen. Der Antäuscher blitzt so kurz auf, dass ihn
+    // selbst ein unaufmerksamer Bot meist verpasst.
+    if (!player.botBait) player.botBait = {};
+    if (player.botBait[signal.index] === undefined) {
+      // Die Fehlerquote der Bot-Profile ist an Spielen geeicht, in denen ein
+      // Fehler Bruchteile eines Treffers kostet. Hier kostet ein Fehlgriff mehr
+      // als ein Bot-Treffer einbringt — ungedämpft landeten zwei von drei Bots
+      // im Minus und damit in der Wertung auf 0. Gemessen: mit 0.4 punkten alle
+      // Bots, bleiben aber hinter sauberem Spiel.
+      const bait = profile.mistake * (signal.kind === "flicker" ? 0.15 : 0.4);
+      player.botBait[signal.index] = Math.random() < bait;
+    }
+    if (player.botBait[signal.index]) handleArcadeInput(room, bot, { action: "react" });
     return;
   }
   if (arcade.family === "bounce") {
@@ -5599,6 +5806,17 @@ module.exports = {
     BOUNCE_MISS_PENALTY,
     BOUNCE_MAX_HEIGHT,
     bounceBeatTime,
-    bounceNearestBeat
+    bounceNearestBeat,
+    FEINT_DURATION_MS,
+    FEINT_GO_WINDOW_MS,
+    FEINT_FLICKER_MS,
+    FEINT_MAX_POINTS,
+    FEINT_MIN_POINTS,
+    FEINT_FALSE_START,
+    FEINT_LOCK_MS,
+    FEINT_DOUBLE_TAP_MS,
+    buildFeintSignals,
+    activeFeintSignal,
+    feintPoints
   }
 };

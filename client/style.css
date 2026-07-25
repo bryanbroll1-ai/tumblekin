@@ -3442,3 +3442,43 @@ body[data-screen="minigame"] .game-menu-button {
   transform-origin: left center;
   transform: scaleX(0);
 }
+
+/* --- Falschsignal: Legende der echten Anzeige --------------------------- */
+/* Die Regel muss WÄHREND des Spiels lesbar bleiben, nicht nur in der Intro-
+   Karte — sonst rät man beim ersten Signal und ist sofort im Minus. */
+.signal-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: 84%;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.signal-legend strong {
+  color: #7dff9d;
+  font-weight: 900;
+}
+
+.signal-chip {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.signal-chip-real {
+  background: #4dff7a;
+  box-shadow: 0 0 8px rgba(77, 255, 122, 0.7);
+}
+
+.kinetic-hud.dev-mode .signal-legend {
+  font-size: 0.62rem;
+}
