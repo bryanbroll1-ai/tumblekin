@@ -357,7 +357,7 @@ export class FalseSignal {
     const elapsed = Math.max(0, now - minigame.startedAt);
 
     const signal = this.activeSignal(arcade, elapsed);
-    this.paintLamp(signal, elapsed, dt);
+    this.paintLamp(signal, dt);
 
     state.players.forEach((player, index) => {
       const entry = arcade.players[player.id];
@@ -371,7 +371,7 @@ export class FalseSignal {
       const seen = this.lastReactAt.get(player.id);
       if (react && react.at !== seen) {
         this.lastReactAt.set(player.id, react.at);
-        this.showReaction(player, lane, entry, react, controlledId);
+        this.showReaction(player, lane, react, controlledId);
       }
 
       const locked = (entry.lockUntil || 0) > now;
@@ -406,7 +406,7 @@ export class FalseSignal {
     this.renderer.render(this.scene, this.camera);
   }
 
-  paintLamp(signal, elapsed, dt) {
+  paintLamp(signal, dt) {
     const kind = signal ? signal.kind : "idle";
     const color = LAMP_COLORS[kind] || LAMP_COLORS.idle;
     // Eckig nur bei der Formfälschung — sonst rund.
@@ -434,7 +434,7 @@ export class FalseSignal {
     this.halo.scale.setScalar(1 + this.lampPulse * 0.3);
   }
 
-  showReaction(player, lane, entry, react, controlledId) {
+  showReaction(player, lane, react, controlledId) {
     const own = player.id === controlledId;
     const at = new THREE.Vector3(lane.x, 1.05, KIN_Z);
     const animator = this.animators.get(player.id);
