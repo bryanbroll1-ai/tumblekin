@@ -18,7 +18,7 @@ const ALL_GAMES = [
   "bounceArena", "finishRush", "colorEscape", "nervenprobe", "lichtwaechter",
   "ballonPump", "fassrolle", "zuendstoff", "muenzregen", "blobklopfe",
   "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger",
-  "schleuderschuss", "sumoschubs"
+  "schleuderschuss", "sumoschubs", "trampolin"
 ];
 
 const argv = process.argv.slice(2);

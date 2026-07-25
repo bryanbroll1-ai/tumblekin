@@ -103,7 +103,8 @@ const MINIGAMES = [
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
   { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" },
-  { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" }
+  { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" },
+  { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -122,7 +123,8 @@ const ARCADE_CONFIGS = {
   turmbau: { family: "stack", seed: 461 },
   bergsteiger: { family: "climb", seed: 463 },
   schleuderschuss: { family: "sling", seed: 467 },
-  sumoschubs: { family: "sumo", seed: 479 }
+  sumoschubs: { family: "sumo", seed: 479 },
+  trampolin: { family: "bounce", seed: 487 }
 };
 
 // Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
@@ -151,6 +153,19 @@ const SUMO_MAX_IMPULSE = 1.5;          // Geschwindigkeitsänderung bei Vollkraf
 const SUMO_FRICTION = 1.9;             // pro Sekunde
 const SUMO_HITS_OUT = 3;               // so viele Treffer und man ist raus
 const SUMO_SLIP_MS = 900;              // Erholung nach dem Ausrutschen
+
+// Trampolin: ein Takt schlägt gleichmässig, Tippen IM Takt federt höher.
+// Aufeinanderfolgende Treffer bauen Resonanz auf — daneben tippen bricht sie.
+// Der Takt wird schneller, also muss man sich neu einhören.
+const BOUNCE_BEAT_START_MS = 900;
+const BOUNCE_BEAT_MIN_MS = 480;
+const BOUNCE_BEAT_RAMP = 0.975;        // Faktor je Schlag
+const BOUNCE_PERFECT_MS = 110;         // Fenster für einen Volltreffer
+const BOUNCE_GOOD_MS = 220;            // Fenster für einen Teiltreffer
+const BOUNCE_GAIN_PERFECT = 1.0;
+const BOUNCE_GAIN_GOOD = 0.45;
+const BOUNCE_MISS_PENALTY = 1.2;       // Höhenverlust bei Fehltritt
+const BOUNCE_MAX_HEIGHT = 24;
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1857,6 +1872,9 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "stack") {
     return { kind: "points", value: arcadePlayer.height || 0, label: "Etagen" };
   }
+  if (arcade.family === "bounce") {
+    return { kind: "points", value: Math.round((arcadePlayer.best || 0) * 10) / 10, label: "Höhe" };
+  }
   if (arcade.family === "sumo") {
     return arcadePlayer.eliminated
       ? { kind: "hits", value: arcadePlayer.hits || 0, label: "Treffer" }
@@ -2828,6 +2846,23 @@ function createArcadeState(type, players, startedAt) {
       entry.perfects = 0;
     });
   }
+  if (config.family === "bounce") {
+    arcade.beatStartMs = BOUNCE_BEAT_START_MS;
+    arcade.perfectMs = BOUNCE_PERFECT_MS;
+    arcade.goodMs = BOUNCE_GOOD_MS;
+    arcade.maxHeight = BOUNCE_MAX_HEIGHT;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.height = 0;
+      entry.best = 0;
+      entry.streak = 0;
+      entry.bestStreak = 0;
+      entry.perfects = 0;
+      entry.misses = 0;
+      entry.lastBeatIndex = -1;        // je Schlag nur ein Versuch
+      entry.lastTap = null;            // { beat, offsetMs, grade, at }
+    });
+  }
   if (config.family === "sumo") {
     arcade.stone = { x: 0, y: 0, vx: 0, vy: 0 };
     arcade.ringRadius = SUMO_RING_RADIUS;
@@ -3106,7 +3141,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -3361,6 +3396,43 @@ function handleArcadeInput(room, player, input) {
       arcadePlayer.flash = perfect ? "good" : null;
       arcadePlayer.lastHitAt = now;
     }
+    arcadePlayer.hasMoved = true;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "bounce") {
+    if (input.action !== "jump") return { ok: false, error: "Tippe im Takt." };
+    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
+    const beat = bounceNearestBeat(elapsed);
+    // Pro Schlag zählt nur der erste Versuch — sonst würde Dauerfeuer treffen.
+    if (beat.index === arcadePlayer.lastBeatIndex) return { ok: true };
+    arcadePlayer.lastBeatIndex = beat.index;
+
+    const off = Math.abs(beat.offsetMs);
+    let grade = "miss";
+    if (off <= BOUNCE_PERFECT_MS) grade = "perfect";
+    else if (off <= BOUNCE_GOOD_MS) grade = "good";
+
+    if (grade === "miss") {
+      arcadePlayer.streak = 0;
+      arcadePlayer.misses += 1;
+      arcadePlayer.height = Math.max(0, arcadePlayer.height - BOUNCE_MISS_PENALTY);
+      arcadePlayer.flash = "bad";
+    } else {
+      // Resonanz: jeder weitere Treffer in Folge zahlt mehr aus.
+      arcadePlayer.streak += 1;
+      arcadePlayer.bestStreak = Math.max(arcadePlayer.bestStreak, arcadePlayer.streak);
+      if (grade === "perfect") arcadePlayer.perfects += 1;
+      const base = grade === "perfect" ? BOUNCE_GAIN_PERFECT : BOUNCE_GAIN_GOOD;
+      const resonance = 1 + Math.min(1.5, arcadePlayer.streak * 0.12);
+      arcadePlayer.height = Math.min(BOUNCE_MAX_HEIGHT, arcadePlayer.height + base * resonance);
+      arcadePlayer.flash = grade === "perfect" ? "good" : null;
+    }
+    arcadePlayer.best = Math.max(arcadePlayer.best, arcadePlayer.height);
+    arcadePlayer.lastTap = { beat: beat.index, offsetMs: beat.offsetMs, grade, at: now };
+    arcadePlayer.lastHitAt = now;
+    arcadePlayer.score = Math.round(arcadePlayer.best * 100) + arcadePlayer.bestStreak * 25;
     arcadePlayer.hasMoved = true;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
@@ -4442,6 +4514,40 @@ function updateDirectWorld(room, minigame, arcade, elapsed, dt, now) {
   }
 }
 
+// Zeitpunkt des n-ten Taktschlags, relativ zum Spielstart. Die Schläge werden
+// geometrisch schneller, bis BOUNCE_BEAT_MIN_MS erreicht ist. Client und Server
+// leiten die Taktzeiten aus derselben Funktion ab.
+function bounceBeatTime(index) {
+  let time = 0;
+  let interval = BOUNCE_BEAT_START_MS;
+  for (let i = 0; i < index; i += 1) {
+    time += interval;
+    interval = Math.max(BOUNCE_BEAT_MIN_MS, interval * BOUNCE_BEAT_RAMP);
+  }
+  return time;
+}
+
+// Der Schlag, der `elapsed` am nächsten liegt, samt Abweichung in ms.
+function bounceNearestBeat(elapsed) {
+  // Vorwärts zählen ist bei höchstens ~60 Schlägen pro Runde billig und exakt.
+  let index = 0;
+  let time = 0;
+  let interval = BOUNCE_BEAT_START_MS;
+  let bestIndex = 0;
+  let bestDelta = Math.abs(elapsed);
+  while (time <= elapsed + BOUNCE_BEAT_START_MS) {
+    const delta = Math.abs(elapsed - time);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestIndex = index;
+    }
+    time += interval;
+    interval = Math.max(BOUNCE_BEAT_MIN_MS, interval * BOUNCE_BEAT_RAMP);
+    index += 1;
+  }
+  return { index: bestIndex, offsetMs: elapsed - bounceBeatTime(bestIndex) };
+}
+
 // Steinphysik für Sumo-Schubs: Reibung, Rand-Check, Treffer und Ausscheiden.
 // Bewusst schlicht gehalten (ein Körper, keine Kollisionen), damit die Wertung
 // serverautoritativ bleibt, ohne den 90-ms-Tick zu belasten.
@@ -4874,6 +4980,18 @@ function arcadeBotStep(room, bot) {
     // Drop when the sliding block is close to lined up with the tower.
     if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
       handleArcadeInput(room, bot, { action: "drop" });
+    }
+    return;
+  }
+  if (arcade.family === "bounce") {
+    const profile = botProfile(player);
+    const elapsed = Math.max(0, Date.now() - minigame.startedAt);
+    const beat = bounceNearestBeat(elapsed);
+    if (beat.index === player.lastBeatIndex) return;
+    // Nur nahe am Schlag überhaupt tippen, mit könnensabhängiger Streuung.
+    const spread = profile.level === "hard" ? 70 : profile.level === "normal" ? 150 : 300;
+    if (Math.abs(beat.offsetMs) <= spread) {
+      handleArcadeInput(room, bot, { action: "jump" });
     }
     return;
   }
@@ -5473,6 +5591,14 @@ module.exports = {
     SUMO_MAX_IMPULSE,
     SUMO_HITS_OUT,
     SUMO_SLIP_MS,
-    updateSumoStone
+    updateSumoStone,
+    BOUNCE_BEAT_START_MS,
+    BOUNCE_BEAT_MIN_MS,
+    BOUNCE_PERFECT_MS,
+    BOUNCE_GOOD_MS,
+    BOUNCE_MISS_PENALTY,
+    BOUNCE_MAX_HEIGHT,
+    bounceBeatTime,
+    bounceNearestBeat
   }
 };

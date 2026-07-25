@@ -3418,3 +3418,27 @@ body[data-screen="minigame"] .game-menu-button {
   background: #7fe06f;
   transition: background 0.1s linear;
 }
+
+/* --- Trampolin: Taktanzeige --------------------------------------------- */
+.beat-strip {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+  min-width: 58%;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+/* Der Puls läuft von links nach rechts; getroffen wird am rechten Ende. */
+.beat-pulse {
+  height: 10px;
+  border-radius: 999px;
+  background: #ffe36b;
+  transform-origin: left center;
+  transform: scaleX(0);
+}

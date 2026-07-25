@@ -62,6 +62,14 @@ const {
   SUMO_HITS_OUT,
   SUMO_SLIP_MS,
   updateSumoStone,
+  BOUNCE_BEAT_START_MS,
+  BOUNCE_BEAT_MIN_MS,
+  BOUNCE_PERFECT_MS,
+  BOUNCE_GOOD_MS,
+  BOUNCE_MISS_PENALTY,
+  BOUNCE_MAX_HEIGHT,
+  bounceBeatTime,
+  bounceNearestBeat,
   nearestToStar,
   standingsLeader
 } = testRules;
@@ -86,10 +94,10 @@ test("board uses one readable field language", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 17);
+  assert.equal(MINIGAMES.length, 18);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "sumoschubs", "turmbau", "zuendstoff"]
+    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "sumoschubs", "trampolin", "turmbau", "zuendstoff"]
   );
 });
 
@@ -1578,4 +1586,138 @@ test("sumo: a charge immediately followed by a shove clears the charge", () => {
   handleArcadeInput(room, me, { action: "shove" });
   assert.equal(e.shoves, 1);
   assert.equal(e.slips, 0);
+});
+
+
+// --- Trampolin -------------------------------------------------------------
+
+function bounceRoom() {
+  const players = [{ id: "b1", name: "Hüpfer", isBot: false }];
+  const startedAt = Date.now() - 60000;   // weit in der Vergangenheit
+  const arcade = createArcadeState("trampolin", players, startedAt);
+  const minigame = { id: 1, type: "trampolin", startedAt, duration: 30000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  // Tippt genau `offsetMs` neben dem Schlag `beatIndex`.
+  const tapAt = (beatIndex, offsetMs) => {
+    const target = bounceBeatTime(beatIndex) + offsetMs;
+    minigame.startedAt = Date.now() - target;
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "jump" });
+  };
+  return { room, me, arcade, entry, minigame, tapAt };
+}
+
+test("bounce: the beat starts slow and speeds up to a floor", () => {
+  const first = bounceBeatTime(1) - bounceBeatTime(0);
+  const later = bounceBeatTime(31) - bounceBeatTime(30);
+  assert.equal(first, BOUNCE_BEAT_START_MS);
+  assert.ok(later < first, "the beat has to accelerate");
+  // Und nie unter das Minimum fallen.
+  for (let i = 0; i < 120; i += 1) {
+    const gap = bounceBeatTime(i + 1) - bounceBeatTime(i);
+    assert.ok(gap >= BOUNCE_BEAT_MIN_MS - 1e-9, `gap ${gap} fell below the floor`);
+  }
+});
+
+test("bounce: the nearest beat is found with a signed offset", () => {
+  const early = bounceNearestBeat(bounceBeatTime(5) - 40);
+  assert.equal(early.index, 5);
+  assert.ok(early.offsetMs < 0, "tapping early has to read negative");
+
+  const late = bounceNearestBeat(bounceBeatTime(5) + 40);
+  assert.equal(late.index, 5);
+  assert.ok(late.offsetMs > 0, "tapping late has to read positive");
+});
+
+test("bounce: an on-beat tap gains height", () => {
+  const { entry, tapAt } = bounceRoom();
+  tapAt(4, 0);
+  assert.equal(entry.lastTap.grade, "perfect");
+  assert.ok(entry.height > 0);
+  assert.equal(entry.streak, 1);
+  assert.equal(entry.perfects, 1);
+});
+
+test("bounce: a near miss still counts, but for less", () => {
+  const perfect = bounceRoom();
+  perfect.tapAt(4, 0);
+
+  const good = bounceRoom();
+  good.tapAt(4, BOUNCE_PERFECT_MS + 30);
+  assert.equal(good.entry.lastTap.grade, "good");
+  assert.ok(good.entry.height < perfect.entry.height, "a partial hit must gain less");
+  assert.ok(good.entry.height > 0);
+});
+
+test("bounce: tapping far off the beat costs height and breaks the streak", () => {
+  const { entry, tapAt } = bounceRoom();
+  tapAt(4, 0);
+  tapAt(5, 0);
+  const built = entry.height;
+  assert.equal(entry.streak, 2);
+
+  tapAt(6, BOUNCE_GOOD_MS + 120);
+  assert.equal(entry.lastTap.grade, "miss");
+  assert.equal(entry.streak, 0, "a miss resets the resonance");
+  assert.ok(entry.height < built, "and costs height");
+});
+
+test("bounce: consecutive hits build resonance", () => {
+  // Der zehnte Treffer in Folge muss klar mehr bringen als der erste.
+  const single = bounceRoom();
+  single.tapAt(3, 0);
+  const firstGain = single.entry.height;
+
+  const chain = bounceRoom();
+  for (let beat = 3; beat < 13; beat += 1) chain.tapAt(beat, 0);
+  const gains = [];
+  let previous = 0;
+  const replay = bounceRoom();
+  for (let beat = 3; beat < 13; beat += 1) {
+    replay.tapAt(beat, 0);
+    gains.push(replay.entry.height - previous);
+    previous = replay.entry.height;
+  }
+  assert.ok(gains[9] > gains[0] * 1.5, `late gain ${gains[9]} should beat early ${gains[0]}`);
+  assert.ok(firstGain > 0);
+});
+
+test("bounce: only the first tap of a beat counts", () => {
+  const { entry, tapAt } = bounceRoom();
+  tapAt(4, 0);
+  const afterFirst = entry.height;
+  // Nochmals auf demselben Schlag — darf nichts bringen.
+  tapAt(4, 10);
+  assert.equal(entry.height, afterFirst, "mashing one beat must not stack height");
+  assert.equal(entry.streak, 1);
+});
+
+test("bounce: height never leaves its bounds", () => {
+  const { entry, tapAt } = bounceRoom();
+  // Sehr viele perfekte Treffer.
+  for (let beat = 1; beat < 80; beat += 1) tapAt(beat, 0);
+  assert.ok(entry.height <= BOUNCE_MAX_HEIGHT, `height ${entry.height} exceeded the cap`);
+  // Und viele Fehltritte drücken nicht unter null.
+  for (let beat = 80; beat < 120; beat += 1) tapAt(beat, BOUNCE_GOOD_MS + 200);
+  assert.ok(entry.height >= 0, `height ${entry.height} went negative`);
+});
+
+test("bounce: the score rewards the best height and the best streak", () => {
+  const { entry, tapAt } = bounceRoom();
+  for (let beat = 2; beat < 8; beat += 1) tapAt(beat, 0);
+  const peak = entry.best;
+  const streak = entry.bestStreak;
+  // Ein Fehltritt darf die BESTMARKE nicht senken.
+  tapAt(8, BOUNCE_GOOD_MS + 200);
+  assert.equal(entry.best, peak, "the personal best must stand");
+  assert.equal(entry.bestStreak, streak);
+  assert.ok(entry.score > 0);
+});
+
+test("bounce: wrong action is refused", () => {
+  const { room, me } = bounceRoom();
+  const result = handleArcadeInput(room, me, { action: "shove" });
+  assert.equal(result.ok, false);
 });
