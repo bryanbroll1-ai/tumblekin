@@ -12,27 +12,50 @@ Zwei Dinge vorab, die sonst Zeit kosten:
 Der bequemste Weg vom Handy. Ergebnis ist eine feste HTTPS-Adresse, die du auch
 Freunden schicken kannst.
 
+**Als Web Service anlegen, nicht als Blueprint.** Render verschiebt den
+Blueprint-Punkt immer wieder in der Oberfläche, und man braucht ihn nicht: der
+Dienst kommt mit zwei ausgefüllten Feldern aus. Die Angaben unten wurden unter
+Produktionsbedingungen geprüft — der Server bindet auf `0.0.0.0`, braucht nur
+die Variable `PORT` (die Render selbst setzt), und das Entwickler-Werkzeug ist
+ohne weiteres Zutun aus.
+
 1. Im **Handy-Browser** öffnen: <https://render.com> → **Get Started** →
    mit GitHub anmelden.
-2. **New** → **Blueprint**.
-3. Das Repository `tumblekin` auswählen, als Branch
-   `claude/improve-minigames-animations-7wfix0` wählen.
-4. Render liest `render.yaml` und schlägt den Dienst „tumblekin" vor →
-   **Apply**.
-5. Nach zwei bis drei Minuten steht oben eine Adresse der Form
-   `https://tumblekin-xxxx.onrender.com`. Die im Browser öffnen und spielen.
+2. **New** → **Web Service**.
+3. Das Repository `tumblekin` verbinden und auswählen.
+4. Diese Felder setzen — der Rest bleibt, wie er ist:
+
+   | Feld | Wert |
+   | --- | --- |
+   | Branch | `claude/improve-minigames-animations-7wfix0` |
+   | Language / Runtime | `Node` |
+   | Build Command | `npm install` |
+   | Start Command | `npm start` |
+   | Instance Type | `Free` |
+
+5. **Create Web Service**. Nach zwei bis drei Minuten steht oben eine Adresse
+   der Form `https://tumblekin-xxxx.onrender.com`. Die im Browser öffnen und
+   spielen.
+
+Der Branch ist wichtig: auf dem Standardzweig `main` liegen bisher nur 15 der
+23 Minispiele.
 
 Zum Gratis-Tarif: der Dienst schläft bei Inaktivität ein und braucht beim
 nächsten Aufruf etwa eine Minute zum Aufwachen. Beim ersten Laden also Geduld.
 
+`render.yaml` liegt weiterhin im Repository. Wer den Blueprint-Punkt in der
+Oberfläche findet, kann ihn benutzen — der Zweig ist dort schon festgepinnt.
+Nötig ist er nicht.
+
 ## B) GitHub Codespaces — im Browser, nicht in der App
 
-Direktlink, der das Suchen nach Buttons erspart (im Handy-Browser öffnen, nicht
-in der GitHub-App):
+Im Handy-Browser öffnen, nicht in der GitHub-App:
 
-<https://github.com/codespaces/new?repo=1310894079&ref=claude%2Fimprove-minigames-animations-7wfix0>
+<https://github.com/codespaces/new>
 
-1. Link öffnen, mit GitHub anmelden, **Create codespace** antippen.
+1. Dort das Repository `tumblekin` und als Branch
+   `claude/improve-minigames-animations-7wfix0` auswählen, dann
+   **Create codespace** antippen.
 2. Beim ersten Mal ein bis zwei Minuten warten. `npm install` und `npm start`
    laufen dank `.devcontainer/devcontainer.json` automatisch — du musst nichts
    tippen.
