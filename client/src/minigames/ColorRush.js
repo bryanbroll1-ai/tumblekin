@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin75";
+} from "./VoxelKit.js?v=tumblekin76";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin75";
-import { shakeScale } from "./Quality.js?v=tumblekin75";
+} from "./SceneKit.js?v=tumblekin76";
+import { shakeScale } from "./Quality.js?v=tumblekin76";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a

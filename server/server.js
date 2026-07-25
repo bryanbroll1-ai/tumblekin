@@ -89,6 +89,7 @@ const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 // endet das Spiel mitten in einem Signal oder läuft am Ende leer weiter. Steht
 // darum hier oben, wo der Katalog die Länge schon braucht.
 const FEINT_DURATION_MS = 32000;
+const PLATE_DURATION_MS = 34000;
 
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
@@ -111,7 +112,8 @@ const MINIGAMES = [
   { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" },
   { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" },
   { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
-  { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" }
+  { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" },
+  { type: "tellerdreher", title: "Tellerdreher", duration: PLATE_DURATION_MS, arcadeFamily: "plates" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -133,7 +135,8 @@ const ARCADE_CONFIGS = {
   sumoschubs: { family: "sumo", seed: 479 },
   trampolin: { family: "bounce", seed: 487 },
   falschsignal: { family: "feint", seed: 491 },
-  spurmaler: { family: "trace", seed: 499 }
+  spurmaler: { family: "trace", seed: 499 },
+  tellerdreher: { family: "plates", seed: 503 }
 };
 
 // Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
@@ -215,6 +218,37 @@ const TRACE_LAP_POINTS = 200;          // eine ganze Runde
 const TRACE_SLIP_COST = 25;            // Abzug je Abrutscher
 const TRACE_CLEAN_BONUS = 40;          // Zugabe für eine Runde ohne Abrutscher
 const TRACE_MAX_LAPS = 40;             // Sicherheitsnetz gegen endlose Runden
+
+// Tellerdreher: mehrere Teller drehen sich langsam aus. Ein Antippen gibt einem
+// Teller Schwung zurück — aber man hat nur EINE Hand.
+//
+// Diese Hand ist der Kern des Spiels und der Grund, warum Dauertippen nichts
+// bringt: jedes Antippen kostet aus einem Vorrat, der sich mit fester Rate
+// füllt, und ein fast voller Teller verschluckt den Rest. Wer wild auf alles
+// tippt, verschwendet die Hand an Teller, die sie nicht brauchen, und die
+// vernachlässigten fallen. Das Können liegt im Verteilen, nicht im Tempo.
+const PLATE_START = 2;                 // Teller am Anfang
+const PLATE_MAX = 6;
+const PLATE_ADD_MS = 5000;             // alle 5 s kommt einer dazu
+const PLATE_SPIN_GAIN = 0.34;          // Schwung je Antippen
+const PLATE_HAND_RATE = 1.5;           // Handvorrat pro Sekunde
+const PLATE_HAND_MAX = 0.68;           // höchstens zwei Antipper im Vorrat
+// Am gespielten Ergebnis geeicht, nicht geschätzt. Mit 0.13/0.26 hielt selbst
+// gemächliches Spiel alle sechs Teller: 96% der möglichen Tellerzeit, kein
+// einziger Verlust — es gab nichts zu entscheiden. Jetzt gilt: bei einem
+// Handvorrat von 1.5 pro Sekunde sind sustainable = 1.5/Verlust Teller. Am
+// Anfang (0.20) sind das 7.5 — die ersten Teller laufen also mühelos. Am Ende
+// (0.40) nur noch 3.75, sechs sind dann nicht zu halten. Genau das ist die
+// Dramaturgie: entspannter Start, überfordertes Finale, und das Können liegt
+// darin, WELCHE Teller man aufgibt.
+const PLATE_DECAY_START = 0.20;        // Schwungverlust pro Sekunde je Teller
+const PLATE_DECAY_END = 0.40;          // am Ende der Runde
+const PLATE_TOUCH_MS = 140;            // derselbe Teller nicht im Dauerfeuer
+const PLATE_RESPAWN_MS = 1800;         // ein gefallener Teller kommt zurück
+const PLATE_RESPAWN_SPIN = 0.5;
+const PLATE_DROP_COST = 60;
+const PLATE_POINTS_PER_SECOND = 10;    // je drehender Teller
+const PLATE_WOBBLE_AT = 0.34;          // ab hier wackelt der Teller sichtbar
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1487,7 +1521,11 @@ function scheduleBotMinigameInputs(room) {
       // Finger liefert laufend Positionen. Mit dem normalen Entscheidungstakt
       // (~300 ms) käme ein Bot wegen der Sprungweite nie über 0.17 Fortschritt
       // pro Sekunde und damit nie in die Nähe einer Hand.
-      const every = minigame.arcade.family === "trace"
+      // trace ist eine Zugbewegung, plates ein Wechseln zwischen sechs Zielen —
+      // beide brauchen Handrate, nicht Entscheidungsrate. Bei ~300 ms käme ein
+      // Bot hier nur auf 1.0 Schwung pro Sekunde, gebraucht werden bis zu 1.56.
+      const fastHand = minigame.arcade.family === "trace" || minigame.arcade.family === "plates";
+      const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
       const timer = setTrackedInterval(room, () => {
@@ -1937,6 +1975,15 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
       bestMs: arcadePlayer.bestMs,
       mistakes: arcadePlayer.falseStarts || 0,
+      label: "Punkte"
+    };
+  }
+  if (arcade.family === "plates") {
+    return {
+      kind: "plateTime",
+      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
+      seconds: Math.round(arcadePlayer.upTime || 0),
+      mistakes: arcadePlayer.drops || 0,
       label: "Punkte"
     };
   }
@@ -2958,6 +3005,29 @@ function createArcadeState(type, players, startedAt) {
       entry.lastLapAt = 0;
     });
   }
+  if (config.family === "plates") {
+    arcade.plateMax = PLATE_MAX;
+    arcade.spinGain = PLATE_SPIN_GAIN;
+    arcade.handMax = PLATE_HAND_MAX;
+    arcade.wobbleAt = PLATE_WOBBLE_AT;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.hand = PLATE_HAND_MAX;
+      entry.drops = 0;
+      entry.upTime = 0;              // Tellersekunden, die eigentliche Wertung
+      entry.wasted = 0;              // Antipper, die nichts gebracht haben
+      entry.plateCount = PLATE_START;
+      entry.plates = Array.from({ length: PLATE_MAX }, (_, index) => ({
+        index,
+        spin: index < PLATE_START ? 1 : 0,
+        active: index < PLATE_START,
+        fallenAt: 0,
+        lastTouchAt: 0
+      }));
+      entry.lastDropAt = 0;
+      entry.lastSpinAt = 0;
+    });
+  }
   if (config.family === "bounce") {
     arcade.beatStartMs = BOUNCE_BEAT_START_MS;
     arcade.perfectMs = BOUNCE_PERFECT_MS;
@@ -3253,7 +3323,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -3261,6 +3331,9 @@ function handleArcadeInput(room, player, input) {
   // bounce und feint ebenso ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
+  // plates ohne Cooldown, weil jede Eingabe einen ANDEREN Teller meint: ein
+  // globaler Cooldown würde beim schnellen Wechseln echte Griffe verschlucken.
+  // Begrenzt wird stattdessen pro Teller und über den Handvorrat.
   // `lift` (Finger vom Bildschirm) ist keine Spielaktion, sondern eine Meldung,
   // und sie folgt der letzten Zugposition im Abstand von Millisekunden. Vom
   // Cooldown geschluckt hielte der Server den Strich für weiterhin unten — der
@@ -3598,6 +3671,40 @@ function handleArcadeInput(room, player, input) {
     arcadePlayer.flash = "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "plates") {
+    if (input.action !== "spin") return { ok: false, error: "Tippe einen Teller an." };
+    const index = Math.floor(Number(input.plate));
+    if (!Number.isInteger(index) || index < 0 || index >= PLATE_MAX) return { ok: false, error: "Diesen Teller gibt es nicht." };
+    const plate = arcadePlayer.plates[index];
+    if (!plate || !plate.active) return { ok: true };
+    if (now - plate.lastTouchAt < PLATE_TOUCH_MS) return { ok: true };
+    arcadePlayer.hasMoved = true;
+    plate.lastTouchAt = now;
+
+    // Leere Hand: der Griff geht ins Nichts. Sichtbar, aber ohne Abzug — die
+    // Strafe ist, dass die Zeit für den Teller verloren ist, der sie gebraucht
+    // hätte.
+    if (arcadePlayer.hand < PLATE_SPIN_GAIN) {
+      arcadePlayer.wasted += 1;
+      arcadePlayer.lastSpinAt = now;
+      arcadePlayer.flash = "bad";
+      return { ok: true };
+    }
+
+    // Der Griff kostet IMMER voll, auch wenn der Teller schon fast rund läuft.
+    // Genau daran hängt das Spiel: nur zu bezahlen, was ankommt, würde blindes
+    // Dauertippen zur besten Strategie machen.
+    arcadePlayer.hand -= PLATE_SPIN_GAIN;
+    const before = plate.spin;
+    plate.spin = Math.min(1, plate.spin + PLATE_SPIN_GAIN);
+    if (plate.spin - before < PLATE_SPIN_GAIN * 0.5) arcadePlayer.wasted += 1;
+    arcadePlayer.lastSpinAt = now;
+    arcadePlayer.lastSpinPlate = index;
+    arcadePlayer.flash = "good";
+    arcadePlayer.lastHitAt = now;
     return { ok: true };
   }
 
@@ -4027,6 +4134,55 @@ function updateArcade(room) {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
     updateSumoStone(room, minigame, arcade, dt, now);
+    return;
+  }
+
+  if (arcade.family === "plates") {
+    const dt = Math.min(0.2, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    const decay = plateDecayAt(elapsed, minigame.duration);
+    const wanted = plateCountAt(elapsed);
+    arcade.decay = decay;
+    arcade.plateCount = wanted;
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      entry.plateCount = wanted;
+      // Die Hand füllt sich nach, aber man kann sie nicht horten.
+      entry.hand = Math.min(PLATE_HAND_MAX, entry.hand + PLATE_HAND_RATE * dt);
+
+      let spinning = 0;
+      entry.plates.forEach((plate) => {
+        if (!plate.active) {
+          // Neuer Teller: kommt mit halbem Schwung dazu, sobald er ansteht.
+          if (plate.index < wanted && (plate.fallenAt === 0 || now - plate.fallenAt >= PLATE_RESPAWN_MS)) {
+            plate.active = true;
+            plate.spin = plate.fallenAt === 0 ? 1 : PLATE_RESPAWN_SPIN;
+            plate.fallenAt = 0;
+          }
+          return;
+        }
+        plate.spin = Math.max(0, plate.spin - decay * dt);
+        if (plate.spin <= 0) {
+          plate.active = false;
+          plate.fallenAt = now;
+          entry.drops += 1;
+          entry.lastDropAt = now;
+          entry.flash = "bad";
+          entry.lastHitAt = now;
+          return;
+        }
+        spinning += 1;
+      });
+
+      // Die Wertung sind Tellersekunden: fünf Teller oben sind fünfmal so viel
+      // wert wie einer. Damit lohnt es, alle zu halten, statt einen zu pflegen.
+      entry.upTime += spinning * dt;
+      entry.spinning = spinning;
+      entry.score = plateScore(entry);
+      syncArcadeScore(minigame, player, entry);
+    });
     return;
   }
 
@@ -4865,6 +5021,24 @@ function traceOffset(seed, lap, x, y) {
   return Math.abs(x - tracePathX(seed, lap, clamp(y, 0, 1)));
 }
 
+// Wie viele Teller zu diesem Zeitpunkt in der Runde stehen. Sie kommen einzeln
+// dazu, damit sich die Aufmerksamkeit immer weiter aufteilen muss.
+function plateCountAt(elapsed) {
+  return Math.min(PLATE_MAX, PLATE_START + Math.floor(Math.max(0, elapsed) / PLATE_ADD_MS));
+}
+
+// Schwungverlust pro Sekunde. Steigt über die Runde, damit es zum Schluss auch
+// mit sauberer Verteilung eng wird.
+function plateDecayAt(elapsed, durationMs = PLATE_DURATION_MS) {
+  const share = clamp(elapsed / Math.max(1, durationMs), 0, 1);
+  return PLATE_DECAY_START + (PLATE_DECAY_END - PLATE_DECAY_START) * share;
+}
+
+// Wertung: Punkte je drehender Teller und Sekunde, minus die gefallenen.
+function plateScore(entry) {
+  return Math.round((entry.upTime || 0) * PLATE_POINTS_PER_SECOND - (entry.drops || 0) * PLATE_DROP_COST);
+}
+
 // Wertung: geschaffte Runden plus der angefangene Rest, ein Bonus für ganz
 // saubere Runden und ein Abzug je Abrutscher. Der Bonus ist der Grund, warum
 // sich Genauigkeit lohnt und nicht nur Tempo.
@@ -5342,6 +5516,37 @@ function arcadeBotStep(room, bot) {
     if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
       handleArcadeInput(room, bot, { action: "drop" });
     }
+    return;
+  }
+  if (arcade.family === "plates") {
+    const now = Date.now();
+    const profile = botProfile(player);
+    // Kein Vorrat, kein Griff — der Bot wartet, statt ins Leere zu greifen.
+    if (player.hand < PLATE_SPIN_GAIN) return;
+    const active = player.plates.filter((plate) => plate.active && now - plate.lastTouchAt >= PLATE_TOUCH_MS);
+    if (active.length === 0) return;
+
+    // Das Können steckt in der AUSWAHL, nicht im Tempo — genau da liegt auch
+    // das Können des Spielers. Ein starker Bot greift zuverlässig zum
+    // langsamsten Teller, ein schwacher greift oft daneben und verschwendet
+    // seine Hand an einen, der noch rund läuft.
+    const wrongPick = profile.level === "hard" ? 0.10 : profile.level === "normal" ? 0.30 : 0.55;
+    let target;
+    if (Math.random() < wrongPick) {
+      // Ein Fehlgriff heisst NICHT "irgendeinen nehmen": bei sechs Tellern wäre
+      // jeder sechste Zufallsgriff versehentlich der richtige, und gemessen
+      // spielten dadurch alle drei Stufen praktisch gleich (920/930/949).
+      // Unaufmerksam heisst: den nehmen, der gerade am besten läuft — also den,
+      // der die Hand am meisten verschwendet.
+      target = active.reduce((best, plate) => (plate.spin > best.spin ? plate : best), active[0]);
+    } else {
+      target = active.reduce((worst, plate) => (plate.spin < worst.spin ? plate : worst), active[0]);
+    }
+    // Nicht bei jedem Tick greifen: sonst wäre die Hand die einzige Grenze und
+    // alle Stufen spielten gleich.
+    const reach = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.8 : 0.6;
+    if (Math.random() > reach) return;
+    handleArcadeInput(room, bot, { action: "spin", plate: target.index });
     return;
   }
   if (arcade.family === "trace") {
@@ -6051,6 +6256,22 @@ module.exports = {
     TRACE_CLEAN_BONUS,
     tracePathX,
     traceOffset,
-    traceScore
+    traceScore,
+    PLATE_START,
+    PLATE_MAX,
+    PLATE_ADD_MS,
+    PLATE_SPIN_GAIN,
+    PLATE_HAND_RATE,
+    PLATE_HAND_MAX,
+    PLATE_DECAY_START,
+    PLATE_DECAY_END,
+    PLATE_TOUCH_MS,
+    PLATE_RESPAWN_MS,
+    PLATE_DROP_COST,
+    PLATE_POINTS_PER_SECOND,
+    PLATE_DURATION_MS,
+    plateCountAt,
+    plateDecayAt,
+    plateScore
   }
 };

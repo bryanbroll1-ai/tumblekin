@@ -92,6 +92,22 @@ const {
   tracePathX,
   traceOffset,
   traceScore,
+  PLATE_START,
+  PLATE_MAX,
+  PLATE_ADD_MS,
+  PLATE_SPIN_GAIN,
+  PLATE_HAND_RATE,
+  PLATE_HAND_MAX,
+  PLATE_DECAY_START,
+  PLATE_DECAY_END,
+  PLATE_TOUCH_MS,
+  PLATE_RESPAWN_MS,
+  PLATE_DROP_COST,
+  PLATE_POINTS_PER_SECOND,
+  PLATE_DURATION_MS,
+  plateCountAt,
+  plateDecayAt,
+  plateScore,
   nearestToStar,
   standingsLeader
 } = testRules;
@@ -116,10 +132,10 @@ test("board uses one readable field language", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 20);
+  assert.equal(MINIGAMES.length, 21);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "spurmaler", "sumoschubs", "trampolin", "turmbau", "zuendstoff"]
+    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "spurmaler", "sumoschubs", "tellerdreher", "trampolin", "turmbau", "zuendstoff"]
   );
 });
 
@@ -2177,4 +2193,198 @@ test("trace: wrong action is refused", () => {
   const { room, me } = traceRoom();
   const result = handleArcadeInput(room, me, { action: "jump" });
   assert.equal(result.ok, false);
+});
+
+// --- Tellerdreher ----------------------------------------------------------
+
+function plateRoom() {
+  const players = [{ id: "p1", name: "Dreher", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("tellerdreher", players, startedAt);
+  const minigame = { id: 1, type: "tellerdreher", startedAt, duration: PLATE_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+
+  // Lässt `ms` Spielzeit verstreichen, ohne echte Zeit zu verbrennen. Zwei
+  // Dinge müssen dabei stimmen, sonst prüft der Test etwas anderes als das Spiel:
+  //  * Der Tick begrenzt seinen Zeitschritt auf 0.2 s (Schutz gegen einen
+  //    Aussetzer). Ein Sprung von 2 s zählte also nur 0.2 s — in Schritten
+  //    laufen lassen, nicht in einem Satz.
+  //  * Rückkehr eines Tellers und Tellersperre hängen an der ECHTEN Uhr. Deren
+  //    Zeitstempel müssen mitwandern, sonst kommt ein gefallener Teller nie
+  //    zurück, obwohl er das im Spiel nach 1.8 s täte.
+  const STEP = 120;
+  const advance = (ms, atElapsed = null) => {
+    let left = ms;
+    while (left > 0) {
+      const chunk = Math.min(STEP, left);
+      const now = Date.now();
+      arcade.lastUpdateAt = now - chunk;
+      if (atElapsed !== null) minigame.startedAt = now - atElapsed;
+      else minigame.startedAt -= chunk;
+      entry.plates.forEach((plate) => {
+        if (plate.fallenAt) plate.fallenAt -= chunk;
+        if (plate.lastTouchAt) plate.lastTouchAt -= chunk;
+      });
+      updateArcade(room);
+      left -= chunk;
+    }
+  };
+  const touch = (index) => {
+    entry.lastInputAt = 0;
+    const plate = entry.plates[index];
+    if (plate) plate.lastTouchAt = 0;
+    return handleArcadeInput(room, me, { action: "spin", plate: index });
+  };
+  return { room, me, arcade, entry, minigame, advance, touch };
+}
+
+test("plates: the plates arrive one at a time so attention has to split", () => {
+  assert.equal(plateCountAt(0), PLATE_START);
+  assert.equal(plateCountAt(PLATE_ADD_MS - 1), PLATE_START);
+  assert.equal(plateCountAt(PLATE_ADD_MS), PLATE_START + 1);
+  assert.equal(plateCountAt(PLATE_ADD_MS * 20), PLATE_MAX, "and never past the cap");
+  assert.ok(PLATE_MAX > PLATE_START);
+});
+
+test("plates: they run down faster towards the end of the round", () => {
+  assert.equal(plateDecayAt(0), PLATE_DECAY_START);
+  assert.equal(plateDecayAt(PLATE_DURATION_MS), PLATE_DECAY_END);
+  assert.ok(plateDecayAt(PLATE_DURATION_MS / 2) > plateDecayAt(0));
+  assert.ok(PLATE_DECAY_END > PLATE_DECAY_START);
+});
+
+test("plates: spinning down costs, a touch gives it back", () => {
+  const { entry, advance, touch } = plateRoom();
+  advance(1000);
+  const worn = entry.plates[0].spin;
+  assert.ok(worn < 1, "a plate has to lose spin over time");
+  touch(0);
+  assert.ok(entry.plates[0].spin > worn, "a touch has to restore spin");
+  assert.ok(entry.plates[0].spin <= 1, "and never beyond full");
+});
+
+test("plates: the hand is the limit, not the tapping speed", () => {
+  const { entry, touch } = plateRoom();
+  entry.plates.forEach((plate) => { plate.active = true; plate.spin = 0.2; });
+  entry.hand = PLATE_HAND_MAX;
+  // Ohne Pause auf alles tippen: nach dem Verbrauch des Vorrats muss Schluss sein.
+  let landed = 0;
+  for (let round = 0; round < 4; round += 1) {
+    for (let index = 0; index < PLATE_MAX; index += 1) {
+      const before = entry.plates[index].spin;
+      touch(index);
+      if (entry.plates[index].spin > before + 1e-9) landed += 1;
+    }
+  }
+  const affordable = Math.floor(PLATE_HAND_MAX / PLATE_SPIN_GAIN);
+  assert.equal(landed, affordable, `mashing landed ${landed} grabs, the hand allows ${affordable}`);
+  assert.ok(entry.wasted > 0, "the grabs into an empty hand have to be recorded");
+});
+
+test("plates: the hand refills over time but cannot be hoarded", () => {
+  const { entry, advance } = plateRoom();
+  entry.hand = 0;
+  advance(200);
+  assert.ok(entry.hand > 0, "the hand has to refill");
+  const afterShort = entry.hand;
+  advance(3000);
+  assert.ok(entry.hand > afterShort);
+  assert.ok(entry.hand <= PLATE_HAND_MAX + 1e-9, `hand banked up to ${entry.hand}`);
+});
+
+test("plates: touching an almost full plate wastes the hand", () => {
+  // Das ist der Kern: nur zu zahlen, was ankommt, würde blindes Dauertippen
+  // zur besten Strategie machen. Der Griff kostet immer voll.
+  const { entry, touch } = plateRoom();
+  entry.hand = PLATE_HAND_MAX;
+  entry.plates[0].spin = 1;
+  const handBefore = entry.hand;
+  touch(0);
+  assert.ok(entry.hand < handBefore - PLATE_SPIN_GAIN + 1e-9, "a full plate still costs the full grab");
+  assert.equal(entry.plates[0].spin, 1);
+  assert.ok(entry.wasted > 0, "and counts as wasted");
+});
+
+test("plates: a plate that stops falls, costs points and comes back", () => {
+  const { entry, advance } = plateRoom();
+  entry.plates[0].spin = 0.01;
+  advance(400);
+  assert.equal(entry.plates[0].active, false, "an empty plate has to fall");
+  assert.equal(entry.drops, 1);
+  assert.ok(entry.plates[0].fallenAt > 0);
+
+  // Niemand ist ausgeschieden: der Teller kommt zurück.
+  advance(PLATE_RESPAWN_MS + 100);
+  assert.equal(entry.plates[0].active, true, "the plate has to return");
+  assert.ok(entry.plates[0].spin > 0);
+});
+
+test("plates: the score counts plate-seconds and subtracts drops", () => {
+  assert.equal(plateScore({ upTime: 10, drops: 0 }), 10 * PLATE_POINTS_PER_SECOND);
+  assert.equal(plateScore({ upTime: 10, drops: 2 }), 10 * PLATE_POINTS_PER_SECOND - 2 * PLATE_DROP_COST);
+  // Fünf Teller oben müssen fünfmal so viel wert sein wie einer — sonst lohnt
+  // es sich, einen zu pflegen und die anderen fallen zu lassen.
+  const many = plateRoom();
+  many.entry.plates.forEach((plate) => { plate.active = true; plate.spin = 1; });
+  many.advance(1000);
+  const few = plateRoom();
+  few.entry.plates.forEach((plate, index) => { plate.active = index === 0; plate.spin = 1; });
+  few.entry.plateCount = 1;
+  few.advance(1000);
+  assert.ok(many.entry.upTime > few.entry.upTime * 3, `${many.entry.upTime} vs ${few.entry.upTime}`);
+});
+
+test("plates: the same plate cannot be hammered", () => {
+  const { entry, room, me } = plateRoom();
+  entry.hand = PLATE_HAND_MAX;
+  entry.plates[0].spin = 0.1;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "spin", plate: 0 });
+  const after = entry.plates[0].spin;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "spin", plate: 0 });
+  assert.equal(entry.plates[0].spin, after, "a second grab inside the touch window must not count");
+  assert.ok(PLATE_TOUCH_MS > 0);
+});
+
+test("plates: keeping every plate up beats nursing one", () => {
+  // Spielt zwei Strategien über die halbe Runde gegeneinander: immer den
+  // schwächsten Teller versorgen gegen immer denselben.
+  const play = (pick) => {
+    const room = plateRoom();
+    room.entry.plates.forEach((plate, index) => { plate.active = index < PLATE_START; });
+    for (let step = 0; step < 120; step += 1) {
+      const elapsed = step * 140;
+      room.advance(140, elapsed);
+      const active = room.entry.plates.filter((plate) => plate.active);
+      if (active.length === 0) continue;
+      const target = pick(active);
+      room.entry.lastInputAt = 0;
+      target.lastTouchAt = 0;
+      handleArcadeInput(room.room, room.me, { action: "spin", plate: target.index });
+    }
+    return room.entry;
+  };
+  const spread = play((active) => active.reduce((worst, plate) => (plate.spin < worst.spin ? plate : worst), active[0]));
+  const nursed = play((active) => active[0]);
+  assert.ok(spread.drops < nursed.drops, `spread dropped ${spread.drops}, nursing dropped ${nursed.drops}`);
+  assert.ok(plateScore(spread) > plateScore(nursed), `${plateScore(spread)} vs ${plateScore(nursed)}`);
+});
+
+test("plates: the result reports points, plate-seconds and drops", () => {
+  const { arcade, entry, advance } = plateRoom();
+  advance(2000);
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "plateTime");
+  assert.ok(detail.seconds >= 1);
+  assert.equal(detail.mistakes, entry.drops);
+});
+
+test("plates: unknown plate and wrong action are refused", () => {
+  const { room, me } = plateRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "jump" }).ok, false);
+  assert.equal(handleArcadeInput(room, me, { action: "spin", plate: 99 }).ok, false);
+  assert.equal(handleArcadeInput(room, me, { action: "spin", plate: "x" }).ok, false);
 });

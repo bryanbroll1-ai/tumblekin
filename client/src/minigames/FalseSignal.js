@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin75";
+} from "./VoxelKit.js?v=tumblekin76";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin75";
-import { shakeScale } from "./Quality.js?v=tumblekin75";
+} from "./SceneKit.js?v=tumblekin76";
+import { shakeScale } from "./Quality.js?v=tumblekin76";
 
 // Falschsignal — alle starren auf EINEN Signalmast. Nur ein Signal ist echt,
 // und die Fälschungen sind absichtlich nah dran:
