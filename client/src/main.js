@@ -1,26 +1,27 @@
-import { BoardGame } from "./game/BoardGame.js?v=tumblekin74";
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin74";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin74";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin74";
-import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin74";
-import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin74";
-import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin74";
-import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin74";
-import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin74";
-import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin74";
-import { BombPass } from "./minigames/BombPass.js?v=tumblekin74";
-import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin74";
-import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin74";
-import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin74";
-import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin74";
-import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin74";
-import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin74";
-import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin74";
-import { SlingShot } from "./minigames/SlingShot.js?v=tumblekin74";
-import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin74";
-import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin74";
-import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin74";
-import { Feedback } from "./game/Feedback.js?v=tumblekin74";
+import { BoardGame } from "./game/BoardGame.js?v=tumblekin75";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin75";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin75";
+import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin75";
+import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin75";
+import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin75";
+import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin75";
+import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin75";
+import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin75";
+import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin75";
+import { BombPass } from "./minigames/BombPass.js?v=tumblekin75";
+import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin75";
+import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin75";
+import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin75";
+import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin75";
+import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin75";
+import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin75";
+import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin75";
+import { SlingShot } from "./minigames/SlingShot.js?v=tumblekin75";
+import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin75";
+import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin75";
+import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin75";
+import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin75";
+import { Feedback } from "./game/Feedback.js?v=tumblekin75";
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
@@ -208,7 +209,8 @@ function startOrUpdateMinigame(minigame) {
     schleuderschuss: SlingShot,
     sumoschubs: SumoPush,
     trampolin: Trampoline,
-    falschsignal: FalseSignal
+    falschsignal: FalseSignal,
+    spurmaler: TracePainter
   }[minigame.type] || null;
 
   if (!MinigameClass) return;

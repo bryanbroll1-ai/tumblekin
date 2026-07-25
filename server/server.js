@@ -110,7 +110,8 @@ const MINIGAMES = [
   { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" },
   { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" },
   { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" },
-  { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" }
+  { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
+  { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" }
 ];
 
 const ARCADE_CONFIGS = {
@@ -131,7 +132,8 @@ const ARCADE_CONFIGS = {
   schleuderschuss: { family: "sling", seed: 467 },
   sumoschubs: { family: "sumo", seed: 479 },
   trampolin: { family: "bounce", seed: 487 },
-  falschsignal: { family: "feint", seed: 491 }
+  falschsignal: { family: "feint", seed: 491 },
+  spurmaler: { family: "trace", seed: 499 }
 };
 
 // Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
@@ -195,6 +197,24 @@ const FEINT_LOCK_MS = 650;             // Sperre nach einem Fehlgriff
 const FEINT_DOUBLE_TAP_MS = 260;       // Nachzittern nach einem Treffer ignorieren
 const FEINT_FAKE_KINDS = ["colour", "shape", "flicker"];
 const FEINT_BLOCK = 3;                 // je Dreierblock genau ein echtes Signal
+
+// Spurmaler: eine geschwungene Spur läuft von unten nach oben; der Finger muss
+// im Toleranzband bleiben. Der Fortschritt hängt direkt daran, wie weit oben der
+// Finger auf der Spur steht — schnell ziehen bringt mehr, aber ausserhalb des
+// Bandes reisst der Strich ab. Jede geschaffte Runde bringt eine neue Kurve.
+const TRACE_TOLERANCE = 0.085;         // erlaubter Abstand zur Spur (Breite = 1)
+const TRACE_STEP_LIMIT = 0.05;         // maximaler Sprung pro Eingabe
+// Deckel gegen Tipp-Stepping: ohne ihn liesse sich die Spur in Sprüngen
+// abklopfen, statt sie zu ziehen — gemessen deutlich schneller als jeder Finger.
+// Eine saubere Runde braucht 2.5–4 s, also 0.25–0.4 pro Sekunde; 0.6 lässt jedem
+// echten Zug Luft und nimmt dem Abklopfen jeden Vorteil.
+const TRACE_MAX_SPEED = 0.6;           // Fortschritt pro Sekunde
+const TRACE_REENTRY_WINDOW = 0.05;     // Wiedereinstieg nur an der Bruchstelle
+const TRACE_SLIP_LOCK_MS = 350;        // Pause, nachdem der Strich abgerissen ist
+const TRACE_LAP_POINTS = 200;          // eine ganze Runde
+const TRACE_SLIP_COST = 25;            // Abzug je Abrutscher
+const TRACE_CLEAN_BONUS = 40;          // Zugabe für eine Runde ohne Abrutscher
+const TRACE_MAX_LAPS = 40;             // Sicherheitsnetz gegen endlose Runden
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -1463,10 +1483,17 @@ function scheduleBotMinigameInputs(room) {
     }
 
     if (minigame.arcade) {
+      // Spurmaler ist kein Entscheidungsspiel, sondern eine Zugbewegung: ein
+      // Finger liefert laufend Positionen. Mit dem normalen Entscheidungstakt
+      // (~300 ms) käme ein Bot wegen der Sprungweite nie über 0.17 Fortschritt
+      // pro Sekunde und damit nie in die Nähe einer Hand.
+      const every = minigame.arcade.family === "trace"
+        ? 120 + Math.floor(Math.random() * 60)
+        : 260 + Math.floor(Math.random() * 150);
       const timer = setTrackedInterval(room, () => {
         if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt) return;
         arcadeBotStep(room, bot);
-      }, 260 + Math.floor(Math.random() * 150));
+      }, every);
       return timer;
     }
 
@@ -1910,6 +1937,16 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
       bestMs: arcadePlayer.bestMs,
       mistakes: arcadePlayer.falseStarts || 0,
+      label: "Punkte"
+    };
+  }
+  if (arcade.family === "trace") {
+    return {
+      kind: "laps",
+      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
+      laps: arcadePlayer.lapsDone || 0,
+      progress: Math.round((arcadePlayer.progress || 0) * 100),
+      mistakes: arcadePlayer.slips || 0,
       label: "Punkte"
     };
   }
@@ -2900,6 +2937,27 @@ function createArcadeState(type, players, startedAt) {
       entry.lastReact = null;          // { kind, points, reactionMs, at }
     });
   }
+  if (config.family === "trace") {
+    arcade.tolerance = TRACE_TOLERANCE;
+    arcade.lapPoints = TRACE_LAP_POINTS;
+    arcade.slipCost = TRACE_SLIP_COST;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.lap = 0;
+      entry.progress = 0;              // 0 unten … 1 oben auf der aktuellen Spur
+      entry.brushDown = false;         // liegt der Finger auf der Spur?
+      entry.slips = 0;
+      entry.lapsDone = 0;
+      entry.cleanLaps = 0;             // Runden ohne einen einzigen Abrutscher
+      entry.lapSlips = 0;
+      entry.lockUntil = 0;
+      entry.brushX = tracePathX(config.seed, 0, 0);
+      entry.brushY = 0;
+      entry.lastAdvanceAt = startedAt;
+      entry.lastSlipAt = 0;
+      entry.lastLapAt = 0;
+    });
+  }
   if (config.family === "bounce") {
     arcade.beatStartMs = BOUNCE_BEAT_START_MS;
     arcade.perfectMs = BOUNCE_PERFECT_MS;
@@ -3195,7 +3253,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -3203,9 +3261,14 @@ function handleArcadeInput(room, player, input) {
   // bounce und feint ebenso ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
-  const cooldown = cooldowns[arcade.family] ?? 100;
+  // `lift` (Finger vom Bildschirm) ist keine Spielaktion, sondern eine Meldung,
+  // und sie folgt der letzten Zugposition im Abstand von Millisekunden. Vom
+  // Cooldown geschluckt hielte der Server den Strich für weiterhin unten — der
+  // nächste Fingeraufsatz gälte dann als Abrutscher statt als Wiedereinstieg.
+  const exempt = input.action === "lift";
+  const cooldown = exempt ? 0 : (cooldowns[arcade.family] ?? 100);
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
-  arcadePlayer.lastInputAt = now;
+  if (!exempt) arcadePlayer.lastInputAt = now;
 
   if (arcade.family === "stopclock") {
     if (input.action !== "stop") return { ok: false, error: "Tippe, um die Uhr zu stoppen." };
@@ -3534,6 +3597,99 @@ function handleArcadeInput(room, player, input) {
     arcadePlayer.lastReact = { kind: fake, points: -FEINT_FALSE_START, reactionMs: null, at: now };
     arcadePlayer.flash = "bad";
     arcadePlayer.lastHitAt = now;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "trace") {
+    // Finger hoch: der Strich reisst ab, aber ohne Abzug. Der Fortschritt bleibt
+    // stehen, und der Wiedereinstieg muss an der Bruchstelle passieren.
+    if (input.action === "lift") {
+      arcadePlayer.brushDown = false;
+      return { ok: true };
+    }
+    if (input.action !== "trace") return { ok: false, error: "Zieh den Finger über die Spur." };
+    if (now < arcadePlayer.lockUntil) return { ok: true };
+
+    const x = clamp(Number(input.x), 0, 1);
+    const y = clamp(Number(input.y), 0, 1);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Position." };
+    arcadePlayer.hasMoved = true;
+    arcadePlayer.brushX = x;
+    arcadePlayer.brushY = y;
+
+    const offset = traceOffset(arcade.seed, arcadePlayer.lap, x, y);
+    const onPath = offset <= TRACE_TOLERANCE;
+
+    // Wiedereinstieg nach einem Abriss: nur dort, wo der Strich endete. Sonst
+    // liesse sich die Spur überspringen, statt sie zu ziehen.
+    if (!arcadePlayer.brushDown) {
+      if (!onPath || Math.abs(y - arcadePlayer.progress) > TRACE_REENTRY_WINDOW) return { ok: true };
+      arcadePlayer.brushDown = true;
+      arcadePlayer.lastAdvanceAt = now;
+      return { ok: true };
+    }
+
+    if (!onPath) {
+      arcadePlayer.brushDown = false;
+      arcadePlayer.slips += 1;
+      arcadePlayer.lapSlips += 1;
+      arcadePlayer.lockUntil = now + TRACE_SLIP_LOCK_MS;
+      arcadePlayer.lastSlipAt = now;
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+      arcadePlayer.score = traceScore(arcadePlayer);
+      syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+      return { ok: true };
+    }
+
+    const elapsedMs = Math.max(1, now - arcadePlayer.lastAdvanceAt);
+    const speedRoom = (elapsedMs / 1000) * TRACE_MAX_SPEED;
+
+    // Der Finger darf dem Strich nicht davonlaufen. Ohne diese Regel liess sich
+    // die Spur überspringen: Finger auf den obersten Punkt der Kurve setzen und
+    // halten — der Abstand wird ja auf DESSEN Höhe gemessen, also war man "auf
+    // der Spur", und der Strich kroch mit Höchsttempo hinterher. Eine ganze
+    // Runde in 1.7 Sekunden, ohne die Kurve je nachgefahren zu haben.
+    // Der Spielraum wächst mit der Zeit seit der letzten Eingabe, damit ein
+    // verschluckter Zwischenwert keinen Abriss auslöst; Tempo gewinnt das nicht,
+    // denn das Vorrücken bleibt unabhängig davon gedeckelt.
+    const leadLimit = TRACE_STEP_LIMIT + speedRoom;
+    if (y > arcadePlayer.progress + leadLimit) {
+      arcadePlayer.brushDown = false;
+      arcadePlayer.slips += 1;
+      arcadePlayer.lapSlips += 1;
+      arcadePlayer.lockUntil = now + TRACE_SLIP_LOCK_MS;
+      arcadePlayer.lastSlipAt = now;
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+      arcadePlayer.score = traceScore(arcadePlayer);
+      syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+      return { ok: true };
+    }
+
+    // Rückwärts oder auf der Stelle ist erlaubt und ändert nichts — nur nach
+    // vorne zählt, und das begrenzt durch Sprungweite UND Tempo.
+    const allowed = Math.min(TRACE_STEP_LIMIT, speedRoom);
+    if (y > arcadePlayer.progress) {
+      arcadePlayer.progress = Math.min(arcadePlayer.progress + allowed, y);
+      arcadePlayer.lastAdvanceAt = now;
+    }
+
+    if (arcadePlayer.progress >= 0.995 && arcadePlayer.lap < TRACE_MAX_LAPS) {
+      // Runde geschafft: neue Kurve, Finger muss unten neu ansetzen.
+      arcadePlayer.lapsDone += 1;
+      if (arcadePlayer.lapSlips === 0) arcadePlayer.cleanLaps += 1;
+      arcadePlayer.lapSlips = 0;
+      arcadePlayer.lap += 1;
+      arcadePlayer.progress = 0;
+      arcadePlayer.brushDown = false;
+      arcadePlayer.lastLapAt = now;
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+    }
+
+    arcadePlayer.score = traceScore(arcadePlayer);
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
@@ -4687,6 +4843,38 @@ function feintPoints(reactionMs, windowMs = FEINT_GO_WINDOW_MS) {
   return Math.round(FEINT_MIN_POINTS + (FEINT_MAX_POINTS - FEINT_MIN_POINTS) * share);
 }
 
+// Die Spur von Spurmaler: für den Fortschritt t (0 unten … 1 oben) die
+// Querposition. Der Weg läuft immer nach oben und kehrt nie um — so gibt es
+// keine Kreuzungen, an denen unklar wäre, wohin der Finger als nächstes soll.
+// Client und Server leiten die Kurve aus derselben Funktion ab.
+function tracePathX(seed, lap, t) {
+  const s = seed + lap * 97;
+  // Amplituden zusammen höchstens 0.34, damit die Spur samt Band im Bild bleibt
+  // (0.16 … 0.84 plus 0.085 Toleranz).
+  const swing = 0.18 + arcadeNoise(s) * 0.08;
+  const detail = 0.04 + arcadeNoise(s + 11) * 0.04;
+  const phase = arcadeNoise(s + 23) * Math.PI * 2;
+  const bows = 1 + Math.floor(arcadeNoise(s + 37) * 2.999);
+  const raw = Math.sin(t * Math.PI * bows + phase) * swing
+    + Math.sin(t * Math.PI * (bows * 2 + 1) + phase * 1.7) * detail;
+  return clamp(0.5 + raw, 0.5 - (swing + detail), 0.5 + (swing + detail));
+}
+
+// Wie weit der Finger von der Spur weg ist, an der Höhe, auf der er steht.
+function traceOffset(seed, lap, x, y) {
+  return Math.abs(x - tracePathX(seed, lap, clamp(y, 0, 1)));
+}
+
+// Wertung: geschaffte Runden plus der angefangene Rest, ein Bonus für ganz
+// saubere Runden und ein Abzug je Abrutscher. Der Bonus ist der Grund, warum
+// sich Genauigkeit lohnt und nicht nur Tempo.
+function traceScore(entry) {
+  const laps = (entry.lapsDone || 0) * TRACE_LAP_POINTS;
+  const partial = Math.round((entry.progress || 0) * TRACE_LAP_POINTS);
+  const clean = (entry.cleanLaps || 0) * TRACE_CLEAN_BONUS;
+  return laps + partial + clean - (entry.slips || 0) * TRACE_SLIP_COST;
+}
+
 // Zeitpunkt des n-ten Taktschlags, relativ zum Spielstart. Die Schläge werden
 // geometrisch schneller, bis BOUNCE_BEAT_MIN_MS erreicht ist. Client und Server
 // leiten die Taktzeiten aus derselben Funktion ab.
@@ -5154,6 +5342,41 @@ function arcadeBotStep(room, bot) {
     if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
       handleArcadeInput(room, bot, { action: "drop" });
     }
+    return;
+  }
+  if (arcade.family === "trace") {
+    const now = Date.now();
+    if (now < player.lockUntil) return;
+    const profile = botProfile(player);
+    // Der Bot zieht seinen Finger die Spur hinauf. Sein Können steckt in zwei
+    // Zahlen: wie weit er pro Tick vorrückt und wie weit seine Hand wandert.
+    //
+    // Aussehen und Fehlerquote sind absichtlich GETRENNT. Beides an eine Zahl zu
+    // hängen ging zweimal schief: Streuung unter der Toleranz heisst nie ein
+    // Abrutscher (gemessen neun makellose Runden — unschlagbar und
+    // unglaubwürdig), Streuung darüber heisst Dauerabrutscher (gemessen 30 in
+    // einer Runde, Punktestand am Boden). Eine Schwingung verbringt viel Zeit an
+    // ihren Extremen, deshalb liegt sie hier ganz im Band und sorgt nur für ein
+    // lebendiges Wandern; die Abrutscher kommen aus einer eigenen, direkt
+    // eingestellten Wahrscheinlichkeit.
+    const step = profile.level === "hard" ? 0.040 : profile.level === "normal" ? 0.030 : 0.020;
+    const drift = profile.level === "hard" ? 0.04 : profile.level === "normal" ? 0.055 : 0.07;
+    // Bei ~200 Ticks pro Runde ergibt das etwa 1 / 2.5 / 5 Abrutscher.
+    const slipChance = profile.level === "hard" ? 0.004 : profile.level === "normal" ? 0.012 : 0.025;
+    if (player.driftPhase === undefined) {
+      player.driftPhase = Math.random() * Math.PI * 2;
+      player.driftPeriod = 900 + Math.random() * 900;
+    }
+    const wander = Math.sin(now / player.driftPeriod + player.driftPhase) * drift;
+    const slipNow = Math.random() < slipChance ? (TRACE_TOLERANCE + 0.05) * (Math.random() < 0.5 ? -1 : 1) : 0;
+    const y = clamp(player.progress + step, 0, 1);
+    const x = clamp(tracePathX(arcade.seed, player.lap, y) + wander + slipNow, 0, 1);
+    if (!player.brushDown) {
+      // Nach einem Abriss erst wieder an der Bruchstelle ansetzen.
+      handleArcadeInput(room, bot, { action: "trace", x: tracePathX(arcade.seed, player.lap, player.progress), y: player.progress });
+      return;
+    }
+    handleArcadeInput(room, bot, { action: "trace", x, y });
     return;
   }
   if (arcade.family === "feint") {
@@ -5817,6 +6040,17 @@ module.exports = {
     FEINT_DOUBLE_TAP_MS,
     buildFeintSignals,
     activeFeintSignal,
-    feintPoints
+    feintPoints,
+    TRACE_TOLERANCE,
+    TRACE_STEP_LIMIT,
+    TRACE_MAX_SPEED,
+    TRACE_REENTRY_WINDOW,
+    TRACE_SLIP_LOCK_MS,
+    TRACE_LAP_POINTS,
+    TRACE_SLIP_COST,
+    TRACE_CLEAN_BONUS,
+    tracePathX,
+    traceOffset,
+    traceScore
   }
 };

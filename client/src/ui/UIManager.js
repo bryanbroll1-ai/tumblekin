@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin74";
-import { playerStatus } from "../game/Player.js?v=tumblekin74";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin74";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin75";
+import { playerStatus } from "../game/Player.js?v=tumblekin75";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin75";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -813,6 +813,13 @@ function formatResultMetric(entry) {
     const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehlgriffe")}` : "";
     return `${detail.value} ${detail.label}${best}${slips}`;
   }
+  if (detail.kind === "laps") {
+    // Punkte entscheiden; Runden und der angefangene Rest machen sichtbar,
+    // woher sie kommen — und Abrutscher, was sie gekostet haben.
+    const rest = detail.progress ? ` + ${detail.progress}%` : "";
+    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Abrutscher")}` : "";
+    return `${detail.value} ${detail.label} · ${countNoun(detail.laps, "Runden")}${rest}${slips}`;
+  }
   return `${formatScore(entry?.score)} Punkte`;
 }
 
@@ -827,6 +834,8 @@ const SINGULAR_NOUNS = {
   "Ziele": "Ziel",
   "Rauswürfe": "Rauswurf",
   "Fehlgriffe": "Fehlgriff",
+  "Abrutscher": "Abrutscher",
+  "Runden": "Runde",
   "Punkte": "Punkt"
 };
 
