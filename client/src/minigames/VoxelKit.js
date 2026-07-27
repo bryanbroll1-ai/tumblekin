@@ -18,31 +18,33 @@ export function createVoxelKin(color, variant = 0) {
   blob.castShadow = true;
   body.add(blob);
 
-  // Facial features sit a touch inside the blob's front face (z=0.19) so their
-  // back faces stay embedded — coplanar back faces z-fight and make the mouth
-  // flicker "through" the head while it turns/spins.
-  const belly = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.02), accentLight);
-  belly.position.set(0, -0.08, 0.185);
+  // Facial features are DEEP boxes centred right at the blob's front face
+  // (z=0.19): their front stays clearly proud (~0.025) while their back is
+  // buried well inside the solid head (~0.025). No near-coplanar faces means no
+  // z-fighting even when a kin is small/far (e.g. mid-flight in Kanonenflug),
+  // which was making the mouth flicker "through" the head.
+  const belly = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.05), accentLight);
+  belly.position.set(0, -0.08, 0.19);
   body.add(belly);
 
   const eyes = [];
   [-1, 1].forEach((side) => {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.02), dark);
-    eye.position.set(side * 0.095, 0.07, 0.185);
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.05), dark);
+    eye.position.set(side * 0.095, 0.07, 0.19);
     body.add(eye);
     eyes.push(eye);
   });
   [-1, 1].forEach((side) => {
     const cheek = new THREE.Mesh(
-      new THREE.BoxGeometry(0.05, 0.035, 0.015),
+      new THREE.BoxGeometry(0.05, 0.035, 0.045),
       new THREE.MeshLambertMaterial({ color: "#f9826b", transparent: true, opacity: 0.8 })
     );
-    cheek.position.set(side * 0.15, -0.02, 0.188);
+    cheek.position.set(side * 0.15, -0.02, 0.19);
     body.add(cheek);
     materials.push(cheek.material);
   });
-  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.028, 0.02), dark);
-  mouth.position.set(0, -0.05, 0.185);
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.028, 0.05), dark);
+  mouth.position.set(0, -0.05, 0.19);
   body.add(mouth);
 
   const arms = [];

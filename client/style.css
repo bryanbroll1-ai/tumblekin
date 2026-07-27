@@ -1002,16 +1002,18 @@ body[data-screen="minigame"] .game-menu-button {
   place-items: center;
   min-width: 44px;
   min-height: 28px;
+  padding: 0 14px;
   border-radius: 8px;
   background: var(--ink);
   color: #fff;
   font-size: 0.78rem;
   font-weight: 950;
+  white-space: nowrap;
 }
 
 .board-picker-panel .panel-heading > span {
-  max-width: 132px;
-  padding: 0 7px;
+  max-width: 148px;
+  padding: 0 14px;
   overflow: hidden;
   font-size: 0.68rem;
   text-overflow: ellipsis;
