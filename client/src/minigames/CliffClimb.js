@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
@@ -269,7 +269,7 @@ export class CliffClimb {
       } else {
         // Sway toward the reaching hand while climbing.
         const reach = now < (entry.lastHitAt || 0) + 220 ? entry.nextSide * -0.12 : 0;
-        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.laneX + reach, 0.3);
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.laneX + reach, frameLerp(0.3, dt));
         animator.set(entry.finishedAt ? "cheer" : "idle", { base: true });
         animator.update(now);
 
@@ -309,12 +309,12 @@ export class CliffClimb {
       });
     }
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     if (minigame.finaleAt) {
       // Pull back to frame the whole summit deck and the celebration.
       const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
       const desired = new THREE.Vector3(shakeX, this.summitY + 0.6, (this.baseCamZ || 7.4) + 1.8);
-      this.camera.position.lerp(desired, 0.08);
+      this.camera.position.lerp(desired, frameLerp(0.08, dt));
       this.camera.lookAt(0, this.summitY + 0.2, 0);
     } else {
       // Follow the own climber in x (portrait is too narrow for all four lanes)
@@ -322,7 +322,7 @@ export class CliffClimb {
       const followX = (this.ownX || 0) * 0.7;
       const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
       const desired = new THREE.Vector3(followX + shakeX, Math.max(2.4, ownY) + (this.baseCamLift || 0.4), this.baseCamZ || 7.4);
-      this.camera.position.lerp(desired, 0.1);
+      this.camera.position.lerp(desired, frameLerp(0.1, dt));
       this.camera.lookAt(followX, Math.max(2.4, ownY) + 0.4, 0);
     }
 

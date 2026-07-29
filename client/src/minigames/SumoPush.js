@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
@@ -335,8 +335,8 @@ export class SumoPush {
       const spotZ = viewZ * (RING_WORLD - 0.42);
       // Ausgeschiedene treten einen Schritt zurück und werden blass.
       const push = out ? 1.5 : 1;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, spotX * push, 0.12);
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, spotZ * push, 0.12);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, spotX * push, frameLerp(0.12, dt));
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, spotZ * push, frameLerp(0.12, dt));
       kin.rotation.y = Math.atan2(-viewX, -viewZ);
       setKinOpacity(kin, out ? 0.4 : 1);
 
@@ -420,14 +420,14 @@ export class SumoPush {
     this.floaters.update(dt);
 
     // Kamera schaut von oben in den Ring und folgt dem Stein ein Stück.
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 15) * this.shake * 0.24 * shakeScale();
     const desired = new THREE.Vector3(
       this.stone.position.x * 0.18 + shakeX,
       this.baseCamY || 5.4,
       (this.baseCamZ || 6.2) + this.stone.position.z * 0.14
     );
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(this.stone.position.x * 0.3, 0.35, this.stone.position.z * 0.3);
 
     this.updateHud(minigame, arcade, state, now);

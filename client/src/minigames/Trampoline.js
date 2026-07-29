@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Trampolin — ein Takt schlägt gleichmässig; tippt man IM Takt, federt der Kin
 // höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie. Der Takt
@@ -316,14 +316,14 @@ export class Trampoline {
 
     // Kamera steigt mit der höchsten Figur, damit der Rekord im Bild bleibt.
     const highest = Math.max(0, ...state.players.map((p) => arcade.players[p.id]?.height || 0));
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const lift = highest * WORLD_PER_HEIGHT * 0.5;
     // Leichte Vorspannung zur eigenen Bahn, damit man sich immer sieht, ohne
     // die Rivalen aus dem Bild zu schieben.
     const ownX = (this.pads.get(controlledId)?.x || 0) * 0.35;
     const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 2.6) + lift, (this.baseCamZ || 8.0) + lift * 0.5);
-    this.camera.position.lerp(desired, 0.08);
+    this.camera.position.lerp(desired, frameLerp(0.08, dt));
     this.camera.lookAt(ownX * 0.6, 1.6 + lift, 0);
 
     this.updateHud(minigame, arcade, state, now, phase);

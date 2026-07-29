@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
@@ -371,11 +371,11 @@ export class BarrelRoll {
     this.floaters.update(dt);
     this.waterMesh.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.05;
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 16) * this.shake * 0.24 * shakeScale();
     const shakeY = Math.cos(now / 13) * this.shake * 0.18;
     const desired = new THREE.Vector3((this.baseCamX || 3.4) + shakeX, (this.baseCamY || 5) + shakeY, this.baseCamZ || 8.2);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 1.9, 0);
 
     this.updateHud(minigame, arcade, state, now);

@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -498,7 +498,7 @@ export class RunnerDerby {
       if (mesh.userData.shattered) return;
       const data = mesh.userData;
       const shifted = Math.sin(now / 650 + data.phase) > 0 ? 1 : 0;
-      mesh.position.x = THREE.MathUtils.lerp(mesh.position.x, laneX(data.baseLane + shifted), 0.2);
+      mesh.position.x = THREE.MathUtils.lerp(mesh.position.x, laneX(data.baseLane + shifted), frameLerp(0.2, dt));
     });
     this.boosts.forEach((pad) => {
       pad.material.emissiveIntensity = 0.4 + Math.abs(Math.sin(now / 240)) * 0.4;
@@ -524,8 +524,8 @@ export class RunnerDerby {
       const targetZ = entry.progress * SEGMENT + spread * 0.22;
       const prevX = kin.position.x;
       const prevZ = kin.position.z;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.25);
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, 0.4);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.25, dt));
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, frameLerp(0.4, dt));
 
       // Shatter any glass pane this runner passes through.
       this.sliders.forEach((pane) => {
@@ -539,8 +539,8 @@ export class RunnerDerby {
 
       // Lean into a lane change, and add a little dust every stride.
       const laneVel = kin.position.x - prevX;
-      kin.rotation.z = THREE.MathUtils.lerp(kin.rotation.z, -laneVel * 6, 0.2);
-      if (!entry.finishedAt && Math.random() < 0.14) {
+      kin.rotation.z = THREE.MathUtils.lerp(kin.rotation.z, -laneVel * 6, frameLerp(0.2, dt));
+      if (!entry.finishedAt && Math.random() < frameChance(0.14, dt)) {
         this.bursts.spawn(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.05, kin.position.z - 0.2), ["#e8f0d8", "#ffffff"], { count: 1, speed: 0.5, up: 0.6, size: 0.05, life: 0.4, gravity: 1.5 });
       }
 
@@ -564,11 +564,11 @@ export class RunnerDerby {
       kin.userData.dizzy.visible = stumbling;
       if (stumbling) {
         kin.userData.dizzy.rotation.y = now / 110;
-        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, -0.35, 0.25);
+        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, -0.35, frameLerp(0.25, dt));
         kin.rotation.y = Math.sin(now / 90) * 0.25;
       } else {
-        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, 0, 0.2);
-        kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, 0.2);
+        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, 0, frameLerp(0.2, dt));
+        kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, frameLerp(0.2, dt));
       }
       if (entry.finishedAt && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
@@ -629,7 +629,7 @@ export class RunnerDerby {
         mesh.visible = true;
         mesh.position.set(laneX(shot.lane) + spread, KIN_Y + 0.3, headProgress * SEGMENT);
         mesh.rotation.z = now / 90;
-        if (Math.random() < 0.4) {
+        if (Math.random() < frameChance(0.4, dt)) {
           this.bursts.spawn(mesh.position.clone(), ["#ffd15c", "#ff8b2e"], { count: 1, speed: 0.4, up: 0.2, size: 0.05, life: 0.3 });
         }
       } else if (!mesh.userData.impactPlayed) {
@@ -690,16 +690,16 @@ export class RunnerDerby {
     });
 
     // Chase camera behind the controlled kin, with impact shake + boost FOV kick.
-    this.shake *= 0.88;
-    this.fovKick *= 0.9;
+    this.shake *= frameDecay(0.88, dt);
+    this.fovKick *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 18) * this.shake * 0.16 * shakeScale();
     const shakeY = Math.cos(now / 15) * this.shake * 0.1;
     const desired = new THREE.Vector3(focusX * 0.35 + shakeX, this.baseCamera.y + shakeY, focusZ + this.baseCamera.z);
-    this.camera.position.lerp(desired, 0.16);
+    this.camera.position.lerp(desired, frameLerp(0.16, dt));
     this.camera.lookAt(focusX * 0.2, KIN_Y + 0.4, focusZ + 4.5);
     const targetFov = this.fov + this.fovKick * 9;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
-      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.2);
+      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, frameLerp(0.2, dt));
       this.camera.updateProjectionMatrix();
     }
 

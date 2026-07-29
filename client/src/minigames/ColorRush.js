@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
@@ -284,7 +284,7 @@ export class ColorRush {
       }
       tile.position.x = tileX(gx) + jitterX;
       tile.position.z = tileZ(gy) + jitterZ;
-      tile.position.y = THREE.MathUtils.lerp(tile.position.y, targetY, 0.3);
+      tile.position.y = THREE.MathUtils.lerp(tile.position.y, targetY, frameLerp(0.3, dt));
       tile.material.transparent = opacity < 1;
       tile.material.opacity = opacity;
       // Target tiles glow and gently bob during the warning so the safe
@@ -309,8 +309,8 @@ export class ColorRush {
 
       const targetX = tileX(entry.gx);
       const targetZ = tileZ(entry.gy);
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.35);
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, 0.35);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.35, dt));
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, frameLerp(0.35, dt));
 
       if (fallen && !this.lastFallen.get(player.id)) {
         animator.trigger("fall");
@@ -336,7 +336,7 @@ export class ColorRush {
 
       // Eliminated kins plunge into the chasm, fade out and disappear.
       if (fallen) {
-        animator.groundY = THREE.MathUtils.lerp(animator.groundY, KIN_Y - 7.5, 0.06);
+        animator.groundY = THREE.MathUtils.lerp(animator.groundY, KIN_Y - 7.5, frameLerp(0.06, dt));
         const depth = KIN_Y - animator.groundY;
         const visibility = Math.max(0, 1 - depth / 2.6);
         setKinOpacity(kin, visibility);
@@ -371,13 +371,13 @@ export class ColorRush {
     this.floaters.update(dt);
 
     // Camera: gentle follow plus a drop/fall impact shake.
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const focusX = controlledKin ? controlledKin.position.x : 0;
     const focusZ = controlledKin ? controlledKin.position.z : 0;
     const shakeX = Math.sin(now / 16) * this.shake * 0.28 * shakeScale();
     const shakeY = Math.cos(now / 13) * this.shake * 0.2;
     const desired = new THREE.Vector3(focusX * 0.25 + shakeX, this.baseCamera.y + shakeY, focusZ * 0.25 + this.baseCamera.z);
-    this.camera.position.lerp(desired, 0.12);
+    this.camera.position.lerp(desired, frameLerp(0.12, dt));
     this.camera.lookAt(0, 0, 0);
 
     this.updateHud(minigame, state, arcade, phase, now);

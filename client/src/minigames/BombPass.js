@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Zündstoff — hot-potato with a blocky bomb. The fuse length is secret:
 // tap to pass the bomb on before it blows. Whoever holds it when it pops
@@ -302,7 +302,7 @@ export class BombPass {
 
     // Spark flickers faster the longer the bomb is held.
     this.spark.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(now / (150 - nervous * 90))) * (0.8 + nervous);
-    if (Math.random() < 0.25) {
+    if (Math.random() < frameChance(0.25, dt)) {
       this.bursts.spawn(this.bomb.position.clone().add(new THREE.Vector3(0, 0.35, 0)), ["#ffd15c", "#ff8b2e"], { count: 1, speed: 0.5, up: 0.5, size: 0.04, life: 0.3 });
     }
 
@@ -341,8 +341,8 @@ export class BombPass {
         // Scorched and sitting out at the edge of the circle.
         setKinOpacity(kin, 0.35);
         const spot = kin.userData.spot;
-        kin.position.x = THREE.MathUtils.lerp(kin.position.x, spot.x * 1.45, 0.05);
-        kin.position.z = THREE.MathUtils.lerp(kin.position.z, spot.z * 1.45, 0.05);
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, spot.x * 1.45, frameLerp(0.05, dt));
+        kin.position.z = THREE.MathUtils.lerp(kin.position.z, spot.z * 1.45, frameLerp(0.05, dt));
         animator.set("sad", { base: true });
         animator.update(now);
         kin.userData.label.material.opacity = 0.3;
@@ -361,7 +361,7 @@ export class BombPass {
         kin.position.x = kin.userData.spot.x + Math.sin(now / 120) * 0.05 * (0.5 + nervous);
       } else {
         animator.set("idle", { base: true });
-        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spot.x, 0.15);
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spot.x, frameLerp(0.15, dt));
       }
       animator.update(now);
       kin.userData.shadow.position.set(kin.position.x, 0.32, kin.position.z);
@@ -381,11 +381,11 @@ export class BombPass {
 
     this.floaters.update(dt);
 
-    this.shake *= 0.88;
+    this.shake *= frameDecay(0.88, dt);
     const shakeX = Math.sin(now / 15) * this.shake * 0.3 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.22;
     const desired = new THREE.Vector3(shakeX, (this.baseCamY || 4.6) + shakeY, this.baseCamZ || 7.8);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 0.8, 0);
 
     this.updateHud(minigame, arcade, state, now);

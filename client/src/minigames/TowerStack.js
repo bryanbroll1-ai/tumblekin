@@ -6,9 +6,9 @@ import {
   createNameLabel,
   createOwnMarker,
   updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin79";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -285,7 +285,7 @@ export class TowerStack {
 
     // Camera rises smoothly with the tallest tower (a damped height avoids the
     // jump when a block lands).
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     this.smoothTop = THREE.MathUtils.lerp(this.smoothTop ?? topHeight, topHeight, Math.min(1, dt * 4));
     const focusY = 1.3 + this.smoothTop * BLOCK_H * 0.5;
     // Bias slightly toward the own tower so it's never cut off, while all four
@@ -293,7 +293,7 @@ export class TowerStack {
     const ownX = (this.towers.get(controlledId)?.x || 0) * 0.3;
     const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 2.6) + this.smoothTop * BLOCK_H * 0.45, this.baseCamZ || 8);
-    this.camera.position.lerp(desired, 0.12);
+    this.camera.position.lerp(desired, frameLerp(0.12, dt));
     this.camera.lookAt(ownX, focusY, 0);
 
     // Arrow over your own tower so you always know which one is yours.

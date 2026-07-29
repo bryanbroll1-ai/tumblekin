@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
@@ -310,8 +310,8 @@ export class RopeSkip {
       if (out) {
         // Tripped: sit dazed beside the pit.
         setKinOpacity(kin, 0.45);
-        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, 0.2);
-        kin.position.z = THREE.MathUtils.lerp(kin.position.z, 1.9, 0.06);
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, frameLerp(0.2, dt));
+        kin.position.z = THREE.MathUtils.lerp(kin.position.z, 1.9, frameLerp(0.06, dt));
         animator.set("sad", { base: true });
         animator.groundY = KIN_Y;
         animator.update(now);
@@ -321,8 +321,8 @@ export class RopeSkip {
       }
 
       setKinOpacity(kin, 1);
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, 0.2);
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, 0, 0.2);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, frameLerp(0.2, dt));
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, 0, frameLerp(0.2, dt));
       animator.groundY = y;
       if (minigame.finaleAt) {
         animator.set("cheer", { base: true });
@@ -349,10 +349,10 @@ export class RopeSkip {
 
     this.floaters.update(dt);
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 16) * this.shake * 0.24 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.4, this.baseCamZ || 8.6);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 1.2, 0);
 
     this.updateHud(minigame, arcade, state, nextHitIn, now);

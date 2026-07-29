@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Falschsignal — alle starren auf EINEN Signalmast. Nur ein Signal ist echt,
 // und die Fälschungen sind absichtlich nah dran:
@@ -395,10 +395,10 @@ export class FalseSignal {
     // Lampe, und ein seitlicher Versatz schob auf dem schmalen Handybild den
     // äussersten Kin aus dem Rand. Wer man selbst ist, zeigt die Marke über dem
     // Kopf. Nur der Ruckler nach einem Fehlgriff bewegt die Kamera.
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 14) * this.shake * 0.22 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.2, this.baseCamZ || 9.2);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 2.2, -0.5);
 
     this.updateHud(minigame, arcade, state, now);

@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin79";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin80";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.
@@ -338,10 +338,10 @@ export class WhackBlob {
 
     this.floaters.update(dt);
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 5.2, this.baseCamZ || 7);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 0.2, -0.4);
 
     this.updateHud(minigame, arcade, state, now);

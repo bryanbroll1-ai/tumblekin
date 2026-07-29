@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -280,7 +280,7 @@ export class CoinRain {
       const animator = this.animators.get(player.id);
       const targetX = this.laneX(entry.lane) + (index - (state.players.length - 1) / 2) * 0.26;
       const moving = Math.abs(kin.position.x - targetX) > 0.05;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.3);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.3, dt));
 
       if ((entry.catches || 0) > (this.lastCatches.get(player.id) || 0)) {
         const gained = (entry.catches || 0) - (this.lastCatches.get(player.id) || 0);
@@ -322,10 +322,10 @@ export class CoinRain {
     this.bursts.update(dt);
     this.floaters.update(dt);
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 15) * this.shake * 0.22 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.2, this.baseCamZ || 7.2);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 2, 0);
 
     this.updateHud(minigame, arcade, state, now);

@@ -61,9 +61,10 @@ laufenden Kosten entstehen sollen.
 | Version im UI | im Spielmenü sichtbar, für Supportanfragen |
 | Absturzschutz | Fehler im Gameloop beenden den Prozess nicht mehr; per Gegenprobe belegt |
 | Barrierefreiheit | Fokusringe für Tastatur/Switch, `prefers-reduced-motion` wirkt auch auf die 3D-Szenen |
+| Bildrate | Nachziehen, Abklingen, Drehungen und Partikelraten laufen zeitbezogen statt je Bild — auf 120-Hz-Geräten sieht die Bewegung aus wie auf 60 Hz |
 | Gerätestufen | schwache Hardware bekommt weniger Pixel, kleinere Schattenmaps, kein Antialiasing |
 | Missbrauchsschutz | Raum-Flooding begrenzt (Cooldown, Gerätelimit, Gesamtobergrenze). Vorher legten 60 Verbindungen 60 Räume an, jetzt 1 von 40 im Burst — regulärer Beitritt unbeeinträchtigt |
-| Tests | 179 Regeltests, Browser-Rauchtest über alle Minispiele, Board-Simulator fürs Balancing |
+| Tests | 184 Regeltests, Browser-Rauchtest über alle Minispiele, Board-Simulator fürs Balancing |
 | Bot-Stärken | belegt: in allen 22 Minispiel-Familien gewinnt die starke Stufe häufiger als die schwache (200 Partien je Spiel, Startplätze rotiert) |
 
 ## Offen vor einem Release

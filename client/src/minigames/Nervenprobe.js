@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Nervenprobe — all four Kins face the camera behind a timer podium.
 // The clock counts visibly for two seconds, then hides. Everyone slams
@@ -440,7 +440,7 @@ export class Nervenprobe {
       }
 
       // Buzzer sinks in once pressed.
-      station.buzzer.position.y = THREE.MathUtils.lerp(station.buzzer.position.y, stopped ? 1.18 : 1.26, 0.25);
+      station.buzzer.position.y = THREE.MathUtils.lerp(station.buzzer.position.y, stopped ? 1.18 : 1.26, frameLerp(0.25, dt));
 
       // Status bulb: green while counting, blinking red while hidden,
       // blue once stopped, gold at the reveal.
@@ -500,11 +500,11 @@ export class Nervenprobe {
     });
 
     // Static show camera with a light breathing motion + press shake.
-    this.shake *= 0.88;
+    this.shake *= frameDecay(0.88, dt);
     const shakeX = Math.sin(now / 17) * this.shake * 0.1 * shakeScale();
     const breathe = Math.sin(now / 1400) * 0.08;
     const desired = new THREE.Vector3(shakeX, 3.1 + breathe, this.baseCameraZ || 9.6);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 1.35, 0);
 
     this.updateHud(minigame, arcade, state, hidden, revealAll, now, elapsed);

@@ -7,15 +7,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Tellerdreher — mehrere Teller laufen langsam aus, ein Antippen gibt Schwung
 // zurück. Man hat aber nur EINE Hand: jeder Griff kostet aus einem Vorrat, der
@@ -293,7 +293,7 @@ export class PlateSpin {
     this.bursts.update(dt);
     this.floaters.update(dt);
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 13) * this.shake * 0.16 * shakeScale();
     this.camera.position.x += (shakeX - this.camera.position.x) * 0.4;
     this.camera.position.y = this.baseCamY || 3.1;

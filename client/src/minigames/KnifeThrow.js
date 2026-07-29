@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -330,10 +330,10 @@ export class KnifeThrow {
       // The active thrower slides to centre each turn; others glide to flanks.
       const targetX = this.spotForPlayer(player.id, index, state.players.length);
       kin.userData.spotX = targetX;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.12);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.12, dt));
       // The active player stands a step forward, under the disc.
       const isActive = arcade.activeId === player.id;
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, isActive ? 1.9 : 2.6, 0.1);
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, isActive ? 1.9 : 2.6, frameLerp(0.1, dt));
 
       if ((entry.stuck || 0) > (this.lastStuck.get(player.id) || 0)) {
         this.lastStuck.set(player.id, entry.stuck);
@@ -375,10 +375,10 @@ export class KnifeThrow {
     this.bursts.update(dt);
     this.floaters.update(dt);
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 15) * this.shake * 0.22 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 2.9, this.baseCamZ || 7.4);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 2.7, LOG_Z);
 
     this.updateHud(minigame, arcade, state, now);

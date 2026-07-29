@@ -11,10 +11,10 @@ import {
   updateCountdownSprite,
   setKinOpacity,
   noise
-} from "./VoxelKit.js?v=tumblekin79";
-import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
+import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin80";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -422,8 +422,8 @@ export class BounceArena {
       if (!entry?.inPlay) return;
       edgeDanger = Math.max(edgeDanger, Math.min(1, Math.max(0, Math.hypot(entry.x, entry.y) - 0.62) / 0.4));
     });
-    this.bumpPulse *= 0.85;
-    this.shake *= 0.82;
+    this.bumpPulse *= frameDecay(0.85, dt);
+    this.shake *= frameDecay(0.82, dt);
     this.rim.material.emissiveIntensity = 0.55 + Math.sin(now / 190) * 0.2 + edgeDanger * 0.9 + this.bumpPulse * 1.4;
 
     const controlledKin = this.kins.get(controlledId);
@@ -444,7 +444,7 @@ export class BounceArena {
     // Camera: gentle follow of your kin plus a punchy impact shake.
     const followX = controlledKin && this.kins.size ? controlledKin.position.x * 0.22 : 0;
     const followZ = controlledKin ? controlledKin.position.z * 0.14 : 0;
-    this.lookTarget.lerp(new THREE.Vector3(followX, 0.18, followZ), 0.06);
+    this.lookTarget.lerp(new THREE.Vector3(followX, 0.18, followZ), frameLerp(0.06, dt));
     const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.12;
     this.camera.position.x = this.baseCamera.x + Math.sin(now / 3600) * 0.1 + shakeX;

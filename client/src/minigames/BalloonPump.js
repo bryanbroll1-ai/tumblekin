@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,7 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin80";
 
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the
@@ -265,7 +266,7 @@ export class BalloonPump {
       }
       let pulse = (this.pulse.get(player.id) || 0) * 0.88;
       this.pulse.set(player.id, pulse);
-      station.pump.scale.y = THREE.MathUtils.lerp(station.pump.scale.y, 1, 0.2);
+      station.pump.scale.y = THREE.MathUtils.lerp(station.pump.scale.y, 1, frameLerp(0.2, dt));
 
       const size = 0.42 + Math.min(1.75, pumps * 0.018);
       const wobble = 1 + pulse * 0.16 + Math.sin(now / 300 + index) * 0.015;
@@ -300,7 +301,7 @@ export class BalloonPump {
               this.feedback?.vibrate([40, 26, 50]);
               if (player.id === controlledId) this.feedback?.sound("win");
             }
-          } else if (Math.random() < 0.2) {
+          } else if (Math.random() < frameChance(0.2, dt)) {
             // Confetti keeps drizzling on the champion.
             this.bursts.spawn(new THREE.Vector3(station.x + (Math.random() - 0.5), 3.4, -0.2), [player.color, "#ffd15c", "#ffffff"], { count: 2, speed: 0.6, up: 0.2, size: 0.07, life: 1.2 });
           }
@@ -314,7 +315,7 @@ export class BalloonPump {
           const shrink = Math.max(0.12, (station.deflateFrom || size) * Math.max(0.1, 1 - sinceFinale / 1400));
           station.balloon.scale.setScalar(shrink);
           station.balloon.position.x = station.x + Math.sin(now / 90 + index) * Math.min(0.4, sinceFinale / 1200);
-          if (sinceFinale < 1400 && Math.random() < 0.3) {
+          if (sinceFinale < 1400 && Math.random() < frameChance(0.3, dt)) {
             this.bursts.spawn(station.balloon.position.clone(), ["#ffffff"], { count: 1, speed: 0.8, up: 0.3, size: 0.04, life: 0.3 });
           }
         }
@@ -331,9 +332,9 @@ export class BalloonPump {
 
     this.floaters.update(dt);
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const desired = new THREE.Vector3(Math.sin(now / 3200) * 0.15, (this.baseCamY || 3.4), this.baseCamZ || 9.4);
-    this.camera.position.lerp(desired, 0.08);
+    this.camera.position.lerp(desired, frameLerp(0.08, dt));
     this.camera.lookAt(0, 1.9, 0);
 
     this.updateHud(minigame, arcade, state, now);

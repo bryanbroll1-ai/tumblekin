@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Lichtwächter — hold the button to sprint towards the gate while the
 // giant guard looks away. When the light flips to red he whirls around:
@@ -303,7 +303,7 @@ export class RedLightGate {
       const moving = Math.abs((entry.progress || 0) - shown) > 0.08;
       kin.position.x = this.laneX(index);
       kin.position.z = finished
-        ? THREE.MathUtils.lerp(kin.position.z, this.gateZ - 0.6, 0.08)
+        ? THREE.MathUtils.lerp(kin.position.z, this.gateZ - 0.6, frameLerp(0.08, dt))
         : this.progressZ(shown, arcade.goal);
 
       if ((entry.caught || 0) > (this.lastCaught.get(player.id) || 0)) {
@@ -346,7 +346,7 @@ export class RedLightGate {
 
     this.floaters.update(dt);
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 15) * this.shake * 0.24 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.18;
     if (minigame.finaleAt) {
@@ -370,13 +370,13 @@ export class RedLightGate {
       });
       if (leaders.length) { cx /= leaders.length; cz /= leaders.length; }
       const desired = new THREE.Vector3(cx * 0.6 + shakeX, 2.2 + shakeY, cz + 3.4);
-      this.camera.position.lerp(desired, 0.06);
+      this.camera.position.lerp(desired, frameLerp(0.06, dt));
       this.camera.lookAt(cx * 0.4, 1.2, cz - 1.5);
     } else {
       // Chase camera behind the own runner.
       const focusZ = ownKin ? ownKin.position.z : START_Z;
       const desired = new THREE.Vector3(shakeX, (this.baseCamY || 4.4) + shakeY, focusZ + (this.baseCamBack || 7.2));
-      this.camera.position.lerp(desired, 0.1);
+      this.camera.position.lerp(desired, frameLerp(0.1, dt));
       this.camera.lookAt(0, 1.1, focusZ - 6);
     }
 

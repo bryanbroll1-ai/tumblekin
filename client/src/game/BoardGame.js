@@ -1,8 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin79";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin79";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin79";
-import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin79";
+import { drawDiceFace } from "./Dice.js?v=tumblekin80";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin80";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin80";
+import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin80";
+import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin80";
 
 const EVENT_FIELDS = new Set(["challenge", "gate", "star", "coin", "item", "luck", "trap"]);
 const CAMERA_DAMPING = 6.5;
@@ -889,12 +890,14 @@ export class BoardGame {
     this.updateAnimations(now);
 
     if (now < this.diceSpinUntil) {
-      this.diceMesh.rotation.x += 0.145;
-      this.diceMesh.rotation.y += 0.19;
+      // Drehung je SEKUNDE, nicht je Bild: der Würfel drehte sich auf einem
+      // 120-Hz-Schirm doppelt so schnell wie auf einem 60-Hz-Schirm.
+      this.diceMesh.rotation.x += 8.7 * dt;
+      this.diceMesh.rotation.y += 11.4 * dt;
       this.diceMesh.position.y = this.diceHome.y + Math.sin(now / 52) * 0.13;
     } else if (now < this.diceHideAt) {
-      this.diceMesh.position.y += (this.diceHome.y - this.diceMesh.position.y) * 0.12;
-      this.diceMesh.rotation.y += 0.003;
+      this.diceMesh.position.y += (this.diceHome.y - this.diceMesh.position.y) * frameLerp(0.12, dt);
+      this.diceMesh.rotation.y += 0.18 * dt;
     } else if (this.diceMesh.visible) {
       // Float up and shrink away so tokens never walk through a resting dice.
       this.diceMesh.position.y += dt * 1.6;
@@ -902,7 +905,7 @@ export class BoardGame {
       if (this.diceMesh.scale.x < 0.03) this.diceMesh.visible = false;
     }
 
-    this.dicePulse *= 0.91;
+    this.dicePulse *= frameDecay(0.91, dt);
     this.animatedLandmarks.forEach((landmark) => {
       const data = landmark.userData;
       if (data.kind === "creature") {
@@ -980,8 +983,8 @@ export class BoardGame {
         data.body.scale.set(1 - Math.abs(stride) * 0.04, 1 + Math.abs(stride) * 0.08, 1 - Math.abs(stride) * 0.04);
         return;
       }
-      data.feet?.forEach((foot) => { foot.rotation.x *= 0.82; });
-      data.arms?.forEach((arm) => { arm.rotation.x *= 0.82; });
+      data.feet?.forEach((foot) => { foot.rotation.x *= frameDecay(0.82, dt); });
+      data.arms?.forEach((arm) => { arm.rotation.x *= frameDecay(0.82, dt); });
 
       // Step aside when another kin walks through this field, then settle
       // back home — no more clipping through bystanders.
@@ -1001,8 +1004,8 @@ export class BoardGame {
         dodgeTargetX += (dx / len) * push * 0.3;
         dodgeTargetZ += (dz / len) * push * 0.3;
       });
-      data.dodgeX = THREE.MathUtils.lerp(data.dodgeX || 0, dodgeTargetX, 0.24);
-      data.dodgeZ = THREE.MathUtils.lerp(data.dodgeZ || 0, dodgeTargetZ, 0.24);
+      data.dodgeX = THREE.MathUtils.lerp(data.dodgeX || 0, dodgeTargetX, frameLerp(0.24, dt));
+      data.dodgeZ = THREE.MathUtils.lerp(data.dodgeZ || 0, dodgeTargetZ, frameLerp(0.24, dt));
       token.position.x = homeX + data.dodgeX;
       token.position.z = homeZ + data.dodgeZ;
       const dodging = Math.hypot(data.dodgeX, data.dodgeZ) > 0.03;
@@ -1068,7 +1071,7 @@ export class BoardGame {
       return false;
     });
 
-    this.particles.rotation.y += 0.00035;
+    this.particles.rotation.y += 0.021 * dt;
 
     if (this.cameraModeUntil && now >= this.cameraModeUntil) {
       if (this.cameraMode === "overview") this.setCameraMode("turn", { fieldIndex: this.currentFieldIndex });

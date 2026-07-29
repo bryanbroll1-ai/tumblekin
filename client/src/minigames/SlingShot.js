@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Schleuderschuss — zurückziehen lädt Kraft, der Winkel bestimmt die Bahn.
 // Nach jedem Schuss weicht die Zielscheibe zurück, also muss jede Kraft neu
@@ -356,7 +356,7 @@ export class SlingShot {
     this.feedback?.sound("whoosh", { pan: lane.x * 0.2 });
   }
 
-  updateProjectiles(now) {
+  updateProjectiles(now, dt) {
     this.projectiles = this.projectiles.filter((shot) => {
       const t = (now - shot.startedAt) / FLIGHT_MS;
       if (t >= 1) {
@@ -373,7 +373,9 @@ export class SlingShot {
         Math.max(0.1, 0.9 + height * WORLD_PER_METRE),
         1.1 - distance * WORLD_PER_METRE
       );
-      shot.mesh.rotation.x += 0.3;
+      // Drehung je SEKUNDE: fest je Bild wirbelte das Geschoss auf einem
+      // 120-Hz-Schirm doppelt so schnell.
+      shot.mesh.rotation.x += 18 * dt;
       return true;
     });
   }
@@ -462,7 +464,7 @@ export class SlingShot {
       // Zielscheibe auf die aktuelle Distanz stellen; sie weicht sichtbar zurück.
       const targetZ = 1.1 - entry.distance * WORLD_PER_METRE;
       lane.target.position.x = lane.x;
-      lane.target.position.z = THREE.MathUtils.lerp(lane.target.position.z || targetZ, targetZ, 0.12);
+      lane.target.position.z = THREE.MathUtils.lerp(lane.target.position.z || targetZ, targetZ, frameLerp(0.12, dt));
       lane.target.position.y = Math.sin(now / 900 + lane.target.userData.phase) * 0.04;
 
       // Neuer Schuss vom Server → Flugbahn nachspielen.
@@ -490,12 +492,12 @@ export class SlingShot {
     });
 
     this.updatePreview(arcade, controlledId);
-    this.updateProjectiles(now);
+    this.updateProjectiles(now, dt);
     this.bursts.update(dt);
     this.floaters.update(dt);
 
     // Kamera bleibt auf der eigenen Bahn und folgt der Distanz nach hinten.
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     const own = arcade.players[controlledId];
     const ownLane = this.lanes.get(controlledId);
     const depth = own ? own.distance * WORLD_PER_METRE : 4;
@@ -509,7 +511,7 @@ export class SlingShot {
       (this.baseCamY || 3.6) + depth * 0.14,
       (this.baseCamZ || 6.2) + depth * 0.12
     );
-    this.camera.position.lerp(desired, 0.08);
+    this.camera.position.lerp(desired, frameLerp(0.08, dt));
     // Blick zwischen Schütze und Zielscheibe, damit beide im Bild bleiben.
     this.camera.lookAt(ownX, 1.0, 1.1 - depth * 0.62);
 

@@ -6,15 +6,15 @@ import {
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin79";
+} from "./VoxelKit.js?v=tumblekin80";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin79";
-import { shakeScale } from "./Quality.js?v=tumblekin79";
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Spurmaler — eine geschwungene Spur läuft von unten nach oben. Der eigene Kin
 // reitet als Pinsel darauf und malt sie aus, solange der Finger im Toleranzband
@@ -370,7 +370,7 @@ export class TracePainter {
     this.bursts.update(dt);
     this.floaters.update(dt);
 
-    this.shake *= 0.88;
+    this.shake *= frameDecay(0.88, dt);
     const shakeX = Math.sin(now / 13) * this.shake * 0.14 * shakeScale();
     this.camera.position.x += (shakeX - this.camera.position.x) * 0.4;
     this.camera.position.y = this.baseCamY || BOARD_H / 2;
