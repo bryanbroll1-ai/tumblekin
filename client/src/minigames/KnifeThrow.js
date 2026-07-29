@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin78";
+} from "./VoxelKit.js?v=tumblekin79";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin78";
-import { shakeScale } from "./Quality.js?v=tumblekin78";
+} from "./SceneKit.js?v=tumblekin79";
+import { shakeScale } from "./Quality.js?v=tumblekin79";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -400,18 +400,25 @@ export class KnifeThrow {
     const turnLeft = arcade.turnEndsAt ? Math.max(0, Math.ceil((arcade.turnEndsAt - now) / 1000)) : 0;
     const activePlayer = state.players.find((p) => p.id === arcade.activeId);
     const banner = this.hud.querySelector("[data-knife-banner]");
+    // Runde und Leben gehören sichtbar dazu: es wird mehrfach geworfen, und ein
+    // Fehlwurf ist nicht sofort das Aus. Ohne die Anzeige wäre beides Rätselraten.
+    const roundLabel = arcade.rounds ? ` · Runde ${Math.min(arcade.rounds, (arcade.round || 0) + 1)}/${arcade.rounds}` : "";
     if (banner) {
       banner.hidden = false;
       if (own?.eliminated) {
-        banner.textContent = "Getroffen – raus!";
+        banner.textContent = "Zweimal daneben – raus!";
         banner.style.background = "#40506a";
         banner.style.color = "#ffffff";
+      } else if ((own?.clashes || 0) > 0 && myTurn) {
+        banner.textContent = `Letzter Versuch! ${turnLeft}s${roundLabel}`;
+        banner.style.background = "#e0334f";
+        banner.style.color = "#ffffff";
       } else if (myTurn) {
-        banner.textContent = `Du bist dran! ${turnLeft}s`;
+        banner.textContent = `Du bist dran! ${turnLeft}s${roundLabel}`;
         banner.style.background = "#ffc400";
         banner.style.color = "#5c4508";
       } else if (arcade.activeId) {
-        banner.textContent = `${(activePlayer?.name || "Gegner").slice(0, 8)} wirft … ${turnLeft}s`;
+        banner.textContent = `${(activePlayer?.name || "Gegner").slice(0, 8)} wirft … ${turnLeft}s${roundLabel}`;
         banner.style.background = "#12aaff";
         banner.style.color = "#ffffff";
       } else {

@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin78";
+} from "./VoxelKit.js?v=tumblekin79";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin78";
-import { shakeScale } from "./Quality.js?v=tumblekin78";
+} from "./SceneKit.js?v=tumblekin79";
+import { shakeScale } from "./Quality.js?v=tumblekin79";
 
 // Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
@@ -369,8 +369,14 @@ export class SumoPush {
         } else {
           animator?.trigger("jump");
           const at = new THREE.Vector3(viewX * (RING_WORLD - 0.9), 0.4, viewZ * (RING_WORLD - 0.9));
-          this.bursts.spawn(at, ["#f0dcae", "#ffffff"], { count: 8 + Math.round(shove.power * 8), speed: 1.6, up: 1.2, size: 0.06, life: 0.5, drag: 2.2 });
-          if (shove.power > 0.85) {
+          // Die Wucht ist Kraft mal Konter — der Funkenschlag zeigt beides.
+          const force = shove.power * (shove.meet ?? 1);
+          this.bursts.spawn(at, ["#f0dcae", "#ffffff"], { count: 8 + Math.round(force * 8), speed: 1.6, up: 1.2, size: 0.06, life: 0.5, drag: 2.2 });
+          // Den Konter ausdrücklich benennen: dass ein entgegenrollender Stein
+          // härter zurückgeht, ist der Kniff, den man dem Spiel ansehen muss.
+          if ((shove.meet ?? 1) > 1.25 && shove.power > 0.8) {
+            this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "KONTER!", { color: "#7fe06f", size: 0.4, life: 1 });
+          } else if (shove.power > 0.85) {
             this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "VOLLE KRAFT!", { color: "#ffe36b", size: 0.38, life: 0.9 });
           }
         }

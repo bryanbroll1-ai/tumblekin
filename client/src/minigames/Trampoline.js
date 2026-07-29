@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin78";
+} from "./VoxelKit.js?v=tumblekin79";
 import {
   mountStage,
   mountHud,
@@ -15,16 +15,20 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin78";
-import { shakeScale } from "./Quality.js?v=tumblekin78";
+} from "./SceneKit.js?v=tumblekin79";
+import { shakeScale } from "./Quality.js?v=tumblekin79";
 
 // Trampolin — ein Takt schlägt gleichmässig; tippt man IM Takt, federt der Kin
 // höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie. Der Takt
 // wird schneller, man muss sich also immer neu einhören.
 // Die Taktzeiten stammen aus derselben Formel wie auf dem Server.
+// ACHTUNG: diese drei Werte müssen mit BOUNCE_BEAT_START_MS, BOUNCE_BEAT_MIN_MS
+// und BOUNCE_BEAT_RAMP auf dem Server übereinstimmen. Weichen sie ab, zeigt die
+// Taktanzeige einen anderen Schlag an, als der Server wertet — und je weiter die
+// Runde läuft, desto grösser wird der Versatz.
 const BEAT_START_MS = 900;
-const BEAT_MIN_MS = 480;
-const BEAT_RAMP = 0.975;
+const BEAT_MIN_MS = 520;
+const BEAT_RAMP = 0.965;
 // Bahnabstand ist am Portrait-Bild gerechnet, nicht geschätzt: bei z=9.6 und
 // 62° FOV reicht das sichtbare Fenster bis ±2.66. Mit 2.1 Abstand lagen die
 // äusseren Bahnen bei ±3.15 — der eigene Kin war je nach Index gar nicht im
@@ -151,7 +155,7 @@ export class Trampoline {
 
     // Höhenmarken an einem Messpfosten — die Höhe ist die Wertung, also muss
     // man sie ablesen können.
-    for (let mark = 5; mark <= 20; mark += 5) {
+    for (let mark = 5; mark <= 30; mark += 5) {
       const bar = new THREE.Mesh(
         new THREE.BoxGeometry(9.5, 0.04, 0.06),
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.28, depthWrite: false })

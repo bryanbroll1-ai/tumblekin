@@ -168,7 +168,18 @@ const SUMO_CHARGE_MS = 1200;           // volle Kraft nach dieser Haltezeit
 const SUMO_OVERCHARGE_MS = 1650;       // ab hier rutscht man aus
 const SUMO_MIN_CHARGE_MS = 120;        // darunter zählt es als Antippen
 const SUMO_MAX_IMPULSE = 1.5;          // Geschwindigkeitsänderung bei Vollkraft
-const SUMO_FRICTION = 1.9;             // pro Sekunde
+const SUMO_FRICTION = 1.5;             // pro Sekunde
+// Einen Stein, der auf einen zurollt, stösst man wuchtiger zurück als einen, der
+// ohnehin schon wegrollt. Ohne diesen Zuschlag war „immer sofort mit voller
+// Kraft stossen" die beste Strategie, egal wo der Stein lag — Stellung und
+// Timing waren wertlos.
+// Eine reine Reichweitengrenze (Stoss wird schwächer, je weiter der Stein weg
+// ist) war der falsche Weg und steht hier als Warnung: sie STABILISIERT den
+// Ring, weil immer genau die Person am kräftigsten schieben kann, auf die der
+// Stein zuläuft. Gemessen kam der Stein danach nie über die Hälfte des Radius
+// hinaus und in 20 Partien fiel kein einziger Treffer.
+const SUMO_MEET_MIN = 0.6;             // Stein rollt weg — halbherziger Stoss
+const SUMO_MEET_MAX = 1.6;             // Stein kommt entgegen — voller Konter
 const SUMO_HITS_OUT = 3;               // so viele Treffer und man ist raus
 const SUMO_SLIP_MS = 900;              // Erholung nach dem Ausrutschen
 
@@ -176,14 +187,27 @@ const SUMO_SLIP_MS = 900;              // Erholung nach dem Ausrutschen
 // Aufeinanderfolgende Treffer bauen Resonanz auf — daneben tippen bricht sie.
 // Der Takt wird schneller, also muss man sich neu einhören.
 const BOUNCE_BEAT_START_MS = 900;
-const BOUNCE_BEAT_MIN_MS = 480;
-const BOUNCE_BEAT_RAMP = 0.975;        // Faktor je Schlag
+// Der schnellste Takt muss WEITER auseinander liegen als das Trefferfenster
+// breit ist: bei 340 ms lag jeder Tipper höchstens 170 ms neben dem nächsten
+// Schlag — also immer innerhalb der 220 ms für einen Teiltreffer. Danebentippen
+// wäre am Ende der Runde schlicht unmöglich gewesen.
+const BOUNCE_BEAT_MIN_MS = 520;
+const BOUNCE_BEAT_RAMP = 0.965;        // Faktor je Schlag
 const BOUNCE_PERFECT_MS = 110;         // Fenster für einen Volltreffer
 const BOUNCE_GOOD_MS = 220;            // Fenster für einen Teiltreffer
-const BOUNCE_GAIN_PERFECT = 1.0;
-const BOUNCE_GAIN_GOOD = 0.45;
+// Der Zugewinn je Treffer ist bewusst klein: der Takt liefert über eine Runde
+// rund 45 Schläge, und bei 1.0 je Volltreffer war die Höchsthöhe nach wenigen
+// Sekunden für JEDE Bot-Stufe erreicht. Die Marke soll ein Ziel sein, keine
+// Selbstverständlichkeit.
+const BOUNCE_GAIN_PERFECT = 0.4;
+const BOUNCE_GAIN_GOOD = 0.15;
 const BOUNCE_MISS_PENALTY = 1.2;       // Höhenverlust bei Fehltritt
-const BOUNCE_MAX_HEIGHT = 24;
+// Je höher man ist, desto teurer wird ein Fehltritt. Ohne das kostete ein
+// Fehler immer gleich viel, und gemessen erreichten ALLE drei Bot-Stufen die
+// Höchsthöhe — auch die schwache mit acht Fehltritten. Höhe muss oben riskant
+// werden, sonst ist der Deckel nach ein paar Sekunden für jeden erreicht.
+const BOUNCE_MISS_SCALE = 0.12;        // zusätzlicher Verlust je Höhenmeter
+const BOUNCE_MAX_HEIGHT = 32;
 
 // Falschsignal: nur das ECHTE Signal darf angetippt werden. Die Fälschungen
 // sehen absichtlich ähnlich aus, und ein Antäuscher blitzt zu kurz auf, um echt
@@ -332,6 +356,15 @@ const COLORGRID_ROUND_MS = 6000;
 const COLORGRID_ANNOUNCE_MS = 2600;
 const COLORGRID_DROP_END_MS = 4800;
 const COLORGRID_LEAD_MS = 3000;       // calm lead-in before the first drop
+// Die Runden ziehen an. Vorher war jede Runde gleich lang und gleich leicht: bei
+// 2,6 s Vorwarnung und im Schnitt neun sicheren Feldern war das nächste Ziel
+// meist einen Schritt entfernt, und gemessen überlebten ALLE drei Bot-Stufen
+// gleich viele Runden. Ohne Steigerung entscheidet nur das Pech.
+const COLORGRID_ANNOUNCE_MIN_MS = 900;
+const COLORGRID_ANNOUNCE_STEP_MS = 340;   // je Runde weniger Vorwarnung
+const COLORGRID_DROP_MS = 2200;           // Fallphase, unabhängig von der Vorwarnung
+const COLORGRID_SAFE_START = 10;          // sichere Felder in Runde 1
+const COLORGRID_SAFE_MIN = 4;
 
 // Lichtwächter — red light, green light: hold to run, freeze on red.
 const REDLIGHT_GOAL = 30;             // metres to the guard's gate
@@ -363,10 +396,33 @@ const CATCH_FALL_MS = 1150;           // visual fall time from sky to lane
 
 // Messerwurf — throw a knife into the spinning log without hitting another.
 const KNIFE_MIN_GAP_DEG = 22;         // knives closer than this collide
-const KNIFE_TURN_MS = 10000;          // each player's turn lasts this long
+// Mehrere Runden statt eines einzigen Wurfs. Mit einem Wurf pro Person lagen bei
+// vier Mitspielenden vier Messer auf einer Scheibe, auf die rund 16 passen — ein
+// Zusammenstoss war praktisch unmöglich und die Partie endete gemessen IMMER
+// unentschieden. Über vier Runden füllt sich die Scheibe bis an ihre Grenze, und
+// genau dann fängt das Spiel an, eines zu sein.
+const KNIFE_ROUNDS = 3;
+// Ein Treffer auf ein anderes Messer kostet den Wurf und die Runde, aber nicht
+// gleich die ganze Partie: mit sofortigem Aus schieden gemessen 9 von 10
+// schwächeren Mitspielenden nach dem ersten oder zweiten Wurf aus und sahen den
+// Rest nur noch zu. Das zweite Mal ist das Aus.
+const KNIFE_LIVES = 2;
+const KNIFE_TURN_START_MS = 3000;     // Wurffenster in der ersten Runde
+const KNIFE_TURN_MIN_MS = 1500;
+const KNIFE_TURN_STEP = 0.84;         // je Runde wird es enger
 
 // Turmbau — drop the sliding block onto your tower; misalignment trims it.
 const STACK_BLOCKS = 14;
+// Blickabstand des Bots. Muss zum schnellen Bot-Takt (120–180 ms) passen: der
+// Bot vergleicht damit den vorigen und den nächsten Blick, um den dichtesten
+// Moment zu erkennen. Zu gross, und er hält einen Ausschlag für eine Annäherung.
+const STACK_BOT_LOOKAHEAD_MS = 150;
+// Ein Bot handelt nur, wenn sein Takt gerade läuft — er kommt also IMMER etwas
+// zu spät, im Schnitt eine halbe Taktlänge. Bei reinen Zeitspielen war dieser
+// einseitige Verzug grösser als der Unterschied zwischen den Könnensstufen (der
+// starke Bot streut nur ±160 ms) und überdeckte ihn vollständig. Wie ein Mensch
+// die eigene Reaktionszeit einrechnet, zielt der Bot deshalb etwas früher.
+const BOT_TICK_LEAD_MS = 75;
 
 // Bergsteiger — alternate left/right taps to climb; wrong side slips you.
 const CLIMB_HEIGHT = 30;
@@ -1598,7 +1654,14 @@ function scheduleBotMinigameInputs(room) {
       // fish braucht ebenfalls einen dichten Takt: Halten wird als Ping gemeldet,
       // und bei ~300 ms Abstand würde ein Ping-Fenster von 190 ms Lücken lassen.
       // paint ebenso: die Richtung wird laufend gehalten wie an einem Stick.
-      const fastHand = ["trace", "plates", "fish", "paint"].includes(minigame.arcade.family);
+      // stack ebenso: der Block wandert bis zu 0.2 je 150 ms, das Trefferfenster
+      // ist 0.05 breit. Bei ~300 ms Takt übersieht ein Bot den passenden Moment
+      // strukturell — gemessen baute der starke Bot dadurch niedriger als der
+      // schwache.
+      // bounce genauso: das Volltrefferfenster ist ±110 ms breit. Bei 320 ms Takt
+      // wäre der Bot-eigene Fehler allein durch den Takt schon ±160 ms, das
+      // Können könnte sich gar nicht zeigen.
+      const fastHand = ["trace", "plates", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "sumo", "bomb", "stopclock", "cannon"].includes(minigame.arcade.family);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
@@ -1917,8 +1980,12 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.max(1, 1000000 - total);
   }
   if (arcade.family === "knife") {
-    // Survivors rank above the eliminated; more knives stuck breaks ties.
-    return (arcadePlayer.eliminated ? 0 : 5000000) + (arcadePlayer.stuck || 0) * 1000;
+    // Survivors rank above the eliminated; more knives stuck breaks ties, and
+    // among equals the cleaner hand (fewer Fehlwürfe) ranks higher.
+    return Math.max(0, (arcadePlayer.eliminated ? 0 : 5000000)
+      + (arcadePlayer.stuck || 0) * 1000
+      + (arcadePlayer.nerve || 0)
+      - (arcadePlayer.clashes || 0) * 100);
   }
   if (arcade.family === "stack") {
     // Tallest tower wins; perfect stacks are the tie-breaker.
@@ -3038,15 +3105,19 @@ function createArcadeState(type, players, startedAt) {
     arcade.order = players.map((player) => player.id);
     arcade.turnIndex = 0;
     arcade.activeId = arcade.order[0] || null;
-    arcade.turnEndsAt = startedAt + KNIFE_TURN_MS;
-    arcade.turnMs = KNIFE_TURN_MS;
+    arcade.round = 0;
+    arcade.rounds = KNIFE_ROUNDS;
+    arcade.turnMs = knifeTurnMs(0);
+    arcade.turnEndsAt = startedAt + arcade.turnMs;
     arcade.spinSpeed = 1.1;
     arcade.logAngle = 0;
     arcade.knives = [];                  // { angleDeg, playerId }
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.stuck = 0;
-      entry.eliminated = false;          // hit another knife → out
+      entry.clashes = 0;                 // Fehlwürfe auf ein anderes Messer
+      entry.nerve = 0;                   // Zugabe für enge Lücken
+      entry.eliminated = false;          // beim zweiten Fehlwurf → raus
       entry.turnDone = false;            // has had their throwing window
     });
   }
@@ -3453,21 +3524,36 @@ function runnerBlockedLanes(row, now) {
   return [];
 }
 
+// Vorwarnzeit und Zahl der sicheren Felder je Runde. Beides schrumpft, damit aus
+// „hinlaufen" gegen Ende „sofort loslaufen und den kürzesten Weg finden" wird.
+function colorGridAnnounceMs(round) {
+  return Math.max(COLORGRID_ANNOUNCE_MIN_MS, COLORGRID_ANNOUNCE_MS - round * COLORGRID_ANNOUNCE_STEP_MS);
+}
+
+function colorGridSafeTiles(round) {
+  return Math.max(COLORGRID_SAFE_MIN, COLORGRID_SAFE_START - round * 2);
+}
+
 function advanceColorRound(arcade, round, now) {
   arcade.round = round;
   arcade.phase = "announce";
   arcade.roundStartedAt = now;
+  arcade.announceMs = colorGridAnnounceMs(round);
+  arcade.dropEndMs = arcade.announceMs + COLORGRID_DROP_MS;
   arcade.targetColor = Math.floor(arcadeNoise(arcade.seed + round * 53) * 4);
-  arcade.grid = Array.from({ length: COLORGRID_SIZE * COLORGRID_SIZE }, (_cell, index) =>
-    Math.floor(arcadeNoise(arcade.seed + round * 61 + index * 7) * 4)
-  );
-  // Guarantee enough tiles of the target color to stand on.
-  const targetTiles = arcade.grid.filter((color) => color === arcade.targetColor).length;
-  if (targetTiles < 6) {
-    for (let extra = 0; extra < 6 - targetTiles; extra += 1) {
-      const slot = Math.floor(arcadeNoise(arcade.seed + round * 67 + extra * 11) * arcade.grid.length);
-      arcade.grid[slot] = arcade.targetColor;
-    }
+  // Erst alles mit anderen Farben füllen — so ist die Zahl der sicheren Felder
+  // gesetzt und nicht dem Zufall überlassen.
+  arcade.grid = Array.from({ length: COLORGRID_SIZE * COLORGRID_SIZE }, (_cell, index) => {
+    const roll = Math.floor(arcadeNoise(arcade.seed + round * 61 + index * 7) * 3);
+    return (arcade.targetColor + 1 + roll) % 4;
+  });
+  const safe = colorGridSafeTiles(round);
+  let placed = 0;
+  for (let probe = 0; placed < safe && probe < arcade.grid.length * 6; probe += 1) {
+    const slot = Math.floor(arcadeNoise(arcade.seed + round * 67 + probe * 11) * arcade.grid.length);
+    if (arcade.grid[slot] === arcade.targetColor) continue;
+    arcade.grid[slot] = arcade.targetColor;
+    placed += 1;
   }
 }
 
@@ -3478,7 +3564,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 320, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0, fish: 60, paint: 55 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -3697,9 +3783,12 @@ function handleArcadeInput(room, player, input) {
       return diff < KNIFE_MIN_GAP_DEG;
     });
     if (clash) {
-      // Hitting another knife ends your turn immediately and knocks you out.
-      arcadePlayer.eliminated = true;
-      arcadePlayer.eliminatedAt = now;
+      // Das Messer prallt ab: die Runde ist vorbei, beim zweiten Mal die Partie.
+      arcadePlayer.clashes = (arcadePlayer.clashes || 0) + 1;
+      if (arcadePlayer.clashes >= KNIFE_LIVES) {
+        arcadePlayer.eliminated = true;
+        arcadePlayer.eliminatedAt = now;
+      }
       arcadePlayer.turnDone = true;
       arcadePlayer.flash = "bad";
       arcadePlayer.lastHitAt = now;
@@ -3707,6 +3796,15 @@ function handleArcadeInput(room, player, input) {
     } else {
       // One knife per turn: a clean throw lands and immediately hands the
       // spinning log to the next player.
+      // Nerven: je enger die Lücke war, in die das Messer ging, desto mehr zählt
+      // der Wurf. Ohne das endeten 42 % der Partien unentschieden, weil bei drei
+      // Runden fast jeder starke Spieler auf dieselben drei Treffer kommt.
+      let gap = 180;
+      arcade.knives.forEach((knife) => {
+        const diff = Math.abs(((knife.angleDeg - normalized + 540) % 360) - 180);
+        if (diff < gap) gap = diff;
+      });
+      arcadePlayer.nerve = (arcadePlayer.nerve || 0) + Math.round(Math.max(0, 90 - gap));
       arcade.knives.push({ angleDeg: normalized, playerId: player.id });
       arcadePlayer.stuck += 1;
       arcadePlayer.flash = "good";
@@ -3765,7 +3863,8 @@ function handleArcadeInput(room, player, input) {
     if (grade === "miss") {
       arcadePlayer.streak = 0;
       arcadePlayer.misses += 1;
-      arcadePlayer.height = Math.max(0, arcadePlayer.height - BOUNCE_MISS_PENALTY);
+      const drop = BOUNCE_MISS_PENALTY + arcadePlayer.height * BOUNCE_MISS_SCALE;
+      arcadePlayer.height = Math.max(0, arcadePlayer.height - drop);
       arcadePlayer.flash = "bad";
     } else {
       // Resonanz: jeder weitere Treffer in Folge zahlt mehr aus.
@@ -3773,7 +3872,7 @@ function handleArcadeInput(room, player, input) {
       arcadePlayer.bestStreak = Math.max(arcadePlayer.bestStreak, arcadePlayer.streak);
       if (grade === "perfect") arcadePlayer.perfects += 1;
       const base = grade === "perfect" ? BOUNCE_GAIN_PERFECT : BOUNCE_GAIN_GOOD;
-      const resonance = 1 + Math.min(1.5, arcadePlayer.streak * 0.12);
+      const resonance = 1 + Math.min(1.2, arcadePlayer.streak * 0.06);
       arcadePlayer.height = Math.min(BOUNCE_MAX_HEIGHT, arcadePlayer.height + base * resonance);
       arcadePlayer.flash = grade === "perfect" ? "good" : null;
     }
@@ -4015,14 +4114,23 @@ function handleArcadeInput(room, player, input) {
     }
 
     const power = Math.min(1, held / SUMO_CHARGE_MS);
+    // Konter: läuft der Stein gerade auf meinen Platz zu, trifft der Stoss ihn
+    // frontal und trägt weiter.
+    const speed = Math.hypot(arcade.stone.vx, arcade.stone.vy);
+    const closing = speed < 1e-4
+      ? 0
+      : (arcade.stone.vx * arcadePlayer.spotX + arcade.stone.vy * arcadePlayer.spotY) / speed;
+    const meet = SUMO_MEET_MIN + (SUMO_MEET_MAX - SUMO_MEET_MIN) * (closing + 1) / 2;
     // Stoss zeigt vom eigenen Platz zur Mitte und weiter — der Stein fliegt
     // also vom Stossenden weg.
-    const impulse = power * SUMO_MAX_IMPULSE;
+    const impulse = power * meet * SUMO_MAX_IMPULSE;
     arcade.stone.vx += -arcadePlayer.spotX * impulse;
     arcade.stone.vy += -arcadePlayer.spotY * impulse;
     arcadePlayer.shoves += 1;
-    arcadePlayer.lastShove = { power, at: now, slipped: false };
-    arcadePlayer.flash = power > 0.85 ? "good" : null;
+    // Gewertet wird die geleistete Schubarbeit, nicht die Zahl der Knopfdrücke.
+    arcadePlayer.pushWork = (arcadePlayer.pushWork || 0) + power * meet;
+    arcadePlayer.lastShove = { power, meet, at: now, slipped: false };
+    arcadePlayer.flash = power * meet > 1.1 ? "good" : null;
     arcadePlayer.lastHitAt = now;
     arcadePlayer.hasMoved = true;
     return { ok: true };
@@ -4671,20 +4779,49 @@ function updateCatchfall(room, minigame, arcade, now) {
 // thrown this round (or the round times out) it advances to the next.
 // Move to the next player who has not yet had a turn. Spin gets a touch
 // faster each turn so later throwers face a trickier disc.
+// Das Wurffenster je Runde. Es wird enger, damit späte Runden — wenn die Scheibe
+// schon voll ist — auch unter Zeitdruck stehen.
+function knifeTurnMs(round) {
+  return Math.max(KNIFE_TURN_MIN_MS, Math.round(KNIFE_TURN_START_MS * Math.pow(KNIFE_TURN_STEP, round)));
+}
+
 function advanceKnifeTurn(room, minigame, arcade, now) {
   const current = arcade.players[arcade.activeId];
   if (current) current.turnDone = true;
+  const alive = (id) => {
+    const entry = arcade.players[id];
+    return entry && !entry.eliminated;
+  };
   let next = null;
   for (let step = 1; step <= arcade.order.length; step += 1) {
-    const candidate = arcade.order[(arcade.turnIndex + step) % arcade.order.length];
-    if (!arcade.players[candidate]?.turnDone) { next = candidate; arcade.turnIndex = (arcade.turnIndex + step) % arcade.order.length; break; }
+    const index = (arcade.turnIndex + step) % arcade.order.length;
+    const candidate = arcade.order[index];
+    if (alive(candidate) && !arcade.players[candidate].turnDone) {
+      next = candidate;
+      arcade.turnIndex = index;
+      break;
+    }
+  }
+  if (!next) {
+    // Runde vorbei: alle, die noch dabei sind, dürfen erneut werfen.
+    arcade.round += 1;
+    if (arcade.round < arcade.rounds) {
+      arcade.order.forEach((id) => {
+        if (alive(id)) arcade.players[id].turnDone = false;
+      });
+      arcade.turnMs = knifeTurnMs(arcade.round);
+      for (let step = 0; step < arcade.order.length; step += 1) {
+        const candidate = arcade.order[step];
+        if (alive(candidate)) { next = candidate; arcade.turnIndex = step; break; }
+      }
+    }
   }
   if (next) {
     arcade.activeId = next;
     arcade.turnEndsAt = now + arcade.turnMs;
     arcade.spinSpeed = Math.min(2.4, arcade.spinSpeed + 0.18);
   } else {
-    arcade.activeId = null;   // everyone has thrown
+    arcade.activeId = null;   // alle Runden geworfen oder niemand mehr übrig
   }
 }
 
@@ -4698,8 +4835,14 @@ function updateKnife(room, minigame, arcade, dt, now) {
     const current = arcade.players[arcade.activeId];
     const currentPlayer = room.players.find((p) => p.id === arcade.activeId);
     if (current && currentPlayer && !current.turnDone && !current.eliminated) {
-      current.eliminated = true;
-      current.eliminatedAt = now;
+      // Ein verpasstes Wurffenster zählt wie ein Fehlwurf — auch hier gibt es
+      // einen zweiten Versuch, sonst wäre kurzes Zögern härter bestraft als ein
+      // Messer in ein anderes zu werfen.
+      current.clashes = (current.clashes || 0) + 1;
+      if (current.clashes >= KNIFE_LIVES) {
+        current.eliminated = true;
+        current.eliminatedAt = now;
+      }
       current.flash = "bad";
       current.lastHitAt = now;
       syncArcadeScore(minigame, currentPlayer, current);
@@ -4968,8 +5111,8 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
   } else if (arcade.family === "react") {
     done = room.players.every((player) => (arcade.players[player.id]?.times?.length || 0) >= REACT_ROUNDS);
   } else if (arcade.family === "knife") {
-    // Everyone has had their throwing turn.
-    done = arcade.activeId === null || room.players.every((player) => arcade.players[player.id]?.turnDone);
+    // Alle Runden geworfen — oder es ist niemand mehr übrig.
+    done = arcade.activeId === null;
   } else if (arcade.family === "stack") {
     done = room.players.every((player) => {
       const entry = arcade.players[player.id];
@@ -5573,7 +5716,8 @@ function updateSumoStone(room, minigame, arcade, dt, now) {
     const entry = arcade.players[player.id];
     if (!entry) return;
     const survived = entry.eliminated ? 0 : 1000;
-    entry.score = survived + Math.max(0, (arcade.hitsOut - entry.hits)) * 100 + entry.shoves * 5;
+    entry.score = survived + Math.max(0, (arcade.hitsOut - entry.hits)) * 100
+      + Math.round((entry.pushWork || 0) * 40);
     syncArcadeScore(minigame, player, entry);
   });
 }
@@ -5766,7 +5910,8 @@ function arcadeBotStep(room, bot) {
     if (player.stoppedMs !== null) return;
     const profile = botProfile(player);
     if (player.botStopAt === undefined) {
-      player.botStopAt = arcade.targetMs + (Math.random() - 0.5) * 2 * profile.spreadMs;
+      player.botStopAt = arcade.targetMs - BOT_TICK_LEAD_MS
+        + (Math.random() - 0.5) * 2 * profile.spreadMs;
     }
     if (Date.now() - minigame.startedAt >= player.botStopAt) {
       handleArcadeInput(room, bot, { action: "stop" });
@@ -5833,7 +5978,24 @@ function arcadeBotStep(room, bot) {
     if (player.outAt || arcade.holderId !== bot.id) return;
     const now = Date.now();
     const profile = botProfile(player);
-    if (now - arcade.holderSince > BOMB_PASS_LOCK_MS + profile.reactionMs * 0.8 + Math.random() * 500) {
+    // Die Haltezeit wird EINMAL je Übernahme gewürfelt. Als Wurf je Tick gewann
+    // über die vielen Ticks immer der kleinste Wert, und alle Stufen gaben
+    // dadurch gleich schnell ab.
+    if (player.botHoldSince !== arcade.holderSince) {
+      player.botHoldSince = arcade.holderSince;
+      player.botPassAt = arcade.holderSince + BOMB_PASS_LOCK_MS
+        + profile.reactionMs * 0.8 + Math.random() * 500;
+    }
+    // Nach jedem Weitergeben ist die Zündschnur kurz zu sehen. Wer hinschaut,
+    // gibt sofort ab, wenn sie knapp wird — vorher las kein Bot sie überhaupt,
+    // und das eigentliche Können des Spiels blieb ungenutzt.
+    const fuseLeft = (arcade.fuseAt || 0) - now;
+    // Der beste Wert liegt KNAPP UNTER der Mindesthaltezeit des Empfängers (380 ms):
+    // dann kann er sie nicht mehr loswerden. Zu früh abgegeben kreist die Bombe
+    // einmal herum und kommt zurück — mit 900 ms verlor der starke Bot gemessen
+    // gegen den mittleren.
+    const watch = profile.level === "hard" ? 370 : profile.level === "normal" ? 700 : 0;
+    if ((fuseLeft <= watch && now >= arcade.canPassAt) || now >= player.botPassAt) {
       handleArcadeInput(room, bot, { action: "pass" });
     }
     return;
@@ -5858,10 +6020,23 @@ function arcadeBotStep(room, bot) {
     const now = Date.now();
     const profile = botProfile(player);
     const elapsed = now - minigame.startedAt;
+    // Auch Stachelblobs kommen in Frage — ein Bot, der nur die guten überhaupt
+    // ansieht, kann sich nie vergreifen, und gemessen hatte KEINE Stufe je einen
+    // Fehlschlag.
     const active = arcade.pops.find((pop) =>
-      pop.kind === "good" && !player.hitPopIds[pop.id]
+      !player.hitPopIds[pop.id]
       && elapsed >= pop.from + profile.reactionMs * 0.7 && elapsed <= pop.until);
-    if (active && Math.random() > profile.mistake) {
+    if (!active) return;
+    // Je Blob wird EINMAL entschieden. Als Wurf je Tick summierte sich die Chance
+    // über das rund sekundenlange Fenster auf: selbst der schwache Bot traf damit
+    // fast jeden Blob, und die drei Stufen lagen praktisch gleichauf.
+    if (player.botPopId !== active.id) {
+      player.botPopId = active.id;
+      player.botPopSwing = active.kind === "bad"
+        ? Math.random() < profile.mistake * 0.9   // Stachel übersehen
+        : Math.random() > profile.mistake;        // guten Blob erwischen
+    }
+    if (player.botPopSwing) {
       handleArcadeInput(room, bot, { action: "whack", cell: active.cell });
     }
     return;
@@ -5875,7 +6050,7 @@ function arcadeBotStep(room, bot) {
         // Aim for a gauge peak, offset by skill-based error.
         const target = arcade.periodMs / 2 + (Math.random() - 0.5) * profile.spreadMs * 0.6;
         const cycle = 2 + Math.floor(Math.random() * 5);
-        player.botLaunchAt = cycle * arcade.periodMs + Math.max(120, target);
+        player.botLaunchAt = cycle * arcade.periodMs + Math.max(120, target) - BOT_TICK_LEAD_MS;
       }
       if (now - minigame.startedAt >= player.botLaunchAt) {
         handleArcadeInput(room, bot, { action: "launch" });
@@ -5884,8 +6059,16 @@ function arcadeBotStep(room, bot) {
     }
     // Second tap: aim for the 45° sweet spot (angleT = 0.5 → period/6).
     if (player.botAngleAt === undefined) {
-      player.botAngleAt = player.powerAt + arcade.anglePeriodMs / 6 + (Math.random() - 0.5) * profile.spreadMs * 0.7;
-      if (player.botAngleAt - player.powerAt < 360) player.botAngleAt = player.powerAt + 360;
+      // 45° entspricht angleT = 0.5, also 1/6 und 5/6 der Sweep-Periode. Die
+      // erste Gelegenheit liegt bei 250 ms — so dicht hinter dem ersten Tipper,
+      // dass der Eingabe-Cooldown sie schluckte. Der Bot zielte deshalb ins
+      // Leere und schoss gemessen mit 70° statt 45°. Er nimmt jetzt die zweite,
+      // sicher erreichbare Gelegenheit.
+      const earliest = 260;
+      const first = arcade.anglePeriodMs / 6;
+      const aim = first >= earliest ? first : (arcade.anglePeriodMs * 5) / 6;
+      player.botAngleAt = player.powerAt + aim - BOT_TICK_LEAD_MS
+        + (Math.random() - 0.5) * profile.spreadMs * 0.7;
     }
     if (now >= player.botAngleAt) {
       handleArcadeInput(room, bot, { action: "launch" });
@@ -5925,14 +6108,27 @@ function arcadeBotStep(room, bot) {
   if (arcade.family === "knife") {
     // Only act on the bot's own turn.
     if (arcade.activeId !== bot.id || player.eliminated || player.turnDone) return;
+    const now = Date.now();
     const profile = botProfile(player);
     const angleDeg = (((arcade.logAngle * 180) / Math.PI) % 360 + 360) % 360;
-    const safe = !arcade.knives.some((knife) => {
+    // Abstand zum nächstliegenden Messer. Ohne Messer ist die Scheibe frei.
+    let gap = 180;
+    arcade.knives.forEach((knife) => {
       const diff = Math.abs(((knife.angleDeg - angleDeg + 540) % 360) - 180);
-      return diff < KNIFE_MIN_GAP_DEG + 8;
+      if (diff < gap) gap = diff;
     });
-    // Throw into clear gaps; a weaker bot occasionally mistimes into a knife.
-    if ((safe && Math.random() > profile.mistake * 0.5) || Math.random() < profile.mistake * 0.03) {
+    // Der Bot MISST die Lücke nicht, er SCHÄTZT sie — und der Fehler geht in
+    // beide Richtungen. Vorher wurde nur mit einem festen Aufschlag geprüft; da
+    // der Wurf denselben Winkel benutzt, den der Bot gerade gelesen hat, konnte
+    // dabei nie ein Zusammenstoss entstehen. Gemessen ging es 40 von 40 Partien
+    // unentschieden aus.
+    const err = profile.level === "hard" ? 4 : profile.level === "normal" ? 10 : 24;
+    const perceived = gap + (Math.random() * 2 - 1) * err;
+    // Wer zu lange zögert, verliert das Fenster und scheidet aus. Kurz vor
+    // Schluss wird also geworfen, ob die Lücke passt oder nicht.
+    const nerve = profile.level === "hard" ? 280 : profile.level === "normal" ? 400 : 560;
+    const panic = arcade.turnEndsAt - now <= nerve;
+    if (perceived >= KNIFE_MIN_GAP_DEG || panic) {
       handleArcadeInput(room, bot, { action: "throw" });
     }
     return;
@@ -5943,10 +6139,35 @@ function arcadeBotStep(room, bot) {
     const profile = botProfile(player);
     const elapsed = now - minigame.startedAt;
     const speed = 1.1 + player.height * 0.06;
-    const swing = Math.sin(elapsed / 1000 * speed + player.phase * Math.PI * 2);
-    const blockCentre = swing * (0.85 - player.height * 0.01);
-    // Drop when the sliding block is close to lined up with the tower.
-    if (Math.abs(blockCentre - player.offset) < 0.06 + profile.mistake * 0.16) {
+    const amp = 0.85 - player.height * 0.01;
+    const centreAt = (ms) => Math.sin(((elapsed + ms) / 1000) * speed + player.phase * Math.PI * 2) * amp;
+
+    // Den dichtesten Blick ERKENNEN statt auf eine feste Toleranz zu warten.
+    // Vorher liess der Bot fallen, wenn der Block zufällig nah an der Turmmitte
+    // stand — und das Fenster war beim starken Bot ENGER (0.07) als beim
+    // schwachen (0.11). Gemessen kam genau das Verkehrte heraus: der schwache Bot
+    // baute 10 von 14 Etagen, der starke nur 5. Zwischen zwei Blicken wandert der
+    // Block nämlich weiter, als das Fenster breit ist; der starke Bot sprang über
+    // den richtigen Moment einfach hinweg.
+    const prev = Math.abs(centreAt(-STACK_BOT_LOOKAHEAD_MS) - player.offset);
+    const here = Math.abs(centreAt(0) - player.offset);
+    const next = Math.abs(centreAt(STACK_BOT_LOOKAHEAD_MS) - player.offset);
+    // Dieser Blick ist dichter an der Turmmitte als der davor und der danach —
+    // näher kommt der Bot in seinem Takt nicht heran.
+    const closest = here <= prev && here <= next;
+
+    if (closest) {
+      // Eine Entscheidung je Annäherung, nicht je Tick: sonst summiert sich die
+      // Wahrscheinlichkeit über die Ticks auf und jede Stufe träfe immer.
+      const takes = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.7 : 0.4;
+      if (Math.random() < takes) handleArcadeInput(room, bot, { action: "drop" });
+      return;
+    }
+
+    // Ungeduld: schwächere Bots lassen auch daneben fallen. Der Block muss den
+    // Turm noch deutlich überlappen, sonst wäre es ein sofortiger Einsturz statt
+    // eines schmaler werdenden Turms.
+    if (here < player.width * 0.9 && Math.random() < profile.mistake * 0.1) {
       handleArcadeInput(room, bot, { action: "drop" });
     }
     return;
@@ -5960,11 +6181,20 @@ function arcadeBotStep(room, bot) {
     const reached = player.botTarget
       && Math.hypot(player.botTarget.col + 0.5 - player.px, player.botTarget.row + 0.5 - player.py) < 0.45;
     if (!player.botTarget || reached || now >= player.botTargetUntil) {
-      // Bewertung: eine Rolle ist am meisten wert, ein fremdes Feld mehr als ein
-      // leeres (es bringt eins und nimmt eins), das eigene nichts. Geteilt durch
-      // die Entfernung, damit Nähe zählt. Schwächere Bots gewichten Fremdfelder
-      // weniger — sie malen brav leere Flächen, statt anzugreifen.
-      const stealWeight = profile.level === "hard" ? 2.4 : profile.level === "normal" ? 1.7 : 1.1;
+      // Gewertet werden Feld-SEKUNDEN. Ein fremdes Feld muss erst weggewischt und
+      // dann beansprucht werden, kostet also doppelt so lange wie ein freies —
+      // für den eigenen Punktestand ist es damit die schlechtere Wahl, solange
+      // es noch freie Felder gibt. Vorher belohnte die Bewertung genau umgekehrt
+      // den Angriff, und gemessen gewann deshalb der SCHWACHE Bot die Hälfte
+      // aller Runden: er malte brav leere Flächen voll.
+      const STEAL_WORTH = 0.55;
+      // Das Können steckt jetzt darin, wie sauber der Bot bewertet: wie stark er
+      // sich verschätzt, wie oft er neu schaut und ob ihm eine Rolle auffällt.
+      // Der Fehler muss je Bot GEWÜRFELT werden. arcadeNoise hängt nur an Feld,
+      // Startwert und Zeit — alle drei Bots bekamen damit denselben Ausschlag und
+      // verschätzten sich synchron, was gar kein Unterschied ist.
+      const noise = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.25 : 0.6;
+      const pickupWorth = profile.level === "hard" ? 7 : profile.level === "normal" ? 5 : 2.5;
       let best = null;
       let bestScore = -Infinity;
       for (let row = 0; row < PAINT_ROWS; row += 1) {
@@ -5972,12 +6202,9 @@ function arcadeBotStep(room, bot) {
           const owner = arcade.grid[paintIndex(col, row)];
           if (owner === bot.id) continue;
           const pickup = arcade.pickups.some((item) => item.col === col && item.row === row);
-          // Ein fremdes Feld kostet doppelt so lange wie ein freies, bringt aber
-          // auch doppelt (eines mehr für mich, eines weniger für ihn). Wie stark
-          // ein Bot das gegeneinander abwägt, ist sein Können.
-          const worth = pickup ? 6 : (owner ? stealWeight : 1);
+          const worth = pickup ? pickupWorth : (owner ? STEAL_WORTH : 1);
           const dist = Math.hypot(col + 0.5 - player.px, row + 0.5 - player.py) + 0.6;
-          const score = worth / dist + arcadeNoise(arcade.seed + col * 7 + row * 13 + now / 1000) * 0.12;
+          const score = worth / dist + Math.random() * noise;
           if (score > bestScore) {
             bestScore = score;
             best = { col, row };
@@ -6158,11 +6385,28 @@ function arcadeBotStep(room, bot) {
   if (arcade.family === "bounce") {
     const profile = botProfile(player);
     const elapsed = Math.max(0, Date.now() - minigame.startedAt);
-    const beat = bounceNearestBeat(elapsed);
-    if (beat.index === player.lastBeatIndex) return;
-    // Nur nahe am Schlag überhaupt tippen, mit könnensabhängiger Streuung.
-    const spread = profile.level === "hard" ? 70 : profile.level === "normal" ? 150 : 300;
-    if (Math.abs(beat.offsetMs) <= spread) {
+    // Den NÄCHSTEN Schlag PLANEN, statt auf einen Zufallstreffer zu warten.
+    // Vorher tippte der Bot nur, wenn ein Tick zufällig nah am Schlag lag — beim
+    // starken Bot war dieses Fenster ±70 ms, sein Takt aber 320 ms. Gemessen
+    // gewann dadurch der MITTLERE Bot 100 % der Runden: mit ±150 ms traf er fast
+    // jeden Schlag, während der starke die meisten übersprang.
+    // Ein Plan bleibt stehen, bis er ausgeführt ist. Ihn beim Überschreiten des
+    // Schlags neu zu setzen hätte jeden ZU SPÄTEN Tipper verworfen — und weil
+    // enge Streuung dann seltener zu einem Tipper führt als weite, tippte
+    // ausgerechnet der starke Bot am wenigsten (gemessen 6.7 gegen 13 Schläge).
+    if (player.botBeat === undefined || player.botBeatFired) {
+      const near = bounceNearestBeat(elapsed);
+      const next = near.offsetMs > 0 ? near.index + 1 : near.index;
+      const target = player.botBeat === undefined ? next : Math.max(next, player.botBeat + 1);
+      player.botBeat = target;
+      player.botBeatFired = false;
+      // Der eigene Fehler wird einmal je Schlag gewürfelt. Genau darin steckt
+      // das Können — nicht darin, ob ein Tick zufällig passt.
+      const jitter = profile.level === "hard" ? 95 : profile.level === "normal" ? 165 : 330;
+      player.botBeatAt = bounceBeatTime(target) + (Math.random() * 2 - 1) * jitter;
+    }
+    if (!player.botBeatFired && elapsed >= player.botBeatAt) {
+      player.botBeatFired = true;
       handleArcadeInput(room, bot, { action: "jump" });
     }
     return;
@@ -6172,17 +6416,41 @@ function arcadeBotStep(room, bot) {
     const now = Date.now();
     if (now < player.slipUntil) return;
     const profile = botProfile(player);
-    // Bots laden auf und lassen los, bevor sie überladen — schwächere Bots
-    // verschätzen sich häufiger und rutschen dadurch aus.
+    const stone = arcade.stone;
+    // Das Aufladen dauert 1,2 Sekunden, in denen die Hand gebunden ist. Erst
+    // ABZUWARTEN und dann auf Gefahr zu reagieren kann deshalb gar nicht
+    // aufgehen — der Stoss käme über eine Sekunde zu spät. Gemessen verlor ein
+    // Bot, der auf den Stein wartete, gegen einen, der einfach durchlud.
+    // Das eigentliche Fenster liegt zwischen voller Kraft (1200 ms) und dem
+    // Überladen (1650 ms): 450 ms, in denen man den Stein herankommen lassen
+    // kann, ohne Kraft zu verlieren. Genau das ist hier das Können.
     if (player.chargeStart === null) {
-      // Nicht in jedem Tick neu ansetzen, sonst stossen Bots im Dauerfeuer.
-      if (Math.random() < 0.28) handleArcadeInput(room, bot, { action: "charge" });
+      // Sofort wieder aufladen — wer die Hand hängen lässt, verliert Stösse.
+      const regrip = profile.level === "hard" ? 40 : profile.level === "normal" ? 170 : 400;
+      if (now - (player.lastShove?.at || 0) >= regrip) {
+        handleArcadeInput(room, bot, { action: "charge" });
+      }
       return;
     }
     const held = now - player.chargeStart;
-    const slop = profile.level === "hard" ? 90 : profile.level === "normal" ? 220 : 420;
-    const target = SUMO_CHARGE_MS - slop / 2 + Math.random() * slop;
-    if (held >= target) handleArcadeInput(room, bot, { action: "shove" });
+    if (held < SUMO_CHARGE_MS) return;            // noch nicht auf voller Kraft
+
+    // Auf den Konter warten: kommt der Stein entgegen, ist der Stoss am meisten
+    // wert. Der starke Bot hält dafür bis kurz vor die Grenze durch, der schwache
+    // gibt früher auf — und zielt die Grenze so knapp an, dass er ausrutscht.
+    const speed = stone ? Math.hypot(stone.vx, stone.vy) : 0;
+    const closing = !stone || speed < 1e-4
+      ? 0
+      : (stone.vx * player.spotX + stone.vy * player.spotY) / speed;
+    // Der starke Bot schöpft das Fenster fast aus (hält bis 1560 ms von 1650) und
+    // wartet dabei auf den Konter. Der schwache zielt an der Grenze vorbei und
+    // rutscht deshalb aus. Umgekehrt gesetzt — grösster Sicherheitsabstand beim
+    // starken Bot — nutzte ausgerechnet er das Fenster am wenigsten.
+    const guard = profile.level === "hard" ? 90 : profile.level === "normal" ? 200 : -150;
+    const wanted = profile.level === "hard" ? 0.3 : profile.level === "normal" ? 0 : -0.4;
+    if (closing >= wanted || held >= SUMO_OVERCHARGE_MS - guard) {
+      handleArcadeInput(room, bot, { action: "shove" });
+    }
     return;
   }
   if (arcade.family === "sling") {
@@ -6241,10 +6509,20 @@ function arcadeBotStep(room, bot) {
     if (arcade.phase !== "announce" || player.eliminated) return;
     const now = Date.now();
     const profile = botProfile(player);
-    const roundElapsed = (now - minigame.startedAt) - arcade.round * arcade.roundMs;
+    // Die Vorlaufzeit muss abgezogen werden — genau wie im Eingabe-Handler.
+    // Ohne sie war roundElapsed dauerhaft 3000 ms zu gross, die Reaktionszeit
+    // griff nie, und alle drei Stufen liefen gleich schnell los.
+    const roundElapsed = (now - minigame.startedAt) - (arcade.leadMs || 0) - arcade.round * arcade.roundMs;
     if (roundElapsed < profile.reactionMs) return;
     const onTarget = arcade.grid[player.gy * COLORGRID_SIZE + player.gx] === arcade.targetColor;
-    if (onTarget || Math.random() < profile.mistake * 0.5) return;
+    if (onTarget) return;
+    // Zögern wird EINMAL je Runde entschieden. Als Wurf je Tick summierte es sich
+    // über die vielen Ticks einer Runde weg und war praktisch wirkungslos.
+    if (player.botDitherRound !== arcade.round) {
+      player.botDitherRound = arcade.round;
+      player.botDithers = Math.random() < profile.mistake;
+    }
+    if (player.botDithers && roundElapsed < profile.reactionMs + 700) return;
     // Walk one step towards the nearest safe tile.
     let best = null;
     arcade.grid.forEach((color, index) => {
@@ -6715,6 +6993,7 @@ module.exports = {
     handleArenaInput,
     updateBounceArena,
     arenaBotStep,
+    arcadeBotStep,
     ARENA_RADIUS,
     ARENA_BALL_RADIUS,
     ARENA_RESPAWN_MS,

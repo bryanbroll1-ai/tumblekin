@@ -476,6 +476,37 @@ test("color escape drops a player standing on the wrong color", () => {
   assert.equal(entry.survived, 0, "a fallen player scores no round");
 });
 
+test("color escape: later rounds warn shorter and offer fewer safe tiles", () => {
+  const runner = player({ id: "cg", name: "CG", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("colorEscape", [runner], startedAt);
+
+  const measure = (round) => {
+    advanceColorRound(arcade, round, startedAt);
+    return {
+      warn: arcade.announceMs,
+      safe: arcade.grid.filter((color) => color === arcade.targetColor).length
+    };
+  };
+
+  const first = measure(0);
+  const last = measure(arcade.roundCount - 1);
+
+  assert.ok(last.warn < first.warn * 0.6, `die Vorwarnung muss deutlich kürzer werden (${last.warn} von ${first.warn})`);
+  assert.ok(last.safe < first.safe, `es müssen weniger sichere Felder werden (${last.safe} von ${first.safe})`);
+  assert.ok(last.safe >= 4, "aber nie so wenige, dass vier Mitspielende keinen Platz mehr finden");
+
+  // Die Fallphase darf dabei nicht mitschrumpfen — sonst wäre am Ende gar keine
+  // Zeit mehr, den Sturz zu sehen.
+  assert.ok(arcade.dropEndMs > arcade.announceMs, "nach der Vorwarnung muss eine Fallphase bleiben");
+
+  // Und die Runde muss immer noch in ihr Zeitfenster passen.
+  for (let round = 0; round < arcade.roundCount; round += 1) {
+    advanceColorRound(arcade, round, startedAt);
+    assert.ok(arcade.dropEndMs <= arcade.roundMs, `Runde ${round} läuft über ihr Fenster hinaus`);
+  }
+});
+
 test("arcade rankings prioritize the visible objective", () => {
   const sweep = { family: "kinetic", mode: "sweep" };
   const oneCoin = arcadeRankingScore(sweep, { successes: 1, mistakes: 8, score: 1 });
@@ -846,16 +877,59 @@ test("messerwurf: only the active thrower may throw; a clash ends their turn", (
   assert.equal(arcade.players[active.id].turnDone, true, "a clean throw ends the turn");
   assert.equal(arcade.activeId, waiting.id, "the turn passes after one knife");
 
-  // The next player throws onto the existing knife → clash → out.
+  // The next player throws onto the existing knife → clash → costs a life.
   arcade.logAngle = (2 * Math.PI) / 180; // 2 degrees, inside the safety gap
   arcade.players[waiting.id].lastInputAt = 0;
   handleArcadeInput(room, waiting, { action: "throw" });
-  assert.equal(arcade.players[waiting.id].eliminated, true, "clash knocks the thrower out");
+  assert.equal(arcade.players[waiting.id].clashes, 1, "a clash costs a life");
+  assert.equal(arcade.players[waiting.id].eliminated, false, "the first clash is not the end");
   assert.equal(arcade.knives.length, 1, "no knife added on a clash");
+
+  // Both have thrown, so the next round starts and the clash victim may retry.
+  assert.equal(arcade.round, 1, "a new round begins once everyone has thrown");
+  assert.equal(arcade.players[waiting.id].turnDone, false, "the round resets the throwing window");
+
+  // The second clash is the end.
+  arcade.activeId = waiting.id;
+  arcade.logAngle = (2 * Math.PI) / 180;
+  arcade.players[waiting.id].lastInputAt = 0;
+  handleArcadeInput(room, waiting, { action: "throw" });
+  assert.equal(arcade.players[waiting.id].clashes, 2);
+  assert.equal(arcade.players[waiting.id].eliminated, true, "the second clash knocks the thrower out");
 
   const survivor = arcadeRankingScore(arcade, arcade.players[active.id]);
   const out = arcadeRankingScore(arcade, arcade.players[waiting.id]);
   assert.ok(survivor > out, "survivors outrank the eliminated");
+});
+
+test("messerwurf: a tight gap is worth more than a wide one", () => {
+  const one = player({ id: "kn1", name: "KN1", color: "#fff" });
+  const two = player({ id: "kn2", name: "KN2", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("messerwurf", [one, two], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
+  const room = { currentMinigame: minigame, players: [one, two] };
+
+  // Zwei Messer stehen schon, mit einer Lücke von 60 Grad dazwischen.
+  arcade.knives = [{ angleDeg: 0, playerId: "x" }, { angleDeg: 60, playerId: "x" }];
+  const first = arcade.activeId === one.id ? one : two;
+  const second = first === one ? two : one;
+
+  // Mitten in die Lücke: 30 Grad Abstand zu beiden Seiten.
+  arcade.logAngle = (30 * Math.PI) / 180;
+  arcade.players[first.id].lastInputAt = 0;
+  handleArcadeInput(room, first, { action: "throw" });
+  const wide = arcade.players[first.id].nerve;
+
+  // Knapp am zweiten Messer vorbei: gerade noch erlaubt.
+  arcade.activeId = second.id;
+  arcade.logAngle = (83 * Math.PI) / 180;
+  arcade.players[second.id].lastInputAt = 0;
+  handleArcadeInput(room, second, { action: "throw" });
+  const tight = arcade.players[second.id].nerve;
+
+  assert.equal(arcade.players[second.id].stuck, 1, "a legal throw still sticks");
+  assert.ok(tight > wide, `der engere Wurf zählt mehr (${tight} > ${wide})`);
 });
 
 test("messerwurf: the turn timer hands the disc to the next player", () => {
@@ -1468,6 +1542,26 @@ test("sumo: a full charge shoves the stone away from the shover", () => {
   assert.equal(e.lastShove.slipped, false);
 });
 
+test("sumo: a counter against the rolling stone beats shoving it from behind", () => {
+  // Wucht eines Stosses = Betrag der Geschwindigkeitsänderung.
+  const impulseWith = (towards) => {
+    const { players, arcade, chargeAndShove } = sumoRoom(4);
+    const me = players[0];
+    const e = arcade.players[me.id];
+    // Stein rollt mit gleicher Geschwindigkeit auf mich zu bzw. von mir weg.
+    const sign = towards ? 1 : -1;
+    arcade.stone.vx = e.spotX * sign * 0.9;
+    arcade.stone.vy = e.spotY * sign * 0.9;
+    const before = { vx: arcade.stone.vx, vy: arcade.stone.vy };
+    chargeAndShove(me, SUMO_CHARGE_MS);
+    return Math.hypot(arcade.stone.vx - before.vx, arcade.stone.vy - before.vy);
+  };
+
+  const counter = impulseWith(true);
+  const chase = impulseWith(false);
+  assert.ok(counter > chase * 1.5, `Konter muss deutlich mehr tragen (${counter} gegen ${chase})`);
+});
+
 test("sumo: a longer charge shoves harder", () => {
   const weak = sumoRoom(4);
   weak.chargeAndShove(weak.players[0], SUMO_CHARGE_MS * 0.3);
@@ -1686,6 +1780,16 @@ test("bounce: the beat starts slow and speeds up to a floor", () => {
   }
 });
 
+test("bounce: even at full tempo a tap can still miss", () => {
+  // Der halbe Abstand zwischen zwei Schlägen muss GRÖSSER sein als das Fenster
+  // für einen Teiltreffer. Sonst liegt jeder Tipper zwangsläufig innerhalb des
+  // Fensters irgendeines Schlags und Danebentippen wäre unmöglich.
+  assert.ok(
+    BOUNCE_BEAT_MIN_MS / 2 > BOUNCE_GOOD_MS,
+    `schnellster Takt ${BOUNCE_BEAT_MIN_MS} ms lässt bei ${BOUNCE_GOOD_MS} ms Fenster keinen Fehltritt zu`
+  );
+});
+
 test("bounce: the nearest beat is found with a signed offset", () => {
   const early = bounceNearestBeat(bounceBeatTime(5) - 40);
   assert.equal(early.index, 5);
@@ -1727,6 +1831,29 @@ test("bounce: tapping far off the beat costs height and breaks the streak", () =
   assert.equal(entry.lastTap.grade, "miss");
   assert.equal(entry.streak, 0, "a miss resets the resonance");
   assert.ok(entry.height < built, "and costs height");
+});
+
+test("bounce: a miss high up costs more than the same miss near the ground", () => {
+  // Tief: ein einzelner Treffer, dann daneben.
+  const low = bounceRoom();
+  low.tapAt(3, 0);
+  const lowBefore = low.entry.height;
+  low.tapAt(4, BOUNCE_GOOD_MS + 25);
+  const lowLoss = lowBefore - low.entry.height;
+
+  // Hoch: erst eine lange Serie, dann derselbe Fehltritt.
+  const high = bounceRoom();
+  for (let beat = 3; beat < 25; beat += 1) high.tapAt(beat, 0);
+  const highBefore = high.entry.height;
+  high.tapAt(25, BOUNCE_GOOD_MS + 25);
+  const highLoss = highBefore - high.entry.height;
+
+  assert.ok(highBefore > lowBefore * 3, "die Serie muss erst einmal Höhe aufgebaut haben");
+  assert.ok(highLoss > lowLoss * 1.5, `oben muss ein Fehltritt teurer sein (${highLoss} gegen ${lowLoss})`);
+  // Ganz unten frisst der Grundabzug (BOUNCE_MISS_PENALTY) die ganze Höhe auf,
+  // tiefer als der Boden geht es aber nicht.
+  assert.ok(lowBefore < BOUNCE_MISS_PENALTY, "die Ausgangslage soll wirklich knapp über dem Boden sein");
+  assert.equal(low.entry.height, 0, "ein Fehltritt ganz unten setzt auf den Boden zurück");
 });
 
 test("bounce: consecutive hits build resonance", () => {
