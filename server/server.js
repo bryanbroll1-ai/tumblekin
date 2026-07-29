@@ -4694,6 +4694,16 @@ function updateKnife(room, minigame, arcade, dt, now) {
   arcade.logAngle += arcade.spinSpeed * dir * dt;
 
   if (arcade.activeId && now >= arcade.turnEndsAt) {
+    // Knife Hit rule: miss your throwing window and you are out.
+    const current = arcade.players[arcade.activeId];
+    const currentPlayer = room.players.find((p) => p.id === arcade.activeId);
+    if (current && currentPlayer && !current.turnDone && !current.eliminated) {
+      current.eliminated = true;
+      current.eliminatedAt = now;
+      current.flash = "bad";
+      current.lastHitAt = now;
+      syncArcadeScore(minigame, currentPlayer, current);
+    }
     advanceKnifeTurn(room, minigame, arcade, now);
   }
 }
