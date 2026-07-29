@@ -357,6 +357,34 @@ test("bumper: a survivor still on the plate outranks anyone eliminated", () => {
   assert.equal(bounceResultScore(null), 0);
 });
 
+test("bumper: a bot too far out heads back to the middle instead of chasing", () => {
+  // Im Ergebnis zählt Überleben weit mehr als Abschüsse. Ein Bot, der bis an den
+  // Rand jagt, verliert deshalb — genau darum ging es einmal andersherum aus:
+  // die vorsichtigste Einstellung gewann 49 % der Partien, die angriffslustigste
+  // nur 9 %.
+  const hunter = player({ id: "ah", name: "AH", color: "#f00" });
+  const prey = player({ id: "ap", name: "AP", color: "#00f" });
+  const startedAt = Date.now() - 3000;
+  const arena = createArenaState([hunter, prey], startedAt);
+  const me = arena.players[hunter.id];
+  const target = arena.players[prey.id];
+
+  // Der Jäger steht schon weit draussen, die Beute weiter aussen in derselben
+  // Richtung — der Reiz, weiter zu jagen, ist also maximal.
+  me.arenaProfile = { edge: 0.68, aggro: 1, picks: true };
+  me.x = ARENA_RADIUS * 0.85;
+  me.y = 0;
+  me.invulnUntil = 0;
+  target.x = ARENA_RADIUS * 0.95;
+  target.y = 0;
+  target.invulnUntil = 0;
+
+  testRules.arenaBotStep(arena, hunter.id);
+
+  // Schub muss zur Mitte zeigen, also entgegen der eigenen Auslenkung.
+  assert.ok(me.thrustX < 0, `Schub muss nach innen zeigen, war ${me.thrustX}`);
+});
+
 test("runner course always leaves at least one open lane per row", () => {
   const rows = createRunnerCourse(367);
   assert.ok(rows.length > 4);
@@ -727,6 +755,40 @@ test("fassrolle: the spinning barrel slides idle players off, counter-running ho
   assert.ok(a.fallenAt, "an idle player slides off the barrel");
   assert.equal(b.fallenAt, null, "counter-running keeps you on top");
   assert.ok(arcadeRankingScore(arcade, b) > arcadeRankingScore(arcade, a), "survivor outranks the fallen");
+});
+
+test("fassrolle: among survivors the steadier balance ranks higher", () => {
+  // Zwei halten sich beide oben, aber unterschiedlich sauber. Ohne eine Wertung
+  // der Ruhe bekämen beide exakt dieselbe Punktzahl (die verstrichene Zeit) und
+  // die Partie ginge unentschieden aus.
+  const steady = player({ id: "bs", name: "BS", color: "#fff" });
+  const wobbly = player({ id: "bw", name: "BW", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassrolle", [steady, wobbly], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [steady, wobbly] };
+  const a = arcade.players[steady.id];
+  const b = arcade.players[wobbly.id];
+
+  // Beide Lagen werden vor jedem Schritt festgehalten: geprüft wird die WERTUNG,
+  // nicht ein Regelkreis. (Ein enges Totband wäre dafür übrigens untauglich —
+  // Gegenhalten ist eine feste Übergeschwindigkeit, wer zu früh gegensteuert,
+  // schiesst über die Mitte hinaus und pendelt.)
+  for (let t = 0; t < 8000; t += 50) {
+    a.offset = 0;
+    b.offset = arcade.limit * 0.8;
+    testRules.updateBarrel(room, minigame, arcade, 0.05, startedAt + t);
+  }
+
+  assert.equal(a.fallenAt, null, "die Mitte darf nicht als Sturz gelten");
+  assert.ok(
+    a.balanceWork > b.balanceWork * 2,
+    `Mitte muss deutlich mehr Ruhe sammeln (${a.balanceWork} gegen ${b.balanceWork})`
+  );
+  assert.ok(
+    arcadeRankingScore(arcade, a) > arcadeRankingScore(arcade, b),
+    "unter Überlebenden entscheidet die ruhigere Balance"
+  );
 });
 
 test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () => {

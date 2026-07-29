@@ -63,7 +63,8 @@ laufenden Kosten entstehen sollen.
 | Barrierefreiheit | Fokusringe für Tastatur/Switch, `prefers-reduced-motion` wirkt auch auf die 3D-Szenen |
 | Gerätestufen | schwache Hardware bekommt weniger Pixel, kleinere Schattenmaps, kein Antialiasing |
 | Missbrauchsschutz | Raum-Flooding begrenzt (Cooldown, Gerätelimit, Gesamtobergrenze). Vorher legten 60 Verbindungen 60 Räume an, jetzt 1 von 40 im Burst — regulärer Beitritt unbeeinträchtigt |
-| Tests | 172 Regeltests, Browser-Rauchtest über alle Minispiele, Board-Simulator fürs Balancing |
+| Tests | 179 Regeltests, Browser-Rauchtest über alle Minispiele, Board-Simulator fürs Balancing |
+| Bot-Stärken | belegt: in allen 22 Minispiel-Familien gewinnt die starke Stufe häufiger als die schwache (200 Partien je Spiel, Startplätze rotiert) |
 
 ## Offen vor einem Release
 

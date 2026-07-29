@@ -28,7 +28,7 @@ Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
 3. Den QR-Code scannen oder die WLAN-Adresse plus Raumcode verwenden.
 4. Sobald alle Spieler bereit sind, startet der Host die Runde.
 
-Eine Runde braucht mindestens zwei Teilnehmer. Wer allein ist, füllt die Lobby mit **Mit Bots auffüllen** auf — die Bots würfeln selbst und spielen alle Challenges mit.
+Eine Runde braucht mindestens zwei Teilnehmer. Wer allein ist, füllt die Lobby mit **Mit Bots auffüllen** auf — die Bots würfeln selbst und spielen alle Challenges mit. Sie treten in drei Stärken an; dass die stärkere in jedem Minispiel tatsächlich häufiger gewinnt, ist über je 200 Testpartien nachgemessen.
 
 Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung automatisch wieder her. Es gibt bewusst keine Host-Migration: Bleibt der Host offline, werden Host-Aktionen gesperrt und alle Spieler sehen eine Fehlermeldung.
 
