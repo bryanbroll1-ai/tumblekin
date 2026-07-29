@@ -1,14 +1,22 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+  createVoxelKin
+} from "./VoxelKit.js?v=tumblekin80";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin80";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -72,19 +80,12 @@ export class RunnerDerby {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Zielgerade");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Zielgerade", background: "#8fd8f2", fog: ["#9fdef5", 10, 30], fov: 52 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0m</strong></div>
       <div class="kinetic-countdown" data-kinetic-countdown></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -137,48 +138,24 @@ export class RunnerDerby {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
     if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
     const arcade = this.minigame.arcade;
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#8fd8f2");
     const trackZ = arcade.trackLength * SEGMENT;
-    this.scene.fog = new THREE.Fog("#9fdef5", 10, 30);
-    this.camera = new THREE.PerspectiveCamera(52, 1, 0.1, 80);
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x6fb0c4, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff4d6, 3.2);
-    sun.position.set(-4, 10, -2);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8;
-    sun.shadow.camera.bottom = -8;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      sunPosition: [-4, 10, -2],
+      sunIntensity: 3.2,
+      skyColor: 0xdfefff,
+      groundColor: 0x6fb0c4,
+      sunColor: 0xfff4d6
+    });
 
     // A wide meadow under everything — the world no longer falls away into
     // blue void beside the track.
@@ -370,6 +347,7 @@ export class RunnerDerby {
     }
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
   }
@@ -520,7 +498,7 @@ export class RunnerDerby {
       if (mesh.userData.shattered) return;
       const data = mesh.userData;
       const shifted = Math.sin(now / 650 + data.phase) > 0 ? 1 : 0;
-      mesh.position.x = THREE.MathUtils.lerp(mesh.position.x, laneX(data.baseLane + shifted), 0.2);
+      mesh.position.x = THREE.MathUtils.lerp(mesh.position.x, laneX(data.baseLane + shifted), frameLerp(0.2, dt));
     });
     this.boosts.forEach((pad) => {
       pad.material.emissiveIntensity = 0.4 + Math.abs(Math.sin(now / 240)) * 0.4;
@@ -546,8 +524,8 @@ export class RunnerDerby {
       const targetZ = entry.progress * SEGMENT + spread * 0.22;
       const prevX = kin.position.x;
       const prevZ = kin.position.z;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, 0.25);
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, 0.4);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.25, dt));
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, frameLerp(0.4, dt));
 
       // Shatter any glass pane this runner passes through.
       this.sliders.forEach((pane) => {
@@ -561,8 +539,8 @@ export class RunnerDerby {
 
       // Lean into a lane change, and add a little dust every stride.
       const laneVel = kin.position.x - prevX;
-      kin.rotation.z = THREE.MathUtils.lerp(kin.rotation.z, -laneVel * 6, 0.2);
-      if (!entry.finishedAt && Math.random() < 0.14) {
+      kin.rotation.z = THREE.MathUtils.lerp(kin.rotation.z, -laneVel * 6, frameLerp(0.2, dt));
+      if (!entry.finishedAt && Math.random() < frameChance(0.14, dt)) {
         this.bursts.spawn(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.05, kin.position.z - 0.2), ["#e8f0d8", "#ffffff"], { count: 1, speed: 0.5, up: 0.6, size: 0.05, life: 0.4, gravity: 1.5 });
       }
 
@@ -573,7 +551,9 @@ export class RunnerDerby {
         this.lastStumbles.set(player.id, entry.stumbles);
         animator.trigger("stumble");
         this.bursts.spawn(kin.position.clone(), ["#ffffff", "#ef6673", "#ffd15c"], { count: 12, speed: 2.0, up: 2.2, size: 0.08, life: 0.6 });
-        this.bursts.spawn(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.06, kin.position.z - 0.3), ["#c98d4e", "#e8d4a8"], { count: 6, speed: 1.2, up: 0.9, size: 0.06, life: 0.5, gravity: 2 });
+        this.bursts.spawn(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.06, kin.position.z - 0.3), ["#c98d4e", "#e8d4a8"], { count: 6, speed: 1.2, up: 0.9, size: 0.06, life: 0.5, gravity: 2, drag: 1.8 });
+        this.bursts.ring(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.07, kin.position.z), "#ef6673", { radius: 1.3, life: 0.45, y: FLOOR_Y + 0.07 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "RUMMS!", { color: "#ef6673", size: 0.36, life: 0.8 });
         if (player.id === controlledId) {
           this.shake = 1;
           this.feedback?.sound("collision");
@@ -584,16 +564,18 @@ export class RunnerDerby {
       kin.userData.dizzy.visible = stumbling;
       if (stumbling) {
         kin.userData.dizzy.rotation.y = now / 110;
-        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, -0.35, 0.25);
+        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, -0.35, frameLerp(0.25, dt));
         kin.rotation.y = Math.sin(now / 90) * 0.25;
       } else {
-        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, 0, 0.2);
-        kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, 0.2);
+        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, 0, frameLerp(0.2, dt));
+        kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, frameLerp(0.2, dt));
       }
       if (entry.finishedAt && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
         animator.set("cheer", { base: true });
-        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 20, speed: 2.6, up: 3.0, size: 0.1, life: 0.9 });
+        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 24, speed: 2.8, up: 3.0, size: 0.1, life: 0.95, drag: 1.2 });
+        this.bursts.ring(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.07, kin.position.z), "#ffd15c", { radius: 2, life: 0.65, opacity: 0.6, y: FLOOR_Y + 0.07 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "ZIEL! 🏁", { color: "#ffe36b", size: 0.46, life: 1.2, rise: 1 });
         if (player.id === controlledId) {
           this.feedback?.sound("perfect");
           this.feedback?.vibrate([12, 16, 24]);
@@ -647,7 +629,7 @@ export class RunnerDerby {
         mesh.visible = true;
         mesh.position.set(laneX(shot.lane) + spread, KIN_Y + 0.3, headProgress * SEGMENT);
         mesh.rotation.z = now / 90;
-        if (Math.random() < 0.4) {
+        if (Math.random() < frameChance(0.4, dt)) {
           this.bursts.spawn(mesh.position.clone(), ["#ffd15c", "#ff8b2e"], { count: 1, speed: 0.4, up: 0.2, size: 0.05, life: 0.3 });
         }
       } else if (!mesh.userData.impactPlayed) {
@@ -687,6 +669,8 @@ export class RunnerDerby {
 
     this.bursts.update(dt);
 
+    this.floaters.update(dt);
+
     // Idle sway on the roadside scenery.
     this.scenery.forEach((prop) => {
       prop.rotation.z = Math.sin(now / 900 + prop.userData.phase) * prop.userData.sway;
@@ -706,26 +690,22 @@ export class RunnerDerby {
     });
 
     // Chase camera behind the controlled kin, with impact shake + boost FOV kick.
-    this.shake *= 0.88;
-    this.fovKick *= 0.9;
-    const shakeX = Math.sin(now / 18) * this.shake * 0.16;
+    this.shake *= frameDecay(0.88, dt);
+    this.fovKick *= frameDecay(0.9, dt);
+    const shakeX = Math.sin(now / 18) * this.shake * 0.16 * shakeScale();
     const shakeY = Math.cos(now / 15) * this.shake * 0.1;
     const desired = new THREE.Vector3(focusX * 0.35 + shakeX, this.baseCamera.y + shakeY, focusZ + this.baseCamera.z);
-    this.camera.position.lerp(desired, 0.16);
+    this.camera.position.lerp(desired, frameLerp(0.16, dt));
     this.camera.lookAt(focusX * 0.2, KIN_Y + 0.4, focusZ + 4.5);
     const targetFov = this.fov + this.fovKick * 9;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
-      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.2);
+      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, frameLerp(0.2, dt));
       this.camera.updateProjectionMatrix();
     }
 
     this.updateHud(minigame, state, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -745,17 +725,10 @@ export class RunnerDerby {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamera = portrait ? new THREE.Vector3(0, 4.2, -6.6) : new THREE.Vector3(0, 3.4, -6.0);
-    this.fov = portrait ? 58 : 48;
-    this.camera.fov = this.fov;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamera = portrait ? new THREE.Vector3(0, 4.2, -6.6) : new THREE.Vector3(0, 3.4, -6.0);
+      this.fov = portrait ? 58 : 48;
+      camera.fov = this.fov;
+    });
   }
 }

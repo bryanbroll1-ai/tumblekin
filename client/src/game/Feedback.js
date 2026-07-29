@@ -39,7 +39,7 @@ export class Feedback {
     navigator.vibrate(softened);
   }
 
-  sound(name) {
+  sound(name, { pan = 0 } = {}) {
     if (!this.enabled) return;
     const context = this.ensureAudio();
     if (!context || context.state !== "running") return;
@@ -119,21 +119,45 @@ export class Feedback {
       whoosh: [
         { noise: true, duration: 0.2, gain: 0.016 },
         tone(180, 420, 0.18, "sine", 0.012, 0.02)
+      ],
+      combo: [
+        tone(660, 880, 0.1, "sine", 0.026),
+        tone(990, 1320, 0.15, "sine", 0.024, 0.06)
+      ],
+      sparkle: [
+        tone(1180, 1760, 0.08, "sine", 0.019),
+        tone(1560, 2200, 0.11, "sine", 0.015, 0.05)
+      ],
+      swish: [
+        { noise: true, duration: 0.16, gain: 0.013 },
+        tone(300, 640, 0.14, "sine", 0.01, 0.01)
       ]
     };
 
     const now = context.currentTime;
+    const clampedPan = Math.max(-1, Math.min(1, pan));
     (sequences[name] || sequences.tap).forEach((preset) => {
       const start = now + (preset.offset || 0);
-      if (preset.noise) this.playNoise(context, start, preset);
-      else this.playTone(context, start, preset);
+      if (preset.noise) this.playNoise(context, start, preset, clampedPan);
+      else this.playTone(context, start, preset, clampedPan);
     });
   }
 
-  playTone(context, start, preset) {
+  // A per-voice output stage: optional stereo placement then the shared bus.
+  voiceOutput(context, pan) {
+    const destination = this.masterGain || context.destination;
+    if (!pan || typeof context.createStereoPanner !== "function") return { input: destination, tail: null };
+    const panner = context.createStereoPanner();
+    panner.pan.value = pan;
+    panner.connect(destination);
+    return { input: panner, tail: panner };
+  }
+
+  playTone(context, start, preset, pan = 0) {
     const oscillator = context.createOscillator();
     const filter = context.createBiquadFilter();
     const gain = context.createGain();
+    const out = this.voiceOutput(context, pan);
     oscillator.type = preset.type;
     oscillator.detune.setValueAtTime((Math.random() - 0.5) * 5, start);
     oscillator.frequency.setValueAtTime(preset.frequency, start);
@@ -146,12 +170,13 @@ export class Feedback {
     gain.gain.exponentialRampToValueAtTime(0.0001, start + preset.duration);
     oscillator.connect(filter);
     filter.connect(gain);
-    gain.connect(this.masterGain || context.destination);
+    gain.connect(out.input);
     oscillator.start(start);
     oscillator.stop(start + preset.duration + 0.02);
+    if (out.tail) oscillator.addEventListener("ended", () => out.tail.disconnect());
   }
 
-  playNoise(context, start, preset) {
+  playNoise(context, start, preset, pan = 0) {
     const length = Math.max(1, Math.floor(context.sampleRate * preset.duration));
     const buffer = context.createBuffer(1, length, context.sampleRate);
     const data = buffer.getChannelData(0);
@@ -162,6 +187,7 @@ export class Feedback {
     const source = context.createBufferSource();
     const filter = context.createBiquadFilter();
     const gain = context.createGain();
+    const out = this.voiceOutput(context, pan);
     filter.type = "lowpass";
     filter.frequency.setValueAtTime(760, start);
     filter.frequency.exponentialRampToValueAtTime(150, start + preset.duration);
@@ -170,8 +196,9 @@ export class Feedback {
     source.buffer = buffer;
     source.connect(filter);
     filter.connect(gain);
-    gain.connect(this.masterGain || context.destination);
+    gain.connect(out.input);
     source.start(start);
+    if (out.tail) source.addEventListener("ended", () => out.tail.disconnect());
   }
 
   ensureAudio() {

@@ -1,12 +1,14 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   createCloud,
   createNameLabel,
   createOwnMarker,
-  updateOwnMarker,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
+  updateOwnMarker
+} from "./VoxelKit.js?v=tumblekin80";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -44,19 +46,12 @@ export class TowerStack {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Turmbau");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Turmbau", fog: ["#a8e2f4", 20, 46], fov: 46, far: 90 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="color-banner" data-stack-banner hidden></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -94,44 +89,13 @@ export class TowerStack {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.towers.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 20, 46);
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 90);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
-    sun.position.set(-4, 12, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 12;
-    sun.shadow.camera.bottom = -6;
-    this.scene.add(sun);
+    addStageLights(this.scene, { sunPosition: [-4, 12, 6], shadow: { top: 12, bottom: -6 } });
 
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(22, 0.5, 12),
@@ -148,6 +112,7 @@ export class TowerStack {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureTower(player, index, players.length));
     this.resizeRenderer();
@@ -245,10 +210,26 @@ export class TowerStack {
       if (height > (this.lastHeight.get(player.id) || 0)) {
         this.lastHeight.set(player.id, height);
         const top = tower.blocks[height - 1];
-        this.bursts.spawn(top.getWorldPosition(new THREE.Vector3()), [tower.color, "#ffffff"], { count: 5, speed: 1.2, up: 1.2, size: 0.06, life: 0.4 });
+        const topPos = top.getWorldPosition(new THREE.Vector3());
+        const perfect = entry.flash === "good";
+        this.bursts.spawn(topPos, [tower.color, "#ffffff"], {
+          count: perfect ? 10 : 5,
+          speed: perfect ? 1.7 : 1.2,
+          up: perfect ? 1.6 : 1.2,
+          size: 0.06,
+          life: 0.45,
+          drag: 2.2,
+          fadePow: 1.6
+        });
+        if (perfect) {
+          this.bursts.ring(topPos, "#fff2b0", { radius: 1.2, life: 0.5, opacity: 0.6, tilt: null });
+          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.35, 0)), "PERFEKT!", { color: "#ffe36b", size: 0.42 });
+        } else {
+          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.3, 0)), "+1", { color: "#ffffff", size: 0.34, life: 0.7, rise: 0.7 });
+        }
         if (player.id === controlledId) {
-          this.feedback?.sound(entry.flash === "good" ? "perfect" : "pop");
-          this.feedback?.vibrate(8);
+          this.feedback?.sound(perfect ? "perfect" : "pop", { pan: tower.x * 0.25 });
+          this.feedback?.vibrate(perfect ? [8, 20, 12] : 8);
         }
       }
       // Sealed tower (a miss or a full stack): plant a little flag on top as
@@ -264,9 +245,21 @@ export class TowerStack {
           const flag = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, 0.05), new THREE.MeshLambertMaterial({ color: tower.color, emissive: tower.color, emissiveIntensity: 0.2 }));
           flag.position.set(top.position.x + 0.24, top.position.y + BLOCK_H / 2 + 0.42, 0);
           tower.group.add(flag);
-          this.bursts.spawn(top.getWorldPosition(new THREE.Vector3()), [tower.color, "#ffffff"], { count: 8, speed: 1.6, up: 1.8, size: 0.08, life: 0.6 });
+          const topPos = top.getWorldPosition(new THREE.Vector3());
+          const complete = !entry.toppled || height >= arcade.total;
+          this.bursts.spawn(topPos, [tower.color, "#ffffff", "#ffe36b"], {
+            count: complete ? 16 : 8,
+            speed: complete ? 2.2 : 1.6,
+            up: complete ? 2.2 : 1.8,
+            size: 0.08,
+            life: 0.7,
+            drag: 1.6
+          });
+          this.bursts.ring(topPos, complete ? "#ffe36b" : "#ffffff", { radius: complete ? 2 : 1.3, life: 0.6, opacity: 0.6, tilt: null });
+          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.5, 0)), complete ? "🏆" : "🚩", { size: complete ? 0.6 : 0.42, life: 1.1, rise: 1.1 });
         }
         if (player.id === controlledId) {
+          this.shake = Math.max(this.shake, 0.6);
           this.feedback?.sound(entry.toppled && height < arcade.total ? "pop" : "win");
           this.feedback?.vibrate(entry.toppled && height < arcade.total ? 12 : [20, 20, 40]);
         }
@@ -288,18 +281,19 @@ export class TowerStack {
     });
 
     this.bursts.update(dt);
+    this.floaters.update(dt);
 
     // Camera rises smoothly with the tallest tower (a damped height avoids the
     // jump when a block lands).
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     this.smoothTop = THREE.MathUtils.lerp(this.smoothTop ?? topHeight, topHeight, Math.min(1, dt * 4));
     const focusY = 1.3 + this.smoothTop * BLOCK_H * 0.5;
     // Bias slightly toward the own tower so it's never cut off, while all four
     // stay in frame.
     const ownX = (this.towers.get(controlledId)?.x || 0) * 0.3;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 2.6) + this.smoothTop * BLOCK_H * 0.45, this.baseCamZ || 8);
-    this.camera.position.lerp(desired, 0.12);
+    this.camera.position.lerp(desired, frameLerp(0.12, dt));
     this.camera.lookAt(ownX, focusY, 0);
 
     // Arrow over your own tower so you always know which one is yours.
@@ -344,17 +338,10 @@ export class TowerStack {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamY = portrait ? 2.7 : 2.6;
-    this.baseCamZ = portrait ? 10.5 : 8.5;
-    this.camera.fov = portrait ? 58 : 48;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamY = portrait ? 2.7 : 2.6;
+      this.baseCamZ = portrait ? 10.5 : 8.5;
+      camera.fov = portrait ? 58 : 48;
+    });
   }
 }

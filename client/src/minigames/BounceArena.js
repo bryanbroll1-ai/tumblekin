@@ -1,19 +1,20 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin63";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
-  createCountdownSprite,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
-  disposeScene,
-  noise,
+  createCountdownSprite,
+  updateCountdownSprite,
   setKinOpacity,
-  updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+  noise
+} from "./VoxelKit.js?v=tumblekin80";
+import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin80";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -55,11 +56,14 @@ export class BounceArena {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} bounce-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Bumper Bloom Arena");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, {
+      label: "3D Bumper Bloom Arena",
+      canvasClass: "bounce-webgl",
+      background: "#9fdcf2",
+      fog: ["#aee2f5", 12, 26],
+      fov: 44,
+      far: 60
+    });
     this.createScene();
 
     this.controls.innerHTML = `
@@ -103,45 +107,23 @@ export class BounceArena {
     this.joystick?.destroy();
     this.joystick = null;
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.webglCanvas = null;
-    this.renderer = null;
-    this.scene = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9fdcf2");
-    this.scene.fog = new THREE.Fog("#aee2f5", 12, 26);
-
-    this.camera = new THREE.PerspectiveCamera(44, 1, 0.1, 60);
     this.camera.position.set(0, 4.6, 5.6);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x7ab8c4, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff4d6, 3.4);
-    sun.position.set(3.5, 7, 4.2);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -4;
-    sun.shadow.camera.right = 4;
-    sun.shadow.camera.top = 4;
-    sun.shadow.camera.bottom = -4;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      sunPosition: [3.5, 7, 4.2],
+      shadow: { left: -4, right: 4, top: 4, bottom: -4 },
+      sunIntensity: 3.4,
+      skyColor: 0xdfefff,
+      groundColor: 0x7ab8c4,
+      sunColor: 0xfff4d6
+    });
 
     // Ocean far below — falling now actually goes somewhere.
     this.water = new THREE.Mesh(
@@ -229,6 +211,7 @@ export class BounceArena {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
 
     // Pool of flat shockwave rings that flash out from every hard bump.
     this.rings = [];
@@ -369,7 +352,9 @@ export class BounceArena {
         data.body.rotation.x = data.fallSpin;
         if (!this.splashed.has(player.id) && kin.position.y < WATER_Y + 0.3) {
           this.splashed.add(player.id);
-          this.bursts.spawn(new THREE.Vector3(kin.position.x, WATER_Y + 0.2, kin.position.z), ["#ffffff", "#7fdbe8"], { count: 14, speed: 2.4, up: 2.6, size: 0.09, life: 0.8 });
+          this.bursts.spawn(new THREE.Vector3(kin.position.x, WATER_Y + 0.2, kin.position.z), ["#ffffff", "#7fdbe8"], { count: 18, speed: 2.5, up: 2.6, size: 0.09, life: 0.8, drag: 1.5 });
+          this.bursts.ring(new THREE.Vector3(kin.position.x, WATER_Y + 0.25, kin.position.z), "#7fdbe8", { radius: 2, life: 0.6, y: WATER_Y + 0.25 });
+          this.floaters.pop(new THREE.Vector3(kin.position.x, WATER_Y + 1, kin.position.z), "PLATSCH! 💦", { color: "#bfe9ff", size: 0.42, life: 1 });
           if (player.id === controlledId) this.feedback?.sound("land");
         }
         setKinOpacity(kin, Math.max(0, 1 - Math.max(0, WATER_Y + 0.3 - kin.position.y) * 1.4));
@@ -406,7 +391,9 @@ export class BounceArena {
         kin.rotation.y += dt * 5;
         if (!this.finaleCelebrated) {
           this.finaleCelebrated = true;
-          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 24, speed: 2.8, up: 3.2, size: 0.1, life: 1 });
+          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 28, speed: 3, up: 3.2, size: 0.1, life: 1, drag: 1.2 });
+          this.bursts.ring(kin.position.clone().setY(PLATFORM_TOP_Y + 0.02), "#ffd15c", { radius: 2.2, life: 0.7, opacity: 0.6, y: PLATFORM_TOP_Y + 0.02 });
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "🏆", { size: 0.56, life: 1.3, rise: 1 });
           this.feedback?.sound("win");
           this.feedback?.vibrate([20, 24, 40]);
         }
@@ -435,8 +422,8 @@ export class BounceArena {
       if (!entry?.inPlay) return;
       edgeDanger = Math.max(edgeDanger, Math.min(1, Math.max(0, Math.hypot(entry.x, entry.y) - 0.62) / 0.4));
     });
-    this.bumpPulse *= 0.85;
-    this.shake *= 0.82;
+    this.bumpPulse *= frameDecay(0.85, dt);
+    this.shake *= frameDecay(0.82, dt);
     this.rim.material.emissiveIntensity = 0.55 + Math.sin(now / 190) * 0.2 + edgeDanger * 0.9 + this.bumpPulse * 1.4;
 
     const controlledKin = this.kins.get(controlledId);
@@ -450,25 +437,23 @@ export class BounceArena {
     this.water.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.04;
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
     this.updateRings(dt);
 
     // Camera: gentle follow of your kin plus a punchy impact shake.
     const followX = controlledKin && this.kins.size ? controlledKin.position.x * 0.22 : 0;
     const followZ = controlledKin ? controlledKin.position.z * 0.14 : 0;
-    this.lookTarget.lerp(new THREE.Vector3(followX, 0.18, followZ), 0.06);
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+    this.lookTarget.lerp(new THREE.Vector3(followX, 0.18, followZ), frameLerp(0.06, dt));
+    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.12;
     this.camera.position.x = this.baseCamera.x + Math.sin(now / 3600) * 0.1 + shakeX;
     this.camera.position.y = this.baseCamera.y + shakeY;
     this.camera.lookAt(this.lookTarget);
 
     // The 3-2-1 countdown is shown once by the shared intro card, not here.
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -485,20 +470,11 @@ export class BounceArena {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(220, Math.floor(rect.height));
-    const targetWidth = Math.floor(width * Math.min(window.devicePixelRatio || 1, 2));
-    const targetHeight = Math.floor(height * Math.min(window.devicePixelRatio || 1, 2));
-    if (this.webglCanvas.width !== targetWidth || this.webglCanvas.height !== targetHeight) {
-      this.renderer.setSize(width, height, false);
-      this.camera.aspect = width / height;
-      const portrait = height > width;
+    resizeStage(this, (portrait, camera) => {
       this.baseCamera = portrait ? new THREE.Vector3(0, 5.0, 6.1) : new THREE.Vector3(0, 3.9, 5.8);
-      this.camera.fov = portrait ? 47 : 43;
-      this.camera.position.copy(this.baseCamera);
-      this.camera.updateProjectionMatrix();
-    }
+      camera.fov = portrait ? 47 : 43;
+      camera.position.copy(this.baseCamera);
+    }, { minHeight: 220 });
     if (!this.baseCamera) this.baseCamera = this.camera.position.clone();
   }
 }

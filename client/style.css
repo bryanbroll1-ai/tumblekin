@@ -82,6 +82,24 @@ input:focus {
   background: #fff;
 }
 
+/* Keyboard and switch access: every interactive control needs a visible focus
+   ring. :focus-visible keeps it off for pointer/touch taps, so the mobile look
+   is unchanged. The double ring (dark core + light halo) stays legible on both
+   the pale panels and the saturated buttons. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.85);
+  border-radius: var(--radius-sm);
+}
+
+/* On the 3D stages the page behind is dark and saturated — invert the ring. */
+.kinetic-hud :where(button, [tabindex]):focus-visible,
+#minigame-controls :where(button, [tabindex]):focus-visible {
+  outline-color: #ffffff;
+  box-shadow: 0 0 0 6px rgba(20, 30, 38, 0.75);
+}
+
 label {
   display: grid;
   gap: 7px;
@@ -1306,6 +1324,173 @@ body[data-screen="minigame"] .game-menu-button {
 
 .score-chip .coin-count {
   color: var(--yellow);
+}
+
+/* Stars are the win condition, so they read first and loudest. */
+.score-chip .star-count {
+  color: #ffe36b;
+  margin-right: 6px;
+  text-shadow: 0 0 8px rgba(255, 227, 107, 0.5);
+}
+
+/* --- Star tracker: the board's north star, literally -------------------- */
+.star-tracker {
+  position: absolute;
+  z-index: 12;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 10px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.84);
+  box-shadow: var(--shadow);
+  color: #ffffff;
+  pointer-events: none;
+  max-width: calc(100% - 24px);
+}
+
+.star-tracker-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.star-tracker-copy {
+  display: grid;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.star-tracker-copy strong {
+  font-size: 0.86rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.star-tracker-copy small {
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.66);
+  white-space: nowrap;
+}
+
+/* Within a couple of rolls: warm up the badge so the chase reads as urgent. */
+.star-tracker.is-close {
+  background: rgba(120, 78, 12, 0.9);
+  box-shadow: 0 0 0 2px rgba(255, 227, 107, 0.55), var(--shadow);
+}
+
+.star-tracker.is-close .star-tracker-icon {
+  animation: star-tracker-pulse 1s ease-in-out infinite;
+}
+
+.star-tracker.is-here {
+  background: rgba(255, 209, 92, 0.95);
+  color: #4a3708;
+}
+
+.star-tracker.is-here .star-tracker-copy small {
+  color: rgba(74, 55, 8, 0.72);
+}
+
+@keyframes star-tracker-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.22); }
+}
+
+/* --- Item bar: the board's one real decision point ---------------------- */
+.item-bar {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(21, 33, 38, 0.82);
+  box-shadow: var(--shadow);
+}
+
+.item-bar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.item-shield,
+.item-armed {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(123, 208, 255, 0.22);
+  color: #bfe9ff;
+}
+
+.item-armed {
+  background: rgba(255, 227, 107, 0.22);
+  color: #ffe36b;
+}
+
+.item-cards {
+  display: flex;
+  gap: 8px;
+}
+
+.item-card {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  gap: 2px;
+  place-items: center;
+  padding: 8px 6px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  color: #ffffff;
+  font-weight: 900;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.item-card:not(:disabled):active {
+  transform: scale(0.94);
+}
+
+/* Live on your turn: a warm ring invites the tap. */
+.item-card:not(:disabled) {
+  border-color: rgba(255, 227, 107, 0.7);
+  box-shadow: 0 0 0 1px rgba(255, 227, 107, 0.25) inset;
+}
+
+.item-card:disabled {
+  opacity: 0.45;
+}
+
+.item-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.item-name {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.item-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .turn-panel {
@@ -3115,4 +3300,434 @@ body[data-screen="minigame"] .game-menu-button {
 @keyframes tie-wiggle {
   0%, 100% { transform: rotate(4deg) scale(1); }
   50% { transform: rotate(-3deg) scale(1.08); }
+}
+
+/* Build version in the menu — needed on every support request. */
+.menu-version {
+  margin: 2px 0 0;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* --- Schleuderschuss: Zieh-Pad ----------------------------------------- */
+.sling-pad {
+  position: relative;
+  min-height: var(--touch);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  background: rgba(21, 33, 38, 0.72);
+  touch-action: none;             /* Ziehen darf die Seite nicht scrollen */
+  overflow: hidden;
+}
+
+.sling-pad-hint {
+  font-size: 0.82rem;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.72);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Zugvektor: Länge zeigt die Kraft, Drehung den Abschusswinkel. */
+.sling-pad-vector {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 6px;
+  height: calc(14px + var(--sling-power, 0) * 74px);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffe36b, #ff9f4a);
+  transform-origin: bottom center;
+  transform: translateX(-50%) rotate(calc(180deg - var(--sling-angle, 45deg)));
+  box-shadow: 0 0 12px rgba(255, 227, 107, 0.6);
+}
+
+.sling-readout {
+  display: flex;
+  gap: 10px;
+  align-self: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.82);
+  color: #ffe36b;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+/* --- Sumo-Schubs: Halte-Knopf und Ladebalken ---------------------------- */
+.sumo-button {
+  width: 100%;
+  min-height: var(--touch);
+  border-radius: var(--radius);
+  border: none;
+  background: linear-gradient(180deg, #ff9f4a, #e0663a);
+  color: #ffffff;
+  font-weight: 900;
+  font-size: 1rem;
+  letter-spacing: 0.03em;
+  box-shadow: var(--shadow);
+  touch-action: none;
+  transition: transform 0.08s ease, filter 0.12s ease;
+}
+
+.sumo-button:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: brightness(1.15);
+}
+
+.sumo-button:disabled {
+  filter: grayscale(0.6);
+  opacity: 0.55;
+}
+
+.sumo-charge {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+  min-width: 62%;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.sumo-charge-track {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+
+/* Der sichere Bereich ist hinterlegt; alles rechts davon rutscht aus. */
+.sumo-charge-safe {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(127, 224, 111, 0.22);
+}
+
+.sumo-charge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: #7fe06f;
+  transition: background 0.1s linear;
+}
+
+/* --- Trampolin: Taktanzeige --------------------------------------------- */
+.beat-strip {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+  min-width: 58%;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+/* Der Puls läuft von links nach rechts; getroffen wird am rechten Ende. */
+.beat-pulse {
+  height: 10px;
+  border-radius: 999px;
+  background: #ffe36b;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+/* --- Falschsignal: Legende der echten Anzeige --------------------------- */
+/* Die Regel muss WÄHREND des Spiels lesbar bleiben, nicht nur in der Intro-
+   Karte — sonst rät man beim ersten Signal und ist sofort im Minus. */
+.signal-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: 84%;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.signal-legend strong {
+  color: #7dff9d;
+  font-weight: 900;
+}
+
+.signal-chip {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.signal-chip-real {
+  background: #4dff7a;
+  box-shadow: 0 0 8px rgba(77, 255, 122, 0.7);
+}
+
+.kinetic-hud.dev-mode .signal-legend {
+  font-size: 0.62rem;
+}
+
+/* --- Spurmaler: Rundenzähler und Hinweis ------------------------------- */
+/* Die Rivalen laufen im 3D-Bild nur als Punkte am Rand mit; die Rundenzahl
+   gehört ins HUD, weil sie die eigentliche Wertung ist. */
+/* Neben der Zeit/Punkte-Leiste. Am oberen Rand war der Zähler von der Kopfzeile
+   angeschnitten, eine Zeile darunter lag er hinter dem Hinweisbanner. */
+.trace-lapbar {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+}
+
+.trace-lap-chip {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.trace-lap-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Der Hinweis gehört nach UNTEN, nicht über die Spur: oben deckte er genau das
+   Ende der Kurve ab, auf das man zuziehen soll. */
+.kinetic-hud .color-banner.trace-banner,
+.kinetic-hud.dev-mode .color-banner.trace-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* Kein Knopf, sondern ein Hinweis: die ganze Fläche ist die Steuerung. */
+.trace-hint {
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.82);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* --- Tellerdreher: Handvorrat und Tellerzähler -------------------------- */
+/* Der Handvorrat ist die zentrale Regel — ohne Anzeige wirkt ein Griff ins
+   Leere wie ein Fehler des Spiels statt wie eine Entscheidung. */
+.plate-hand {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.plate-hand-track {
+  position: relative;
+  display: block;
+  width: 92px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.plate-hand-track i {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #7fe06f;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: background 0.12s linear;
+}
+
+.plate-chips {
+  position: absolute;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.plate-chip {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.plate-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Wie beim Spurmaler nach unten: oben deckte der Banner die hinteren Teller ab. */
+.kinetic-hud .color-banner.plate-banner,
+.kinetic-hud.dev-mode .color-banner.plate-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* --- Angelduell: Schnurspannung und Fischzähler ------------------------- */
+/* Die Spannung ist die Regel, an der alles hängt — sie muss ohne Nachdenken
+   ablesbar sein, sonst wirkt ein Riss wie Willkür. */
+.fish-gauge {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fish-gauge-track {
+  position: relative;
+  display: block;
+  width: 92px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.fish-gauge-track i {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #7fe06f;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: background 0.1s linear;
+}
+
+.fish-chips {
+  position: absolute;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.fish-chip {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.fish-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Der Warnruf gehört über den Knopf, nicht über den Fisch. */
+.kinetic-hud .color-banner.fish-banner,
+.kinetic-hud.dev-mode .color-banner.fish-banner {
+  top: auto;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+}
+
+/* --- Farbenjagd: Flächenanteile ----------------------------------------- */
+/* Ein Balken, in dem alle vier Anteile nebeneinander liegen. Das IST die
+   Wertung — eine reine Zahl würde nicht zeigen, wer gerade führt. */
+.paint-share {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  right: 74px;
+  display: flex;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.86);
+  overflow: hidden;
+}
+
+.paint-share-part {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  background: var(--chip);
+  color: #10201a;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 900;
+  transition: width 0.18s linear;
+  overflow: hidden;
+}
+
+.paint-share-part.is-own {
+  box-shadow: inset 0 0 0 2px #ffffff;
+}
+
+/* Über das Feld, nicht auf die unteren Reihen: dort verdeckte der Banner genau
+   die Ecke, um die es gerade geht. */
+.kinetic-hud .color-banner.paint-banner,
+.kinetic-hud.dev-mode .color-banner.paint-banner {
+  top: calc(50px + env(safe-area-inset-top));
+  bottom: auto;
+  padding: 7px 16px;
+  font-size: clamp(0.8rem, 3.4vw, 1rem);
 }

@@ -1,15 +1,23 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
-  disposeScene,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin80";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
@@ -49,19 +57,12 @@ export class RopeSkip {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Seilspringen");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Seilspringen", fog: ["#a8e2f4", 16, 40] });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="color-banner" data-rope-banner hidden></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -102,45 +103,14 @@ export class RopeSkip {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 16, 40);
-    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
-    sun.position.set(-4, 11, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8;
-    sun.shadow.camera.bottom = -8;
-    this.scene.add(sun);
+    addStageLights(this.scene);
 
     // Schoolyard: meadow + sand pit under the rope line.
     const meadow = new THREE.Mesh(
@@ -193,6 +163,7 @@ export class RopeSkip {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     this.camera.position.set(0, 3.4, 8.6);
@@ -314,7 +285,9 @@ export class RopeSkip {
       if (out && !this.lastEliminated.get(player.id)) {
         this.lastEliminated.set(player.id, true);
         animator.trigger("fall");
-        this.bursts.spawn(kin.position.clone(), ["#e0334f", player.color, "#ffffff"], { count: 12, speed: 2.2, up: 2, size: 0.09, life: 0.8 });
+        this.bursts.spawn(kin.position.clone(), ["#e0334f", player.color, "#ffffff"], { count: 14, speed: 2.4, up: 2, size: 0.09, life: 0.8, drag: 1.4 });
+        this.bursts.ring(kin.position.clone().setY(0.08), "#e0334f", { radius: 1.6, life: 0.55 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "GESTOLPERT!", { color: "#ff6b7f", size: 0.4 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.9);
           this.feedback?.sound("error");
@@ -323,8 +296,13 @@ export class RopeSkip {
       }
       if (!out && (entry.survived || 0) > (this.lastSurvived.get(player.id) || 0)) {
         this.lastSurvived.set(player.id, entry.survived);
+        this.floaters.pop(
+          kin.position.clone().add(new THREE.Vector3(0, 1, 0)),
+          `${entry.survived}`,
+          { color: "#ffe36b", size: 0.32, life: 0.6, rise: 0.6 }
+        );
         if (player.id === controlledId) {
-          this.feedback?.sound("pop");
+          this.feedback?.sound("pop", { pan: kin.position.x * 0.18 });
           this.feedback?.vibrate(8);
         }
       }
@@ -332,8 +310,8 @@ export class RopeSkip {
       if (out) {
         // Tripped: sit dazed beside the pit.
         setKinOpacity(kin, 0.45);
-        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, 0.2);
-        kin.position.z = THREE.MathUtils.lerp(kin.position.z, 1.9, 0.06);
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, frameLerp(0.2, dt));
+        kin.position.z = THREE.MathUtils.lerp(kin.position.z, 1.9, frameLerp(0.06, dt));
         animator.set("sad", { base: true });
         animator.groundY = KIN_Y;
         animator.update(now);
@@ -343,8 +321,8 @@ export class RopeSkip {
       }
 
       setKinOpacity(kin, 1);
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, 0.2);
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, 0, 0.2);
+      kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.spotX, frameLerp(0.2, dt));
+      kin.position.z = THREE.MathUtils.lerp(kin.position.z, 0, frameLerp(0.2, dt));
       animator.groundY = y;
       if (minigame.finaleAt) {
         animator.set("cheer", { base: true });
@@ -361,25 +339,25 @@ export class RopeSkip {
 
     if (minigame.finaleAt && survivorKin && !this.finaleDone) {
       this.finaleDone = true;
-      this.bursts.spawn(survivorKin.position.clone(), [survivorPlayer.color, "#ffd15c", "#ffffff"], { count: 20, speed: 2.6, up: 3, size: 0.1, life: 0.9 });
+      this.bursts.spawn(survivorKin.position.clone(), [survivorPlayer.color, "#ffd15c", "#ffffff"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });
+      this.bursts.ring(survivorKin.position.clone().setY(0.08), "#ffd15c", { radius: 2.2, life: 0.7, opacity: 0.6 });
+      this.floaters.pop(survivorKin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "🏆", { size: 0.6, life: 1.3, rise: 1.1 });
       if (survivorPlayer.id === controlledId) this.feedback?.sound("win");
     }
 
     this.bursts.update(dt);
 
-    this.shake *= 0.9;
-    const shakeX = Math.sin(now / 16) * this.shake * 0.24;
+    this.floaters.update(dt);
+
+    this.shake *= frameDecay(0.9, dt);
+    const shakeX = Math.sin(now / 16) * this.shake * 0.24 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.4, this.baseCamZ || 8.6);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 1.2, 0);
 
     this.updateHud(minigame, arcade, state, nextHitIn, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -411,17 +389,10 @@ export class RopeSkip {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamY = portrait ? 3.7 : 3.4;
-    this.baseCamZ = portrait ? 10.4 : 8.6;
-    this.camera.fov = portrait ? 54 : 48;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamY = portrait ? 3.7 : 3.4;
+      this.baseCamZ = portrait ? 10.4 : 8.6;
+      camera.fov = portrait ? 54 : 48;
+    });
   }
 }

@@ -1,14 +1,22 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+  createVoxelKin
+} from "./VoxelKit.js?v=tumblekin80";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Nervenprobe — all four Kins face the camera behind a timer podium.
 // The clock counts visibly for two seconds, then hides. Everyone slams
@@ -120,19 +128,12 @@ export class Nervenprobe {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Nervenprobe");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Nervenprobe", background: "#a4e0f5", fog: ["#b0e6f7", 18, 42], fov: 46 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-nerve-target></strong></div>
       <div class="color-banner" data-nerve-banner hidden></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -166,45 +167,14 @@ export class Nervenprobe {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
     this.stations.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#a4e0f5");
-    this.scene.fog = new THREE.Fog("#b0e6f7", 18, 42);
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 80);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x74b6c8, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
-    sun.position.set(-4, 10, 7);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8;
-    sun.shadow.camera.bottom = -8;
-    this.scene.add(sun);
+    addStageLights(this.scene, { sunPosition: [-4, 10, 7], groundColor: 0x74b6c8 });
 
     // A proper game-show stage: warm floor, red carpet, curtain backdrop,
     // bunting between golden pillars, sweeping spotlights and star sparkles.
@@ -310,6 +280,7 @@ export class Nervenprobe {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureStation(player, index, players.length));
     this.resizeRenderer();
@@ -469,7 +440,7 @@ export class Nervenprobe {
       }
 
       // Buzzer sinks in once pressed.
-      station.buzzer.position.y = THREE.MathUtils.lerp(station.buzzer.position.y, stopped ? 1.18 : 1.26, 0.25);
+      station.buzzer.position.y = THREE.MathUtils.lerp(station.buzzer.position.y, stopped ? 1.18 : 1.26, frameLerp(0.25, dt));
 
       // Status bulb: green while counting, blinking red while hidden,
       // blue once stopped, gold at the reveal.
@@ -483,7 +454,8 @@ export class Nervenprobe {
       if (stopped && !this.lastStopped.get(player.id)) {
         this.lastStopped.set(player.id, true);
         animator.trigger("jump");
-        this.bursts.spawn(new THREE.Vector3(station.x, 1.4, 0.7), ["#ff2038", "#ffffff"], { count: 8, speed: 1.8, up: 1.6, size: 0.07, life: 0.5 });
+        this.bursts.spawn(new THREE.Vector3(station.x, 1.4, 0.7), ["#ff2038", "#ffffff"], { count: 9, speed: 1.9, up: 1.6, size: 0.07, life: 0.5, drag: 2, fadePow: 1.4 });
+        this.floaters.pop(new THREE.Vector3(station.x, 2, 0.7), "STOPP!", { color: "#ffffff", size: 0.34, life: 0.7, rise: 0.6 });
         if (player.id !== controlledId) this.feedback?.sound("move");
       }
 
@@ -496,7 +468,9 @@ export class Nervenprobe {
         animator.set(isWinner ? "cheer" : (stopped ? "idle" : "sad"), { base: true });
         if (isWinner && !kin.userData.confettiDone) {
           kin.userData.confettiDone = true;
-          this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), [player.color, "#ffc400", "#ffffff"], { count: 18, speed: 2.4, up: 2.8, size: 0.09, life: 0.9 });
+          this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), [player.color, "#ffc400", "#ffffff"], { count: 22, speed: 2.6, up: 2.8, size: 0.09, life: 0.9, drag: 1.2 });
+          this.bursts.ring(kin.position.clone().setY(0.07), "#ffc400", { radius: 1.8, life: 0.6, opacity: 0.6 });
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "🏆", { size: 0.54, life: 1.2, rise: 1 });
         }
       } else {
         // Nervous idle while waiting, tiny shiver during the hidden phase.
@@ -514,6 +488,8 @@ export class Nervenprobe {
 
     this.bursts.update(dt);
 
+    this.floaters.update(dt);
+
     // Ambient show life: spotlights sweep, curtain stars twinkle.
     this.spotCones?.forEach((cone) => {
       cone.rotation.z = Math.sin(now / 1600 + cone.userData.phase) * 0.35;
@@ -524,20 +500,16 @@ export class Nervenprobe {
     });
 
     // Static show camera with a light breathing motion + press shake.
-    this.shake *= 0.88;
-    const shakeX = Math.sin(now / 17) * this.shake * 0.1;
+    this.shake *= frameDecay(0.88, dt);
+    const shakeX = Math.sin(now / 17) * this.shake * 0.1 * shakeScale();
     const breathe = Math.sin(now / 1400) * 0.08;
     const desired = new THREE.Vector3(shakeX, 3.1 + breathe, this.baseCameraZ || 9.6);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 1.35, 0);
 
     this.updateHud(minigame, arcade, state, hidden, revealAll, now, elapsed);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -574,16 +546,9 @@ export class Nervenprobe {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCameraZ = portrait ? 12.2 : 9.6;
-    this.camera.fov = portrait ? 54 : 44;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCameraZ = portrait ? 12.2 : 9.6;
+      camera.fov = portrait ? 54 : 44;
+    });
   }
 }

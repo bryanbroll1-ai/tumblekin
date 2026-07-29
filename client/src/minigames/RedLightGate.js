@@ -1,14 +1,22 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+  createVoxelKin
+} from "./VoxelKit.js?v=tumblekin80";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Lichtwächter — hold the button to sprint towards the gate while the
 // giant guard looks away. When the light flips to red he whirls around:
@@ -51,19 +59,12 @@ export class RedLightGate {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Lichtwächter");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Lichtwächter", fog: ["#a8e2f4", 20, 46], fov: 52, far: 90 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0m</strong></div>
       <div class="color-banner" data-light-banner hidden></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -117,44 +118,19 @@ export class RedLightGate {
     clearInterval(this.holdTimer);
     this.holdTimer = null;
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 20, 46);
-    this.camera = new THREE.PerspectiveCamera(52, 1, 0.1, 90);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe6f6ff, 0x76b8a8, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 2.9);
-    sun.position.set(-5, 12, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -12;
-    sun.shadow.camera.right = 12;
-    sun.shadow.camera.top = 16;
-    sun.shadow.camera.bottom = -16;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      sunPosition: [-5, 12, 6],
+      shadow: { left: -12, right: 12, top: 16, bottom: -16 },
+      sunIntensity: 2.9,
+      skyColor: 0xe6f6ff,
+      groundColor: 0x76b8a8
+    });
 
     // Meadow track with side hedges leading to the guard's gate.
     const lawn = new THREE.Mesh(
@@ -233,6 +209,7 @@ export class RedLightGate {
 
     this.gateZ = gateZ;
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     // Start on the final framing — no camera fly-in.
@@ -326,13 +303,15 @@ export class RedLightGate {
       const moving = Math.abs((entry.progress || 0) - shown) > 0.08;
       kin.position.x = this.laneX(index);
       kin.position.z = finished
-        ? THREE.MathUtils.lerp(kin.position.z, this.gateZ - 0.6, 0.08)
+        ? THREE.MathUtils.lerp(kin.position.z, this.gateZ - 0.6, frameLerp(0.08, dt))
         : this.progressZ(shown, arcade.goal);
 
       if ((entry.caught || 0) > (this.lastCaught.get(player.id) || 0)) {
         this.lastCaught.set(player.id, entry.caught);
         animator.trigger("stumble");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#ff2038", "#ffffff"], { count: 10, speed: 2, up: 1.6, size: 0.08, life: 0.6 });
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#ff2038", "#ffffff"], { count: 12, speed: 2.1, up: 1.6, size: 0.08, life: 0.6, drag: 1.6 });
+        this.bursts.ring(kin.position.clone().setY(0.07), "#ff2038", { radius: 1.5, life: 0.5 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "ERWISCHT!", { color: "#ff6b7f", size: 0.4, life: 0.9 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.8);
           this.feedback?.sound("error");
@@ -342,7 +321,9 @@ export class RedLightGate {
       if (finished && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
         animator.trigger("cheer");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffc400", "#ffffff"], { count: 16, speed: 2.4, up: 2.6, size: 0.09, life: 0.8 });
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffc400", "#ffffff"], { count: 20, speed: 2.6, up: 2.6, size: 0.09, life: 0.85, drag: 1.2 });
+        this.bursts.ring(kin.position.clone().setY(0.07), "#ffc400", { radius: 2, life: 0.6, opacity: 0.6 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "GESCHAFFT! 🏁", { color: "#ffe36b", size: 0.44, life: 1.2, rise: 1 });
         if (player.id === controlledId) {
           this.feedback?.sound("win");
           this.feedback?.vibrate([24, 24, 48]);
@@ -363,8 +344,10 @@ export class RedLightGate {
 
     this.bursts.update(dt);
 
-    this.shake *= 0.9;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.24;
+    this.floaters.update(dt);
+
+    this.shake *= frameDecay(0.9, dt);
+    const shakeX = Math.sin(now / 15) * this.shake * 0.24 * shakeScale();
     const shakeY = Math.cos(now / 12) * this.shake * 0.18;
     if (minigame.finaleAt) {
       // Time's up: zoom in on the winner(s) — the runner(s) furthest along.
@@ -387,23 +370,19 @@ export class RedLightGate {
       });
       if (leaders.length) { cx /= leaders.length; cz /= leaders.length; }
       const desired = new THREE.Vector3(cx * 0.6 + shakeX, 2.2 + shakeY, cz + 3.4);
-      this.camera.position.lerp(desired, 0.06);
+      this.camera.position.lerp(desired, frameLerp(0.06, dt));
       this.camera.lookAt(cx * 0.4, 1.2, cz - 1.5);
     } else {
       // Chase camera behind the own runner.
       const focusZ = ownKin ? ownKin.position.z : START_Z;
       const desired = new THREE.Vector3(shakeX, (this.baseCamY || 4.4) + shakeY, focusZ + (this.baseCamBack || 7.2));
-      this.camera.position.lerp(desired, 0.1);
+      this.camera.position.lerp(desired, frameLerp(0.1, dt));
       this.camera.lookAt(0, 1.1, focusZ - 6);
     }
 
     this.updateHud(minigame, arcade, state, isGreen, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -436,17 +415,10 @@ export class RedLightGate {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamY = portrait ? 5.2 : 4.4;
-    this.baseCamBack = portrait ? 8.6 : 7.2;
-    this.camera.fov = portrait ? 58 : 52;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamY = portrait ? 5.2 : 4.4;
+      this.baseCamBack = portrait ? 8.6 : 7.2;
+      camera.fov = portrait ? 58 : 52;
+    });
   }
 }

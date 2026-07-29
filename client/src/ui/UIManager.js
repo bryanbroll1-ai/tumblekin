@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin63";
-import { playerStatus } from "../game/Player.js?v=tumblekin63";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin63";
+import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin80";
+import { playerStatus } from "../game/Player.js?v=tumblekin80";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin80";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -116,6 +116,8 @@ export class UIManager {
       boardZone: document.getElementById("board-zone-label"),
       currentPlayer: document.getElementById("current-player-label"),
       scoreStrip: document.getElementById("score-strip"),
+      itemBar: document.getElementById("item-bar"),
+      starTracker: document.getElementById("star-tracker"),
       boardMessage: document.getElementById("board-message"),
       diceLabel: document.getElementById("dice-label"),
       rollDice: document.getElementById("roll-dice"),
@@ -144,6 +146,17 @@ export class UIManager {
       menuLeaveCancel: document.getElementById("menu-leave-cancel"),
       menuLeaveConfirm: document.getElementById("menu-leave-confirm")
     };
+  }
+
+  // Build version in the menu: the first thing needed for a support request.
+  showVersion(version) {
+    if (!version) return;
+    const target = this.el.gameMenu?.querySelector("[data-menu-view='main']");
+    if (!target || target.querySelector(".menu-version")) return;
+    const tag = document.createElement("p");
+    tag.className = "menu-version";
+    tag.textContent = `Version ${version}`;
+    target.appendChild(tag);
   }
 
   // The floating in-game menu: settings plus a confirmed way out of a match.
@@ -224,7 +237,10 @@ export class UIManager {
     const params = new URLSearchParams(window.location.search);
     const codeFromUrl = params.get("room");
     if (codeFromUrl) this.el.code.value = codeFromUrl.toUpperCase();
-    this.devToolsAllowed = params.get("dev") === "1";
+    // Requested via URL, but only granted once /config confirms this build
+    // ships dev tools (see loadConfig).
+    this.devToolsRequested = params.get("dev") === "1";
+    this.devToolsAllowed = false;
   }
 
   playerName() {
@@ -252,9 +268,15 @@ export class UIManager {
       const response = await fetch("/config");
       this.config = await response.json();
       this.lastQrCode = "";
+      // The URL flag only asks for dev tools; the server decides whether this
+      // build has them at all.
+      this.devToolsAllowed = this.devToolsRequested && this.config.devTools === true;
+      this.showVersion(this.config.version);
       if (this.state?.status === "lobby") this.renderLobby();
+      else if (this.state) this.render(this.state, this.myPlayerId);
     } catch (_error) {
       this.config = { lanUrls: [] };
+      this.devToolsAllowed = false;
     }
   }
 
@@ -403,13 +425,95 @@ export class UIManager {
     this.el.rollDice.textContent = myTurn ? "Würfeln" : (current?.connected === false ? "Offline" : (current?.isBot ? "Bot würfelt ..." : "Warten"));
     this.el.scoreStrip.innerHTML = state.players.map((player, index) => `
       <div class="score-chip ${player.id === current?.id ? "current" : ""} ${player.connected === false ? "offline" : ""}"
-        style="--chip-color:${player.color}" title="${escapeHtml(player.name)}: ${player.coins} Münzen">
+        style="--chip-color:${player.color}"
+        title="${escapeHtml(player.name)}: ${player.stars || 0} Sterne, ${player.coins} Münzen">
         <span class="player-dot avatar-${index % 4}" style="background:${player.color}"></span>
         <span class="score-name">${escapeHtml(shortName(player.name))}</span>
-        <strong><span class="coin-count">● ${player.coins}</span></strong>
+        <strong><span class="star-count">★ ${player.stars || 0}</span><span class="coin-count">● ${player.coins}</span></strong>
       </div>
     `).join("");
+    this.renderStarTracker(state);
+    this.renderItemBar(state, myTurn);
     this.renderDevControllers();
+  }
+
+  // The lit star is the whole point of the board, but the camera follows the
+  // active player, so the 3D beacon is frequently off screen. This tracker
+  // always answers the two questions that drive the turn: how far away is the
+  // star, and can I afford it?
+  renderStarTracker(state) {
+    const el = this.el.starTracker;
+    if (!el) return;
+    const index = state.starIndex;
+    const size = state.fieldTypes?.length || 32;
+    const me = getMyPlayer(state, this.getControlledPlayerId()) || getMyPlayer(state, this.myPlayerId);
+    if (index === null || index === undefined || !me) {
+      el.hidden = true;
+      return;
+    }
+    const distance = (index - (me.position || 0) + size) % size;
+    const price = state.starPrice ?? 20;
+    const short = Math.max(0, price - me.coins);
+    el.hidden = false;
+    el.classList.toggle("is-close", distance > 0 && distance <= 6);
+    el.classList.toggle("is-here", distance === 0);
+    el.innerHTML = `
+      <span class="star-tracker-icon">⭐</span>
+      <span class="star-tracker-copy">
+        <strong>${distance === 0 ? "Du stehst am Stern!" : `${distance} ${distance === 1 ? "Feld" : "Felder"}`}</strong>
+        <small>${short > 0 ? `noch ${short} Münzen nötig` : `${price} Münzen — bezahlbar!`}</small>
+      </span>
+    `;
+  }
+
+  // Your hand of items. Only tappable on your own turn before rolling — that
+  // is the board's real decision point, so the bar makes it obvious when it is
+  // live and greys out otherwise instead of vanishing.
+  renderItemBar(state, myTurn) {
+    const bar = this.el.itemBar;
+    if (!bar) return;
+    const mine = getMyPlayer(state, this.getControlledPlayerId()) || getMyPlayer(state, this.myPlayerId);
+    const items = mine?.items || [];
+    const catalog = state.itemCatalog || [];
+
+    if (!items.length) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      return;
+    }
+    bar.hidden = false;
+    const armed = Boolean(mine?.pendingItem);
+    const usable = myTurn && !armed;
+    bar.innerHTML = `
+      <div class="item-bar-head">
+        <span>Deine Items</span>
+        ${mine?.shielded ? '<span class="item-shield">🛡️ Schild aktiv</span>' : ""}
+        ${armed ? '<span class="item-armed">Würfel-Item bereit</span>' : ""}
+      </div>
+      <div class="item-cards">
+        ${items.map((id, slot) => {
+          const meta = catalog.find((entry) => entry.id === id) || { icon: "❔", name: id, help: "" };
+          return `
+            <button type="button" class="item-card" data-item-id="${escapeHtml(id)}" data-slot="${slot}"
+              ${usable ? "" : "disabled"} title="${escapeHtml(meta.help || "")}">
+              <span class="item-icon">${meta.icon}</span>
+              <span class="item-name">${escapeHtml(meta.name)}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+      <p class="item-hint">${usable
+        ? "Vor dem Würfeln einsetzen."
+        : (armed ? "Jetzt würfeln — das Item wirkt auf diesen Wurf." : "Nur an deinem Zug einsetzbar.")}</p>
+    `;
+    bar.querySelectorAll("[data-item-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.itemId;
+        this.feedback?.sound("lock");
+        this.feedback?.vibrate(14);
+        this.safeAction(() => this.handlers.useItem(id));
+      });
+    });
   }
 
   renderMinigame() {
@@ -702,6 +806,40 @@ function formatResultMetric(entry) {
   }
   if (detail.kind === "precision") return `${detail.value} ${detail.label}`;
   if (detail.kind === "points") return `${detail.value} ${detail.label}`;
+  if (detail.kind === "reaction") {
+    // Punkte sind die Wertung; die beste Reaktionszeit und die Fehlgriffe
+    // erzählen daneben, WIE die Punkte zustande kamen.
+    const best = detail.bestMs === null || detail.bestMs === undefined ? "" : ` · ${formatMilliseconds(detail.bestMs)} schnellste`;
+    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehlgriffe")}` : "";
+    return `${detail.value} ${detail.label}${best}${slips}`;
+  }
+  if (detail.kind === "paintTiles") {
+    // Gewertet wird die Fläche über die ZEIT. Der Stand am Ende und die selbst
+    // erobierten Felder erzählen daneben, wie es dazu kam.
+    const held = ` · ${countNoun(detail.owned, "Felder")} am Ende`;
+    const took = detail.claimed ? ` · ${countNoun(detail.claimed, "erobert")}` : "";
+    return `${detail.value} ${detail.label}${held}${took}`;
+  }
+  if (detail.kind === "catch") {
+    // Punkte entscheiden; die Fische und der angefangene zeigen, woher sie
+    // kommen, die Risse, was sie gekostet haben.
+    const started = detail.progress ? ` + ${detail.progress}%` : "";
+    const snaps = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Risse")}` : "";
+    return `${detail.value} ${detail.label} · ${countNoun(detail.landed, "Fische")}${started}${snaps}`;
+  }
+  if (detail.kind === "plateTime") {
+    // Punkte entscheiden; Tellersekunden zeigen, wie viel gleichzeitig lief,
+    // und die gefallenen Teller, was es gekostet hat.
+    const drops = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Teller verloren")}` : "";
+    return `${detail.value} ${detail.label} · ${detail.seconds}s Tellerzeit${drops}`;
+  }
+  if (detail.kind === "laps") {
+    // Punkte entscheiden; Runden und der angefangene Rest machen sichtbar,
+    // woher sie kommen — und Abrutscher, was sie gekostet haben.
+    const rest = detail.progress ? ` + ${detail.progress}%` : "";
+    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Abrutscher")}` : "";
+    return `${detail.value} ${detail.label} · ${countNoun(detail.laps, "Runden")}${rest}${slips}`;
+  }
   return `${formatScore(entry?.score)} Punkte`;
 }
 
@@ -715,6 +853,15 @@ const SINGULAR_NOUNS = {
   "Pässe": "Pass",
   "Ziele": "Ziel",
   "Rauswürfe": "Rauswurf",
+  "Fehlgriffe": "Fehlgriff",
+  "Abrutscher": "Abrutscher",
+  "Teller verloren": "Teller verloren",
+  "Fische": "Fisch",
+  "Risse": "Riss",
+  "übermalt": "übermalt",
+  "erobert": "erobert",
+  "Felder am Ende": "Feld am Ende",
+  "Runden": "Runde",
   "Punkte": "Punkt"
 };
 

@@ -1,0 +1,21 @@
+{
+  "name": "Tumblekin",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "postCreateCommand": "npm install",
+  // Startet den Server automatisch, sobald man sich verbindet — damit auf dem
+  // Handy kein Kommando im winzigen Terminal getippt werden muss.
+  "postAttachCommand": "npm start",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Tumblekin",
+      "onAutoForward": "openBrowser",
+      "protocol": "http"
+    }
+  },
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["TESTEN-AUF-DEM-HANDY.md"]
+    }
+  }
+}

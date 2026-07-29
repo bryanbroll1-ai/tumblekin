@@ -1,16 +1,29 @@
 {
+  "id": "/?source=pwa",
   "name": "Tumblekin",
   "short_name": "Tumblekin",
+  "lang": "de",
+  "dir": "ltr",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
+  "orientation": "portrait",
   "background_color": "#a8ddf5",
   "theme_color": "#a8ddf5",
-  "description": "Mobile-first Partyspiel: drei lebendige 3D-Welten und 19 Touch-Challenges im gleichen WLAN.",
+  "categories": ["games", "entertainment"],
+  "description": "Mobile-first Partyspiel: drei lebendige 3D-Welten und 18 Touch-Challenges im gleichen WLAN. Sterne gewinnen, Münzen kaufen sie.",
   "icons": [
     {
       "src": "/assets/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
       "purpose": "any"
     },
     {
@@ -20,10 +33,28 @@
       "purpose": "any"
     },
     {
+      "src": "/assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

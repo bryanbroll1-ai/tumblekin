@@ -1,14 +1,22 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+  createVoxelKin
+} from "./VoxelKit.js?v=tumblekin80";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin80";
+import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin80";
 
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the
@@ -47,18 +55,11 @@ export class BalloonPump {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Pump-Panik");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Pump-Panik" });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -96,46 +97,15 @@ export class BalloonPump {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
     if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
     this.stations.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 18, 42);
-    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
-    sun.position.set(-4, 11, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8;
-    sun.shadow.camera.bottom = -8;
-    this.scene.add(sun);
+    addStageLights(this.scene);
 
     // Festival meadow with a wooden pump deck.
     const meadow = new THREE.Mesh(
@@ -160,6 +130,7 @@ export class BalloonPump {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureStation(player, index, players.length));
     this.resizeRenderer();
@@ -295,7 +266,7 @@ export class BalloonPump {
       }
       let pulse = (this.pulse.get(player.id) || 0) * 0.88;
       this.pulse.set(player.id, pulse);
-      station.pump.scale.y = THREE.MathUtils.lerp(station.pump.scale.y, 1, 0.2);
+      station.pump.scale.y = THREE.MathUtils.lerp(station.pump.scale.y, 1, frameLerp(0.2, dt));
 
       const size = 0.42 + Math.min(1.75, pumps * 0.018);
       const wobble = 1 + pulse * 0.16 + Math.sin(now / 300 + index) * 0.015;
@@ -322,13 +293,15 @@ export class BalloonPump {
               station.string.visible = false;
               this.shake = 1;
               const at = station.balloon.position.clone();
-              this.bursts.spawn(at, [player.color, "#ffffff"], { count: 26, speed: 4, up: 2.6, size: 0.12, life: 1.1 });
-              this.bursts.spawn(at, ["#ffd15c", player.color, "#ffffff"], { count: 18, speed: 2.4, up: 3.4, size: 0.09, life: 1.3 });
+              this.bursts.spawn(at, [player.color, "#ffffff"], { count: 30, speed: 4.2, up: 2.6, size: 0.12, life: 1.1, drag: 1.1 });
+              this.bursts.spawn(at, ["#ffd15c", player.color, "#ffffff"], { count: 20, speed: 2.5, up: 3.4, size: 0.09, life: 1.3, drag: 0.9 });
+              this.bursts.ring(at, "#ffffff", { radius: 2.6, life: 0.55, opacity: 0.65, tilt: null });
+              this.floaters.pop(at.clone().add(new THREE.Vector3(0, 0.5, 0)), "PENG! 🎈", { color: "#ffe36b", size: 0.5, life: 1.1 });
               this.feedback?.sound("impact");
               this.feedback?.vibrate([40, 26, 50]);
               if (player.id === controlledId) this.feedback?.sound("win");
             }
-          } else if (Math.random() < 0.2) {
+          } else if (Math.random() < frameChance(0.2, dt)) {
             // Confetti keeps drizzling on the champion.
             this.bursts.spawn(new THREE.Vector3(station.x + (Math.random() - 0.5), 3.4, -0.2), [player.color, "#ffd15c", "#ffffff"], { count: 2, speed: 0.6, up: 0.2, size: 0.07, life: 1.2 });
           }
@@ -342,7 +315,7 @@ export class BalloonPump {
           const shrink = Math.max(0.12, (station.deflateFrom || size) * Math.max(0.1, 1 - sinceFinale / 1400));
           station.balloon.scale.setScalar(shrink);
           station.balloon.position.x = station.x + Math.sin(now / 90 + index) * Math.min(0.4, sinceFinale / 1200);
-          if (sinceFinale < 1400 && Math.random() < 0.3) {
+          if (sinceFinale < 1400 && Math.random() < frameChance(0.3, dt)) {
             this.bursts.spawn(station.balloon.position.clone(), ["#ffffff"], { count: 1, speed: 0.8, up: 0.3, size: 0.04, life: 0.3 });
           }
         }
@@ -357,18 +330,16 @@ export class BalloonPump {
 
     this.bursts.update(dt);
 
-    this.shake *= 0.9;
+    this.floaters.update(dt);
+
+    this.shake *= frameDecay(0.9, dt);
     const desired = new THREE.Vector3(Math.sin(now / 3200) * 0.15, (this.baseCamY || 3.4), this.baseCamZ || 9.4);
-    this.camera.position.lerp(desired, 0.08);
+    this.camera.position.lerp(desired, frameLerp(0.08, dt));
     this.camera.lookAt(0, 1.9, 0);
 
     this.updateHud(minigame, arcade, state, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -384,17 +355,10 @@ export class BalloonPump {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamY = portrait ? 3.8 : 3.4;
-    this.baseCamZ = portrait ? 11.6 : 9.4;
-    this.camera.fov = portrait ? 54 : 48;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamY = portrait ? 3.8 : 3.4;
+      this.baseCamZ = portrait ? 11.6 : 9.4;
+      camera.fov = portrait ? 54 : 48;
+    });
   }
 }

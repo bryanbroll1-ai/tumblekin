@@ -1,9 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  createCloud,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
+import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin80";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.
@@ -36,18 +34,11 @@ export class WhackBlob {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Blob-Klopfe");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Blob-Klopfe", fog: ["#a8e2f4", 16, 40] });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     // No button pad — you simply tap the holes on the 3D field directly.
@@ -92,17 +83,7 @@ export class WhackBlob {
     cancelAnimationFrame(this.frame);
     if (this.onCanvasWhack) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasWhack);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.blobs.clear();
   }
 
@@ -113,28 +94,7 @@ export class WhackBlob {
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 16, 40);
-    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 80);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7ab890, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 3.0);
-    sun.position.set(-4, 11, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -6;
-    sun.shadow.camera.right = 6;
-    sun.shadow.camera.top = 6;
-    sun.shadow.camera.bottom = -6;
-    this.scene.add(sun);
+    addStageLights(this.scene, { shadow: { left: -6, right: 6, top: 6, bottom: -6 } });
 
     // Grass mound with nine dark holes.
     const meadow = new THREE.Mesh(
@@ -237,6 +197,7 @@ export class WhackBlob {
     this.hammerHit = null;   // { cell, startedAt }
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.resizeRenderer();
     this.camera.position.set(0, this.baseCamY || 5.2, this.baseCamZ || 7);
     this.camera.lookAt(0, 0.2, -0.4);
@@ -314,7 +275,15 @@ export class WhackBlob {
       if (whackedByMe && !blob.userData.hitShown) {
         blob.userData.hitShown = true;
         const pos = this.cellPos(pop.cell);
-        this.bursts.spawn(new THREE.Vector3(pos.x, 0.9, pos.z), pop.kind === "bad" ? ["#ff2038", "#8a0f1e"] : ["#8f6ae0", "#ffd15c", "#ffffff"], { count: 10, speed: 2, up: 2, size: 0.08, life: 0.6 });
+        const bad = pop.kind === "bad";
+        this.bursts.spawn(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : ["#8f6ae0", "#ffd15c", "#ffffff"], { count: 11, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
+        this.bursts.ring(new THREE.Vector3(pos.x, 0.42, pos.z), bad ? "#ff2038" : "#ffd15c", { radius: bad ? 1.3 : 1, life: 0.45, opacity: 0.5, tilt: null });
+        this.floaters.pop(new THREE.Vector3(pos.x, 1.2, pos.z), bad ? "AUA!" : "+1", {
+          color: bad ? "#ff6b7f" : "#ffe36b",
+          size: bad ? 0.38 : 0.32,
+          life: bad ? 0.8 : 0.65,
+          rise: 0.7
+        });
         // Swing the mallet down on this cell.
         this.hammerHit = { cell: pop.cell, startedAt: now };
       }
@@ -367,10 +336,12 @@ export class WhackBlob {
 
     this.bursts.update(dt);
 
-    this.shake *= 0.9;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+    this.floaters.update(dt);
+
+    this.shake *= frameDecay(0.9, dt);
+    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
     const desired = new THREE.Vector3(shakeX, this.baseCamY || 5.2, this.baseCamZ || 7);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 0.2, -0.4);
 
     this.updateHud(minigame, arcade, state, now);
@@ -387,17 +358,10 @@ export class WhackBlob {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamY = portrait ? 5.8 : 5.2;
-    this.baseCamZ = portrait ? 7.6 : 7;
-    this.camera.fov = portrait ? 54 : 48;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamY = portrait ? 5.8 : 5.2;
+      this.baseCamZ = portrait ? 7.6 : 7;
+      camera.fov = portrait ? 54 : 48;
+    });
   }
 }

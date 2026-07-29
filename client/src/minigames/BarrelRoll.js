@@ -1,15 +1,23 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
-  disposeScene,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+} from "./VoxelKit.js?v=tumblekin80";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
@@ -52,19 +60,12 @@ export class BarrelRoll {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Fassrolle");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Fassrolle", background: "#8fd8f2", fog: ["#9fdef5", 16, 40], fov: 50 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0s</strong></div>
       <div class="color-banner" data-barrel-banner hidden></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -123,44 +124,19 @@ export class BarrelRoll {
     clearInterval(this.holdTimer);
     this.holdTimer = null;
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#8fd8f2");
-    this.scene.fog = new THREE.Fog("#9fdef5", 16, 40);
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 80);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe6f6ff, 0x5aa8c8, 2.4));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 2.9);
-    sun.position.set(-5, 11, 7);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8;
-    sun.shadow.camera.bottom = -8;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      sunPosition: [-5, 11, 7],
+      hemiIntensity: 2.4,
+      sunIntensity: 2.9,
+      skyColor: 0xe6f6ff,
+      groundColor: 0x5aa8c8
+    });
 
     // River water below the barrel.
     const water = new THREE.Mesh(
@@ -257,6 +233,7 @@ export class BarrelRoll {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     // Three-quarter view: raised and offset sideways so all four runners on
@@ -333,7 +310,9 @@ export class BarrelRoll {
         this.lastFallen.set(player.id, true);
         animator.trigger("fall");
         kin.userData.fellAt = now;
-        this.bursts.spawn(kin.position.clone(), ["#1f8fd6", "#bfe9ff", player.color], { count: 14, speed: 2.4, up: 2, size: 0.09, life: 0.8 });
+        this.bursts.spawn(kin.position.clone(), ["#1f8fd6", "#bfe9ff", player.color], { count: 18, speed: 2.5, up: 2, size: 0.09, life: 0.8, drag: 1.5 });
+        this.bursts.ring(kin.position.clone().setY(0.08), "#bfe9ff", { radius: 1.8, life: 0.55 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "PLATSCH! 💦", { color: "#8fd8f2", size: 0.42, life: 1 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.9);
           this.feedback?.sound("fall");
@@ -371,7 +350,9 @@ export class BarrelRoll {
         animator.set("cheer", { base: true });
         if (!this.finaleDone) {
           this.finaleDone = true;
-          this.bursts.spawn(kin.position.clone(), [player.color, "#ffd15c", "#ffffff"], { count: 20, speed: 2.6, up: 3, size: 0.1, life: 0.9 });
+          this.bursts.spawn(kin.position.clone(), [player.color, "#ffd15c", "#ffffff"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });
+          this.bursts.ring(kin.position.clone().setY(0.08), "#ffd15c", { radius: 2, life: 0.65, opacity: 0.6 });
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "🏆", { size: 0.56, life: 1.2, rise: 1 });
           if (player.id === controlledId) this.feedback?.sound("win");
         }
       } else {
@@ -386,22 +367,20 @@ export class BarrelRoll {
     });
 
     this.bursts.update(dt);
+
+    this.floaters.update(dt);
     this.waterMesh.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.05;
 
-    this.shake *= 0.9;
-    const shakeX = Math.sin(now / 16) * this.shake * 0.24;
+    this.shake *= frameDecay(0.9, dt);
+    const shakeX = Math.sin(now / 16) * this.shake * 0.24 * shakeScale();
     const shakeY = Math.cos(now / 13) * this.shake * 0.18;
     const desired = new THREE.Vector3((this.baseCamX || 3.4) + shakeX, (this.baseCamY || 5) + shakeY, this.baseCamZ || 8.2);
-    this.camera.position.lerp(desired, 0.1);
+    this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 1.9, 0);
 
     this.updateHud(minigame, arcade, state, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -428,18 +407,11 @@ export class BarrelRoll {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamX = portrait ? 3.6 : 3.4;
-    this.baseCamY = portrait ? 5.2 : 5;
-    this.baseCamZ = portrait ? 9.4 : 8.2;
-    this.camera.fov = portrait ? 54 : 48;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamX = portrait ? 3.6 : 3.4;
+      this.baseCamY = portrait ? 5.2 : 5;
+      this.baseCamZ = portrait ? 9.4 : 8.2;
+      camera.fov = portrait ? 54 : 48;
+    });
   }
 }

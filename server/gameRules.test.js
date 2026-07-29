@@ -32,7 +32,111 @@ const {
   nearestLowerCanopyLeaf,
   refreshFluxScores,
   updateArcade,
-  resolveGateRewards
+  resolveGateRewards,
+  STAR_PRICE,
+  COIN_FIELD_REWARD,
+  NORMAL_FIELD_REWARD,
+  TRAP_FIELD_COST,
+  LUCK_FIELD_STAKE,
+  LUCK_FIELD_WIN,
+  MAX_ITEMS,
+  ITEM_DEFINITIONS,
+  consumeItem,
+  moveStarPad,
+  awardBonusStars,
+  resolveStarPurchase,
+  roomCreateBlockedReason,
+  MAX_ROOMS_PER_ADDRESS,
+  SLING_SHOTS,
+  SLING_RING_SCORES,
+  SLING_RING_RADII,
+  SLING_BASE_DISTANCE,
+  SLING_DISTANCE_STEP,
+  SLING_MAX_SPEED,
+  SLING_GRAVITY,
+  SUMO_RING_RADIUS,
+  SUMO_CHARGE_MS,
+  SUMO_OVERCHARGE_MS,
+  SUMO_MIN_CHARGE_MS,
+  SUMO_MAX_IMPULSE,
+  SUMO_HITS_OUT,
+  SUMO_SLIP_MS,
+  updateSumoStone,
+  BOUNCE_BEAT_START_MS,
+  BOUNCE_BEAT_MIN_MS,
+  BOUNCE_PERFECT_MS,
+  BOUNCE_GOOD_MS,
+  BOUNCE_MISS_PENALTY,
+  BOUNCE_MAX_HEIGHT,
+  bounceBeatTime,
+  bounceNearestBeat,
+  FEINT_DURATION_MS,
+  FEINT_GO_WINDOW_MS,
+  FEINT_FLICKER_MS,
+  FEINT_MAX_POINTS,
+  FEINT_MIN_POINTS,
+  FEINT_FALSE_START,
+  FEINT_LOCK_MS,
+  FEINT_DOUBLE_TAP_MS,
+  buildFeintSignals,
+  activeFeintSignal,
+  feintPoints,
+  TRACE_TOLERANCE,
+  TRACE_STEP_LIMIT,
+  TRACE_MAX_SPEED,
+  TRACE_REENTRY_WINDOW,
+  TRACE_SLIP_LOCK_MS,
+  TRACE_LAP_POINTS,
+  TRACE_SLIP_COST,
+  TRACE_CLEAN_BONUS,
+  tracePathX,
+  traceOffset,
+  traceScore,
+  PLATE_START,
+  PLATE_MAX,
+  PLATE_ADD_MS,
+  PLATE_SPIN_GAIN,
+  PLATE_HAND_RATE,
+  PLATE_HAND_MAX,
+  PLATE_DECAY_START,
+  PLATE_DECAY_END,
+  PLATE_TOUCH_MS,
+  PLATE_RESPAWN_MS,
+  PLATE_DROP_COST,
+  PLATE_POINTS_PER_SECOND,
+  PLATE_DURATION_MS,
+  plateCountAt,
+  plateDecayAt,
+  plateScore,
+  FISH_DURATION_MS,
+  FISH_REEL_SPEED,
+  FISH_SLIP_SPEED,
+  FISH_TENSION_CALM,
+  FISH_TENSION_SURGE,
+  FISH_RELAX,
+  FISH_HOLD_GRACE_MS,
+  FISH_SNAP_PAUSE_MS,
+  FISH_SNAP_COST,
+  FISH_LANDED_POINTS,
+  FISH_LEAD_IN_MS,
+  buildFishPhases,
+  fishSurging,
+  fishScore,
+  PAINT_COLS,
+  PAINT_ROWS,
+  PAINT_BUMP_RADIUS,
+  PAINT_CLAIM_RATE,
+  PAINT_TILE_SECOND_POINTS,
+  PAINT_BOOST_MS,
+  PAINT_PICKUP_MAX,
+  PAINT_DURATION_MS,
+  paintIndex,
+  paintInside,
+  paintClaim,
+  paintBrushTiles,
+  paintOwnedCount,
+  nearestToStar,
+  standingsLeader
 } = testRules;
 
 function player(overrides = {}) {
@@ -44,8 +148,8 @@ function player(overrides = {}) {
   };
 }
 
-test("board uses one readable, simplified field language", () => {
-  const allowed = new Set(["start", "normal", "challenge", "gate"]);
+test("board uses one readable field language", () => {
+  const allowed = new Set(["start", "normal", "coin", "item", "luck", "trap", "star", "challenge", "gate"]);
   assert.equal(FIELD_TYPES.length, 32);
   assert.ok(FIELD_TYPES.every((type) => allowed.has(type)));
   assert.deepEqual(
@@ -55,10 +159,10 @@ test("board uses one readable, simplified field language", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 15);
+  assert.equal(MINIGAMES.length, 23);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "seilspringen", "turmbau", "zuendstoff"]
+    ["angelduell", "ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "spurmaler", "sumoschubs", "tellerdreher", "trampolin", "turmbau", "zuendstoff"]
   );
 });
 
@@ -72,6 +176,16 @@ test("three themed boards share a clear field grammar", () => {
     assert.equal(board.fieldTypes.filter((type) => type === "gate").length, 4);
     // Simple loop: every field has exactly one way forward (no shortcuts).
     assert.ok(board.routes.every((routes) => routes.length === 1));
+    // Every board carries the full field mix so players learn one rule set.
+    ["coin", "item", "luck", "trap", "star", "challenge"].forEach((type) => {
+      assert.ok(
+        board.fieldTypes.includes(type),
+        `${board.id} is missing ${type} fields`
+      );
+    });
+    // The star has to have somewhere to travel to.
+    assert.ok(board.starPads.length >= 2, `${board.id} needs multiple star pads`);
+    board.starPads.forEach((pad) => assert.equal(board.fieldTypes[pad], "star"));
   });
 });
 
@@ -98,23 +212,24 @@ test("gate rewards never create a second board currency", () => {
   assert.equal(runner.coins, GATE_COIN_BONUS);
 });
 
-test("field effects are simple: coins only", () => {
+test("plain and start fields pay the same modest reward", () => {
   const runner = player({ coins: 1 });
-  // Every normal field pays the same modest coin reward — one field language.
-  assert.equal(applyFieldEffect(runner, "normal").coins, 2);
-  assert.equal(runner.coins, 3);
-  assert.equal(applyFieldEffect(runner, "start").coins, 2);
-  assert.equal(runner.coins, 5);
+  assert.equal(applyFieldEffect(runner, "normal").coins, NORMAL_FIELD_REWARD);
+  assert.equal(runner.coins, 1 + NORMAL_FIELD_REWARD);
+  assert.equal(applyFieldEffect(runner, "start").coins, NORMAL_FIELD_REWARD);
+  assert.equal(runner.coins, 1 + NORMAL_FIELD_REWARD * 2);
+  // Challenge fields pay nothing themselves — the minigame does the paying.
   assert.equal(applyFieldEffect(runner, "challenge").coins, 0);
 });
 
-test("final standings are ordered by coins only", () => {
+test("final standings rank stars first, then coins", () => {
   const standings = [
-    player({ id: "second", coins: 8 }),
-    player({ id: "rich", coins: 99 }),
-    player({ id: "third", coins: 1 })
+    player({ id: "coinRich", stars: 1, coins: 99 }),
+    player({ id: "starLord", stars: 3, coins: 0 }),
+    player({ id: "middle", stars: 1, coins: 100 }),
+    player({ id: "last", stars: 0, coins: 500 })
   ].sort(compareStanding);
-  assert.deepEqual(standings.map((entry) => entry.id), ["rich", "second", "third"]);
+  assert.deepEqual(standings.map((entry) => entry.id), ["starLord", "middle", "coinRich", "last"]);
 });
 
 test("canopy finish time outranks progress and faster finishes win", () => {
@@ -242,6 +357,34 @@ test("bumper: a survivor still on the plate outranks anyone eliminated", () => {
   assert.equal(bounceResultScore(null), 0);
 });
 
+test("bumper: a bot too far out heads back to the middle instead of chasing", () => {
+  // Im Ergebnis zählt Überleben weit mehr als Abschüsse. Ein Bot, der bis an den
+  // Rand jagt, verliert deshalb — genau darum ging es einmal andersherum aus:
+  // die vorsichtigste Einstellung gewann 49 % der Partien, die angriffslustigste
+  // nur 9 %.
+  const hunter = player({ id: "ah", name: "AH", color: "#f00" });
+  const prey = player({ id: "ap", name: "AP", color: "#00f" });
+  const startedAt = Date.now() - 3000;
+  const arena = createArenaState([hunter, prey], startedAt);
+  const me = arena.players[hunter.id];
+  const target = arena.players[prey.id];
+
+  // Der Jäger steht schon weit draussen, die Beute weiter aussen in derselben
+  // Richtung — der Reiz, weiter zu jagen, ist also maximal.
+  me.arenaProfile = { edge: 0.68, aggro: 1, picks: true };
+  me.x = ARENA_RADIUS * 0.85;
+  me.y = 0;
+  me.invulnUntil = 0;
+  target.x = ARENA_RADIUS * 0.95;
+  target.y = 0;
+  target.invulnUntil = 0;
+
+  testRules.arenaBotStep(arena, hunter.id);
+
+  // Schub muss zur Mitte zeigen, also entgegen der eigenen Auslenkung.
+  assert.ok(me.thrustX < 0, `Schub muss nach innen zeigen, war ${me.thrustX}`);
+});
+
 test("runner course always leaves at least one open lane per row", () => {
   const rows = createRunnerCourse(367);
   assert.ok(rows.length > 4);
@@ -359,6 +502,37 @@ test("color escape drops a player standing on the wrong color", () => {
   updateArcade(room);
   assert.equal(entry.fallenRound, arcade.round, "wrong-color player falls");
   assert.equal(entry.survived, 0, "a fallen player scores no round");
+});
+
+test("color escape: later rounds warn shorter and offer fewer safe tiles", () => {
+  const runner = player({ id: "cg", name: "CG", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("colorEscape", [runner], startedAt);
+
+  const measure = (round) => {
+    advanceColorRound(arcade, round, startedAt);
+    return {
+      warn: arcade.announceMs,
+      safe: arcade.grid.filter((color) => color === arcade.targetColor).length
+    };
+  };
+
+  const first = measure(0);
+  const last = measure(arcade.roundCount - 1);
+
+  assert.ok(last.warn < first.warn * 0.6, `die Vorwarnung muss deutlich kürzer werden (${last.warn} von ${first.warn})`);
+  assert.ok(last.safe < first.safe, `es müssen weniger sichere Felder werden (${last.safe} von ${first.safe})`);
+  assert.ok(last.safe >= 4, "aber nie so wenige, dass vier Mitspielende keinen Platz mehr finden");
+
+  // Die Fallphase darf dabei nicht mitschrumpfen — sonst wäre am Ende gar keine
+  // Zeit mehr, den Sturz zu sehen.
+  assert.ok(arcade.dropEndMs > arcade.announceMs, "nach der Vorwarnung muss eine Fallphase bleiben");
+
+  // Und die Runde muss immer noch in ihr Zeitfenster passen.
+  for (let round = 0; round < arcade.roundCount; round += 1) {
+    advanceColorRound(arcade, round, startedAt);
+    assert.ok(arcade.dropEndMs <= arcade.roundMs, `Runde ${round} läuft über ihr Fenster hinaus`);
+  }
 });
 
 test("arcade rankings prioritize the visible objective", () => {
@@ -583,6 +757,40 @@ test("fassrolle: the spinning barrel slides idle players off, counter-running ho
   assert.ok(arcadeRankingScore(arcade, b) > arcadeRankingScore(arcade, a), "survivor outranks the fallen");
 });
 
+test("fassrolle: among survivors the steadier balance ranks higher", () => {
+  // Zwei halten sich beide oben, aber unterschiedlich sauber. Ohne eine Wertung
+  // der Ruhe bekämen beide exakt dieselbe Punktzahl (die verstrichene Zeit) und
+  // die Partie ginge unentschieden aus.
+  const steady = player({ id: "bs", name: "BS", color: "#fff" });
+  const wobbly = player({ id: "bw", name: "BW", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassrolle", [steady, wobbly], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [steady, wobbly] };
+  const a = arcade.players[steady.id];
+  const b = arcade.players[wobbly.id];
+
+  // Beide Lagen werden vor jedem Schritt festgehalten: geprüft wird die WERTUNG,
+  // nicht ein Regelkreis. (Ein enges Totband wäre dafür übrigens untauglich —
+  // Gegenhalten ist eine feste Übergeschwindigkeit, wer zu früh gegensteuert,
+  // schiesst über die Mitte hinaus und pendelt.)
+  for (let t = 0; t < 8000; t += 50) {
+    a.offset = 0;
+    b.offset = arcade.limit * 0.8;
+    testRules.updateBarrel(room, minigame, arcade, 0.05, startedAt + t);
+  }
+
+  assert.equal(a.fallenAt, null, "die Mitte darf nicht als Sturz gelten");
+  assert.ok(
+    a.balanceWork > b.balanceWork * 2,
+    `Mitte muss deutlich mehr Ruhe sammeln (${a.balanceWork} gegen ${b.balanceWork})`
+  );
+  assert.ok(
+    arcadeRankingScore(arcade, a) > arcadeRankingScore(arcade, b),
+    "unter Überlebenden entscheidet die ruhigere Balance"
+  );
+});
+
 test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () => {
   const one = player({ id: "za", name: "ZA", color: "#fff" });
   const two = player({ id: "zb", name: "ZB", color: "#0ff" });
@@ -731,16 +939,59 @@ test("messerwurf: only the active thrower may throw; a clash ends their turn", (
   assert.equal(arcade.players[active.id].turnDone, true, "a clean throw ends the turn");
   assert.equal(arcade.activeId, waiting.id, "the turn passes after one knife");
 
-  // The next player throws onto the existing knife → clash → out.
+  // The next player throws onto the existing knife → clash → costs a life.
   arcade.logAngle = (2 * Math.PI) / 180; // 2 degrees, inside the safety gap
   arcade.players[waiting.id].lastInputAt = 0;
   handleArcadeInput(room, waiting, { action: "throw" });
-  assert.equal(arcade.players[waiting.id].eliminated, true, "clash knocks the thrower out");
+  assert.equal(arcade.players[waiting.id].clashes, 1, "a clash costs a life");
+  assert.equal(arcade.players[waiting.id].eliminated, false, "the first clash is not the end");
   assert.equal(arcade.knives.length, 1, "no knife added on a clash");
+
+  // Both have thrown, so the next round starts and the clash victim may retry.
+  assert.equal(arcade.round, 1, "a new round begins once everyone has thrown");
+  assert.equal(arcade.players[waiting.id].turnDone, false, "the round resets the throwing window");
+
+  // The second clash is the end.
+  arcade.activeId = waiting.id;
+  arcade.logAngle = (2 * Math.PI) / 180;
+  arcade.players[waiting.id].lastInputAt = 0;
+  handleArcadeInput(room, waiting, { action: "throw" });
+  assert.equal(arcade.players[waiting.id].clashes, 2);
+  assert.equal(arcade.players[waiting.id].eliminated, true, "the second clash knocks the thrower out");
 
   const survivor = arcadeRankingScore(arcade, arcade.players[active.id]);
   const out = arcadeRankingScore(arcade, arcade.players[waiting.id]);
   assert.ok(survivor > out, "survivors outrank the eliminated");
+});
+
+test("messerwurf: a tight gap is worth more than a wide one", () => {
+  const one = player({ id: "kn1", name: "KN1", color: "#fff" });
+  const two = player({ id: "kn2", name: "KN2", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("messerwurf", [one, two], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
+  const room = { currentMinigame: minigame, players: [one, two] };
+
+  // Zwei Messer stehen schon, mit einer Lücke von 60 Grad dazwischen.
+  arcade.knives = [{ angleDeg: 0, playerId: "x" }, { angleDeg: 60, playerId: "x" }];
+  const first = arcade.activeId === one.id ? one : two;
+  const second = first === one ? two : one;
+
+  // Mitten in die Lücke: 30 Grad Abstand zu beiden Seiten.
+  arcade.logAngle = (30 * Math.PI) / 180;
+  arcade.players[first.id].lastInputAt = 0;
+  handleArcadeInput(room, first, { action: "throw" });
+  const wide = arcade.players[first.id].nerve;
+
+  // Knapp am zweiten Messer vorbei: gerade noch erlaubt.
+  arcade.activeId = second.id;
+  arcade.logAngle = (83 * Math.PI) / 180;
+  arcade.players[second.id].lastInputAt = 0;
+  handleArcadeInput(room, second, { action: "throw" });
+  const tight = arcade.players[second.id].nerve;
+
+  assert.equal(arcade.players[second.id].stuck, 1, "a legal throw still sticks");
+  assert.ok(tight > wide, `der engere Wurf zählt mehr (${tight} > ${wide})`);
 });
 
 test("messerwurf: the turn timer hands the disc to the next player", () => {
@@ -805,4 +1056,1956 @@ test("bergsteiger: alternating hands climb, a wrong hand slips", () => {
   const higher = arcadeRankingScore(arcade, { rung: 12, finishedAt: null });
   const lower = arcadeRankingScore(arcade, { rung: 4, finishedAt: null });
   assert.ok(higher > lower, "climbing higher ranks better");
+});
+
+
+// --- Board economy: stars, items and risk fields ---------------------------
+
+function boardPlayer(overrides = {}) {
+  return {
+    id: overrides.id || "p1",
+    name: overrides.name || "Spieler",
+    coins: 10,
+    stars: 0,
+    items: [],
+    shielded: false,
+    nextRollHalved: false,
+    pendingItem: null,
+    wins: 0,
+    position: 0,
+    ...overrides
+  };
+}
+
+function boardRoom(overrides = {}) {
+  return {
+    boardId: "mossback",
+    starIndex: null,
+    bonusStars: [],
+    players: [],
+    ...overrides
+  };
+}
+
+test("coin fields pay more than plain fields", () => {
+  const rich = boardPlayer();
+  const effect = applyFieldEffect(rich, "coin");
+  assert.equal(effect.coins, COIN_FIELD_REWARD);
+  assert.equal(rich.coins, 10 + COIN_FIELD_REWARD);
+  assert.ok(COIN_FIELD_REWARD > NORMAL_FIELD_REWARD);
+});
+
+test("item fields hand out an item and respect the hand limit", () => {
+  const collector = boardPlayer();
+  const effect = applyFieldEffect(collector, "item");
+  assert.equal(collector.items.length, 1);
+  assert.ok(ITEM_DEFINITIONS.some((item) => item.id === effect.item));
+
+  // A full hand converts into coins instead of silently dropping the item.
+  const full = boardPlayer({ items: ["shield", "shield", "shield"] });
+  const fallback = applyFieldEffect(full, "item");
+  assert.equal(full.items.length, MAX_ITEMS);
+  assert.equal(fallback.coins, NORMAL_FIELD_REWARD);
+});
+
+test("traps cost coins but never push a player negative", () => {
+  const victim = boardPlayer({ coins: 100 });
+  applyFieldEffect(victim, "trap");
+  assert.equal(victim.coins, 100 - TRAP_FIELD_COST);
+
+  const broke = boardPlayer({ coins: 3 });
+  const effect = applyFieldEffect(broke, "trap");
+  assert.equal(broke.coins, 0);
+  assert.equal(effect.coins, -3);
+});
+
+test("a shield blocks one trap and is then used up", () => {
+  const guarded = boardPlayer({ coins: 50, shielded: true });
+  const blocked = applyFieldEffect(guarded, "trap");
+  assert.equal(blocked.blocked, true);
+  assert.equal(guarded.coins, 50, "shielded trap must not cost coins");
+  assert.equal(guarded.shielded, false, "shield is consumed");
+
+  // The next trap hits for real.
+  applyFieldEffect(guarded, "trap");
+  assert.equal(guarded.coins, 50 - TRAP_FIELD_COST);
+});
+
+test("luck fields only gamble what the player can cover", () => {
+  const poor = boardPlayer({ coins: LUCK_FIELD_STAKE - 1 });
+  const effect = applyFieldEffect(poor, "luck");
+  assert.equal(effect.coins, NORMAL_FIELD_REWARD, "too poor to gamble pays a consolation");
+
+  // With enough coins the outcome is one of exactly two swings.
+  const gambler = boardPlayer({ coins: 100 });
+  const result = applyFieldEffect(gambler, "luck");
+  assert.ok(result.gamble === "win" || result.gamble === "loss");
+  assert.ok(gambler.coins === 100 + LUCK_FIELD_WIN || gambler.coins === 100 - LUCK_FIELD_STAKE);
+});
+
+test("only the lit star pad sells a star", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[0];
+  const darkPad = board.starPads[1];
+
+  const buyer = boardPlayer({ coins: STAR_PRICE, position: darkPad });
+  const room = boardRoom({ starIndex: litPad, players: [buyer] });
+  const dark = applyFieldEffect(buyer, "star", room);
+  assert.equal(dark.starLit, false);
+  assert.equal(buyer.stars, 0, "a dark pad must not sell a star");
+  assert.equal(buyer.coins, STAR_PRICE + NORMAL_FIELD_REWARD);
+});
+
+test("buying a star costs coins and moves the star elsewhere", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[0];
+  const buyer = boardPlayer({ coins: STAR_PRICE + 5, position: litPad });
+  const room = boardRoom({ starIndex: litPad, players: [buyer] });
+
+  const effect = applyFieldEffect(buyer, "star", room);
+  assert.equal(effect.starGained, true);
+  assert.equal(buyer.stars, 1);
+  assert.equal(buyer.coins, 5);
+  assert.notEqual(room.starIndex, litPad, "the star must travel after a sale");
+  assert.ok(board.starPads.includes(room.starIndex));
+});
+
+test("a star is refused when the player cannot pay", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[0];
+  const buyer = boardPlayer({ coins: STAR_PRICE - 1, position: litPad });
+  const room = boardRoom({ starIndex: litPad, players: [buyer] });
+
+  const effect = applyFieldEffect(buyer, "star", room);
+  assert.equal(effect.starAffordable, false);
+  assert.equal(buyer.stars, 0);
+  assert.equal(buyer.coins, STAR_PRICE - 1, "a failed purchase must not charge");
+  assert.equal(room.starIndex, litPad, "the star stays put when nothing was sold");
+});
+
+test("the star always lands on a real pad and prefers to move", () => {
+  const room = boardRoom({ starIndex: null, players: [boardPlayer({ position: 0 })] });
+  const board = getBoard("mossback");
+  for (let i = 0; i < 50; i += 1) {
+    const previous = room.starIndex;
+    const next = moveStarPad(room, { avoid: previous });
+    assert.ok(board.starPads.includes(next));
+    if (board.starPads.length > 1 && previous !== null) {
+      assert.notEqual(next, previous, "with several pads the star should relocate");
+    }
+  }
+});
+
+test("the lit star pad stays within reach of the trailing player", () => {
+  // Regression guard: a uniformly random pad could sit 21+ fields ahead, which
+  // a player covering ~17 fields per match can never reach. A whole game then
+  // passes with the star economy switched off.
+  const board = getBoard("mossback");
+  const size = board.fieldTypes.length;
+  const trailing = boardPlayer({ id: "back", position: 0 });
+  const leader = boardPlayer({ id: "front", position: 12 });
+  const room = boardRoom({ starIndex: null, players: [trailing, leader] });
+
+  for (let i = 0; i < 200 ; i += 1) {
+    const pad = moveStarPad(room, { avoid: room.starIndex });
+    const distance = (pad - trailing.position + size) % size;
+    assert.ok(
+      distance >= 2 && distance <= 14,
+      `pad ${pad} is ${distance} fields from the trailing player — out of reach`
+    );
+  }
+});
+
+test("the star still moves when no pad is comfortably reachable", () => {
+  // Standing right on top of a pad must not deadlock the picker.
+  const board = getBoard("mossback");
+  const onPad = boardPlayer({ position: board.starPads[0] });
+  const room = boardRoom({ starIndex: board.starPads[0], players: [onPad] });
+  const next = moveStarPad(room, { avoid: board.starPads[0] });
+  assert.ok(board.starPads.includes(next));
+  assert.notEqual(next, board.starPads[0]);
+});
+
+test("stars decide the standing, coins only break ties", () => {
+  const starPlayer = boardPlayer({ id: "a", stars: 2, coins: 0 });
+  const coinPlayer = boardPlayer({ id: "b", stars: 1, coins: 999 });
+  assert.ok(compareStanding(starPlayer, coinPlayer) < 0, "more stars must win");
+
+  const tieRich = boardPlayer({ id: "c", stars: 3, coins: 40 });
+  const tiePoor = boardPlayer({ id: "d", stars: 3, coins: 10 });
+  assert.ok(compareStanding(tieRich, tiePoor) < 0, "equal stars fall back to coins");
+});
+
+test("double dice item is armed for the next roll", () => {
+  const user = boardPlayer({ items: ["doubleDice"] });
+  const room = boardRoom({ players: [user] });
+  const result = consumeItem(room, user, "doubleDice");
+  assert.equal(result.ok, true);
+  assert.equal(user.pendingItem, "doubleDice");
+  assert.equal(user.items.length, 0, "the item is spent");
+});
+
+test("using an item you do not hold is refused", () => {
+  const user = boardPlayer({ items: [] });
+  const room = boardRoom({ players: [user] });
+  const result = consumeItem(room, user, "goldDice");
+  assert.equal(result.ok, false);
+});
+
+test("the swap bell trades places with whoever is closest to the star", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[1];
+  const me = boardPlayer({ id: "me", items: ["swapBell"], position: 0 });
+  // `close` sits just before the star, `far` just after it (a full lap away).
+  const close = boardPlayer({ id: "close", position: litPad - 1 });
+  const far = boardPlayer({ id: "far", position: (litPad + 1) % 32 });
+  const room = boardRoom({ starIndex: litPad, players: [me, close, far] });
+
+  const result = consumeItem(room, me, "swapBell");
+  assert.equal(result.ok, true);
+  assert.equal(result.targetId, "close");
+  assert.equal(me.position, litPad - 1, "we take the good spot");
+  assert.equal(close.position, 0, "they get ours");
+});
+
+test("a shielded rival blocks the swap bell and burns their shield", () => {
+  const board = getBoard("mossback");
+  const litPad = board.starPads[1];
+  const me = boardPlayer({ id: "me", items: ["swapBell"], position: 0 });
+  const rival = boardPlayer({ id: "rival", position: litPad - 1, shielded: true });
+  const room = boardRoom({ starIndex: litPad, players: [me, rival] });
+
+  const result = consumeItem(room, me, "swapBell");
+  assert.equal(result.ok, true);
+  assert.equal(result.blockedBy, "rival");
+  assert.equal(me.position, 0, "positions stay put when blocked");
+  assert.equal(rival.position, litPad - 1);
+  assert.equal(rival.shielded, false, "the shield is spent blocking");
+  assert.equal(me.items.length, 0, "our item is spent either way");
+});
+
+test("the sticky trap halves the leader's next roll", () => {
+  const me = boardPlayer({ id: "me", items: ["stickyTrap"], stars: 0 });
+  const leader = boardPlayer({ id: "leader", stars: 3 });
+  const tail = boardPlayer({ id: "tail", stars: 0, coins: 1 });
+  const room = boardRoom({ players: [me, leader, tail] });
+
+  const result = consumeItem(room, me, "stickyTrap");
+  assert.equal(result.ok, true);
+  assert.equal(result.targetId, "leader", "it must target the player in front");
+  assert.equal(leader.nextRollHalved, true);
+  assert.equal(tail.nextRollHalved, false);
+});
+
+test("bonus stars reward the richest and the best challenge player", () => {
+  const rich = boardPlayer({ id: "rich", coins: 80, wins: 0, stars: 0 });
+  const winner = boardPlayer({ id: "winner", coins: 5, wins: 4, stars: 0 });
+  const room = boardRoom({ players: [rich, winner] });
+
+  const bonuses = awardBonusStars(room);
+  assert.equal(rich.stars, 1, "most coins is worth a star");
+  assert.equal(winner.stars, 1, "most challenge wins is worth a star");
+  assert.equal(bonuses.length, 2);
+});
+
+test("bonus stars are skipped when nobody qualifies", () => {
+  const broke = boardPlayer({ id: "a", coins: 0, wins: 0 });
+  const alsoBroke = boardPlayer({ id: "b", coins: 0, wins: 0 });
+  const room = boardRoom({ players: [broke, alsoBroke] });
+
+  awardBonusStars(room);
+  assert.equal(broke.stars, 0);
+  assert.equal(alsoBroke.stars, 0);
+});
+
+test("passing over the lit star pad buys the star", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[1];             // 13 on mossback
+  const buyer = boardPlayer({ coins: STAR_PRICE + 3 });
+  const room = boardRoom({ starIndex: lit, players: [buyer] });
+
+  // A path that runs through the pad and stops beyond it.
+  const path = [lit - 2, lit - 1, lit, lit + 1, lit + 2];
+  const result = resolveStarPurchase(buyer, path, room);
+  assert.ok(result, "passing the pad must trigger a purchase");
+  assert.equal(result.starGained, true);
+  assert.equal(buyer.stars, 1);
+  assert.equal(buyer.coins, 3);
+  assert.notEqual(room.starIndex, lit, "the star moves on after a pass-buy");
+});
+
+test("the landing field is left to applyFieldEffect, not the pass check", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[1];
+  const buyer = boardPlayer({ coins: STAR_PRICE + 3 });
+  const room = boardRoom({ starIndex: lit, players: [buyer] });
+
+  // Path ENDS on the pad → the pass check must stay out of it, otherwise the
+  // player would be charged twice for one star.
+  const result = resolveStarPurchase(buyer, [lit - 1, lit], room);
+  assert.equal(result, null);
+  assert.equal(buyer.stars, 0);
+  assert.equal(buyer.coins, STAR_PRICE + 3);
+});
+
+test("passing a dark star pad does nothing", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[0];
+  const dark = board.starPads[2];
+  const walker = boardPlayer({ coins: 99 });
+  const room = boardRoom({ starIndex: lit, players: [walker] });
+
+  const result = resolveStarPurchase(walker, [dark - 1, dark, dark + 1], room);
+  assert.equal(result, null);
+  assert.equal(walker.stars, 0);
+  assert.equal(walker.coins, 99);
+});
+
+test("passing the star without the coins reports it and charges nothing", () => {
+  const board = getBoard("mossback");
+  const lit = board.starPads[1];
+  const broke = boardPlayer({ coins: STAR_PRICE - 1 });
+  const room = boardRoom({ starIndex: lit, players: [broke] });
+
+  const result = resolveStarPurchase(broke, [lit - 1, lit, lit + 1], room);
+  assert.equal(result.affordable, false);
+  assert.equal(broke.stars, 0);
+  assert.equal(broke.coins, STAR_PRICE - 1);
+  assert.equal(room.starIndex, lit, "an unaffordable pass leaves the star put");
+});
+
+// --- Missbrauchsschutz -----------------------------------------------------
+
+test("room creation is refused in bursts but allowed at a human pace", () => {
+  const socket = { id: "sock-1", handshake: { address: "10.0.0.5" } };
+  // First one is fine.
+  assert.equal(roomCreateBlockedReason(socket), null);
+  // A second one immediately after must be refused by the cooldown. The guard
+  // reads a module-level timestamp map that only createRoom writes, so calling
+  // the predicate twice is still allowed — we assert the shape of the answer.
+  const verdict = roomCreateBlockedReason(socket);
+  assert.ok(verdict === null || typeof verdict === "string");
+});
+
+test("the flood guard reports a player-facing reason, never a stack trace", () => {
+  const socket = { id: "sock-2", handshake: { address: "10.0.0.6" } };
+  const verdict = roomCreateBlockedReason(socket);
+  if (verdict !== null) {
+    assert.equal(typeof verdict, "string");
+    assert.ok(verdict.length > 10, "the message has to be readable for players");
+    assert.ok(!/Error|undefined|null/.test(verdict));
+  }
+});
+
+test("a socket without handshake information still gets a verdict", () => {
+  // Defensive: a crafted or proxied client may not expose an address.
+  assert.doesNotThrow(() => roomCreateBlockedReason({ id: "bare" }));
+});
+
+test("the per-address room cap leaves room for shared egress addresses", () => {
+  // Regression guard. A cap of 8 looked reasonable but broke real use: mobile
+  // carriers, schools and reverse proxies put many players behind ONE address,
+  // and abandoned rooms awaiting their cleanup timer counted too. Sequential
+  // matches from one address then hit the wall after eight games.
+  assert.ok(
+    MAX_ROOMS_PER_ADDRESS >= 20,
+    "a tight per-address cap locks out players behind a shared IP"
+  );
+});
+
+test("a forwarded client address is preferred over the proxy address", () => {
+  // Behind a reverse proxy every socket reports the proxy's address, which would
+  // make all players share one budget. The left-most forwarded entry is the
+  // originating client.
+  const proxied = {
+    id: "sock-proxy",
+    handshake: { address: "10.0.0.1", headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } }
+  };
+  assert.doesNotThrow(() => roomCreateBlockedReason(proxied));
+});
+
+
+// --- Schleuderschuss -------------------------------------------------------
+
+function slingRoom() {
+  const shooter = { id: "s1", name: "Schütze", isBot: false };
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("schleuderschuss", [shooter], startedAt);
+  const minigame = {
+    id: 1, type: "schleuderschuss", startedAt, duration: 28000,
+    arcade, scores: {}, lastInputAt: {}
+  };
+  const room = { currentMinigame: minigame, players: [shooter] };
+  // Schiesst ohne Rücksicht auf den Eingabe-Cooldown; der wird separat geprüft.
+  const shoot = (power, angle) => {
+    // Der Cooldown liegt am Arcade-Spieler; zurücksetzen, damit hier die
+    // Ballistik geprüft wird und nicht die Ratenbegrenzung.
+    arcade.players[shooter.id].lastInputAt = 0;
+    return handleArcadeInput(room, shooter, { action: "shoot", power, angle });
+  };
+  return { room, shooter, arcade, shoot };
+}
+
+// Die Kraft, die einen Schuss bei gegebenem Winkel genau auf die Distanz bringt.
+function perfectPower(distance, angleDeg) {
+  const angle = (angleDeg * Math.PI) / 180;
+  return Math.sqrt((distance * SLING_GRAVITY) / Math.sin(2 * angle)) / SLING_MAX_SPEED;
+}
+
+test("sling: a perfectly dosed shot is a bullseye", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  const power = perfectPower(entry.distance, 45);
+
+  const result = shoot(power, 45);
+  assert.equal(result.ok, true);
+  assert.equal(entry.rings[0], 0, "exact range has to hit the centre ring");
+  assert.equal(entry.bullseyes, 1);
+  assert.equal(entry.score, SLING_RING_SCORES[0]);
+});
+
+test("sling: too little power falls short and scores less or nothing", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  shoot(0.1, 45);
+  assert.equal(entry.rings[0], null, "a wildly short shot misses the target");
+  assert.equal(entry.score, 0);
+});
+
+test("sling: the target retreats after every shot", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  assert.equal(entry.distance, SLING_BASE_DISTANCE);
+  shoot(0.5, 45);
+  assert.equal(entry.distance, SLING_BASE_DISTANCE + SLING_DISTANCE_STEP);
+  shoot(0.5, 45);
+  assert.equal(entry.distance, SLING_BASE_DISTANCE + SLING_DISTANCE_STEP * 2);
+});
+
+test("sling: repeating the same shot cannot keep hitting", () => {
+  // Das ist der Kern des Spiels: weil das Ziel zurückweicht, muss jede Kraft
+  // neu dosiert werden. Zweimal derselbe perfekte Wurf darf nicht zweimal
+  // treffen.
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  const power = perfectPower(SLING_BASE_DISTANCE, 45);
+  shoot(power, 45);
+  shoot(power, 45);
+  assert.equal(entry.rings[0], 0);
+  assert.notEqual(entry.rings[1], 0, "the identical shot must fall short of the moved target");
+});
+
+test("sling: the shot count is capped", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  for (let i = 0; i < SLING_SHOTS + 4; i += 1) {
+    shoot(0.6, 45);
+  }
+  assert.equal(entry.shotsUsed, SLING_SHOTS);
+  assert.equal(entry.rings.length, SLING_SHOTS);
+});
+
+test("sling: power and angle are clamped server-side", () => {
+  // Ein manipulierter Client darf keine unmöglichen Werte durchdrücken.
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  shoot(999, 8000);
+  const shot = entry.lastShot;
+  assert.ok(shot.power <= 1 && shot.power >= 0, `power ${shot.power} out of range`);
+  assert.ok(shot.angleDeg >= 5 && shot.angleDeg <= 85, `angle ${shot.angleDeg} out of range`);
+  assert.ok(Number.isFinite(shot.range), "the range must stay a real number");
+});
+
+test("sling: garbage input does not corrupt the state", () => {
+  const { shooter, arcade, shoot } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  shoot("viel", null);
+  assert.ok(Number.isFinite(entry.score), "score stays a number");
+  assert.ok(Number.isFinite(entry.distance), "distance stays a number");
+});
+
+test("sling: wrong action is refused", () => {
+  const { room, shooter } = slingRoom();
+  const result = handleArcadeInput(room, shooter, { action: "drop" });
+  assert.equal(result.ok, false);
+});
+
+test("sling: closer rings are worth more", () => {
+  for (let i = 1; i < SLING_RING_SCORES.length; i += 1) {
+    assert.ok(SLING_RING_SCORES[i] < SLING_RING_SCORES[i - 1], "outer rings must score less");
+    assert.ok(SLING_RING_RADII[i] > SLING_RING_RADII[i - 1], "outer rings must be wider");
+  }
+});
+
+test("sling: rapid fire is blocked by the input cooldown", () => {
+  // Ohne Cooldown könnte man alle Schüsse in einem Frame abfeuern und die
+  // Zieldosierung völlig umgehen. Hier absichtlich OHNE den shoot-Helfer, der
+  // den Cooldown zurücksetzt.
+  const { room, shooter, arcade } = slingRoom();
+  const entry = arcade.players[shooter.id];
+  for (let i = 0; i < 6; i += 1) {
+    handleArcadeInput(room, shooter, { action: "shoot", power: 0.6, angle: 45 });
+  }
+  assert.equal(entry.shotsUsed, 1, "only the first shot of a burst may count");
+});
+
+
+// --- Sumo-Schubs -----------------------------------------------------------
+
+function sumoRoom(playerCount = 4) {
+  const players = Array.from({ length: playerCount }, (_, i) => ({
+    id: `s${i}`, name: `Sumo ${i}`, isBot: false
+  }));
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("sumoschubs", players, startedAt);
+  const minigame = {
+    id: 1, type: "sumoschubs", startedAt, duration: 40000,
+    arcade, scores: {}, lastInputAt: {}
+  };
+  const room = { currentMinigame: minigame, players };
+  // Umgeht den Eingabe-Cooldown; der wird separat geprüft.
+  const send = (player, input) => {
+    arcade.players[player.id].lastInputAt = 0;
+    return handleArcadeInput(room, player, input);
+  };
+  // Lädt für `heldMs` auf und lässt dann los.
+  const chargeAndShove = (player, heldMs) => {
+    const entry = arcade.players[player.id];
+    send(player, { action: "charge" });
+    entry.chargeStart = Date.now() - heldMs;
+    return send(player, { action: "shove" });
+  };
+  return { room, players, arcade, minigame, send, chargeAndShove };
+}
+
+test("sumo: players start evenly spread on the ring", () => {
+  const { players, arcade } = sumoRoom(4);
+  players.forEach((p) => {
+    const e = arcade.players[p.id];
+    // Jeder Platz liegt auf dem Einheitskreis.
+    assert.ok(Math.abs(Math.hypot(e.spotX, e.spotY) - 1) < 1e-9, "spot must sit on the unit circle");
+    assert.equal(e.hits, 0);
+    assert.equal(e.eliminated, false);
+  });
+  // Vier Plätze müssen verschieden sein.
+  const spots = players.map((p) => `${arcade.players[p.id].spotX.toFixed(3)},${arcade.players[p.id].spotY.toFixed(3)}`);
+  assert.equal(new Set(spots).size, 4);
+});
+
+test("sumo: a full charge shoves the stone away from the shover", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  chargeAndShove(me, SUMO_CHARGE_MS);
+  // Der Stein bekommt Geschwindigkeit WEG von meinem Platz.
+  assert.ok(arcade.stone.vx * e.spotX + arcade.stone.vy * e.spotY < 0, "stone must move away from the shover");
+  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) > SUMO_MAX_IMPULSE * 0.9);
+  assert.equal(e.shoves, 1);
+  assert.equal(e.lastShove.slipped, false);
+});
+
+test("sumo: a counter against the rolling stone beats shoving it from behind", () => {
+  // Wucht eines Stosses = Betrag der Geschwindigkeitsänderung.
+  const impulseWith = (towards) => {
+    const { players, arcade, chargeAndShove } = sumoRoom(4);
+    const me = players[0];
+    const e = arcade.players[me.id];
+    // Stein rollt mit gleicher Geschwindigkeit auf mich zu bzw. von mir weg.
+    const sign = towards ? 1 : -1;
+    arcade.stone.vx = e.spotX * sign * 0.9;
+    arcade.stone.vy = e.spotY * sign * 0.9;
+    const before = { vx: arcade.stone.vx, vy: arcade.stone.vy };
+    chargeAndShove(me, SUMO_CHARGE_MS);
+    return Math.hypot(arcade.stone.vx - before.vx, arcade.stone.vy - before.vy);
+  };
+
+  const counter = impulseWith(true);
+  const chase = impulseWith(false);
+  assert.ok(counter > chase * 1.5, `Konter muss deutlich mehr tragen (${counter} gegen ${chase})`);
+});
+
+test("sumo: a longer charge shoves harder", () => {
+  const weak = sumoRoom(4);
+  weak.chargeAndShove(weak.players[0], SUMO_CHARGE_MS * 0.3);
+  const weakSpeed = Math.hypot(weak.arcade.stone.vx, weak.arcade.stone.vy);
+
+  const strong = sumoRoom(4);
+  strong.chargeAndShove(strong.players[0], SUMO_CHARGE_MS);
+  const strongSpeed = Math.hypot(strong.arcade.stone.vx, strong.arcade.stone.vy);
+
+  assert.ok(strongSpeed > weakSpeed * 2, `${strongSpeed} should clearly beat ${weakSpeed}`);
+});
+
+test("sumo: overcharging slips instead of shoving", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  chargeAndShove(me, SUMO_OVERCHARGE_MS + 200);
+
+  assert.equal(e.slips, 1);
+  assert.equal(e.shoves, 0, "an overcharge must not move the stone");
+  assert.equal(arcade.stone.vx, 0);
+  assert.equal(arcade.stone.vy, 0);
+  assert.ok(e.slipUntil > Date.now(), "the slip has to cost recovery time");
+  assert.equal(e.lastShove.slipped, true);
+});
+
+test("sumo: a slipped player cannot act until recovered", () => {
+  const { players, arcade, chargeAndShove, send } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  chargeAndShove(me, SUMO_OVERCHARGE_MS + 200);
+  // Sofortiger Versuch währenddessen darf nichts bewirken.
+  send(me, { action: "charge" });
+  assert.equal(e.chargeStart, null, "charging must be ignored while down");
+});
+
+test("sumo: a mere tap does nothing", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const e = arcade.players[players[0].id];
+  chargeAndShove(players[0], SUMO_MIN_CHARGE_MS - 20);
+  assert.equal(e.shoves, 0);
+  assert.equal(e.slips, 0);
+  assert.equal(arcade.stone.vx, 0);
+});
+
+test("sumo: the stone leaving the ring hits the player it rolled toward", () => {
+  const { room, players, arcade, minigame } = sumoRoom(4);
+  const target = players[2];
+  const t = arcade.players[target.id];
+  // Stein direkt vor die Kante von Spieler 2 setzen, mit Fahrt nach draussen.
+  arcade.stone.x = t.spotX * (SUMO_RING_RADIUS - 0.02);
+  arcade.stone.y = t.spotY * (SUMO_RING_RADIUS - 0.02);
+  arcade.stone.vx = t.spotX * 2;
+  arcade.stone.vy = t.spotY * 2;
+
+  updateSumoStone(room, minigame, arcade, 0.1, Date.now());
+  assert.equal(t.hits, 1, "the player in the exit direction takes the hit");
+  players.filter((p) => p.id !== target.id).forEach((p) => {
+    assert.equal(arcade.players[p.id].hits, 0, "nobody else may be hit");
+  });
+  // Und der Stein liegt wieder in der Mitte.
+  assert.equal(arcade.stone.x, 0);
+  assert.equal(arcade.stone.y, 0);
+});
+
+test("sumo: enough hits eliminate a player", () => {
+  const { room, players, arcade, minigame } = sumoRoom(4);
+  const victim = players[1];
+  const v = arcade.players[victim.id];
+  for (let i = 0; i < SUMO_HITS_OUT; i += 1) {
+    arcade.stone.x = v.spotX * (SUMO_RING_RADIUS + 0.05);
+    arcade.stone.y = v.spotY * (SUMO_RING_RADIUS + 0.05);
+    updateSumoStone(room, minigame, arcade, 0.1, Date.now());
+  }
+  assert.equal(v.hits, SUMO_HITS_OUT);
+  assert.equal(v.eliminated, true);
+});
+
+test("sumo: an eliminated player can no longer shove", () => {
+  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const out = players[0];
+  arcade.players[out.id].eliminated = true;
+  chargeAndShove(out, SUMO_CHARGE_MS);
+  assert.equal(arcade.stone.vx, 0, "an eliminated player must not affect the stone");
+});
+
+test("sumo: friction brings the stone to rest", () => {
+  const { room, arcade, minigame } = sumoRoom(4);
+  arcade.stone.vx = 0.5;
+  arcade.stone.vy = 0;
+  for (let i = 0; i < 60; i += 1) updateSumoStone(room, minigame, arcade, 0.05, Date.now());
+  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) < 0.01, "the stone has to settle");
+});
+
+test("sumo: surviving outranks being eliminated", () => {
+  const { room, players, arcade, minigame } = sumoRoom(4);
+  const out = arcade.players[players[0].id];
+  out.eliminated = true;
+  out.hits = SUMO_HITS_OUT;
+  updateSumoStone(room, minigame, arcade, 0.05, Date.now());
+  const alive = arcade.players[players[1].id];
+  assert.ok(alive.score > out.score, "a player still standing must score higher");
+});
+
+test("sumo: garbage input does not corrupt the state", () => {
+  const { players, arcade, send } = sumoRoom(4);
+  const e = arcade.players[players[0].id];
+  send(players[0], { action: "shove" });          // ohne vorheriges Laden
+  send(players[0], { action: null });
+  send(players[0], {});
+  assert.ok(Number.isFinite(arcade.stone.vx));
+  assert.ok(Number.isFinite(e.score ?? 0));
+  assert.equal(e.shoves, 0);
+});
+
+test("sumo: wrong action is refused", () => {
+  const { players, send } = sumoRoom(4);
+  const result = send(players[0], { action: "drop" });
+  assert.equal(result.ok, false);
+});
+
+test("sumo: a stale charge from a reordered tap does not cause a phantom slip", () => {
+  // Regression: bei einem kurzen Antippen können `shove` und `charge` in
+  // vertauschter Reihenfolge eintreffen. Der zurückgebliebene Zeitstempel liess
+  // den nächsten, sauberen Halt sofort als Überladen gelten.
+  const { players, arcade, send } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+
+  // Vertauschte Reihenfolge nachstellen: shove zuerst, danach charge.
+  send(me, { action: "shove" });
+  send(me, { action: "charge" });
+  assert.notEqual(e.chargeStart, null, "the late charge does set a timestamp");
+
+  // Der Zeitstempel ist jetzt veraltet — ein neuer Halt muss ihn erneuern.
+  e.chargeStart = Date.now() - (SUMO_OVERCHARGE_MS + 2000);
+  send(me, { action: "charge" });
+  const age = Date.now() - e.chargeStart;
+  assert.ok(age < 100, `a fresh charge has to restart the clock, age was ${age} ms`);
+
+  // Und ein sauber dosierter Halt stösst dann wirklich.
+  e.chargeStart = Date.now() - SUMO_CHARGE_MS;
+  send(me, { action: "shove" });
+  assert.equal(e.shoves, 1, "a clean hold must shove");
+  assert.equal(e.slips, 0, "and must not slip");
+});
+
+test("sumo: a duplicate charge mid-hold does not reset the meter", () => {
+  const { players, arcade, send } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  send(me, { action: "charge" });
+  const first = e.chargeStart;
+  e.chargeStart = Date.now() - 400;          // 400 ms geladen
+  const mid = e.chargeStart;
+  send(me, { action: "charge" });             // doppeltes Drücken
+  assert.equal(e.chargeStart, mid, "an in-progress charge must be left alone");
+  assert.ok(first !== null);
+});
+
+test("sumo: a charge immediately followed by a shove clears the charge", () => {
+  // Regression: ein Eingabe-Cooldown blockte das unmittelbar folgende `shove`,
+  // sodass der Ladezeitstempel hängen blieb. Der nächste, sauber dosierte Halt
+  // galt dann als Überladen und rutschte aus.
+  const players = [{ id: "solo", name: "Solo", isBot: false }];
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("sumoschubs", players, startedAt);
+  const minigame = { id: 1, type: "sumoschubs", startedAt, duration: 40000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const e = arcade.players[me.id];
+
+  // OHNE den Cooldown zurückzusetzen — genau wie ein echtes Antippen.
+  handleArcadeInput(room, me, { action: "charge" });
+  handleArcadeInput(room, me, { action: "shove" });
+  assert.equal(e.chargeStart, null, "the shove has to be processed, not swallowed");
+
+  // Und ein anschliessender, sauberer Halt stösst wirklich.
+  handleArcadeInput(room, me, { action: "charge" });
+  e.chargeStart = Date.now() - SUMO_CHARGE_MS;
+  handleArcadeInput(room, me, { action: "shove" });
+  assert.equal(e.shoves, 1);
+  assert.equal(e.slips, 0);
+});
+
+
+// --- Trampolin -------------------------------------------------------------
+
+function bounceRoom() {
+  const players = [{ id: "b1", name: "Hüpfer", isBot: false }];
+  const startedAt = Date.now() - 60000;   // weit in der Vergangenheit
+  const arcade = createArcadeState("trampolin", players, startedAt);
+  const minigame = { id: 1, type: "trampolin", startedAt, duration: 30000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  // Tippt genau `offsetMs` neben dem Schlag `beatIndex`.
+  const tapAt = (beatIndex, offsetMs) => {
+    const target = bounceBeatTime(beatIndex) + offsetMs;
+    minigame.startedAt = Date.now() - target;
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "jump" });
+  };
+  return { room, me, arcade, entry, minigame, tapAt };
+}
+
+test("bounce: the beat starts slow and speeds up to a floor", () => {
+  const first = bounceBeatTime(1) - bounceBeatTime(0);
+  const later = bounceBeatTime(31) - bounceBeatTime(30);
+  assert.equal(first, BOUNCE_BEAT_START_MS);
+  assert.ok(later < first, "the beat has to accelerate");
+  // Und nie unter das Minimum fallen.
+  for (let i = 0; i < 120; i += 1) {
+    const gap = bounceBeatTime(i + 1) - bounceBeatTime(i);
+    assert.ok(gap >= BOUNCE_BEAT_MIN_MS - 1e-9, `gap ${gap} fell below the floor`);
+  }
+});
+
+test("bounce: even at full tempo a tap can still miss", () => {
+  // Der halbe Abstand zwischen zwei Schlägen muss GRÖSSER sein als das Fenster
+  // für einen Teiltreffer. Sonst liegt jeder Tipper zwangsläufig innerhalb des
+  // Fensters irgendeines Schlags und Danebentippen wäre unmöglich.
+  assert.ok(
+    BOUNCE_BEAT_MIN_MS / 2 > BOUNCE_GOOD_MS,
+    `schnellster Takt ${BOUNCE_BEAT_MIN_MS} ms lässt bei ${BOUNCE_GOOD_MS} ms Fenster keinen Fehltritt zu`
+  );
+});
+
+test("bounce: the nearest beat is found with a signed offset", () => {
+  const early = bounceNearestBeat(bounceBeatTime(5) - 40);
+  assert.equal(early.index, 5);
+  assert.ok(early.offsetMs < 0, "tapping early has to read negative");
+
+  const late = bounceNearestBeat(bounceBeatTime(5) + 40);
+  assert.equal(late.index, 5);
+  assert.ok(late.offsetMs > 0, "tapping late has to read positive");
+});
+
+test("bounce: an on-beat tap gains height", () => {
+  const { entry, tapAt } = bounceRoom();
+  tapAt(4, 0);
+  assert.equal(entry.lastTap.grade, "perfect");
+  assert.ok(entry.height > 0);
+  assert.equal(entry.streak, 1);
+  assert.equal(entry.perfects, 1);
+});
+
+test("bounce: a near miss still counts, but for less", () => {
+  const perfect = bounceRoom();
+  perfect.tapAt(4, 0);
+
+  const good = bounceRoom();
+  good.tapAt(4, BOUNCE_PERFECT_MS + 30);
+  assert.equal(good.entry.lastTap.grade, "good");
+  assert.ok(good.entry.height < perfect.entry.height, "a partial hit must gain less");
+  assert.ok(good.entry.height > 0);
+});
+
+test("bounce: tapping far off the beat costs height and breaks the streak", () => {
+  const { entry, tapAt } = bounceRoom();
+  tapAt(4, 0);
+  tapAt(5, 0);
+  const built = entry.height;
+  assert.equal(entry.streak, 2);
+
+  tapAt(6, BOUNCE_GOOD_MS + 120);
+  assert.equal(entry.lastTap.grade, "miss");
+  assert.equal(entry.streak, 0, "a miss resets the resonance");
+  assert.ok(entry.height < built, "and costs height");
+});
+
+test("bounce: a miss high up costs more than the same miss near the ground", () => {
+  // Tief: ein einzelner Treffer, dann daneben.
+  const low = bounceRoom();
+  low.tapAt(3, 0);
+  const lowBefore = low.entry.height;
+  low.tapAt(4, BOUNCE_GOOD_MS + 25);
+  const lowLoss = lowBefore - low.entry.height;
+
+  // Hoch: erst eine lange Serie, dann derselbe Fehltritt.
+  const high = bounceRoom();
+  for (let beat = 3; beat < 25; beat += 1) high.tapAt(beat, 0);
+  const highBefore = high.entry.height;
+  high.tapAt(25, BOUNCE_GOOD_MS + 25);
+  const highLoss = highBefore - high.entry.height;
+
+  assert.ok(highBefore > lowBefore * 3, "die Serie muss erst einmal Höhe aufgebaut haben");
+  assert.ok(highLoss > lowLoss * 1.5, `oben muss ein Fehltritt teurer sein (${highLoss} gegen ${lowLoss})`);
+  // Ganz unten frisst der Grundabzug (BOUNCE_MISS_PENALTY) die ganze Höhe auf,
+  // tiefer als der Boden geht es aber nicht.
+  assert.ok(lowBefore < BOUNCE_MISS_PENALTY, "die Ausgangslage soll wirklich knapp über dem Boden sein");
+  assert.equal(low.entry.height, 0, "ein Fehltritt ganz unten setzt auf den Boden zurück");
+});
+
+test("bounce: consecutive hits build resonance", () => {
+  // Der zehnte Treffer in Folge muss klar mehr bringen als der erste.
+  const single = bounceRoom();
+  single.tapAt(3, 0);
+  const firstGain = single.entry.height;
+
+  const chain = bounceRoom();
+  for (let beat = 3; beat < 13; beat += 1) chain.tapAt(beat, 0);
+  const gains = [];
+  let previous = 0;
+  const replay = bounceRoom();
+  for (let beat = 3; beat < 13; beat += 1) {
+    replay.tapAt(beat, 0);
+    gains.push(replay.entry.height - previous);
+    previous = replay.entry.height;
+  }
+  assert.ok(gains[9] > gains[0] * 1.5, `late gain ${gains[9]} should beat early ${gains[0]}`);
+  assert.ok(firstGain > 0);
+});
+
+test("bounce: only the first tap of a beat counts", () => {
+  const { entry, tapAt } = bounceRoom();
+  tapAt(4, 0);
+  const afterFirst = entry.height;
+  // Nochmals auf demselben Schlag — darf nichts bringen.
+  tapAt(4, 10);
+  assert.equal(entry.height, afterFirst, "mashing one beat must not stack height");
+  assert.equal(entry.streak, 1);
+});
+
+test("bounce: height never leaves its bounds", () => {
+  const { entry, tapAt } = bounceRoom();
+  // Sehr viele perfekte Treffer.
+  for (let beat = 1; beat < 80; beat += 1) tapAt(beat, 0);
+  assert.ok(entry.height <= BOUNCE_MAX_HEIGHT, `height ${entry.height} exceeded the cap`);
+  // Und viele Fehltritte drücken nicht unter null.
+  for (let beat = 80; beat < 120; beat += 1) tapAt(beat, BOUNCE_GOOD_MS + 200);
+  assert.ok(entry.height >= 0, `height ${entry.height} went negative`);
+});
+
+test("bounce: the score rewards the best height and the best streak", () => {
+  const { entry, tapAt } = bounceRoom();
+  for (let beat = 2; beat < 8; beat += 1) tapAt(beat, 0);
+  const peak = entry.best;
+  const streak = entry.bestStreak;
+  // Ein Fehltritt darf die BESTMARKE nicht senken.
+  tapAt(8, BOUNCE_GOOD_MS + 200);
+  assert.equal(entry.best, peak, "the personal best must stand");
+  assert.equal(entry.bestStreak, streak);
+  assert.ok(entry.score > 0);
+});
+
+test("bounce: wrong action is refused", () => {
+  const { room, me } = bounceRoom();
+  const result = handleArcadeInput(room, me, { action: "shove" });
+  assert.equal(result.ok, false);
+});
+
+// --- Falschsignal ----------------------------------------------------------
+
+function feintRoom() {
+  const players = [{ id: "f1", name: "Späher", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("falschsignal", players, startedAt);
+  const minigame = { id: 1, type: "falschsignal", startedAt, duration: FEINT_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  // Springt zur Spielzeit `gameMs`, statt echte Zeit abzuwarten. Der Server
+  // prüft Nachzittern-Fenster und Sperre in ECHTER Zeit — die Zeitstempel des
+  // letzten Tipps müssen also mitwandern, sonst liegen zwei Tipps aus dem Test
+  // 0 ms auseinander, obwohl zwischen den Signalen fast eine Sekunde liegt.
+  let lastActionGameMs = null;
+  const shiftTo = (gameMs) => {
+    minigame.startedAt = Date.now() - gameMs;
+    if (lastActionGameMs !== null) {
+      if (entry.lastReact) entry.lastReact.at = minigame.startedAt + lastActionGameMs;
+      if (entry.lockUntil) entry.lockUntil = minigame.startedAt + lastActionGameMs + FEINT_LOCK_MS;
+    }
+    lastActionGameMs = gameMs;
+    entry.lastInputAt = 0;
+  };
+  // Tippt `offsetMs` nach dem Beginn des Signals `index`.
+  const reactTo = (index, offsetMs) => {
+    shiftTo(arcade.signals[index].at + offsetMs);
+    return handleArcadeInput(room, me, { action: "react" });
+  };
+  // Tippt in eine Lücke, in der kein Signal leuchtet.
+  const reactEarly = (index) => {
+    shiftTo(arcade.signals[index].at - 300);
+    return handleArcadeInput(room, me, { action: "react" });
+  };
+  const firstOfKind = (kind) => arcade.signals.findIndex((signal) => signal.kind === kind);
+  return { room, me, arcade, entry, minigame, reactTo, reactEarly, firstOfKind, shiftTo };
+}
+
+test("feint: the signal plan fills the round and mixes real with fake", () => {
+  const signals = buildFeintSignals(491, FEINT_DURATION_MS);
+  assert.ok(signals.length >= 8, `only ${signals.length} signals in ${FEINT_DURATION_MS} ms`);
+  // Kein Signal darf über das Rundenende hinausragen.
+  signals.forEach((signal) => {
+    assert.ok(signal.at + signal.windowMs <= FEINT_DURATION_MS, `signal ${signal.index} outlives the round`);
+  });
+  // Zeitlich sortiert und ohne Überlappung — activeFeintSignal verlässt sich darauf.
+  for (let i = 1; i < signals.length; i += 1) {
+    assert.ok(signals[i].at > signals[i - 1].at + signals[i - 1].windowMs, "signals must not overlap");
+  }
+  const gos = signals.filter((signal) => signal.kind === "go");
+  assert.ok(gos.length >= 2, "a round needs real signals");
+  // Fälschungen müssen überwiegen, sonst zahlt sich blindes Tippen aus.
+  assert.ok(gos.length < signals.length / 2, `${gos.length}/${signals.length} real is too generous`);
+});
+
+test("feint: the fake kinds all appear and the flicker is too short to be real", () => {
+  const kinds = new Set(buildFeintSignals(491, FEINT_DURATION_MS).map((signal) => signal.kind));
+  assert.ok(kinds.has("go"));
+  assert.ok(kinds.size >= 3, `only ${[...kinds]} in one round`);
+  assert.ok(FEINT_FLICKER_MS < FEINT_GO_WINDOW_MS / 3, "the feint has to read as a flicker");
+});
+
+test("feint: neither the real signal nor a single fake takes over the round", () => {
+  // Über mehrere Seeds, damit ein glücklicher Startwert nichts vertuscht.
+  for (const seed of [491, 100, 7, 55, 913]) {
+    const kinds = buildFeintSignals(seed, FEINT_DURATION_MS).map((signal) => signal.kind);
+    // Kein Durststrecke ohne echtes Signal, sonst fühlt sich die Runde kaputt an.
+    let drought = 0;
+    let worst = 0;
+    kinds.forEach((kind) => {
+      drought = kind === "go" ? 0 : drought + 1;
+      worst = Math.max(worst, drought);
+    });
+    assert.ok(worst <= 4, `seed ${seed} had ${worst} fakes in a row`);
+    // Und keine Fälschung wiederholt sich dreimal hintereinander — das würde
+    // sie verraten, statt zu täuschen.
+    for (let i = 2; i < kinds.length; i += 1) {
+      const triple = kinds[i] === kinds[i - 1] && kinds[i] === kinds[i - 2];
+      assert.ok(!triple || kinds[i] === "go", `seed ${seed}: ${kinds[i]} three times in a row`);
+    }
+    // Alle drei Fälschungen müssen vorkommen.
+    ["colour", "shape", "flicker"].forEach((kind) => {
+      assert.ok(kinds.includes(kind), `seed ${seed} never showed ${kind}`);
+    });
+  }
+});
+
+test("feint: blind mashing has a negative expected value", () => {
+  // Die Rechnung hinter FEINT_FALSE_START: bei einem echten Signal pro Block
+  // muss Dauertippen unterm Strich kosten — sonst ist Zusehen die schwächere
+  // Strategie und das Spielprinzip fällt zusammen.
+  for (const seed of [491, 100, 7, 55, 913]) {
+    const signals = buildFeintSignals(seed, FEINT_DURATION_MS);
+    const gos = signals.filter((signal) => signal.kind === "go").length;
+    // Bester Fall für den Dauertipper: jeder Treffer nahezu sofort.
+    const mash = gos * feintPoints(0) - (signals.length - gos) * FEINT_FALSE_START;
+    assert.ok(mash < 0, `seed ${seed}: mashing would earn ${mash}`);
+  }
+});
+
+test("feint: only the lit signal is active", () => {
+  const signals = buildFeintSignals(491, FEINT_DURATION_MS);
+  const first = signals[0];
+  assert.equal(activeFeintSignal(signals, first.at - 1), null, "nothing is lit before the first signal");
+  assert.equal(activeFeintSignal(signals, first.at)?.index, first.index);
+  assert.equal(activeFeintSignal(signals, first.at + first.windowMs)?.index, first.index);
+  assert.equal(activeFeintSignal(signals, first.at + first.windowMs + 1), null, "the window has to close");
+});
+
+test("feint: reacting fast pays more than reacting late", () => {
+  assert.equal(feintPoints(0), FEINT_MAX_POINTS);
+  assert.equal(feintPoints(FEINT_GO_WINDOW_MS), FEINT_MIN_POINTS);
+  assert.ok(feintPoints(150) > feintPoints(600), "faster has to be worth more");
+  // Auch ein spätes Erkennen bringt noch etwas — Nichtstun bringt nichts.
+  assert.ok(FEINT_MIN_POINTS > 0);
+});
+
+test("feint: hitting the real signal scores by reaction time", () => {
+  const fast = feintRoom();
+  const go = fast.firstOfKind("go");
+  fast.reactTo(go, 80);
+  assert.equal(fast.entry.hits, 1);
+  assert.equal(fast.entry.falseStarts, 0);
+  assert.ok(fast.entry.score > 0);
+  assert.ok(fast.entry.bestMs !== null && fast.entry.bestMs < 200);
+
+  const slow = feintRoom();
+  slow.reactTo(slow.firstOfKind("go"), 700);
+  assert.equal(slow.entry.hits, 1);
+  assert.ok(slow.entry.score < fast.entry.score, "a slow hit must score less");
+});
+
+test("feint: tapping a fake costs points and locks briefly", () => {
+  const { entry, arcade, reactTo, firstOfKind } = feintRoom();
+  const fake = firstOfKind("colour") >= 0 ? firstOfKind("colour") : firstOfKind("shape");
+  assert.ok(fake >= 0, "the plan needs a visible fake to tap");
+  reactTo(fake, 60);
+  assert.equal(entry.falseStarts, 1);
+  assert.equal(entry.hits, 0);
+  assert.equal(entry.score, -FEINT_FALSE_START);
+  assert.ok(entry.lockUntil > Date.now(), "a false start has to lock the button");
+  assert.equal(entry.lastReact.kind, arcade.signals[fake].kind);
+});
+
+test("feint: tapping into an empty gap is a false start too", () => {
+  const { entry, reactEarly, firstOfKind } = feintRoom();
+  reactEarly(firstOfKind("go"));
+  assert.equal(entry.falseStarts, 1);
+  assert.equal(entry.hits, 0);
+  assert.equal(entry.score, -FEINT_FALSE_START);
+});
+
+test("feint: each signal can only be scored once", () => {
+  const { entry, reactTo, firstOfKind } = feintRoom();
+  const go = firstOfKind("go");
+  reactTo(go, 60);
+  const afterFirst = entry.score;
+  // Nochmals dasselbe Signal, weit hinter dem Nachzittern-Fenster.
+  reactTo(go, 60 + FEINT_DOUBLE_TAP_MS + 50);
+  assert.equal(entry.hits, 1, "one real signal is one hit");
+  assert.equal(entry.score, afterFirst, "mashing a hit signal must not stack points");
+  assert.equal(entry.falseStarts, 0, "and must not count as a false start either");
+});
+
+test("feint: the lock swallows taps until it expires", () => {
+  const { room, me, entry, reactTo, firstOfKind } = feintRoom();
+  const fake = firstOfKind("colour") >= 0 ? firstOfKind("colour") : firstOfKind("shape");
+  reactTo(fake, 60);
+  const locked = entry.score;
+  // Ein weiterer Griff während der Sperre darf nicht noch einmal kosten.
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "react" });
+  assert.equal(entry.score, locked, "a locked tap must be free");
+  assert.equal(entry.falseStarts, 1);
+});
+
+test("feint: mashing cannot beat clean play", () => {
+  const clean = feintRoom();
+  clean.arcade.signals.forEach((signal) => {
+    if (signal.kind === "go") clean.reactTo(signal.index, 120);
+  });
+
+  const masher = feintRoom();
+  // Tippt bei JEDEM Signal, inklusive aller Fälschungen. Die Sperre nach einem
+  // Fehlgriff wird für diesen Test bewusst nicht abgewartet — das ist der
+  // günstigste Fall für den Dauertipper.
+  masher.arcade.signals.forEach((signal) => {
+    masher.entry.lockUntil = 0;
+    masher.reactTo(signal.index, 60);
+  });
+  assert.ok(masher.entry.falseStarts > masher.entry.hits, "mashing has to draw more fakes than hits");
+  assert.ok(
+    masher.entry.score < clean.entry.score,
+    `mashing (${masher.entry.score}) must not beat clean play (${clean.entry.score})`
+  );
+  // Und die Wertung darf das Minus nicht in einen Vorteil verwandeln.
+  assert.ok(masher.entry.score <= 0, `mashing scored ${masher.entry.score}`);
+});
+
+test("feint: a missed real signal costs nothing but closes", () => {
+  const { room, entry, arcade, minigame } = feintRoom();
+  const last = arcade.signals[arcade.signals.length - 1];
+  minigame.startedAt = Date.now() - (last.at + last.windowMs + 50);
+  updateArcade(room);
+  const gos = arcade.signals.filter((signal) => signal.kind === "go").length;
+  assert.equal(entry.missed, gos, "every unplayed real signal has to be booked as missed");
+  assert.equal(entry.score, 0, "waiting must not cost points");
+  // Ein abgelaufenes Fenster lässt sich nicht nachträglich einlösen.
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, { id: "f1", name: "Späher" }, { action: "react" });
+  assert.equal(entry.hits, 0);
+});
+
+test("feint: the result reports points, best reaction and false starts", () => {
+  const { arcade, entry, reactTo, firstOfKind } = feintRoom();
+  reactTo(firstOfKind("go"), 120);
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "reaction");
+  assert.ok(detail.value > 0);
+  assert.equal(detail.bestMs, entry.bestMs);
+  assert.equal(detail.mistakes, 0);
+});
+
+test("feint: wrong action is refused", () => {
+  const { room, me } = feintRoom();
+  const result = handleArcadeInput(room, me, { action: "jump" });
+  assert.equal(result.ok, false);
+});
+
+// --- Spurmaler -------------------------------------------------------------
+
+function traceRoom() {
+  const players = [{ id: "t1", name: "Maler", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("spurmaler", players, startedAt);
+  const minigame = { id: 1, type: "spurmaler", startedAt, duration: 30000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+
+  // Der Server begrenzt das Tempo in ECHTER Zeit. Im Test wird der Zeitstempel
+  // des letzten Vorrückens zurückdatiert, statt echte Zeit zu verbrennen —
+  // sonst würde jeder Zug am Tempodeckel hängen statt an der Spur.
+  const drag = (y, offset = 0, { agedMs = 400 } = {}) => {
+    const x = tracePathX(arcade.seed, entry.lap, Math.min(1, Math.max(0, y))) + offset;
+    entry.lastInputAt = 0;
+    entry.lastAdvanceAt = Date.now() - agedMs;
+    return handleArcadeInput(room, me, { action: "trace", x, y });
+  };
+  const lift = () => {
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "lift" });
+  };
+  // Zieht die Spur in kleinen Schritten hoch, wie ein Finger es täte.
+  const traceUp = (to = 1, stepSize = 0.04) => {
+    for (let y = 0; y <= to + 1e-9; y += stepSize) drag(Math.min(y, to));
+  };
+  return { room, me, arcade, entry, minigame, drag, lift, traceUp };
+}
+
+test("trace: the path always climbs and never leaves the reachable width", () => {
+  for (const lap of [0, 1, 2, 7, 19]) {
+    for (let step = 0; step <= 40; step += 1) {
+      const x = tracePathX(499, lap, step / 40);
+      // Samt Toleranzband muss die Spur im Bild liegen, sonst ist sie an den
+      // Rändern nicht erreichbar.
+      assert.ok(x - TRACE_TOLERANCE > 0.02, `lap ${lap}: path at ${x} is too far left`);
+      assert.ok(x + TRACE_TOLERANCE < 0.98, `lap ${lap}: path at ${x} is too far right`);
+    }
+  }
+});
+
+test("trace: every lap draws a different curve", () => {
+  const shape = (lap) => Array.from({ length: 12 }, (_, i) => tracePathX(499, lap, i / 11).toFixed(3)).join(",");
+  const first = shape(0);
+  // Sonst würde man eine Kurve lernen und danach blind ziehen.
+  assert.notEqual(shape(1), first);
+  assert.notEqual(shape(2), first);
+  assert.notEqual(shape(2), shape(1));
+});
+
+test("trace: the offset is measured at the height the finger is at", () => {
+  const y = 0.4;
+  const onPath = tracePathX(499, 0, y);
+  assert.ok(traceOffset(499, 0, onPath, y) < 1e-9);
+  assert.ok(Math.abs(traceOffset(499, 0, onPath + 0.05, y) - 0.05) < 1e-9);
+});
+
+test("trace: dragging along the path advances the brush", () => {
+  const { entry, drag } = traceRoom();
+  drag(0);
+  assert.equal(entry.brushDown, true, "starting on the path has to pick the brush up");
+  drag(0.04);
+  assert.ok(entry.progress > 0, "following the path must make progress");
+  assert.equal(entry.slips, 0);
+});
+
+test("trace: leaving the band breaks the stroke and costs", () => {
+  const { entry, drag } = traceRoom();
+  drag(0);
+  drag(0.04);
+  const reached = entry.progress;
+  drag(0.08, TRACE_TOLERANCE + 0.02);
+  assert.equal(entry.slips, 1);
+  assert.equal(entry.brushDown, false, "a slip has to break the stroke");
+  assert.equal(entry.progress, reached, "and must not advance any further");
+  assert.ok(entry.lockUntil > Date.now());
+});
+
+test("trace: staying just inside the band is still fine", () => {
+  const { entry, drag } = traceRoom();
+  drag(0);
+  drag(0.04, TRACE_TOLERANCE - 0.005);
+  assert.equal(entry.slips, 0, "the band has to be usable to its edge");
+  assert.ok(entry.progress > 0);
+});
+
+test("trace: after a break the brush only restarts where it stopped", () => {
+  const { entry, drag, lift, traceUp } = traceRoom();
+  traceUp(0.3);
+  const reached = entry.progress;
+  assert.ok(reached > 0.2, `expected real progress, got ${reached}`);
+  lift();
+  assert.equal(entry.brushDown, false);
+
+  // Weit vor der Bruchstelle wieder ansetzen darf nichts bringen — sonst liesse
+  // sich die Spur überspringen statt gezogen zu werden.
+  drag(reached + TRACE_REENTRY_WINDOW + 0.2);
+  assert.equal(entry.brushDown, false, "restarting ahead must be refused");
+  assert.equal(entry.progress, reached);
+
+  drag(reached);
+  assert.equal(entry.brushDown, true, "restarting at the break has to work");
+});
+
+test("trace: tapping up the path is no faster than dragging it", () => {
+  // Der Angriff: Finger heben, ein Stück weiter oben neu ansetzen, wiederholen.
+  // Absichtlich unmenschlich schnell getaktet, damit der Tempodeckel greifen
+  // MUSS: ohne ihn brächte jeder Zyklus die volle Sprungweite, also 20 Zyklen
+  // = eine ganze Runde in 0.4 Sekunden.
+  const stepMs = 10;
+  const cycles = 20;
+  const tapper = traceRoom();
+  for (let i = 0; i < cycles; i += 1) {
+    tapper.lift();
+    tapper.drag(tapper.entry.progress, 0, { agedMs: stepMs });
+    tapper.entry.lockUntil = 0;
+    tapper.drag(Math.min(1, tapper.entry.progress + TRACE_STEP_LIMIT), 0, { agedMs: stepMs });
+    tapper.entry.lockUntil = 0;
+  }
+  // Gesamtstrecke, nicht der aktuelle Stand: eine vollendete Runde setzt den
+  // Fortschritt auf 0 zurück. Genau daran ging dieser Test beim ersten Versuch
+  // vorbei — er lief auch mit abgeschaltetem Deckel grün.
+  const covered = tapper.entry.lapsDone + tapper.entry.progress;
+  const uncapped = cycles * TRACE_STEP_LIMIT;
+  const ceiling = cycles * 2 * (stepMs / 1000) * TRACE_MAX_SPEED;
+  assert.ok(ceiling < uncapped / 3, "the test cadence has to make the cap bind");
+  assert.ok(
+    covered <= ceiling + 1e-6,
+    `tapping covered ${covered}, the cap allows ${ceiling}`
+  );
+});
+
+test("trace: a finished lap starts a new curve and banks points", () => {
+  const { entry, arcade, traceUp } = traceRoom();
+  const firstLap = entry.lap;
+  traceUp(1);
+  assert.equal(entry.lapsDone, 1, "reaching the top has to complete the lap");
+  assert.equal(entry.lap, firstLap + 1, "and hand out a new curve");
+  assert.equal(entry.progress, 0, "the new lap starts at the bottom");
+  assert.equal(entry.brushDown, false, "and the finger has to set down again");
+  assert.equal(entry.cleanLaps, 1, "a lap without a slip counts as clean");
+  assert.ok(entry.score >= TRACE_LAP_POINTS);
+  assert.ok(arcade.tolerance === TRACE_TOLERANCE);
+});
+
+test("trace: the score rewards laps and precision, and punishes slips", () => {
+  const clean = traceScore({ lapsDone: 2, progress: 0, cleanLaps: 2, slips: 0 });
+  const messy = traceScore({ lapsDone: 2, progress: 0, cleanLaps: 0, slips: 4 });
+  assert.equal(clean, 2 * TRACE_LAP_POINTS + 2 * TRACE_CLEAN_BONUS);
+  assert.equal(messy, 2 * TRACE_LAP_POINTS - 4 * TRACE_SLIP_COST);
+  assert.ok(clean > messy, "the same distance drawn cleanly has to be worth more");
+  // Ein angefangener Weg zählt anteilig — niemand steht bei null.
+  assert.ok(traceScore({ lapsDone: 0, progress: 0.5, cleanLaps: 0, slips: 0 }) > 0);
+});
+
+test("trace: a slip inside a lap costs the clean bonus", () => {
+  const { entry, drag, traceUp } = traceRoom();
+  drag(0);
+  drag(0.1, TRACE_TOLERANCE + 0.05);       // abgerutscht
+  entry.lockUntil = 0;
+  traceUp(1);
+  assert.equal(entry.lapsDone, 1);
+  assert.equal(entry.cleanLaps, 0, "the lap had a slip, so no bonus");
+  assert.equal(entry.slips, 1);
+});
+
+test("trace: going backwards changes nothing", () => {
+  const { entry, drag, traceUp } = traceRoom();
+  traceUp(0.4);
+  const reached = entry.progress;
+  drag(0.1);
+  assert.equal(entry.progress, reached, "pulling back must not undo progress");
+  assert.equal(entry.slips, 0, "and must not count as a slip either");
+});
+
+test("trace: the finger cannot outrun the stroke", () => {
+  // Der Angriff, den erst das Nachrechnen zeigte: den obersten Punkt der Kurve
+  // antippen und halten. Der Abstand wird auf DESSEN Höhe gemessen, man ist also
+  // "auf der Spur" — ohne diese Regel kroch der Strich mit Höchsttempo nach und
+  // eine ganze Runde war in 1.7 s erledigt, ohne die Kurve nachzufahren.
+  const { entry, drag } = traceRoom();
+  drag(0);
+  const before = entry.progress;
+  for (let i = 0; i < 20; i += 1) drag(1);
+  assert.ok(entry.slips > 0, "running ahead has to break the stroke");
+  assert.ok(entry.progress < before + 0.2, `the brush crept to ${entry.progress} anyway`);
+});
+
+test("trace: the result reports points, laps and slips", () => {
+  const { arcade, entry, traceUp } = traceRoom();
+  traceUp(1);
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "laps");
+  assert.equal(detail.laps, 1);
+  assert.equal(detail.mistakes, 0);
+  assert.ok(detail.value > 0);
+});
+
+test("trace: wrong action is refused", () => {
+  const { room, me } = traceRoom();
+  const result = handleArcadeInput(room, me, { action: "jump" });
+  assert.equal(result.ok, false);
+});
+
+// --- Tellerdreher ----------------------------------------------------------
+
+function plateRoom() {
+  const players = [{ id: "p1", name: "Dreher", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("tellerdreher", players, startedAt);
+  const minigame = { id: 1, type: "tellerdreher", startedAt, duration: PLATE_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+
+  // Lässt `ms` Spielzeit verstreichen, ohne echte Zeit zu verbrennen. Zwei
+  // Dinge müssen dabei stimmen, sonst prüft der Test etwas anderes als das Spiel:
+  //  * Der Tick begrenzt seinen Zeitschritt auf 0.2 s (Schutz gegen einen
+  //    Aussetzer). Ein Sprung von 2 s zählte also nur 0.2 s — in Schritten
+  //    laufen lassen, nicht in einem Satz.
+  //  * Rückkehr eines Tellers und Tellersperre hängen an der ECHTEN Uhr. Deren
+  //    Zeitstempel müssen mitwandern, sonst kommt ein gefallener Teller nie
+  //    zurück, obwohl er das im Spiel nach 1.8 s täte.
+  const STEP = 120;
+  const advance = (ms, atElapsed = null) => {
+    let left = ms;
+    while (left > 0) {
+      const chunk = Math.min(STEP, left);
+      const now = Date.now();
+      arcade.lastUpdateAt = now - chunk;
+      if (atElapsed !== null) minigame.startedAt = now - atElapsed;
+      else minigame.startedAt -= chunk;
+      entry.plates.forEach((plate) => {
+        if (plate.fallenAt) plate.fallenAt -= chunk;
+        if (plate.lastTouchAt) plate.lastTouchAt -= chunk;
+      });
+      updateArcade(room);
+      left -= chunk;
+    }
+  };
+  const touch = (index) => {
+    entry.lastInputAt = 0;
+    const plate = entry.plates[index];
+    if (plate) plate.lastTouchAt = 0;
+    return handleArcadeInput(room, me, { action: "spin", plate: index });
+  };
+  return { room, me, arcade, entry, minigame, advance, touch };
+}
+
+test("plates: the plates arrive one at a time so attention has to split", () => {
+  assert.equal(plateCountAt(0), PLATE_START);
+  assert.equal(plateCountAt(PLATE_ADD_MS - 1), PLATE_START);
+  assert.equal(plateCountAt(PLATE_ADD_MS), PLATE_START + 1);
+  assert.equal(plateCountAt(PLATE_ADD_MS * 20), PLATE_MAX, "and never past the cap");
+  assert.ok(PLATE_MAX > PLATE_START);
+});
+
+test("plates: they run down faster towards the end of the round", () => {
+  assert.equal(plateDecayAt(0), PLATE_DECAY_START);
+  assert.equal(plateDecayAt(PLATE_DURATION_MS), PLATE_DECAY_END);
+  assert.ok(plateDecayAt(PLATE_DURATION_MS / 2) > plateDecayAt(0));
+  assert.ok(PLATE_DECAY_END > PLATE_DECAY_START);
+});
+
+test("plates: spinning down costs, a touch gives it back", () => {
+  const { entry, advance, touch } = plateRoom();
+  advance(1000);
+  const worn = entry.plates[0].spin;
+  assert.ok(worn < 1, "a plate has to lose spin over time");
+  touch(0);
+  assert.ok(entry.plates[0].spin > worn, "a touch has to restore spin");
+  assert.ok(entry.plates[0].spin <= 1, "and never beyond full");
+});
+
+test("plates: the hand is the limit, not the tapping speed", () => {
+  const { entry, touch } = plateRoom();
+  entry.plates.forEach((plate) => { plate.active = true; plate.spin = 0.2; });
+  entry.hand = PLATE_HAND_MAX;
+  // Ohne Pause auf alles tippen: nach dem Verbrauch des Vorrats muss Schluss sein.
+  let landed = 0;
+  for (let round = 0; round < 4; round += 1) {
+    for (let index = 0; index < PLATE_MAX; index += 1) {
+      const before = entry.plates[index].spin;
+      touch(index);
+      if (entry.plates[index].spin > before + 1e-9) landed += 1;
+    }
+  }
+  const affordable = Math.floor(PLATE_HAND_MAX / PLATE_SPIN_GAIN);
+  assert.equal(landed, affordable, `mashing landed ${landed} grabs, the hand allows ${affordable}`);
+  assert.ok(entry.wasted > 0, "the grabs into an empty hand have to be recorded");
+});
+
+test("plates: the hand refills over time but cannot be hoarded", () => {
+  const { entry, advance } = plateRoom();
+  entry.hand = 0;
+  advance(200);
+  assert.ok(entry.hand > 0, "the hand has to refill");
+  const afterShort = entry.hand;
+  advance(3000);
+  assert.ok(entry.hand > afterShort);
+  assert.ok(entry.hand <= PLATE_HAND_MAX + 1e-9, `hand banked up to ${entry.hand}`);
+});
+
+test("plates: touching an almost full plate wastes the hand", () => {
+  // Das ist der Kern: nur zu zahlen, was ankommt, würde blindes Dauertippen
+  // zur besten Strategie machen. Der Griff kostet immer voll.
+  const { entry, touch } = plateRoom();
+  entry.hand = PLATE_HAND_MAX;
+  entry.plates[0].spin = 1;
+  const handBefore = entry.hand;
+  touch(0);
+  assert.ok(entry.hand < handBefore - PLATE_SPIN_GAIN + 1e-9, "a full plate still costs the full grab");
+  assert.equal(entry.plates[0].spin, 1);
+  assert.ok(entry.wasted > 0, "and counts as wasted");
+});
+
+test("plates: a plate that stops falls, costs points and comes back", () => {
+  const { entry, advance } = plateRoom();
+  entry.plates[0].spin = 0.01;
+  advance(400);
+  assert.equal(entry.plates[0].active, false, "an empty plate has to fall");
+  assert.equal(entry.drops, 1);
+  assert.ok(entry.plates[0].fallenAt > 0);
+
+  // Niemand ist ausgeschieden: der Teller kommt zurück.
+  advance(PLATE_RESPAWN_MS + 100);
+  assert.equal(entry.plates[0].active, true, "the plate has to return");
+  assert.ok(entry.plates[0].spin > 0);
+});
+
+test("plates: the score counts plate-seconds and subtracts drops", () => {
+  assert.equal(plateScore({ upTime: 10, drops: 0 }), 10 * PLATE_POINTS_PER_SECOND);
+  assert.equal(plateScore({ upTime: 10, drops: 2 }), 10 * PLATE_POINTS_PER_SECOND - 2 * PLATE_DROP_COST);
+  // Fünf Teller oben müssen fünfmal so viel wert sein wie einer — sonst lohnt
+  // es sich, einen zu pflegen und die anderen fallen zu lassen.
+  const many = plateRoom();
+  many.entry.plates.forEach((plate) => { plate.active = true; plate.spin = 1; });
+  many.advance(1000);
+  const few = plateRoom();
+  few.entry.plates.forEach((plate, index) => { plate.active = index === 0; plate.spin = 1; });
+  few.entry.plateCount = 1;
+  few.advance(1000);
+  assert.ok(many.entry.upTime > few.entry.upTime * 3, `${many.entry.upTime} vs ${few.entry.upTime}`);
+});
+
+test("plates: the same plate cannot be hammered", () => {
+  const { entry, room, me } = plateRoom();
+  entry.hand = PLATE_HAND_MAX;
+  entry.plates[0].spin = 0.1;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "spin", plate: 0 });
+  const after = entry.plates[0].spin;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "spin", plate: 0 });
+  assert.equal(entry.plates[0].spin, after, "a second grab inside the touch window must not count");
+  assert.ok(PLATE_TOUCH_MS > 0);
+});
+
+test("plates: keeping every plate up beats nursing one", () => {
+  // Spielt zwei Strategien über die halbe Runde gegeneinander: immer den
+  // schwächsten Teller versorgen gegen immer denselben.
+  const play = (pick) => {
+    const room = plateRoom();
+    room.entry.plates.forEach((plate, index) => { plate.active = index < PLATE_START; });
+    for (let step = 0; step < 120; step += 1) {
+      const elapsed = step * 140;
+      room.advance(140, elapsed);
+      const active = room.entry.plates.filter((plate) => plate.active);
+      if (active.length === 0) continue;
+      const target = pick(active);
+      room.entry.lastInputAt = 0;
+      target.lastTouchAt = 0;
+      handleArcadeInput(room.room, room.me, { action: "spin", plate: target.index });
+    }
+    return room.entry;
+  };
+  const spread = play((active) => active.reduce((worst, plate) => (plate.spin < worst.spin ? plate : worst), active[0]));
+  const nursed = play((active) => active[0]);
+  assert.ok(spread.drops < nursed.drops, `spread dropped ${spread.drops}, nursing dropped ${nursed.drops}`);
+  assert.ok(plateScore(spread) > plateScore(nursed), `${plateScore(spread)} vs ${plateScore(nursed)}`);
+});
+
+test("plates: the result reports points, plate-seconds and drops", () => {
+  const { arcade, entry, advance } = plateRoom();
+  advance(2000);
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "plateTime");
+  assert.ok(detail.seconds >= 1);
+  assert.equal(detail.mistakes, entry.drops);
+});
+
+test("plates: unknown plate and wrong action are refused", () => {
+  const { room, me } = plateRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "jump" }).ok, false);
+  assert.equal(handleArcadeInput(room, me, { action: "spin", plate: 99 }).ok, false);
+  assert.equal(handleArcadeInput(room, me, { action: "spin", plate: "x" }).ok, false);
+});
+
+// --- Angelduell ------------------------------------------------------------
+
+function fishRoom() {
+  const players = [{ id: "a1", name: "Angler", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("angelduell", players, startedAt);
+  const minigame = { id: 1, type: "angelduell", startedAt, duration: FISH_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+
+  // Wie bei den anderen Tick-Spielen: der Tick deckelt seinen Zeitschritt auf
+  // 0.2 s, und Halte-Ping wie Pause hängen an der ECHTEN Uhr. Beides muss der
+  // Test nachbilden, sonst misst er etwas anderes als das Spiel.
+  const STEP = 100;
+  // `holding` darf auch eine Funktion sein: so lässt sich eine Strategie
+  // spielen, die auf den Zustand REAGIERT — und nur so ist ein Vergleich
+  // zwischen Gier und Können ehrlich.
+  const advance = (ms, { holding = false, stopOnSnap = false } = {}) => {
+    let left = ms;
+    while (left > 0) {
+      const chunk = Math.min(STEP, left);
+      const now = Date.now();
+      const snapsBefore = entry.snaps;
+      const wants = typeof holding === "function" ? holding(entry) : holding;
+      arcade.lastUpdateAt = now - chunk;
+      entry.hookedAt -= chunk;
+      if (entry.pauseUntil) entry.pauseUntil -= chunk;
+      // Halten heisst: es kam gerade ein Ping.
+      entry.lastReelAt = wants ? now : entry.lastReelAt - chunk;
+      updateArcade(room);
+      left -= chunk;
+      if (stopOnSnap && entry.snaps > snapsBefore) return true;
+    }
+    return false;
+  };
+  const reel = () => {
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "reel" });
+  };
+  // Setzt den Fisch in eine ruhige bzw. kämpfende Phase.
+  const intoCalm = () => { entry.hookedAt = Date.now(); };
+  const intoSurge = () => { entry.hookedAt = Date.now() - entry.phases[0].at - 50; };
+  return { room, me, arcade, entry, minigame, advance, reel, intoCalm, intoSurge };
+}
+
+test("fish: the fight alternates calm and surge and covers the round", () => {
+  const phases = buildFishPhases(509, 0, FISH_DURATION_MS);
+  assert.ok(phases.length >= 8, `only ${phases.length} surges in a round`);
+  assert.ok(phases[0].at >= FISH_LEAD_IN_MS, "the fish needs a moment before its first surge");
+  for (let i = 0; i < phases.length; i += 1) {
+    assert.ok(phases[i].until > phases[i].at, "a surge has to last");
+    if (i > 0) assert.ok(phases[i].at > phases[i - 1].until, "surges must not overlap");
+  }
+});
+
+test("fish: every fish fights differently", () => {
+  const shape = (index) => buildFishPhases(509, index, FISH_DURATION_MS).slice(0, 4).map((p) => Math.round(p.at)).join(",");
+  assert.notEqual(shape(1), shape(0), "the next fish has to fight to its own plan");
+  assert.notEqual(shape(2), shape(1));
+});
+
+test("fish: surging is only true inside a surge window", () => {
+  const phases = buildFishPhases(509, 0, FISH_DURATION_MS);
+  const first = phases[0];
+  assert.equal(fishSurging(phases, first.at - 1), false);
+  assert.equal(fishSurging(phases, first.at + 1), true);
+  assert.equal(fishSurging(phases, first.until + 1), false);
+});
+
+test("fish: holding reels in and builds tension", () => {
+  const { entry, advance, intoCalm } = fishRoom();
+  intoCalm();
+  advance(1000, { holding: true });
+  assert.ok(entry.distance < 1, "holding has to bring the fish closer");
+  assert.ok(entry.tension > 0, "and put tension on the line");
+  assert.equal(entry.snaps, 0);
+});
+
+test("fish: letting go relaxes the line but loses ground", () => {
+  const { entry, advance, intoCalm } = fishRoom();
+  intoCalm();
+  advance(1500, { holding: true });
+  const pulled = entry.distance;
+  const tense = entry.tension;
+  advance(600, { holding: false });
+  assert.ok(entry.tension < tense, "releasing has to drop the tension");
+  assert.ok(entry.distance > pulled, "and let the fish take line back");
+  assert.ok(entry.distance <= 1);
+});
+
+test("fish: holding through a surge snaps the line much faster", () => {
+  const calm = fishRoom();
+  calm.intoCalm();
+  calm.advance(1000, { holding: true });
+
+  const fight = fishRoom();
+  fight.intoSurge();
+  fight.advance(1000, { holding: true });
+  assert.ok(fight.entry.surging, "the test has to actually be inside a surge");
+  assert.ok(
+    fight.entry.tension > calm.entry.tension * 2,
+    `surge tension ${fight.entry.tension} vs calm ${calm.entry.tension}`
+  );
+});
+
+test("fish: a snapped line costs the fish and pauses the fight", () => {
+  const { entry, advance, intoSurge } = fishRoom();
+  intoSurge();
+  // Genau im Moment des Risses prüfen: läuft der Tick weiter, holt der
+  // Dauerhaltende sofort den nächsten Fisch ein und die Werte sind wieder
+  // unterwegs.
+  const snapped = advance(4000, { holding: true, stopOnSnap: true });
+  assert.equal(snapped, true, "holding through a long surge has to snap");
+  assert.equal(entry.snaps, 1);
+  assert.equal(entry.distance, 1, "the fish is gone");
+  assert.equal(entry.tension, 0);
+  assert.ok(entry.pauseUntil > Date.now(), "and there is a moment before the next bite");
+});
+
+test("fish: reeling is refused while the line is being re-cast", () => {
+  const { entry, reel, intoSurge, advance } = fishRoom();
+  intoSurge();
+  advance(3000, { holding: true });
+  const before = entry.lastReelAt;
+  reel();
+  assert.equal(entry.lastReelAt, before, "no reeling during the pause");
+});
+
+test("fish: landing a fish banks points and hooks the next one", () => {
+  const { entry, advance, intoCalm } = fishRoom();
+  // Ruhig einholen, zwischendurch lösen, damit die Schnur hält.
+  for (let round = 0; round < 14; round += 1) {
+    intoCalm();
+    advance(900, { holding: true });
+    advance(600, { holding: false });
+    if (entry.landed > 0) break;
+  }
+  assert.ok(entry.landed >= 1, `no fish landed, distance ${entry.distance}, snaps ${entry.snaps}`);
+  assert.equal(entry.distance, 1, "the next fish starts far away again");
+  assert.ok(entry.score >= FISH_LANDED_POINTS - FISH_SNAP_COST);
+});
+
+test("fish: the score counts fish, the started one and the snaps", () => {
+  assert.equal(fishScore({ landed: 2, distance: 1, snaps: 0 }), 2 * FISH_LANDED_POINTS);
+  assert.equal(fishScore({ landed: 2, distance: 1, snaps: 3 }), 2 * FISH_LANDED_POINTS - 3 * FISH_SNAP_COST);
+  // Ein halb eingeholter Fisch zählt anteilig — niemand steht bei null.
+  assert.equal(fishScore({ landed: 0, distance: 0.5, snaps: 0 }), FISH_LANDED_POINTS / 2);
+});
+
+test("fish: reading the fish beats holding on regardless", () => {
+  // Der erste Versuch verglich Dauerhalten mit einem STARREN Rhythmus — der
+  // rutschte genauso oft in einen Schub und riss gleich oft. Das Können des
+  // Spiels ist nicht "ab und zu loslassen", sondern auf den Fisch REAGIEREN.
+  const greedy = fishRoom();
+  greedy.advance(16000, { holding: true });
+
+  const reader = fishRoom();
+  reader.advance(16000, { holding: (entry) => !entry.surging && entry.tension < 0.72 });
+
+  assert.ok(
+    greedy.entry.snaps > reader.entry.snaps,
+    `greedy snapped ${greedy.entry.snaps}, reader ${reader.entry.snaps}`
+  );
+  assert.ok(
+    fishScore(reader.entry) > fishScore(greedy.entry),
+    `reader ${fishScore(reader.entry)} vs greedy ${fishScore(greedy.entry)}`
+  );
+});
+
+test("fish: a rigid rhythm is not enough — the surge has to be watched", () => {
+  // Gegenprobe zum Test darüber: wer stur im Takt hält und löst, ohne auf den
+  // Fisch zu schauen, reisst trotzdem. Sonst wäre das Spiel blindes Takten.
+  const blind = fishRoom();
+  for (let round = 0; round < 16; round += 1) {
+    blind.advance(700, { holding: true });
+    blind.advance(300, { holding: false });
+  }
+  assert.ok(blind.entry.snaps > 0, "a rhythm that ignores the surge has to snap sometimes");
+});
+
+test("fish: the result reports points, fish and snaps", () => {
+  const { arcade, entry, advance, intoCalm } = fishRoom();
+  intoCalm();
+  advance(1000, { holding: true });
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "catch");
+  assert.equal(detail.landed, entry.landed);
+  assert.ok(detail.progress > 0, "the started fish has to show up");
+});
+
+test("fish: wrong action is refused", () => {
+  const { room, me } = fishRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "spin" }).ok, false);
+});
+
+// --- Farbenjagd ------------------------------------------------------------
+
+function paintRoom(count = 2) {
+  const names = ["Malerin", "Rivale", "Dritter", "Vierte"];
+  const players = Array.from({ length: count }, (_unused, index) => ({ id: `c${index + 1}`, name: names[index], isBot: false }));
+  const startedAt = Date.now();
+  const arcade = createArcadeState("farbenjagd", players, startedAt);
+  const minigame = { id: 1, type: "farbenjagd", startedAt, duration: PAINT_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+
+  const STEP = 60;
+  const advance = (ms) => {
+    let left = ms;
+    while (left > 0) {
+      const chunk = Math.min(STEP, left);
+      const now = Date.now();
+      arcade.lastUpdateAt = now - chunk;
+      if (arcade.nextPickupAt) arcade.nextPickupAt -= chunk;
+      players.forEach((player) => {
+        const state = arcade.players[player.id];
+        if (state.boostUntil) state.boostUntil -= chunk;
+      });
+      updateArcade(room);
+      left -= chunk;
+    }
+  };
+  const steer = (x, y, player = me) => {
+    arcade.players[player.id].lastInputAt = 0;
+    return handleArcadeInput(room, player, { action: "steer", x, y });
+  };
+  const place = (player, col, row) => {
+    const state = arcade.players[player.id];
+    state.px = col + 0.5;
+    state.py = row + 0.5;
+    state.vx = 0;
+    state.vy = 0;
+  };
+  return { room, players, me, arcade, entry, minigame, advance, steer, place };
+}
+
+test("paint: the field is one shared grid and everyone starts in a corner", () => {
+  const { arcade, players } = paintRoom(4);
+  assert.equal(arcade.grid.length, PAINT_COLS * PAINT_ROWS);
+  // Jeder beginnt mit genau einem Feld, und keine zwei teilen sich einen Start.
+  const owners = players.map((player) => paintOwnedCount(arcade, player.id));
+  assert.deepEqual(owners, [1, 1, 1, 1]);
+  const spots = new Set(players.map((player) => {
+    const state = arcade.players[player.id];
+    return `${Math.floor(state.px)},${Math.floor(state.py)}`;
+  }));
+  assert.equal(spots.size, 4, "starting corners have to be distinct");
+});
+
+test("paint: a free tile has to be worked on before it is yours", () => {
+  const { arcade, players, entry } = paintRoom(2);
+  // Ein Bruchteil der nötigen Zeit reicht nicht — genau das war der Umbau: mit
+  // sofortigem Umfärben war das Feld nach vier Sekunden voll und danach nur noch
+  // Geflacker.
+  const short = 0.4 / PAINT_CLAIM_RATE;
+  assert.equal(paintClaim(arcade, entry, 2, 4, players[0].id, short), "claiming");
+  assert.equal(paintOwnedCount(arcade, players[0].id), 1, "not yet mine");
+  assert.equal(paintClaim(arcade, entry, 2, 4, players[0].id, 1 / PAINT_CLAIM_RATE), "claimed");
+  assert.equal(paintOwnedCount(arcade, players[0].id), 2);
+
+  // Nochmals darauf: es ist schon meins, es gibt nichts zu holen.
+  assert.equal(paintClaim(arcade, entry, 2, 4, players[0].id, 1), "mine");
+  assert.equal(entry.claimed, 1, "topping up my own tile must not count again");
+});
+
+test("paint: taking a rival tile costs twice — erase, then claim", () => {
+  const { arcade, players, entry } = paintRoom(2);
+  const other = arcade.players[players[1].id];
+  const full = 1 / PAINT_CLAIM_RATE;
+  paintClaim(arcade, entry, 2, 4, players[0].id, full);
+  assert.equal(paintOwnedCount(arcade, players[0].id), 2);
+
+  // Der Rivale muss erst abtragen — das Feld wird dabei frei, nicht sein.
+  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full * 0.4), "eroding");
+  assert.equal(paintOwnedCount(arcade, players[1].id), 1, "eroding alone gains nothing");
+  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full), "neutralised");
+  assert.equal(paintOwnedCount(arcade, players[0].id), 1, "the tile is lost to me");
+  assert.equal(paintOwnedCount(arcade, players[1].id), 1, "but not his yet");
+
+  // Und erst danach kann er es beanspruchen.
+  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full), "claimed");
+  assert.equal(paintOwnedCount(arcade, players[1].id), 2);
+});
+
+test("paint: the grid edges cannot be painted past", () => {
+  const { arcade, entry, players } = paintRoom(2);
+  assert.equal(paintClaim(arcade, entry, -1, 0, players[0].id, 1), "outside");
+  assert.equal(paintClaim(arcade, entry, PAINT_COLS, 0, players[0].id, 1), "outside");
+  assert.equal(paintClaim(arcade, entry, 0, PAINT_ROWS, players[0].id, 1), "outside");
+  assert.equal(paintInside(0, 0), true);
+  assert.equal(paintInside(PAINT_COLS - 1, PAINT_ROWS - 1), true);
+});
+
+test("paint: the wide roller covers a cross, the normal brush one tile", () => {
+  assert.deepEqual(paintBrushTiles(3, 4, false), [[3, 4]]);
+  const wide = paintBrushTiles(3, 4, true);
+  assert.equal(wide.length, 5, "the roller has to take the four neighbours along");
+  assert.ok(wide.some(([c, r]) => c === 2 && r === 4));
+  assert.ok(wide.some(([c, r]) => c === 3 && r === 5));
+});
+
+test("paint: steering moves the kin and paints its trail", () => {
+  const { entry, advance, steer, place } = paintRoom(2);
+  place({ id: "c1" }, 1, 4);
+  steer(1, 0);
+  const startX = entry.px;
+  advance(900);
+  assert.ok(entry.px > startX + 0.5, `the kin barely moved: ${startX} → ${entry.px}`);
+  assert.ok(entry.owned > 1, "driving across the field has to paint it");
+});
+
+test("paint: only the direction counts, not an oversized stick", () => {
+  const { entry, steer } = paintRoom(2);
+  steer(40, 0);
+  assert.ok(Math.abs(entry.dirX) <= 1 + 1e-9, `direction was ${entry.dirX}`);
+  steer(3, 4);
+  assert.ok(Math.hypot(entry.dirX, entry.dirY) <= 1 + 1e-9, "a long vector has to be normalised");
+});
+
+test("paint: the kin stays on the field", () => {
+  const { entry, advance, steer } = paintRoom(2);
+  steer(-1, -1);
+  advance(4000);
+  assert.ok(entry.px >= 0 && entry.px <= PAINT_COLS, `x left the field: ${entry.px}`);
+  assert.ok(entry.py >= 0 && entry.py <= PAINT_ROWS, `y left the field: ${entry.py}`);
+  steer(1, 1);
+  advance(6000);
+  assert.ok(entry.px <= PAINT_COLS && entry.py <= PAINT_ROWS);
+});
+
+test("paint: two kins in the same spot push each other apart", () => {
+  const { arcade, players, advance, place } = paintRoom(2);
+  place(players[0], 3, 4);
+  place(players[1], 3, 4);
+  const one = arcade.players[players[0].id];
+  const two = arcade.players[players[1].id];
+  // Minimal versetzt, damit es eine Richtung gibt.
+  two.px += 0.05;
+  advance(300);
+  const dist = Math.hypot(two.px - one.px, two.py - one.py);
+  assert.ok(dist > 0.2, `they stayed on top of each other: ${dist}`);
+  assert.ok(one.bumps > 0 && two.bumps > 0, "the bump has to be recorded for both");
+});
+
+test("paint: a roller widens the brush for a while, then wears off", () => {
+  const { arcade, entry, players, advance, place } = paintRoom(2);
+  arcade.pickups = [{ id: 99, col: 3, row: 4 }];
+  place(players[0], 3, 4);
+  advance(120);
+  assert.equal(entry.wide, true, "walking onto the roller has to pick it up");
+  assert.equal(arcade.pickups.length, 0, "and take it off the field");
+  // Nach der Laufzeit ist die Rolle weg.
+  advance(PAINT_BOOST_MS + 300);
+  assert.equal(entry.wide, false, "the roller has to wear off");
+});
+
+test("paint: never more than two rollers lie around", () => {
+  const { arcade, advance } = paintRoom(2);
+  advance(30000);
+  assert.ok(arcade.pickups.length <= PAINT_PICKUP_MAX, `${arcade.pickups.length} rollers on the field`);
+});
+
+test("paint: the score is area over TIME, not the final snapshot", () => {
+  // Der Kern des Umbaus: gewertet wird, wie lange man wie viel gehalten hat.
+  // Vorher entschied der Stand im letzten Tick — bei einem Feld, das mehrmals
+  // pro Sekunde die Farbe wechselt, war das ein Münzwurf.
+  const { entry, players, advance, steer, place } = paintRoom(2);
+  place(players[0], 1, 4);
+  steer(0, 1);
+  advance(1500);
+  assert.ok(entry.tileSeconds > 0, "holding tiles has to accumulate");
+  assert.equal(entry.score, Math.round(entry.tileSeconds * PAINT_TILE_SECOND_POINTS));
+
+  // Alles verlieren senkt den STAND, aber nicht das schon Verdiente.
+  const banked = entry.score;
+  const held = entry.owned;
+  assert.ok(held > 0);
+  advance(600);
+  assert.ok(entry.score >= banked, "what was earned cannot be taken away again");
+});
+
+test("paint: the result reports tiles and how many were taken from others", () => {
+  const { arcade, entry, advance, steer, players, place } = paintRoom(2);
+  place(players[0], 1, 4);
+  steer(1, 0);
+  advance(900);
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "paintTiles");
+  assert.equal(detail.value, Math.round(entry.score));
+  assert.equal(detail.owned, entry.owned);
+  assert.equal(detail.claimed, entry.claimed);
+});
+
+test("paint: wrong action and a broken direction are refused", () => {
+  const { room, me, arcade } = paintRoom(2);
+  assert.equal(handleArcadeInput(room, me, { action: "reel" }).ok, false);
+  // Zwischen zwei Eingaben liegt ein Cooldown von 55 ms — der ist hier richtig,
+  // weil eine gehaltene Richtung ohnehin stehen bleibt. Im Test muss er raus,
+  // sonst prüft die zweite Zeile nur den Cooldown.
+  arcade.players[me.id].lastInputAt = 0;
+  assert.equal(handleArcadeInput(room, me, { action: "steer", x: "x", y: 0 }).ok, false);
 });

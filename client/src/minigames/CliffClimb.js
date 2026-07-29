@@ -1,14 +1,22 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
   CubeBurst,
+  FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin,
-  disposeScene
-} from "./VoxelKit.js?v=tumblekin63";
-import { createOwnMarker, updateOwnMarker } from "./VoxelKit.js?v=tumblekin63";
+  createVoxelKin
+} from "./VoxelKit.js?v=tumblekin80";
+import {
+  mountStage,
+  mountHud,
+  addStageLights,
+  resizeStage,
+  syncOwnMarker,
+  teardownStage
+} from "./SceneKit.js?v=tumblekin80";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
@@ -46,19 +54,12 @@ export class CliffClimb {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    this.canvas.hidden = true;
-    this.webglCanvas = document.createElement("canvas");
-    this.webglCanvas.className = `${this.canvas.className} kinetic-webgl`;
-    this.webglCanvas.setAttribute("aria-label", "3D Bergsteiger");
-    this.canvas.insertAdjacentElement("afterend", this.webglCanvas);
+    mountStage(this, { label: "3D Bergsteiger", fog: ["#a8e2f4", 22, 48], fov: 50, far: 90 });
 
-    this.hud = document.createElement("div");
-    this.hud.className = "kinetic-hud";
-    this.hud.innerHTML = `
+    mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="color-banner" data-climb-banner hidden></div>
-    `;
-    this.webglCanvas.insertAdjacentElement("afterend", this.hud);
+    `);
     this.createScene();
 
     this.controls.innerHTML = `
@@ -94,44 +95,18 @@ export class CliffClimb {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
-    this.canvas.hidden = false;
-    this.bursts?.dispose();
-    if (this.scene) disposeScene(this.scene);
-    this.renderer?.dispose();
-    this.renderer?.forceContextLoss?.();
-    this.webglCanvas?.remove();
-    this.hud?.remove();
-    this.webglCanvas = null;
-    this.hud = null;
-    this.scene = null;
-    this.renderer = null;
+    teardownStage(this);
     this.kins.clear();
     this.animators.clear();
   }
 
   createScene() {
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#9adcf2");
-    this.scene.fog = new THREE.Fog("#a8e2f4", 22, 48);
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 90);
-
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.webglCanvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x8a9ab0, 2.3));
-    const sun = new THREE.DirectionalLight(0xfff2cf, 2.9);
-    sun.position.set(-4, 12, 8);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 14;
-    sun.shadow.camera.bottom = -4;
-    this.scene.add(sun);
+    addStageLights(this.scene, {
+      sunPosition: [-4, 12, 8],
+      shadow: { top: 14, bottom: -4 },
+      sunIntensity: 2.9,
+      groundColor: 0x8a9ab0
+    });
 
     // The cliff face: a tall stone wall with ledges and a green summit.
     const cliff = new THREE.Mesh(
@@ -185,6 +160,7 @@ export class CliffClimb {
     });
 
     this.bursts = new CubeBurst(this.scene);
+    this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
     this.camera.position.set(0, 2.4, 7.4);
@@ -259,7 +235,8 @@ export class CliffClimb {
       if ((entry.slips || 0) > (this.lastSlips.get(player.id) || 0)) {
         this.lastSlips.set(player.id, entry.slips);
         animator.trigger("stumble");
-        this.bursts.spawn(kin.position.clone(), ["#ab9e88", "#ffffff"], { count: 6, speed: 1.4, up: 0.8, size: 0.06, life: 0.5, gravity: 2 });
+        this.bursts.spawn(kin.position.clone(), ["#ab9e88", "#ffffff"], { count: 8, speed: 1.5, up: 0.8, size: 0.06, life: 0.5, gravity: 2, drag: 1.8 });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 0.9, 0)), "ABGERUTSCHT!", { color: "#ffb37a", size: 0.32, life: 0.8 });
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.5);
           this.feedback?.sound("error");
@@ -269,7 +246,9 @@ export class CliffClimb {
       if (entry.finishedAt && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
         animator.trigger("cheer");
-        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffd15c", "#ffffff"], { count: 18, speed: 2.4, up: 2.8, size: 0.1, life: 0.9 });
+        this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffd15c", "#ffffff"], { count: 22, speed: 2.6, up: 2.8, size: 0.1, life: 0.9, drag: 1.2 });
+        this.bursts.ring(kin.position.clone().add(new THREE.Vector3(0, 0.3, 0)), "#ffd15c", { radius: 1.8, life: 0.6, opacity: 0.6, tilt: null });
+        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "OBEN! 🏔️", { color: "#ffe36b", size: 0.46, life: 1.2, rise: 1 });
         if (player.id === controlledId) {
           this.feedback?.sound("win");
           this.feedback?.vibrate([22, 22, 44]);
@@ -290,7 +269,7 @@ export class CliffClimb {
       } else {
         // Sway toward the reaching hand while climbing.
         const reach = now < (entry.lastHitAt || 0) + 220 ? entry.nextSide * -0.12 : 0;
-        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.laneX + reach, 0.3);
+        kin.position.x = THREE.MathUtils.lerp(kin.position.x, kin.userData.laneX + reach, frameLerp(0.3, dt));
         animator.set(entry.finishedAt ? "cheer" : "idle", { base: true });
         animator.update(now);
 
@@ -319,6 +298,8 @@ export class CliffClimb {
 
     this.bursts.update(dt);
 
+    this.floaters.update(dt);
+
     // Highlight the hand the controlled player should tap next.
     const own = arcade.players[controlledId];
     if (own && this.buttons) {
@@ -328,30 +309,26 @@ export class CliffClimb {
       });
     }
 
-    this.shake *= 0.9;
+    this.shake *= frameDecay(0.9, dt);
     if (minigame.finaleAt) {
       // Pull back to frame the whole summit deck and the celebration.
-      const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+      const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
       const desired = new THREE.Vector3(shakeX, this.summitY + 0.6, (this.baseCamZ || 7.4) + 1.8);
-      this.camera.position.lerp(desired, 0.08);
+      this.camera.position.lerp(desired, frameLerp(0.08, dt));
       this.camera.lookAt(0, this.summitY + 0.2, 0);
     } else {
       // Follow the own climber in x (portrait is too narrow for all four lanes)
       // and in y as it rises.
       const followX = (this.ownX || 0) * 0.7;
-      const shakeX = Math.sin(now / 15) * this.shake * 0.2;
+      const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
       const desired = new THREE.Vector3(followX + shakeX, Math.max(2.4, ownY) + (this.baseCamLift || 0.4), this.baseCamZ || 7.4);
-      this.camera.position.lerp(desired, 0.1);
+      this.camera.position.lerp(desired, frameLerp(0.1, dt));
       this.camera.lookAt(followX, Math.max(2.4, ownY) + 0.4, 0);
     }
 
     this.updateHud(minigame, arcade, state, now);
-    // Global: a downward arrow marks your own kin so you never lose yourself.
-    { const oid = this.getControlledPlayerId(); const ok = this.kins && this.kins.get(oid);
-      if (ok) { if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-        this.ownMarker.visible = ok.visible !== false;
-        this.ownMarker.position.set(ok.position.x, 0, ok.position.z);
-        updateOwnMarker(this.ownMarker, now, ok.position.y + 0.35); } }
+    // A downward arrow marks your own kin so you never lose yourself.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -377,17 +354,10 @@ export class CliffClimb {
   }
 
   resizeRenderer() {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.webglCanvas.width === Math.floor(width * ratio) && this.webglCanvas.height === Math.floor(height * ratio)) return;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    const portrait = height > width;
-    this.baseCamLift = portrait ? 0.6 : 0.4;
-    this.baseCamZ = portrait ? 8.6 : 7.4;
-    this.camera.fov = portrait ? 56 : 50;
-    this.camera.updateProjectionMatrix();
+    resizeStage(this, (portrait, camera) => {
+      this.baseCamLift = portrait ? 0.6 : 0.4;
+      this.baseCamZ = portrait ? 8.6 : 7.4;
+      camera.fov = portrait ? 56 : 50;
+    });
   }
 }

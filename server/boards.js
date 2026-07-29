@@ -1,24 +1,39 @@
 const BOARD_SIZE = 32;
 
+// Field language. Every board carries the same mix so players learn one set of
+// rules, but the positions differ so each board plays with its own rhythm:
+//
+//   start     – the loop's origin, a safe +2
+//   normal    – a calm +2 breather
+//   coin      – a fat +6 payday
+//   item      – draws one item into your hand (the pre-roll decisions)
+//   luck      – gamble: stake coins on a coin flip
+//   trap      – costs coins unless you hold a shield
+//   star      – a star pad; only ONE is lit at a time and sells the star
+//   challenge – starts a minigame
+//   gate      – passing it pays a bonus
+//
+// Four star pads per board: the lit one is the target everybody races for, and
+// it jumps to another pad after each sale, so the goal keeps moving.
 const MOSSBACK_FIELDS = [
-  "start", "normal", "normal", "normal", "challenge", "normal", "normal", "gate",
-  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate",
-  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate",
-  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate"
+  "start", "coin", "item", "normal", "challenge", "star", "normal", "gate",
+  "luck", "normal", "item", "coin", "challenge", "star", "trap", "gate",
+  "normal", "item", "coin", "luck", "challenge", "star", "normal", "gate",
+  "trap", "coin", "item", "normal", "challenge", "star", "luck", "gate"
 ];
 
 const CLOUDPANTRY_FIELDS = [
-  "start", "normal", "normal", "challenge", "normal", "normal", "normal", "gate",
-  "normal", "challenge", "normal", "normal", "normal", "normal", "normal", "gate",
-  "normal", "normal", "challenge", "normal", "normal", "normal", "normal", "gate",
-  "normal", "normal", "normal", "normal", "challenge", "normal", "normal", "gate"
+  "start", "item", "coin", "challenge", "normal", "luck", "star", "gate",
+  "coin", "challenge", "item", "normal", "trap", "star", "coin", "gate",
+  "item", "normal", "challenge", "luck", "star", "coin", "normal", "gate",
+  "trap", "item", "normal", "coin", "challenge", "star", "luck", "gate"
 ];
 
 const TIDEWORKS_FIELDS = [
-  "start", "normal", "normal", "normal", "normal", "normal", "challenge", "gate",
-  "challenge", "normal", "normal", "normal", "normal", "normal", "normal", "gate",
-  "normal", "normal", "normal", "challenge", "normal", "normal", "normal", "gate",
-  "normal", "normal", "normal", "normal", "normal", "challenge", "normal", "gate"
+  "start", "normal", "coin", "item", "star", "luck", "challenge", "gate",
+  "challenge", "item", "coin", "star", "normal", "trap", "coin", "gate",
+  "item", "luck", "normal", "challenge", "star", "coin", "normal", "gate",
+  "coin", "item", "trap", "normal", "star", "challenge", "luck", "gate"
 ];
 
 const BOARD_DEFINITIONS = [
@@ -61,8 +76,16 @@ function createBoard(config) {
   if (config.fieldTypes.length !== BOARD_SIZE) {
     throw new Error(`${config.id} must define exactly ${BOARD_SIZE} fields.`);
   }
+  const starPads = config.fieldTypes.reduce((pads, type, index) => {
+    if (type === "star") pads.push(index);
+    return pads;
+  }, []);
+  if (starPads.length < 2) {
+    throw new Error(`${config.id} needs at least two star pads for the star to travel between.`);
+  }
   return {
     ...config,
+    starPads,
     // Simple, mobile-friendly loop: one path forward, no shortcut branches.
     routes: Array.from({ length: BOARD_SIZE }, (_, index) => [(index + 1) % BOARD_SIZE])
   };
@@ -80,6 +103,7 @@ function publicBoard(board) {
     subtitle: board.subtitle,
     zones: board.zones,
     fieldTypes: board.fieldTypes,
+    starPads: board.starPads,
     routes: board.routes,
     badge: board.badge,
     feature: board.feature,
