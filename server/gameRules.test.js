@@ -150,10 +150,11 @@ function player(overrides = {}) {
 
 test("board uses one readable field language", () => {
   const allowed = new Set(["start", "normal", "coin", "item", "luck", "trap", "star", "challenge", "gate"]);
-  assert.equal(FIELD_TYPES.length, 32);
+  // Der Ring ist weiterhin 32 Felder lang; die Abzweigungen hängen dahinter.
+  assert.ok(FIELD_TYPES.length >= 32);
   assert.ok(FIELD_TYPES.every((type) => allowed.has(type)));
   assert.deepEqual(
-    FIELD_TYPES.map((type, index) => type === "gate" ? index : null).filter((index) => index !== null),
+    FIELD_TYPES.slice(0, 32).map((type, index) => type === "gate" ? index : null).filter((index) => index !== null),
     [7, 15, 23, 31]
   );
 });
@@ -170,12 +171,43 @@ test("three themed boards share a clear field grammar", () => {
   assert.equal(BOARD_DEFINITIONS.length, 3);
   assert.equal(new Set(BOARD_DEFINITIONS.map((board) => board.id)).size, 3);
   BOARD_DEFINITIONS.forEach((board) => {
-    assert.equal(board.fieldTypes.length, 32);
-    assert.equal(board.routes.length, 32);
+    assert.equal(board.ringSize, 32);
     assert.equal(board.zones.length, 4);
     assert.equal(board.fieldTypes.filter((type) => type === "gate").length, 4);
-    // Simple loop: every field has exactly one way forward (no shortcuts).
-    assert.ok(board.routes.every((routes) => routes.length === 1));
+
+    // Jedes Brett muss echte Entscheidungen anbieten. Vorher war jedes Feld ein
+    // Ring mit genau einem Weg weiter — der Würfel bestimmte alles, man selbst
+    // nichts. Mindestens zwei Kreuzungen je Brett.
+    const junctions = board.routes.filter((routes) => routes.length > 1);
+    assert.ok(junctions.length >= 2, `${board.id} braucht mindestens zwei Kreuzungen`);
+
+    // Keine Route darf ins Leere zeigen.
+    board.routes.forEach((routes, index) => {
+      assert.ok(routes.length >= 1, `Feld ${index} auf ${board.id} hat keinen Weg weiter`);
+      routes.forEach((next) => {
+        assert.ok(
+          Number.isInteger(next) && next >= 0 && next < board.fieldTypes.length,
+          `${board.id}: Route ${index} → ${next} zeigt ins Leere`
+        );
+      });
+    });
+
+    // Jede Abkürzung muss auch kürzer sein, sonst ist die Wahl keine — und sie
+    // muss auf dem Ring wieder ankommen, sonst läuft man aus dem Brett heraus.
+    board.branches.forEach((branch) => {
+      assert.ok(branch.saves > 0, `${board.id}: ${branch.label} spart keine Schritte`);
+      assert.equal(board.routes[branch.from].length, 2, `${board.id}: ${branch.label} beginnt an keiner Kreuzung`);
+      let cursor = branch.fields[0];
+      let guard = 0;
+      while (cursor >= board.ringSize && guard < 20) { cursor = board.routes[cursor][0]; guard += 1; }
+      assert.equal(cursor, branch.to, `${board.id}: ${branch.label} mündet nicht auf ${branch.to}`);
+      // Risiko als Gegengewicht zur Ersparnis: ohne Falle wäre die Abkürzung
+      // gratis und damit immer richtig.
+      assert.ok(
+        branch.fields.some((index) => board.fieldTypes[index] === "trap"),
+        `${board.id}: ${branch.label} hat kein Risiko`
+      );
+    });
     // Every board carries the full field mix so players learn one rule set.
     ["coin", "item", "luck", "trap", "star", "challenge"].forEach((type) => {
       assert.ok(
@@ -189,12 +221,56 @@ test("three themed boards share a clear field grammar", () => {
   });
 });
 
-test("movement is a simple loop around the board", () => {
+test("movement follows the loop where there is nothing to decide", () => {
   const mossback = getBoard("mossback");
-  assert.deepEqual(buildBoardPath(mossback, 4, 1), [5]);
-  assert.deepEqual(buildBoardPath(mossback, 4, 3), [5, 6, 7]);
+  assert.deepEqual(buildBoardPath(mossback, 4, 1).path, [5]);
+  assert.deepEqual(buildBoardPath(mossback, 4, 3).path, [5, 6, 7]);
   // Wraps around the end of the 32-field loop.
-  assert.deepEqual(buildBoardPath(mossback, 31, 2), [0, 1]);
+  assert.deepEqual(buildBoardPath(mossback, 31, 2).path, [0, 1]);
+  // Ohne Kreuzung im Weg bleibt nichts offen.
+  assert.equal(buildBoardPath(mossback, 4, 3).pendingAt, null);
+});
+
+test("movement stops at a junction and hands the choice to the player", () => {
+  const mossback = getBoard("mossback");
+  const junction = mossback.branches[0].from;   // Feld 3, „Dickicht"
+
+  // Von Feld 1 aus mit 4 Schritten: Feld 3 ist eine Kreuzung, dort ist Schluss.
+  const walk = buildBoardPath(mossback, 1, 4);
+  assert.deepEqual(walk.path, [2, 3], "der Zug hält auf der Kreuzung an");
+  assert.equal(walk.pendingAt, junction);
+  assert.equal(walk.remaining, 2, "die übrigen Schritte bleiben stehen");
+
+  // Route 0 ist der Ring, Route 1 der Zweig.
+  const ring = buildBoardPath(mossback, junction, 2, 0);
+  assert.deepEqual(ring.path, [4, 5]);
+  const branch = buildBoardPath(mossback, junction, 2, 1);
+  assert.deepEqual(branch.path, mossback.branches[0].fields, "der Zweig führt durch seine eigenen Felder");
+
+  // Genau AUF der Kreuzung stehen zu bleiben fragt noch nicht — erst der
+  // nächste Zug tut das. Sonst käme die Frage zweimal.
+  const landsOn = buildBoardPath(mossback, 1, 2);
+  assert.deepEqual(landsOn.path, [2, 3]);
+  assert.equal(landsOn.pendingAt, null, "wer auf der Kreuzung stehenbleibt, wird nicht gefragt");
+});
+
+test("the branch really is the shortcut it claims to be", () => {
+  const mossback = getBoard("mossback");
+  const branch = mossback.branches[0];
+  // Über den Zweig laufen und zählen, wie viele Schritte bis zur Einmündung
+  // nötig sind — gegen den Ring gerechnet.
+  let cursor = branch.from;
+  let steps = 0;
+  let route = 1;
+  while (cursor !== branch.to && steps < 40) {
+    cursor = mossback.routes[cursor][Math.min(route, mossback.routes[cursor].length - 1)];
+    route = 0;
+    steps += 1;
+  }
+  assert.equal(cursor, branch.to);
+  assert.equal(steps, branch.steps);
+  assert.equal(branch.ringSteps - steps, branch.saves);
+  assert.ok(steps < branch.ringSteps, "sonst wäre es keine Abkürzung");
 });
 
 test("each passed gate awards a visible coin bonus", () => {
@@ -1168,6 +1244,29 @@ test("buying a star costs coins and moves the star elsewhere", () => {
   assert.equal(buyer.coins, 5);
   assert.notEqual(room.starIndex, litPad, "the star must travel after a sale");
   assert.ok(board.starPads.includes(room.starIndex));
+});
+
+test("every sold star makes the next one dearer", () => {
+  // Fester Preis machte das Spätspiel flach: wer vorn lag, kaufte einfach
+  // weiter. Der steigende Preis lässt einen Rückstand aufholbar bleiben.
+  const board = getBoard("mossback");
+  const buyer = boardPlayer({ coins: 500, position: board.starPads[0] });
+  const room = boardRoom({ starIndex: board.starPads[0], players: [buyer] });
+
+  const paid = [];
+  for (let round = 0; round < 4; round += 1) {
+    buyer.position = room.starIndex;
+    const effect = applyFieldEffect(buyer, "star", room);
+    assert.equal(effect.starGained, true, `Kauf ${round + 1} muss klappen`);
+    paid.push(effect.price);
+  }
+
+  assert.equal(paid[0], STAR_PRICE, "der erste Stern kostet den Grundpreis");
+  for (let index = 1; index < paid.length; index += 1) {
+    assert.ok(paid[index] > paid[index - 1], `Stern ${index + 1} (${paid[index]}) muss teurer sein als ${paid[index - 1]}`);
+  }
+  assert.equal(buyer.coins, 500 - paid.reduce((sum, price) => sum + price, 0));
+  assert.equal(room.starsSold, 4);
 });
 
 test("a star is refused when the player cannot pay", () => {

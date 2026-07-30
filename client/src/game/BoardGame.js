@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin80";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin80";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin80";
-import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin80";
-import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin80";
+import { drawDiceFace } from "./Dice.js?v=tumblekin81";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin81";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin81";
+import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin81";
+import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin81";
 
 const EVENT_FIELDS = new Set(["challenge", "gate", "star", "coin", "item", "luck", "trap"]);
 const CAMERA_DAMPING = 6.5;
@@ -97,6 +97,13 @@ export class BoardGame {
     else if (!boardChanged && currentChanged && state.phase === "waitingRoll") this.setCameraMode("turn", { duration: 1000, fieldIndex: state.players.find((player) => player.id === state.currentPlayerId)?.position });
     this.lastCurrentPlayerId = state.currentPlayerId;
     this.lastBoardStatus = state.status;
+  }
+
+  // An einer Kreuzung: die Kamera geht dicht heran, damit man beide Wege sieht,
+  // zwischen denen man gerade wählt.
+  focusField(fieldIndex) {
+    if (fieldIndex === null || fieldIndex === undefined) return;
+    this.setCameraMode("junction", { duration: 9000, fieldIndex });
   }
 
   // Parks the beacon on the lit star pad. Called on every state update, so it
@@ -557,6 +564,14 @@ export class BoardGame {
       pose.target.copy(this.diceMesh.position).add(new THREE.Vector3(0, -0.08, 0));
       pose.position.copy(pose.target).add(portrait ? new THREE.Vector3(0.3, 4.6, 3.7) : new THREE.Vector3(2.5, 3.1, 3.7));
       pose.fov = portrait ? 48 : 36;
+    } else if (this.cameraMode === "junction") {
+      // An der Kreuzung muss man BEIDE Wege sehen können, sonst ist die Wahl
+      // blind. Deshalb deutlich weiter weg und weiter im Blickwinkel als bei
+      // einer Landung — dort geht es um ein Feld, hier um eine Gabelung.
+      pose.position.copy(pose.target).add(portrait
+        ? new THREE.Vector3(0.1, 8.4, 6.6)
+        : new THREE.Vector3(1.4, 7.4, 6.2));
+      pose.fov = portrait ? 56 : 42;
     } else if (this.cameraMode === "landing" || this.cameraMode === "event") {
       const distance = this.cameraMode === "event" ? 4.5 : 3.8;
       pose.position.copy(pose.target).add(portrait ? new THREE.Vector3(0.18, distance + 0.7, distance) : new THREE.Vector3(2.2, distance - 0.5, distance));
@@ -632,7 +647,10 @@ export class BoardGame {
     disposeGroup(this.boardGroup);
     this.fieldMeshes = [];
     const fieldTypes = board.fieldTypes || [];
-    this.fieldPositions = createThemeLayout(this.theme.id, fieldTypes.length)
+    // Ringgrösse getrennt von der Feldzahl: hinter dem Ring liegen die Felder
+    // der Abkürzungen, und die dürfen den Umbruch am Ringende nicht verwirren.
+    const ringSize = board.ringSize || fieldTypes.length;
+    this.fieldPositions = createThemeLayout(this.theme.id, fieldTypes.length, board.branches || [])
       .map((point) => new THREE.Vector3(point.x, point.y, point.z));
 
     (board.routes || []).forEach((routes, index) => {
@@ -641,9 +659,11 @@ export class BoardGame {
         const to = this.fieldPositions[nextIndex];
         if (!from || !to) return;
         const connector = createConnector(from, to, {
-          shortcut: routeIndex > 0,
+          // Der zweite Ausgang einer Kreuzung IST die Abkürzung — und alles,
+          // was aus einem Abkürzungsfeld herausführt, gehört auch dazu.
+          shortcut: routeIndex > 0 || index >= ringSize,
           theme: this.theme,
-          wrap: index === fieldTypes.length - 1 && nextIndex === 0
+          wrap: index === ringSize - 1 && nextIndex === 0
         });
         this.boardGroup.add(connector);
 

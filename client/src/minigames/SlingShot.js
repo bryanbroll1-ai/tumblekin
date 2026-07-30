@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin81";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin81";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin81";
 
 // Schleuderschuss — zurückziehen lädt Kraft, der Winkel bestimmt die Bahn.
 // Nach jedem Schuss weicht die Zielscheibe zurück, also muss jede Kraft neu

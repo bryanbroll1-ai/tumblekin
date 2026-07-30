@@ -1,30 +1,30 @@
-import { BoardGame } from "./game/BoardGame.js?v=tumblekin80";
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin80";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin80";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin80";
-import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin80";
-import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin80";
-import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin80";
-import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin80";
-import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin80";
-import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin80";
-import { BombPass } from "./minigames/BombPass.js?v=tumblekin80";
-import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin80";
-import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin80";
-import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin80";
-import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin80";
-import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin80";
-import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin80";
-import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin80";
-import { SlingShot } from "./minigames/SlingShot.js?v=tumblekin80";
-import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin80";
-import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin80";
-import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin80";
-import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin80";
-import { PlateSpin } from "./minigames/PlateSpin.js?v=tumblekin80";
-import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin80";
-import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin80";
-import { Feedback } from "./game/Feedback.js?v=tumblekin80";
+import { BoardGame } from "./game/BoardGame.js?v=tumblekin81";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin81";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin81";
+import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin81";
+import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin81";
+import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin81";
+import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin81";
+import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin81";
+import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin81";
+import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin81";
+import { BombPass } from "./minigames/BombPass.js?v=tumblekin81";
+import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin81";
+import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin81";
+import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin81";
+import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin81";
+import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin81";
+import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin81";
+import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin81";
+import { SlingShot } from "./minigames/SlingShot.js?v=tumblekin81";
+import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin81";
+import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin81";
+import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin81";
+import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin81";
+import { PlateSpin } from "./minigames/PlateSpin.js?v=tumblekin81";
+import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin81";
+import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin81";
+import { Feedback } from "./game/Feedback.js?v=tumblekin81";
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
@@ -75,6 +75,7 @@ const ui = new UIManager({
   startGame: () => network.request("startGame", { code: currentState?.code }),
   startDevMinigame: (type) => network.request("startDevMinigame", { code: currentState?.code, type }),
   rollDice: () => network.request("rollDice", { code: currentState?.code, playerId: ui.getControlledPlayerId() }),
+  chooseRoute: (route) => network.request("chooseRoute", { code: currentState?.code, route }),
   restartGame: () => network.request("restartGame", { code: currentState?.code }),
   useItem: (itemId) => network.request("useItem", {
     code: currentState?.code,
@@ -89,6 +90,17 @@ network.on("boardMove", (move) => {
   feedback.vibrate([25, 30, 45]);
   ui.showBoardMove(move);
   board.animateMove(move);
+});
+// An der Kreuzung: der Würfel ist gefallen, aber der Weg ist noch offen. Ein
+// eigener Ton und ein spürbarer Impuls, weil hier eine Entscheidung ansteht und
+// nicht bloss eine Figur weiterläuft.
+network.on("boardJunction", (junction) => {
+  feedback.sound("select");
+  feedback.vibrate([18, 40, 18]);
+  board.focusField?.(junction.at);
+});
+network.on("boardRouteChosen", (choice) => {
+  feedback.sound(choice.saves > 0 ? "whoosh" : "tap");
 });
 network.on("boardLanded", (landing) => {
   const effect = landing.fieldEffect || {};

@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin80";
-import { playerStatus } from "../game/Player.js?v=tumblekin80";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin80";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin81";
+import { playerStatus } from "../game/Player.js?v=tumblekin81";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin81";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -121,6 +121,9 @@ export class UIManager {
       boardMessage: document.getElementById("board-message"),
       diceLabel: document.getElementById("dice-label"),
       rollDice: document.getElementById("roll-dice"),
+      junctionChoice: document.getElementById("junction-choice"),
+      junctionTitle: document.getElementById("junction-title"),
+      junctionOptions: document.getElementById("junction-options"),
       minigameReason: document.getElementById("minigame-reason"),
       intro: document.getElementById("minigame-intro"),
       introReason: document.getElementById("intro-reason"),
@@ -196,6 +199,11 @@ export class UIManager {
     this.el.addTestPlayers.addEventListener("click", () => this.safeAction(() => this.handlers.addTestPlayers()));
     this.el.enableDevMode.addEventListener("click", () => this.safeAction(() => this.handlers.enableDevMode()));
     this.el.rollDice.addEventListener("click", () => this.safeAction(() => this.handlers.rollDice()));
+    this.el.junctionOptions.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-route]");
+      if (!button) return;
+      this.safeAction(() => this.handlers.chooseRoute(Number(button.dataset.route)));
+    });
     this.el.restart.addEventListener("click", () => this.safeAction(() => this.handlers.restartGame()));
     this.el.copyLink.addEventListener("click", () => this.safeAction(() => this.copyJoinLink()));
     this.el.modeOptions?.querySelectorAll("[data-mode]").forEach((button) => {
@@ -398,6 +406,48 @@ export class UIManager {
     }
   }
 
+  // Die Wegwahl an einer Kreuzung. Sie zeigt, was auf jedem Weg liegt und wie
+  // viele Felder er spart — die Entscheidung soll man treffen können, ohne das
+  // Brett vorher auswendig gelernt zu haben.
+  renderJunction(state, selectedPlayerId) {
+    const pending = state.pendingJunction;
+    const box = this.el.junctionChoice;
+    if (!box) return;
+    if (!pending || state.phase !== "junction") {
+      box.hidden = true;
+      this.lastJunctionAt = null;
+      return;
+    }
+    const mine = pending.playerId === selectedPlayerId || pending.playerId === this.myPlayerId;
+    const chooser = state.players.find((player) => player.id === pending.playerId);
+    box.hidden = false;
+    this.el.junctionTitle.textContent = mine
+      ? `Welcher Weg? Noch ${pending.remaining} ${pending.remaining === 1 ? "Schritt" : "Schritte"}`
+      : `${shortName(chooser?.name || "Jemand")} wählt den Weg …`;
+
+    const key = `${pending.playerId}:${pending.at}`;
+    if (this.lastJunctionAt === key && box.dataset.mine === String(mine)) return;
+    this.lastJunctionAt = key;
+    box.dataset.mine = String(mine);
+
+    this.el.junctionOptions.innerHTML = (pending.options || []).map((option) => {
+      // Auf dem Zweig sieht man vorher, was kommt. Das ist der ganze Reiz: ein
+      // kurzer Weg, dessen Preis offen daliegt.
+      const preview = option.fields.length
+        ? option.fields.map((type) => FIELD_LEGEND[type]?.icon || "•").join(" ")
+        : "◻ ◻ ◻";
+      const saves = option.saves > 0
+        ? `<span class="junction-saves">−${option.saves} ${option.saves === 1 ? "Feld" : "Felder"}</span>`
+        : `<span class="junction-saves calm">der lange Weg</span>`;
+      return `<button type="button" data-route="${option.route}" ${mine ? "" : "disabled"}>
+        <span class="junction-label">${escapeHtml(option.label)}</span>
+        <span class="junction-preview">${preview}</span>
+        <span class="junction-hint">${escapeHtml(option.hint)}</span>
+        ${saves}
+      </button>`;
+    }).join("");
+  }
+
   renderBoard() {
     this.syncControlledPlayer();
     const state = this.state;
@@ -423,6 +473,7 @@ export class UIManager {
           : (current?.diceValue ? `Letzter Wurf: ${current.diceValue}` : "Würfel bereit"));
     this.el.rollDice.disabled = !myTurn || current?.connected === false;
     this.el.rollDice.textContent = myTurn ? "Würfeln" : (current?.connected === false ? "Offline" : (current?.isBot ? "Bot würfelt ..." : "Warten"));
+    this.renderJunction(state, selectedPlayerId);
     this.el.scoreStrip.innerHTML = state.players.map((player, index) => `
       <div class="score-chip ${player.id === current?.id ? "current" : ""} ${player.connected === false ? "offline" : ""}"
         style="--chip-color:${player.color}"

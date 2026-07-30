@@ -114,7 +114,38 @@ export function boardTheme(boardId) {
 // glance — start, gates and everything between get breathing room.
 const LAYOUT_SPREAD = 1.18;
 
-export function createThemeLayout(boardId, count = 32) {
+export function createThemeLayout(boardId, count = 32, branches = []) {
   const source = LAYOUTS[boardId] || LAYOUTS.mossback;
-  return source.slice(0, count).map(([x, y, z]) => ({ x: x * LAYOUT_SPREAD, y, z: z * LAYOUT_SPREAD }));
+  const ring = source.map(([x, y, z]) => ({ x: x * LAYOUT_SPREAD, y, z: z * LAYOUT_SPREAD }));
+  const points = ring.slice(0, Math.min(count, ring.length));
+  if (!branches.length) return points.slice(0, count);
+
+  // Die Ringpunkte sind von Hand gesetzt und sollen so bleiben. Die Felder einer
+  // Abkürzung werden deshalb ABGELEITET: eine Sehne von der Kreuzung zur
+  // Einmündung, zur Brettmitte hin ausgebeult. So liegt der kurze Weg sichtbar
+  // INNERHALB der Schleife, was auch ohne Beschriftung sofort erzählt, dass er
+  // abkürzt.
+  const centre = points.reduce(
+    (sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length, z: sum.z + point.z / points.length }),
+    { x: 0, y: 0, z: 0 }
+  );
+
+  branches.forEach((branch) => {
+    const from = ring[branch.from];
+    const to = ring[branch.to];
+    if (!from || !to) return;
+    const count = branch.fields.length;
+    branch.fields.forEach((fieldIndex, position) => {
+      const t = (position + 1) / (count + 1);
+      // Ausbeulung als Halbwelle: an den Enden null, damit die Verbindung zum
+      // Ring nicht knickt, in der Mitte am stärksten.
+      const bulge = Math.sin(t * Math.PI) * 0.42;
+      points[fieldIndex] = {
+        x: from.x + (to.x - from.x) * t + (centre.x - (from.x + to.x) / 2) * bulge,
+        y: from.y + (to.y - from.y) * t + 0.06,
+        z: from.z + (to.z - from.z) * t + (centre.z - (from.z + to.z) / 2) * bulge
+      };
+    });
+  });
+  return points;
 }

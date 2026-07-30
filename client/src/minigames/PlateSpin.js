@@ -7,15 +7,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin81";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin81";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin81";
 
 // Tellerdreher — mehrere Teller laufen langsam aus, ein Antippen gibt Schwung
 // zurück. Man hat aber nur EINE Hand: jeder Griff kostet aus einem Vorrat, der

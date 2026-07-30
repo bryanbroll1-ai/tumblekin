@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin81";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin81";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin81";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run

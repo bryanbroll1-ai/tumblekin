@@ -23,6 +23,18 @@ const GATE_COIN_BONUS = 5;
 // star only ever sits on ONE of the board's star pads. That gives every roll a
 // target ("can I reach it?") and every coin a purpose ("can I afford it?").
 const STAR_PRICE = 20;
+// Der Preis steigt mit jedem verkauften Stern. Bei festem Preis war das
+// Spätspiel flach: wer vorne lag, kaufte einfach weiter, und für alle anderen
+// war die Partie entschieden, lange bevor sie zu Ende war. Jetzt ist der erste
+// Stern billig und jeder weitere teurer — Vorsprung kostet, und ein Rückstand
+// bleibt aufholbar.
+const STAR_PRICE_STEP = 6;
+const STAR_PRICE_MAX = 44;
+
+function starPrice(room) {
+  const sold = room?.starsSold || 0;
+  return Math.min(STAR_PRICE_MAX, STAR_PRICE + sold * STAR_PRICE_STEP);
+}
 const COIN_FIELD_REWARD = 6;
 const NORMAL_FIELD_REWARD = 2;
 const TRAP_FIELD_COST = 8;
@@ -607,6 +619,8 @@ io.on("connection", (socket) => {
       round: 1,
       maxRounds: MAX_ROUNDS,
       starIndex: null,
+      starsSold: 0,
+      pendingJunction: null,
       bonusStars: [],
       currentTurnIndex: 0,
       minigameCounter: 0,
@@ -836,6 +850,20 @@ io.on("connection", (socket) => {
     const result = performRoll(room, current);
     if (!result.ok) return replyError(reply, result.error || "Würfeln ist gerade nicht möglich.");
     reply?.({ ok: true, dice: result.dice });
+  });
+
+  socket.on("chooseRoute", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    const pending = room.pendingJunction;
+    if (!pending) return replyError(reply, "Gerade steht keine Wegwahl an.");
+    const player = room.players.find((candidate) => candidate.id === pending.playerId);
+    if (!player) return replyError(reply, "Spieler nicht gefunden.");
+    if (!canControl(socket, player)) return replyError(reply, "Diese Wahl gehört jemand anderem.");
+
+    const result = chooseJunctionRoute(room, player, payload?.route);
+    if (!result.ok) return replyError(reply, result.error || "Diese Wahl geht gerade nicht.");
+    reply?.({ ok: true });
   });
 
   socket.on("minigameInput", (payload, reply) => {
@@ -1091,82 +1119,209 @@ function performRoll(room, player) {
     diceNote = diceNote ? `${diceNote}, halbiert` : "halbiert";
   }
   const board = getBoard(room.boardId);
-  const from = player.position;
-  const pathSteps = buildBoardPath(board, from, dice);
-  const to = pathSteps[pathSteps.length - 1];
   player.diceValue = dice;
-
-  const fieldType = board.fieldTypes[to];
-  const movementDurationMs = Math.max(BOARD_STEP_MS, pathSteps.length * BOARD_STEP_MS);
-  const move = {
-    boardId: board.id,
-    playerId: player.id,
-    from,
-    to,
-    path: pathSteps,
-    dice,
-    fieldType,
-    diceDelayMs: DICE_REVEAL_MS,
-    stepDurationMs: BOARD_STEP_MS,
-    movementDurationMs,
-    durationMs: DICE_REVEAL_MS + movementDurationMs,
-    diceNote,
-    message: `${player.name} würfelt ${formatDiceRoll(baseDice, boost, penalty, dice)}${diceNote ? ` (${diceNote})` : ""}.`
-  };
-  room.lastMove = move;
   room.lastMessage = `${player.name} zieht ${dice} Felder.`;
 
-  io.to(room.code).emit("boardMove", move);
-  emitRoom(room);
-
-  const timer = setTrackedTimeout(room, () => {
-    if (room.status !== "board" || room.phase !== "moving") return;
-    player.position = to;
-    const gateEffects = resolveGateRewards(player, pathSteps, board);
-    // Passing the lit star pad buys the star before the landing field resolves.
-    const starPass = resolveStarPurchase(player, pathSteps, room);
-    const fieldEffect = applyFieldEffect(player, fieldType, room);
-    const messages = [
-      ...gateEffects.map((effect) => effect.message),
-      starPass?.message,
-      fieldEffect.message
-    ].filter(Boolean);
-    const landing = {
-      ...move,
-      fieldEffect,
-      gateEffects,
-      starPass,
-      message: messages.join(" ")
-    };
-    room.lastMove = landing;
-    room.phase = "fieldResult";
-    room.lastMessage = landing.message;
-    io.to(room.code).emit("boardLanded", landing);
-    emitRoom(room);
-    setTrackedTimeout(room, () => {
-      if (room.status !== "board" || room.phase !== "fieldResult") return;
-      if (fieldType === "challenge") {
-        startMinigame(room, "Challenge-Feld", "advanceTurn");
-        emitRoom(room);
-        return;
-      }
-      advanceTurn(room);
-    }, 950);
-  }, move.durationMs);
+  const timer = walkLeg(room, player, board, {
+    from: player.position,
+    steps: dice,
+    route: 0,
+    walked: [],
+    diceNote,
+    diceDelayMs: DICE_REVEAL_MS,
+    headline: `${player.name} würfelt ${formatDiceRoll(baseDice, boost, penalty, dice)}${diceNote ? ` (${diceNote})` : ""}.`,
+    dice
+  });
 
   return { ok: true, dice, timer };
 }
 
+// Eine Etappe: laufen, bis die Schritte alle sind ODER eine Kreuzung kommt.
+// Ein Zug kann so aus mehreren Etappen bestehen — deshalb trägt `walked` alle
+// bisher gelaufenen Felder mit, denn Tore und der Sternplatz zählen über den
+// GANZEN Zug, nicht je Etappe.
+function walkLeg(room, player, board, leg) {
+  const { path, pendingAt, remaining } = buildBoardPath(board, leg.from, leg.steps, leg.route);
+  const to = path[path.length - 1];
+  const walked = [...leg.walked, ...path];
+  const movementDurationMs = Math.max(BOARD_STEP_MS, path.length * BOARD_STEP_MS);
+  const move = {
+    boardId: board.id,
+    playerId: player.id,
+    from: leg.from,
+    to,
+    path,
+    dice: leg.dice,
+    fieldType: board.fieldTypes[to],
+    diceDelayMs: leg.diceDelayMs,
+    stepDurationMs: BOARD_STEP_MS,
+    movementDurationMs,
+    durationMs: leg.diceDelayMs + movementDurationMs,
+    diceNote: leg.diceNote,
+    atJunction: pendingAt !== null,
+    message: leg.headline
+  };
+  room.lastMove = move;
+  io.to(room.code).emit("boardMove", move);
+  emitRoom(room);
+
+  return setTrackedTimeout(room, () => {
+    if (room.status !== "board" || room.phase !== "moving") return;
+    player.position = to;
+
+    if (pendingAt !== null) {
+      // Die Wahl gehört der Person, nicht dem Würfel: hier wird angehalten.
+      const options = junctionOptions(board, pendingAt);
+      room.phase = "junction";
+      room.pendingJunction = {
+        playerId: player.id, at: pendingAt, remaining, options,
+        walked, dice: leg.dice, diceNote: leg.diceNote
+      };
+      room.lastMessage = `${player.name} steht an der Kreuzung — welcher Weg?`;
+      io.to(room.code).emit("boardJunction", { ...room.pendingJunction, playerName: player.name });
+      emitRoom(room);
+      if (player.isBot) {
+        setTrackedTimeout(room, () => chooseJunctionRoute(room, player, botJunctionChoice(room, player, board)), 900);
+      }
+      return;
+    }
+
+    finishMove(room, player, board, move, walked);
+  }, move.durationMs);
+}
+
+// Ankommen: Tore, Stern im Vorbeigehen, Feldwirkung — alles über den ganzen Zug.
+function finishMove(room, player, board, move, walked) {
+  const fieldType = board.fieldTypes[move.to];
+  const gateEffects = resolveGateRewards(player, walked, board);
+  const starPass = resolveStarPurchase(player, walked, room);
+  const fieldEffect = applyFieldEffect(player, fieldType, room);
+  const messages = [
+    ...gateEffects.map((effect) => effect.message),
+    starPass?.message,
+    fieldEffect.message
+  ].filter(Boolean);
+  const landing = { ...move, path: walked, fieldEffect, gateEffects, starPass, message: messages.join(" ") };
+  room.lastMove = landing;
+  room.phase = "fieldResult";
+  room.lastMessage = landing.message;
+  io.to(room.code).emit("boardLanded", landing);
+  emitRoom(room);
+  setTrackedTimeout(room, () => {
+    if (room.status !== "board" || room.phase !== "fieldResult") return;
+    if (fieldType === "challenge") {
+      startMinigame(room, "Challenge-Feld", "advanceTurn");
+      emitRoom(room);
+      return;
+    }
+    advanceTurn(room);
+  }, 950);
+}
+
+// Die getroffene Wahl ausführen und die restlichen Schritte gehen.
+function chooseJunctionRoute(room, player, route) {
+  const pending = room.pendingJunction;
+  if (!pending || room.phase !== "junction") return { ok: false, error: "Gerade steht keine Wegwahl an." };
+  if (pending.playerId !== player.id) return { ok: false, error: "Diese Wahl gehört jemand anderem." };
+  const board = getBoard(room.boardId);
+  const picked = clamp(Math.round(Number(route) || 0), 0, (pending.options.length || 1) - 1);
+  const choice = pending.options[picked];
+  room.pendingJunction = null;
+  room.phase = "moving";
+  room.lastMessage = `${player.name} nimmt ${choice.label}.`;
+  io.to(room.code).emit("boardRouteChosen", { playerId: player.id, ...choice });
+  walkLeg(room, player, board, {
+    from: pending.at,
+    steps: pending.remaining,
+    route: picked,
+    walked: pending.walked,
+    diceNote: pending.diceNote,
+    // Der Würfel wurde schon gezeigt; die zweite Etappe läuft ohne neue Pause an.
+    diceDelayMs: 0,
+    headline: `${player.name} nimmt ${choice.label}.`,
+    dice: pending.dice
+  });
+  return { ok: true };
+}
+
+// Bots entscheiden nach dem, was zählt: Wer den Stern bezahlen kann, nimmt den
+// kürzeren Weg dorthin. Wer ihn nicht bezahlen kann, meidet die Fallen und
+// sammelt lieber auf dem Ring.
+function botJunctionChoice(room, player, board) {
+  const options = room.pendingJunction?.options || [];
+  if (options.length < 2) return 0;
+  const lit = room.starIndex;
+  const size = board.fieldTypes.length;
+  const canAffordStar = player.coins >= starPrice(room);
+  let best = 0;
+  let bestValue = -Infinity;
+  options.forEach((option, index) => {
+    const traps = option.fields.filter((type) => type === "trap").length;
+    const coins = option.fields.filter((type) => type === "coin").length;
+    // Näher am Stern zu sein ist nur etwas wert, wenn man ihn auch zahlen kann.
+    const distance = lit === null || lit === undefined
+      ? 0
+      : (lit - option.next + size) % size;
+    const value = (canAffordStar ? option.saves * 2.2 - distance * 0.12 : 0)
+      + coins * 1.1 - traps * (canAffordStar ? 0.7 : 1.6);
+    if (value > bestValue) { bestValue = value; best = index; }
+  });
+  return best;
+}
+
 // One simple loop forward — no shortcut branches.
-function buildBoardPath(board, from, steps) {
+// Läuft `steps` Felder weiter und HÄLT AN, sobald das Feld unter dem Kin mehr
+// als einen Weg anbietet und noch Schritte übrig sind. Vorher nahm die Funktion
+// stumm `routes[cursor][0]` — mit dem Ring von damals war das dasselbe, mit
+// Abzweigungen wäre die zweite Route für immer unerreichbar geblieben.
+//
+// `pendingAt` ist die Kreuzung, `remaining` die Schritte, die nach der Wahl noch
+// zu gehen sind. Ohne Kreuzung ist beides null und das Ergebnis genau wie früher.
+function buildBoardPath(board, from, steps, preferredRoute = 0) {
   const path = [];
   let cursor = from;
+  let route = preferredRoute;
   for (let step = 1; step <= steps; step += 1) {
-    const next = board.routes[cursor]?.[0] ?? (cursor + 1) % board.fieldTypes.length;
+    const options = board.routes[cursor];
+    const next = options?.[Math.min(route, (options.length || 1) - 1)]
+      ?? (cursor + 1) % board.fieldTypes.length;
+    route = 0;                                  // die Vorwahl gilt nur für den ersten Schritt
     path.push(next);
     cursor = next;
+    const ahead = board.routes[cursor];
+    if (ahead && ahead.length > 1 && step < steps) {
+      return { path, pendingAt: cursor, remaining: steps - step };
+    }
   }
-  return path;
+  return { path, pendingAt: null, remaining: 0 };
+}
+
+// Die Kreuzung als Angebot: was liegt auf jedem Weg, und was spart er?
+function junctionOptions(board, fieldIndex) {
+  const options = board.routes[fieldIndex] || [];
+  return options.map((next, routeIndex) => {
+    const branch = board.branches?.find((entry) => entry.from === fieldIndex && entry.fields[0] === next);
+    // Auch für den Hauptweg zeigen, was kommt — sonst stünden dort Platzhalter,
+    // und die Wahl wäre einseitig belegt: nur eine Seite verriete ihren Inhalt.
+    const preview = [];
+    if (branch) {
+      branch.fields.forEach((index) => preview.push(board.fieldTypes[index]));
+    } else {
+      let cursor = next;
+      for (let step = 0; step < 3; step += 1) {
+        preview.push(board.fieldTypes[cursor]);
+        cursor = board.routes[cursor]?.[0] ?? cursor;
+      }
+    }
+    return {
+      route: routeIndex,
+      next,
+      label: branch ? branch.label : "Hauptweg",
+      hint: branch ? branch.hint : "ruhig, aber der lange Bogen",
+      saves: branch ? branch.saves : 0,
+      fields: preview
+    };
+  });
 }
 
 // Buying the star by LANDING exactly on the lit pad turned out to be nearly
@@ -1182,26 +1337,31 @@ function resolveStarPurchase(player, pathSteps, room) {
   // fields genuinely passed through.
   const passed = pathSteps.slice(0, -1);
   if (!passed.includes(lit)) return null;
-  if (player.coins < STAR_PRICE) {
+  const price = starPrice(room);
+  if (player.coins < price) {
     return {
       type: "starPass",
       fieldIndex: lit,
       coins: 0,
       affordable: false,
-      message: `Am Stern vorbei — ${STAR_PRICE} Münzen nötig, du hast ${player.coins}.`
+      price,
+      message: `Am Stern vorbei — ${price} Münzen nötig, du hast ${player.coins}.`
     };
   }
-  player.coins -= STAR_PRICE;
+  player.coins -= price;
   player.stars += 1;
+  room.starsSold = (room.starsSold || 0) + 1;
   const movedTo = moveStarPad(room, { avoid: lit });
   return {
     type: "starPass",
     fieldIndex: lit,
-    coins: -STAR_PRICE,
+    coins: -price,
     affordable: true,
+    price,
     starGained: true,
     starMovedTo: movedTo,
-    message: `⭐ Im Vorbeigehen einen Stern geschnappt! (-${STAR_PRICE} Münzen)`
+    nextPrice: starPrice(room),
+    message: `⭐ Im Vorbeigehen einen Stern geschnappt! (-${price} Münzen) Der nächste kostet ${starPrice(room)}.`
   };
 }
 
@@ -1289,27 +1449,32 @@ function applyFieldEffect(player, fieldType, room = null) {
         message: `Sternenpodest ist dunkel — +${NORMAL_FIELD_REWARD} Münzen.`
       };
     }
-    if (player.coins < STAR_PRICE) {
+    const price = starPrice(room);
+    if (player.coins < price) {
       return {
         type: fieldType,
         coins: 0,
         starLit: true,
         starAffordable: false,
-        message: `Ein Stern kostet ${STAR_PRICE} Münzen — dir fehlen ${STAR_PRICE - player.coins}.`
+        price,
+        message: `Ein Stern kostet ${price} Münzen — dir fehlen ${price - player.coins}.`
       };
     }
-    player.coins -= STAR_PRICE;
+    player.coins -= price;
     player.stars += 1;
+    if (room) room.starsSold = (room.starsSold || 0) + 1;
     const from = player.position;
     const to = room ? moveStarPad(room, { avoid: from }) : null;
     return {
       type: fieldType,
-      coins: -STAR_PRICE,
+      coins: -price,
       starLit: true,
       starAffordable: true,
       starGained: true,
       starMovedTo: to,
-      message: `⭐ Stern gekauft! (-${STAR_PRICE} Münzen) Der Stern zieht weiter.`
+      price,
+      nextPrice: starPrice(room),
+      message: `⭐ Stern gekauft! (-${price} Münzen) Der nächste kostet ${starPrice(room)}.`
     };
   }
 
@@ -6819,7 +6984,9 @@ function serializeRoom(room) {
     lastMessage: room.lastMessage,
     winnerIds: room.winnerIds,
     starIndex: room.starIndex ?? null,
-    starPrice: STAR_PRICE,
+    starPrice: starPrice(room),
+    starsSold: room.starsSold || 0,
+    pendingJunction: room.pendingJunction || null,
     bonusStars: room.bonusStars || [],
     itemCatalog: ITEM_DEFINITIONS,
     serverTime: Date.now()

@@ -3731,3 +3731,89 @@ body[data-screen="minigame"] .game-menu-button {
   padding: 7px 16px;
   font-size: clamp(0.8rem, 3.4vw, 1rem);
 }
+
+/* --- Wegwahl an einer Kreuzung -------------------------------------------
+   Steht an derselben Stelle wie der Würfel-Knopf, weil dort ohnehin hingeschaut
+   wird, wenn man am Zug ist. Zwei Karten nebeneinander: was der Weg heisst, was
+   auf ihm liegt, und was er kostet oder spart. Die Entscheidung soll man ohne
+   Vorwissen treffen können. */
+.junction-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.junction-title {
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #46707e;
+}
+
+.junction-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.junction-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 15px;
+  font: inherit;
+  text-align: left;
+  color: #2b3440;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 4px 14px rgba(20, 40, 60, 0.14);
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.junction-options button:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+
+.junction-options button:not(:disabled):active {
+  transform: translateY(1px) scale(0.985);
+}
+
+.junction-label { font-size: 0.86rem; font-weight: 900; }
+
+/* Die Feldfolge des Weges, in derselben Zeichensprache wie das Brett. */
+.junction-preview {
+  font-size: 1rem;
+  letter-spacing: 0.16em;
+  color: #4a6472;
+}
+
+.junction-hint { font-size: 0.68rem; line-height: 1.35; color: #5c7480; }
+
+/* Die Ersparnis ist das eigentliche Argument — sie bekommt das kräftige Feld. */
+.junction-saves {
+  align-self: stretch;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-align: center;
+  background: var(--yellow, #ffd15c);
+  color: #5c4508;
+}
+
+.junction-saves.calm {
+  background: rgba(70, 112, 126, 0.14);
+  color: #46707e;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .junction-options button { transition: none; }
+}
