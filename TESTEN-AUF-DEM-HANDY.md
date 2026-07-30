@@ -27,7 +27,7 @@ ohne weiteres Zutun aus.
 
    | Feld | Wert |
    | --- | --- |
-   | Branch | `claude/improve-minigames-animations-7wfix0` |
+   | Branch | `main` |
    | Language / Runtime | `Node` |
    | Build Command | `npm install` |
    | Start Command | `npm start` |
@@ -37,15 +37,13 @@ ohne weiteres Zutun aus.
    der Form `https://tumblekin-xxxx.onrender.com`. Die im Browser öffnen und
    spielen.
 
-Der Branch ist wichtig: auf dem Standardzweig `main` liegen bisher nur 15 der
-23 Minispiele.
+Alle 23 Minispiele liegen auf `main`, du musst am Branch also nichts drehen.
 
 Zum Gratis-Tarif: der Dienst schläft bei Inaktivität ein und braucht beim
 nächsten Aufruf etwa eine Minute zum Aufwachen. Beim ersten Laden also Geduld.
 
 `render.yaml` liegt weiterhin im Repository. Wer den Blueprint-Punkt in der
-Oberfläche findet, kann ihn benutzen — der Zweig ist dort schon festgepinnt.
-Nötig ist er nicht.
+Oberfläche findet, kann ihn benutzen — nötig ist er nicht.
 
 ## B) GitHub Codespaces — im Browser, nicht in der App
 
@@ -53,8 +51,7 @@ Im Handy-Browser öffnen, nicht in der GitHub-App:
 
 <https://github.com/codespaces/new>
 
-1. Dort das Repository `tumblekin` und als Branch
-   `claude/improve-minigames-animations-7wfix0` auswählen, dann
+1. Dort das Repository `tumblekin` und als Branch `main` auswählen, dann
    **Create codespace** antippen.
 2. Beim ersten Mal ein bis zwei Minuten warten. `npm install` und `npm start`
    laufen dank `.devcontainer/devcontainer.json` automatisch — du musst nichts
