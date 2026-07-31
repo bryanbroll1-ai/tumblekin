@@ -57,11 +57,10 @@ const {
   buildGlideGates,
   SUMO_RING_RADIUS,
   SUMO_CHARGE_MS,
-  SUMO_OVERCHARGE_MS,
+  SUMO_ZONE,
   SUMO_MIN_CHARGE_MS,
   SUMO_MAX_IMPULSE,
   SUMO_HITS_OUT,
-  SUMO_SLIP_MS,
   updateSumoStone,
   BOUNCE_BEAT_START_MS,
   BOUNCE_BEAT_MIN_MS,
@@ -69,6 +68,8 @@ const {
   BOUNCE_GOOD_MS,
   BOUNCE_MISS_PENALTY,
   BOUNCE_MAX_HEIGHT,
+  BOUNCE_BAR_BEATS,
+  BOUNCE_TEMPOS,
   bounceBeatTime,
   bounceNearestBeat,
   FEINT_DURATION_MS,
@@ -119,6 +120,9 @@ const {
   FISH_SNAP_PAUSE_MS,
   FISH_SNAP_COST,
   FISH_LANDED_POINTS,
+  FISH_SNAP_SHARE,
+  FISH_SPECIES,
+  fishSpeciesFor,
   FISH_LEAD_IN_MS,
   buildFishPhases,
   fishSurging,
@@ -1792,112 +1796,156 @@ function sumoRoom(playerCount = 4) {
     arcade.players[player.id].lastInputAt = 0;
     return handleArcadeInput(room, player, input);
   };
+  // Legt den Stein in Reichweite des Spielers, damit ein Stoss ihn erwischt.
+  const stoneAt = (player, reach, towards = true) => {
+    const e = arcade.players[player.id];
+    arcade.stone.x = e.spotX * SUMO_RING_RADIUS * reach;
+    arcade.stone.y = e.spotY * SUMO_RING_RADIUS * reach;
+    const sign = towards ? 1 : -1;
+    arcade.stone.vx = e.spotX * sign * 0.9;
+    arcade.stone.vy = e.spotY * sign * 0.9;
+  };
   // Lädt für `heldMs` auf und lässt dann los.
   const chargeAndShove = (player, heldMs) => {
     const entry = arcade.players[player.id];
+    entry.recoverUntil = 0;
     send(player, { action: "charge" });
     entry.chargeStart = Date.now() - heldMs;
     return send(player, { action: "shove" });
   };
-  return { room, players, arcade, minigame, send, chargeAndShove };
+  return { room, players, arcade, minigame, send, stoneAt, chargeAndShove };
 }
 
 test("sumo: players start evenly spread on the ring", () => {
   const { players, arcade } = sumoRoom(4);
   players.forEach((p) => {
     const e = arcade.players[p.id];
-    // Jeder Platz liegt auf dem Einheitskreis.
     assert.ok(Math.abs(Math.hypot(e.spotX, e.spotY) - 1) < 1e-9, "spot must sit on the unit circle");
     assert.equal(e.hits, 0);
     assert.equal(e.eliminated, false);
   });
-  // Vier Plätze müssen verschieden sein.
   const spots = players.map((p) => `${arcade.players[p.id].spotX.toFixed(3)},${arcade.players[p.id].spotY.toFixed(3)}`);
   assert.equal(new Set(spots).size, 4);
 });
 
-test("sumo: a full charge shoves the stone away from the shover", () => {
-  const { players, arcade, chargeAndShove } = sumoRoom(4);
+test("sumo: nobody is a structural sink — the ring turns at different speeds", () => {
+  // Bei festen Plätzen zeigt die Summe der Stossrichtungen von drei Leuten
+  // zwangsläufig auf den vierten. Ohne Absicht wirkte das wie Absicht. Liefen
+  // alle gleich schnell um, drehte sich nur die Welt und die Abstände blieben —
+  // die Senke bliebe damit, wo sie war.
+  const { players, arcade } = sumoRoom(4);
+  const rates = players.map((p) => arcade.players[p.id].orbit);
+  assert.equal(new Set(rates).size, 4, "jede Person muss anders schnell umlaufen");
+  rates.forEach((rate) => assert.ok(rate > 0));
+});
+
+test("sumo: the stone is never at rest at the start", () => {
+  // Lag er in der Mitte, hatte ihn niemand im eigenen Viertel, also stiess
+  // niemand, also blieb er liegen — gemessen kam so eine ganze Runde ohne einen
+  // einzigen Stoss zustande.
+  const { arcade } = sumoRoom(4);
+  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) > 0.1, "der Stein muss anrollen");
+});
+
+test("sumo: a shove only bites inside your own quarter", () => {
+  // DIE zentrale Regel. Vorher schob jeder Stoss den Stein vom eigenen Platz
+  // weg — er war damit Angriff und Verteidigung zugleich, ohne Zielkonflikt,
+  // und Dauerdrücken war die beste Antwort auf alles.
+  const near = sumoRoom(4);
+  near.stoneAt(near.players[0], SUMO_ZONE + 0.2);
+  const before = Math.hypot(near.arcade.stone.vx, near.arcade.stone.vy);
+  near.chargeAndShove(near.players[0], SUMO_CHARGE_MS);
+  assert.equal(near.arcade.players[near.players[0].id].shoves, 1);
+  assert.ok(Math.hypot(near.arcade.stone.vx, near.arcade.stone.vy) !== before);
+
+  const far = sumoRoom(4);
+  far.stoneAt(far.players[0], SUMO_ZONE - 0.2);
+  const stale = { vx: far.arcade.stone.vx, vy: far.arcade.stone.vy };
+  far.chargeAndShove(far.players[0], SUMO_CHARGE_MS);
+  const e = far.arcade.players[far.players[0].id];
+  assert.equal(e.shoves, 0, "ein Stoss ins Leere darf den Stein nicht bewegen");
+  assert.equal(e.whiffs, 1);
+  assert.equal(far.arcade.stone.vx, stale.vx);
+  assert.equal(far.arcade.stone.vy, stale.vy);
+});
+
+test("sumo: a whiff costs the swing time, and that is when you are open", () => {
+  const { players, arcade, stoneAt, chargeAndShove, send } = sumoRoom(4);
   const me = players[0];
   const e = arcade.players[me.id];
+  stoneAt(me, SUMO_ZONE - 0.2);
   chargeAndShove(me, SUMO_CHARGE_MS);
-  // Der Stein bekommt Geschwindigkeit WEG von meinem Platz.
+  assert.ok(e.recoverUntil > Date.now(), "nach einem Fehlgriff holt man aus");
+  send(me, { action: "charge" });
+  assert.equal(e.chargeStart, null, "und kann in der Zeit nicht laden");
+});
+
+test("sumo: a full charge shoves the stone away from the shover", () => {
+  const { players, arcade, stoneAt, chargeAndShove } = sumoRoom(4);
+  const me = players[0];
+  const e = arcade.players[me.id];
+  stoneAt(me, SUMO_ZONE + 0.2);
+  arcade.stone.vx = 0;
+  arcade.stone.vy = 0;
+  chargeAndShove(me, SUMO_CHARGE_MS);
   assert.ok(arcade.stone.vx * e.spotX + arcade.stone.vy * e.spotY < 0, "stone must move away from the shover");
-  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) > SUMO_MAX_IMPULSE * 0.9);
   assert.equal(e.shoves, 1);
-  assert.equal(e.lastShove.slipped, false);
+  assert.equal(e.lastShove.whiffed, undefined);
 });
 
 test("sumo: a counter against the rolling stone beats shoving it from behind", () => {
-  // Wucht eines Stosses = Betrag der Geschwindigkeitsänderung.
   const impulseWith = (towards) => {
-    const { players, arcade, chargeAndShove } = sumoRoom(4);
+    const { players, arcade, stoneAt, chargeAndShove } = sumoRoom(4);
     const me = players[0];
-    const e = arcade.players[me.id];
-    // Stein rollt mit gleicher Geschwindigkeit auf mich zu bzw. von mir weg.
-    const sign = towards ? 1 : -1;
-    arcade.stone.vx = e.spotX * sign * 0.9;
-    arcade.stone.vy = e.spotY * sign * 0.9;
+    stoneAt(me, SUMO_ZONE + 0.2, towards);
     const before = { vx: arcade.stone.vx, vy: arcade.stone.vy };
     chargeAndShove(me, SUMO_CHARGE_MS);
     return Math.hypot(arcade.stone.vx - before.vx, arcade.stone.vy - before.vy);
   };
-
   const counter = impulseWith(true);
   const chase = impulseWith(false);
   assert.ok(counter > chase * 1.5, `Konter muss deutlich mehr tragen (${counter} gegen ${chase})`);
 });
 
 test("sumo: a longer charge shoves harder", () => {
-  const weak = sumoRoom(4);
-  weak.chargeAndShove(weak.players[0], SUMO_CHARGE_MS * 0.3);
-  const weakSpeed = Math.hypot(weak.arcade.stone.vx, weak.arcade.stone.vy);
-
-  const strong = sumoRoom(4);
-  strong.chargeAndShove(strong.players[0], SUMO_CHARGE_MS);
-  const strongSpeed = Math.hypot(strong.arcade.stone.vx, strong.arcade.stone.vy);
-
-  assert.ok(strongSpeed > weakSpeed * 2, `${strongSpeed} should clearly beat ${weakSpeed}`);
+  const run = (share) => {
+    const room = sumoRoom(4);
+    room.stoneAt(room.players[0], SUMO_ZONE + 0.2);
+    room.arcade.stone.vx = 0;
+    room.arcade.stone.vy = 0;
+    room.chargeAndShove(room.players[0], SUMO_CHARGE_MS * share);
+    return Math.hypot(room.arcade.stone.vx, room.arcade.stone.vy);
+  };
+  assert.ok(run(1) > run(0.3) * 2, "volle Kraft muss klar mehr tragen");
 });
 
-test("sumo: overcharging slips instead of shoving", () => {
-  const { players, arcade, chargeAndShove } = sumoRoom(4);
+test("sumo: holding is free — it IS the defence", () => {
+  // Früher rutschte man beim Überladen aus. Das machte Abwarten unmöglich und
+  // zwang alle in einen Dauertakt aus Laden und Danebenstossen.
+  const { players, arcade, stoneAt, chargeAndShove } = sumoRoom(4);
   const me = players[0];
   const e = arcade.players[me.id];
-  chargeAndShove(me, SUMO_OVERCHARGE_MS + 200);
-
-  assert.equal(e.slips, 1);
-  assert.equal(e.shoves, 0, "an overcharge must not move the stone");
-  assert.equal(arcade.stone.vx, 0);
-  assert.equal(arcade.stone.vy, 0);
-  assert.ok(e.slipUntil > Date.now(), "the slip has to cost recovery time");
-  assert.equal(e.lastShove.slipped, true);
-});
-
-test("sumo: a slipped player cannot act until recovered", () => {
-  const { players, arcade, chargeAndShove, send } = sumoRoom(4);
-  const me = players[0];
-  const e = arcade.players[me.id];
-  chargeAndShove(me, SUMO_OVERCHARGE_MS + 200);
-  // Sofortiger Versuch währenddessen darf nichts bewirken.
-  send(me, { action: "charge" });
-  assert.equal(e.chargeStart, null, "charging must be ignored while down");
+  stoneAt(me, SUMO_ZONE + 0.2);
+  chargeAndShove(me, SUMO_CHARGE_MS * 6);
+  assert.equal(e.shoves, 1, "ein langer Halt muss trotzdem stossen");
+  assert.equal(e.whiffs, 0);
 });
 
 test("sumo: a mere tap does nothing", () => {
-  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const { players, arcade, stoneAt, chargeAndShove } = sumoRoom(4);
   const e = arcade.players[players[0].id];
+  stoneAt(players[0], SUMO_ZONE + 0.2);
+  const before = { vx: arcade.stone.vx, vy: arcade.stone.vy };
   chargeAndShove(players[0], SUMO_MIN_CHARGE_MS - 20);
   assert.equal(e.shoves, 0);
-  assert.equal(e.slips, 0);
-  assert.equal(arcade.stone.vx, 0);
+  assert.equal(e.whiffs, 0);
+  assert.equal(arcade.stone.vx, before.vx);
 });
 
 test("sumo: the stone leaving the ring hits the player it rolled toward", () => {
   const { room, players, arcade, minigame } = sumoRoom(4);
   const target = players[2];
   const t = arcade.players[target.id];
-  // Stein direkt vor die Kante von Spieler 2 setzen, mit Fahrt nach draussen.
   arcade.stone.x = t.spotX * (SUMO_RING_RADIUS - 0.02);
   arcade.stone.y = t.spotY * (SUMO_RING_RADIUS - 0.02);
   arcade.stone.vx = t.spotX * 2;
@@ -1908,9 +1956,8 @@ test("sumo: the stone leaving the ring hits the player it rolled toward", () => 
   players.filter((p) => p.id !== target.id).forEach((p) => {
     assert.equal(arcade.players[p.id].hits, 0, "nobody else may be hit");
   });
-  // Und der Stein liegt wieder in der Mitte.
-  assert.equal(arcade.stone.x, 0);
-  assert.equal(arcade.stone.y, 0);
+  // Und der Stein rollt sofort wieder los, statt liegen zu bleiben.
+  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) > 0.1);
 });
 
 test("sumo: enough hits eliminate a player", () => {
@@ -1918,38 +1965,58 @@ test("sumo: enough hits eliminate a player", () => {
   const victim = players[1];
   const v = arcade.players[victim.id];
   for (let i = 0; i < SUMO_HITS_OUT; i += 1) {
+    // Der Ring läuft um, also wird die Position jedes Mal neu gelesen.
     arcade.stone.x = v.spotX * (SUMO_RING_RADIUS + 0.05);
     arcade.stone.y = v.spotY * (SUMO_RING_RADIUS + 0.05);
-    updateSumoStone(room, minigame, arcade, 0.1, Date.now());
+    updateSumoStone(room, minigame, arcade, 0.01, Date.now());
   }
   assert.equal(v.hits, SUMO_HITS_OUT);
   assert.equal(v.eliminated, true);
 });
 
 test("sumo: an eliminated player can no longer shove", () => {
-  const { players, arcade, chargeAndShove } = sumoRoom(4);
+  const { players, arcade, stoneAt, chargeAndShove } = sumoRoom(4);
   const out = players[0];
+  stoneAt(out, SUMO_ZONE + 0.2);
+  const before = { vx: arcade.stone.vx, vy: arcade.stone.vy };
   arcade.players[out.id].eliminated = true;
   chargeAndShove(out, SUMO_CHARGE_MS);
-  assert.equal(arcade.stone.vx, 0, "an eliminated player must not affect the stone");
+  assert.equal(arcade.stone.vx, before.vx, "an eliminated player must not affect the stone");
 });
 
-test("sumo: friction brings the stone to rest", () => {
+test("sumo: the stone keeps rolling long enough to be seen coming", () => {
+  // Mit zu viel Reibung war der Stein nach einem Stoss sofort wieder still, und
+  // wer getroffen wurde, hatte das nicht kommen sehen können.
   const { room, arcade, minigame } = sumoRoom(4);
-  arcade.stone.vx = 0.5;
+  arcade.stone.x = 0;
+  arcade.stone.y = 0;
+  arcade.stone.vx = 0.9;
   arcade.stone.vy = 0;
-  for (let i = 0; i < 60; i += 1) updateSumoStone(room, minigame, arcade, 0.05, Date.now());
-  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) < 0.01, "the stone has to settle");
+  for (let i = 0; i < 10; i += 1) updateSumoStone(room, minigame, arcade, 0.05, Date.now());
+  assert.ok(Math.hypot(arcade.stone.vx, arcade.stone.vy) > 0.4, "nach einer halben Sekunde muss er noch rollen");
 });
 
 test("sumo: surviving outranks being eliminated", () => {
   const { room, players, arcade, minigame } = sumoRoom(4);
   const out = arcade.players[players[0].id];
   out.eliminated = true;
+  out.eliminatedMs = 12000;
   out.hits = SUMO_HITS_OUT;
-  updateSumoStone(room, minigame, arcade, 0.05, Date.now());
   const alive = arcade.players[players[1].id];
-  assert.ok(alive.score > out.score, "a player still standing must score higher");
+  assert.ok(arcadeRankingScore(arcade, alive) > arcadeRankingScore(arcade, out),
+    "a player still standing must rank higher");
+});
+
+test("sumo: the result reports one number and it is the one that ranks", () => {
+  const { arcade, players } = sumoRoom(4);
+  const a = arcade.players[players[0].id];
+  const b = arcade.players[players[1].id];
+  a.blocks = 7;
+  b.blocks = 3;
+  assert.equal(arcadeResultDetail(arcade, a).kind, "points");
+  assert.equal(arcadeResultDetail(arcade, a).value, 7);
+  assert.ok(arcadeRankingScore(arcade, a) > arcadeRankingScore(arcade, b),
+    "wer mehr abgewehrt hat, muss vorne liegen");
 });
 
 test("sumo: garbage input does not corrupt the state", () => {
@@ -1969,49 +2036,20 @@ test("sumo: wrong action is refused", () => {
   assert.equal(result.ok, false);
 });
 
-test("sumo: a stale charge from a reordered tap does not cause a phantom slip", () => {
-  // Regression: bei einem kurzen Antippen können `shove` und `charge` in
-  // vertauschter Reihenfolge eintreffen. Der zurückgebliebene Zeitstempel liess
-  // den nächsten, sauberen Halt sofort als Überladen gelten.
-  const { players, arcade, send } = sumoRoom(4);
-  const me = players[0];
-  const e = arcade.players[me.id];
-
-  // Vertauschte Reihenfolge nachstellen: shove zuerst, danach charge.
-  send(me, { action: "shove" });
-  send(me, { action: "charge" });
-  assert.notEqual(e.chargeStart, null, "the late charge does set a timestamp");
-
-  // Der Zeitstempel ist jetzt veraltet — ein neuer Halt muss ihn erneuern.
-  e.chargeStart = Date.now() - (SUMO_OVERCHARGE_MS + 2000);
-  send(me, { action: "charge" });
-  const age = Date.now() - e.chargeStart;
-  assert.ok(age < 100, `a fresh charge has to restart the clock, age was ${age} ms`);
-
-  // Und ein sauber dosierter Halt stösst dann wirklich.
-  e.chargeStart = Date.now() - SUMO_CHARGE_MS;
-  send(me, { action: "shove" });
-  assert.equal(e.shoves, 1, "a clean hold must shove");
-  assert.equal(e.slips, 0, "and must not slip");
-});
-
 test("sumo: a duplicate charge mid-hold does not reset the meter", () => {
   const { players, arcade, send } = sumoRoom(4);
   const me = players[0];
   const e = arcade.players[me.id];
   send(me, { action: "charge" });
-  const first = e.chargeStart;
   e.chargeStart = Date.now() - 400;          // 400 ms geladen
   const mid = e.chargeStart;
   send(me, { action: "charge" });             // doppeltes Drücken
   assert.equal(e.chargeStart, mid, "an in-progress charge must be left alone");
-  assert.ok(first !== null);
 });
 
 test("sumo: a charge immediately followed by a shove clears the charge", () => {
   // Regression: ein Eingabe-Cooldown blockte das unmittelbar folgende `shove`,
-  // sodass der Ladezeitstempel hängen blieb. Der nächste, sauber dosierte Halt
-  // galt dann als Überladen und rutschte aus.
+  // sodass der Ladezeitstempel hängen blieb.
   const players = [{ id: "solo", name: "Solo", isBot: false }];
   const startedAt = Date.now() - 1000;
   const arcade = createArcadeState("sumoschubs", players, startedAt);
@@ -2020,19 +2058,10 @@ test("sumo: a charge immediately followed by a shove clears the charge", () => {
   const me = players[0];
   const e = arcade.players[me.id];
 
-  // OHNE den Cooldown zurückzusetzen — genau wie ein echtes Antippen.
   handleArcadeInput(room, me, { action: "charge" });
   handleArcadeInput(room, me, { action: "shove" });
   assert.equal(e.chargeStart, null, "the shove has to be processed, not swallowed");
-
-  // Und ein anschliessender, sauberer Halt stösst wirklich.
-  handleArcadeInput(room, me, { action: "charge" });
-  e.chargeStart = Date.now() - SUMO_CHARGE_MS;
-  handleArcadeInput(room, me, { action: "shove" });
-  assert.equal(e.shoves, 1);
-  assert.equal(e.slips, 0);
 });
-
 
 // --- Trampolin -------------------------------------------------------------
 
@@ -2063,6 +2092,25 @@ test("bounce: the beat starts slow and speeds up to a floor", () => {
   for (let i = 0; i < 120; i += 1) {
     const gap = bounceBeatTime(i + 1) - bounceBeatTime(i);
     assert.ok(gap >= BOUNCE_BEAT_MIN_MS - 1e-9, `gap ${gap} fell below the floor`);
+  }
+});
+
+test("bounce: the tempo holds steady inside a bar and steps at the bar line", () => {
+  // Das ist der Unterschied zwischen „Rhythmusspiel" und „Reaktionsspiel".
+  // Vorher wurde JEDER Schlag um 3.5 % schneller als sein Vorgänger: kein
+  // Abstand glich dem vorherigen, und man konnte sich nie einhören.
+  for (let bar = 0; bar < BOUNCE_TEMPOS.length; bar += 1) {
+    const gaps = [];
+    for (let beat = 1; beat < BOUNCE_BAR_BEATS; beat += 1) {
+      const index = bar * BOUNCE_BAR_BEATS + beat;
+      gaps.push(bounceBeatTime(index + 1) - bounceBeatTime(index));
+    }
+    assert.equal(new Set(gaps).size, 1, `Takt ${bar} hat wechselnde Abstände: ${gaps.join(", ")}`);
+    assert.equal(gaps[0], BOUNCE_TEMPOS[bar], `Takt ${bar} spielt das falsche Tempo`);
+  }
+  // Und jede Stufe ist wirklich schneller als die davor.
+  for (let i = 1; i < BOUNCE_TEMPOS.length; i += 1) {
+    assert.ok(BOUNCE_TEMPOS[i] < BOUNCE_TEMPOS[i - 1], "jede Stufe muss schneller sein");
   }
 });
 
@@ -2890,7 +2938,15 @@ function fishRoom() {
   // Setzt den Fisch in eine ruhige bzw. kämpfende Phase.
   const intoCalm = () => { entry.hookedAt = Date.now(); };
   const intoSurge = () => { entry.hookedAt = Date.now() - entry.phases[0].at - 50; };
-  return { room, me, arcade, entry, minigame, advance, reel, intoCalm, intoSurge };
+  // Die Art wird auf den Barsch festgenagelt (alle Multiplikatoren 1.0), damit
+  // die Verhaltenstests das VERHALTEN prüfen und nicht, welche Art gerade
+  // gezogen wurde. Die Unterschiede zwischen den Arten haben eigene Tests.
+  const asBarsch = () => {
+    entry.species = FISH_SPECIES.find((kind) => kind.id === "barsch");
+    entry.phases = buildFishPhases(509, entry.catchIndex, FISH_DURATION_MS, entry.species);
+  };
+  asBarsch();
+  return { room, me, arcade, entry, minigame, advance, reel, intoCalm, intoSurge, asBarsch };
 }
 
 test("fish: the fight alternates calm and surge and covers the round", () => {
@@ -2986,15 +3042,80 @@ test("fish: landing a fish banks points and hooks the next one", () => {
     if (entry.landed > 0) break;
   }
   assert.ok(entry.landed >= 1, `no fish landed, distance ${entry.distance}, snaps ${entry.snaps}`);
-  assert.equal(entry.distance, 1, "the next fish starts far away again");
-  assert.ok(entry.score >= FISH_LANDED_POINTS - FISH_SNAP_COST);
+  // Der nächste Fisch hängt sofort und startet weit weg. Nicht exakt 1: der
+  // Tick läuft im selben Schritt weiter und zieht ihn schon ein Stück heran.
+  assert.ok(entry.distance > 0.85, `der nächste Fisch startet zu nah: ${entry.distance}`);
+  assert.ok(entry.haul > 0, "der gelandete Fisch muss zählen");
 });
 
-test("fish: the score counts fish, the started one and the snaps", () => {
-  assert.equal(fishScore({ landed: 2, distance: 1, snaps: 0 }), 2 * FISH_LANDED_POINTS);
-  assert.equal(fishScore({ landed: 2, distance: 1, snaps: 3 }), 2 * FISH_LANDED_POINTS - 3 * FISH_SNAP_COST);
-  // Ein halb eingeholter Fisch zählt anteilig — niemand steht bei null.
-  assert.equal(fishScore({ landed: 0, distance: 0.5, snaps: 0 }), FISH_LANDED_POINTS / 2);
+test("fish: the score counts what was landed, the started one and the snaps", () => {
+  const barsch = FISH_SPECIES.find((kind) => kind.id === "barsch");
+  assert.equal(fishScore({ haul: 500, distance: 1, snaps: 0, species: barsch }), 500);
+  assert.equal(fishScore({ haul: 500, distance: 1, snaps: 3, species: barsch }), 500 - 3 * FISH_SNAP_COST);
+  // Ein halb eingeholter Fisch zählt anteilig — und zwar zu SEINEM Wert.
+  assert.equal(fishScore({ haul: 0, distance: 0.5, snaps: 0, species: barsch }), barsch.points / 2);
+  const wels = FISH_SPECIES.find((kind) => kind.id === "wels");
+  assert.ok(fishScore({ haul: 0, distance: 0.5, snaps: 0, species: wels })
+    > fishScore({ haul: 0, distance: 0.5, snaps: 0, species: barsch }),
+    "ein halber Wels muss mehr wert sein als ein halber Barsch");
+});
+
+test("fish: a heavy fish must actually be landable", () => {
+  // Der erste Wels war mit reel 0.62 und surge 1.75 rechnerisch NICHT zu
+  // landen: netto rund 0.028 Strecke pro Sekunde, also 36 Sekunden in einer
+  // 34-Sekunden-Runde. Gemessen landete in 160 Bot-Runden kein einziger. Wert
+  // darf aus Risiko kommen, nicht aus Unmöglichkeit.
+  FISH_SPECIES.forEach((kind) => {
+    // Grobe Abschätzung: die Hälfte der Zeit halten, die andere ruhen lassen.
+    const netPerSecond = (FISH_REEL_SPEED * kind.reel - FISH_SLIP_SPEED) / 2;
+    const seconds = 1 / netPerSecond;
+    assert.ok(seconds < FISH_DURATION_MS / 1000 * 0.55,
+      `${kind.name} braucht ${seconds.toFixed(1)} s — das passt nicht in eine Runde`);
+  });
+});
+
+test("fish: losing a big fish costs more than losing a small one", () => {
+  // Mit einem festen Abzug war Zocken die beste Strategie: gemessen riss der
+  // unaufmerksamste Bot 2.45-mal pro Runde, landete dafür zwei Fische mehr und
+  // gewann klar.
+  const sprotte = FISH_SPECIES.find((k) => k.id === "sprotte");
+  const wels = FISH_SPECIES.find((k) => k.id === "wels");
+  assert.ok(Math.round(wels.points * FISH_SNAP_SHARE) > Math.round(sprotte.points * FISH_SNAP_SHARE) * 2);
+  // Und ein Riss muss teurer sein, als der Fisch beim nächsten Versuch bringt —
+  // sonst lohnt es sich, ihn absichtlich reissen zu lassen.
+  assert.ok(FISH_SNAP_SHARE > 0.5);
+});
+
+test("fish: the species differ in what you actually feel", () => {
+  // Reihenfolge und Richtung müssen stimmen: was mehr wert ist, muss auch
+  // langsamer kommen und härter ziehen. Sonst wäre der teuerste Fisch auch der
+  // einfachste und die Entscheidung, ihn durchzubringen, gäbe es gar nicht.
+  const sorted = [...FISH_SPECIES].sort((a, b) => a.points - b.points);
+  for (let i = 1; i < sorted.length; i += 1) {
+    assert.ok(sorted[i].points > sorted[i - 1].points, "die Werte müssen sich unterscheiden");
+    assert.ok(sorted[i].reel < sorted[i - 1].reel, `${sorted[i].name} muss langsamer kommen`);
+    assert.ok(sorted[i].surge > sorted[i - 1].surge, `${sorted[i].name} muss härter ziehen`);
+  }
+  // Und die seltenen sind die wertvollen.
+  for (let i = 1; i < sorted.length; i += 1) {
+    assert.ok(sorted[i].weight <= sorted[i - 1].weight, `${sorted[i].name} darf nicht häufiger sein`);
+  }
+});
+
+test("fish: which species bites is fixed by the seed, not by the clock", () => {
+  const a = Array.from({ length: 12 }, (_, i) => fishSpeciesFor(509, i).id);
+  const b = Array.from({ length: 12 }, (_, i) => fishSpeciesFor(509, i).id);
+  assert.deepEqual(a, b, "gleicher Startwert muss dieselbe Folge ergeben");
+  assert.ok(new Set(a).size >= 2, `nur eine Art in zwölf Fischen: ${a.join(",")}`);
+  a.forEach((id) => assert.ok(FISH_SPECIES.some((kind) => kind.id === id)));
+});
+
+test("fish: a heavier fish surges longer and rests less", () => {
+  const sprotte = buildFishPhases(509, 0, FISH_DURATION_MS, FISH_SPECIES.find((k) => k.id === "sprotte"));
+  const wels = buildFishPhases(509, 0, FISH_DURATION_MS, FISH_SPECIES.find((k) => k.id === "wels"));
+  const span = (phases) => (phases[0].until - phases[0].at);
+  assert.ok(span(wels) > span(sprotte), `Wels schiebt ${span(wels)} ms, Sprotte ${span(sprotte)} ms`);
+  assert.ok(wels.length > sprotte.length, "und er kommt öfter");
 });
 
 test("fish: reading the fish beats holding on regardless", () => {

@@ -225,10 +225,19 @@ export class FishDuel {
     );
     fin.position.y = 0.24;
     fish.add(fin);
+    // Ein Auge. Ohne war der Fisch ein Klotz und man sah nicht, wo vorne ist.
+    const eye = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.1, 0.06),
+      new THREE.MeshBasicMaterial({ color: "#ffffff" })
+    );
+    eye.position.set(0.27, 0.08, -0.42);
+    fish.add(eye);
     fish.position.set(0, 0.06, FISH_FAR_Z);
     this.scene.add(fish);
     this.fish = fish;
     this.tail = tail;
+    this.fishParts = { body, tail, fin, eye };
+    this.shownSpecies = null;
 
     // Kielwasser: zeigt, dass der Fisch zieht, auch wenn er weit weg klein ist.
     const wake = new THREE.Mesh(
@@ -292,7 +301,22 @@ export class FishDuel {
     this.renderer.render(this.scene, this.camera);
   }
 
+  // Die Art am Haken sieht man an Farbe und Grösse. Ohne das war jeder Fisch
+  // derselbe Klotz, und dass gerade ein Wels dranhängt — fünfmal so viel wert
+  // und dreimal so bissig — merkte man erst, wenn die Schnur riss.
+  applySpecies(kind) {
+    if (!kind || !this.fishParts) return;
+    if (this.shownSpecies === kind.id) return;
+    this.shownSpecies = kind.id;
+    const base = new THREE.Color(kind.colour);
+    this.fishParts.body.material.color.copy(base);
+    this.fishParts.tail.material.color.copy(base).multiplyScalar(0.78);
+    this.fishParts.fin.material.color.copy(base).multiplyScalar(0.62);
+    this.speciesScale = kind.size;
+  }
+
   syncFish(own, dt, now) {
+    this.applySpecies(own.species);
     const distance = clamp(own.distance ?? 1, 0, 1);
     const targetZ = FISH_NEAR_Z + (FISH_FAR_Z - FISH_NEAR_Z) * distance;
     this.fish.position.z += (targetZ - this.fish.position.z) * 0.16;
@@ -307,7 +331,7 @@ export class FishDuel {
     this.tail.rotation.y = Math.sin(this.thrash * 2.2) * 0.5;
     // Weit weg wirkt der Fisch sonst winzig; leichte Überhöhung hält ihn lesbar.
     const near = 1 - distance;
-    this.fish.scale.setScalar(0.85 + near * 0.5);
+    this.fish.scale.setScalar((0.85 + near * 0.5) * (this.speciesScale || 1));
 
     this.wake.position.set(this.fish.position.x, 0.05, this.fish.position.z + 0.3);
     this.wake.scale.setScalar(0.7 + near * 0.5 + (own.surging ? 0.35 : 0));
@@ -379,7 +403,7 @@ export class FishDuel {
       chips.innerHTML = state.players.map((player) => {
         const entry = arcade.players[player.id];
         const isOwn = player.id === this.getControlledPlayerId();
-        return `<span class="fish-chip${isOwn ? " is-own" : ""}" style="--chip:${player.color}">${entry?.landed ?? 0}</span>`;
+        return `<span class="fish-chip${isOwn ? " is-own" : ""}" style="--chip:${player.color}">${Math.max(0, Math.round(entry?.score || 0))}</span>`;
       }).join("");
     }
 
@@ -400,6 +424,13 @@ export class FishDuel {
       banner.textContent = "Schnur am Limit!";
       banner.style.background = "#ffb24f";
       banner.style.color = "#4a3400";
+    } else if (own?.species) {
+      // Welche Art dranhängt, muss man WÄHREND des Kampfes wissen — davon hängt
+      // ab, wie hart man ziehen darf und ob sich das Risiko lohnt.
+      banner.hidden = false;
+      banner.textContent = `${own.species.name} · ${own.species.points} Punkte`;
+      banner.style.background = own.species.colour;
+      banner.style.color = "#14252e";
     } else {
       banner.hidden = true;
     }

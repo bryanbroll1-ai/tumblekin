@@ -130,7 +130,58 @@ export class CliffClimb {
     this.cliff.position.set(0, WALL_SPAN / 2 - 2, -1.1);
     this.cliff.receiveShadow = true;
     this.scene.add(this.cliff);
-    // No protruding grey rocks — only the colourful climbing holds stand out.
+    // Die Wand hatte bisher nur die bunten Griffe auf einer glatten Platte —
+    // beim Klettern bewegte sich sichtbar gar nichts ausser den Figuren, und man
+    // konnte nicht sehen, wie hoch man schon war. Drei Lagen ändern das, und
+    // alle drei wandern mit demselben Band wie die Griffe (siehe scrollWall):
+    //
+    //  * Felsstufen, die der Wand Tiefe geben,
+    //  * eine Höhenmarke alle zehn Sprossen,
+    //  * Wolken, die im Vorbeiziehen zeigen, wie schnell es hochgeht.
+    this.decor = [];
+    const bandHeight = HOLDS_PER_LANE * WORLD_PER_RUNG;
+    const ledgeMat = new THREE.MeshLambertMaterial({ color: "#8a7d69" });
+    const crackMat = new THREE.MeshLambertMaterial({ color: "#7a6e5c" });
+    for (let i = 0; i < 26; i += 1) {
+      const t = i / 26;
+      const ledge = new THREE.Mesh(new THREE.BoxGeometry(0.9 + (i % 3) * 0.7, 0.26, 0.5), ledgeMat);
+      ledge.position.set(-3.6 + ((i * 2.7) % 7.2), 0.4 + t * bandHeight, -0.72);
+      ledge.castShadow = true;
+      this.scene.add(ledge);
+      this.decor.push(ledge);
+
+      const crack = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9 + (i % 4) * 0.5, 0.06), crackMat);
+      crack.position.set(-4.0 + ((i * 3.4) % 8.0), 0.9 + t * bandHeight, -0.58);
+      crack.rotation.z = ((i % 5) - 2) * 0.09;
+      this.scene.add(crack);
+      this.decor.push(crack);
+    }
+
+    // Höhenmarken: ein heller Streifen alle zehn Sprossen. Ohne sie fühlte sich
+    // die Wand endlos gleich an, weil jeder Ausschnitt aussah wie der vorige.
+    this.marks = [];
+    const markSpacing = 10 * WORLD_PER_RUNG;
+    for (let i = 0; i < Math.ceil(bandHeight / markSpacing) + 1; i += 1) {
+      const mark = new THREE.Mesh(
+        new THREE.BoxGeometry(9, 0.07, 0.06),
+        new THREE.MeshBasicMaterial({ color: "#ffe9a8", transparent: true, opacity: 0.35, depthWrite: false, toneMapped: false })
+      );
+      mark.position.set(0, i * markSpacing, -0.55);
+      this.scene.add(mark);
+      this.marks.push(mark);
+    }
+
+    // Wolken ziehen seitlich vorbei und wandern mit demselben Band. Sie sind der
+    // billigste Höhenmesser, den es gibt.
+    this.driftClouds = [];
+    for (let i = 0; i < 7; i += 1) {
+      const cloud = createCloud(i * 5 + 2);
+      cloud.position.set(-7 + (i % 3) * 6.5, (i / 7) * bandHeight, 2.6 + (i % 2) * 1.6);
+      cloud.scale.setScalar(0.9 + (i % 3) * 0.35);
+      this.scene.add(cloud);
+      this.driftClouds.push(cloud);
+    }
+
     // Colourful climbing holds in each lane, staggered left/right so the
     // hand-over-hand motion has something to grip.
     const holdColors = ["#ff5c8a", "#ffc400", "#43e38c", "#4bb8ff"];
@@ -247,6 +298,13 @@ export class CliffClimb {
       if ((entry.rung || 0) > (this.lastRung.get(player.id) || 0)) {
         this.lastRung.set(player.id, entry.rung);
         kin.userData.grabAt = now;
+        // Kreidestaub am Griff: die einzige Rückmeldung, die man beim Klettern
+        // im Augenwinkel sieht, ohne von der eigenen Figur wegzuschauen.
+        this.bursts.spawn(
+          kin.position.clone().add(new THREE.Vector3(entry.nextSide * -0.3, 0.5, 0.1)),
+          ["#f2ece0", "#ffffff"],
+          { count: 4, speed: 0.7, up: 0.5, size: 0.045, life: 0.35, gravity: 1.4, drag: 2.6 }
+        );
         if (player.id === controlledId) {
           this.feedback?.sound("step");
           this.feedback?.vibrate(6);
@@ -346,7 +404,7 @@ export class CliffClimb {
 
     // Wand mitziehen: Griffe, die unter dem Bild verschwinden, werden oben
     // wieder angesetzt. So wirkt die Wand endlos, ohne endlos zu sein.
-    this.scrollWall(ownY);
+    this.scrollWall(ownY, dt);
 
     this.shake *= frameDecay(0.9, dt);
     if (minigame.finaleAt) {
@@ -396,12 +454,22 @@ export class CliffClimb {
   // Setzt Griffe, die weit unter der Kamera liegen, um ein ganzes Band nach
   // oben. Der Wandblock folgt in groben Schritten, damit seine Textur nicht
   // sichtbar mitrutscht.
-  scrollWall(ownY) {
+  scrollWall(ownY, dt = 0) {
     const band = HOLDS_PER_LANE * WORLD_PER_RUNG;
     const floor = ownY - band * 0.3;
-    this.holds.forEach((hold) => {
-      while (hold.position.y < floor) hold.position.y += band;
-      while (hold.position.y > floor + band) hold.position.y -= band;
+    const wrap = (object) => {
+      while (object.position.y < floor) object.position.y += band;
+      while (object.position.y > floor + band) object.position.y -= band;
+    };
+    this.holds.forEach(wrap);
+    this.decor?.forEach(wrap);
+    this.marks?.forEach(wrap);
+    this.driftClouds?.forEach((cloud) => {
+      // Wolken driften seitlich, damit die Wand auch dann lebt, wenn man
+      // gerade nicht steigt.
+      cloud.position.x += dt * 0.55;
+      if (cloud.position.x > 9) cloud.position.x -= 18;
+      wrap(cloud);
     });
     if (this.cliff) {
       const target = Math.floor(ownY / 20) * 20;

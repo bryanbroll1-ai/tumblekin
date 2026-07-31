@@ -101,7 +101,25 @@ export class SumoPush {
     const own = this.ownEntry();
     if (!own || own.eliminated) return false;
     if ((this.update || this.minigame)?.finaleAt) return false;
-    return this.now() >= (own.slipUntil || 0);
+    // Solange man aushol̈t, kann man nicht laden — der Knopf muss das zeigen,
+    // sonst wirkt ein verschluckter Druck wie ein Aussetzer des Spiels.
+    return this.now() >= (own.recoverUntil || 0);
+  }
+
+  // Wie weit der Stein in der eigenen Richtung schon draussen ist. Genau diese
+  // Zahl entscheidet serverseitig, ob ein Schlag greift — sie muss deshalb auch
+  // im Bild stehen, sonst fühlt sich ein Fehlgriff wie Willkür an.
+  stoneReach() {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const own = this.ownEntry();
+    if (!arcade?.stone || !own) return -1;
+    return (arcade.stone.x * own.spotX + arcade.stone.y * own.spotY)
+      / Math.max(1e-6, arcade.ringRadius || 1);
+  }
+
+  stoneInReach() {
+    const arcade = (this.update || this.minigame)?.arcade;
+    return this.stoneReach() >= (arcade?.zone ?? 0.35);
   }
 
   beginHold(event) {
@@ -119,10 +137,14 @@ export class SumoPush {
     const held = this.now() - this.holdStart;
     this.holdStart = null;
     const arcade = (this.update || this.minigame)?.arcade;
-    // Vorwarnung fürs Gefühl; die Entscheidung fällt serverseitig.
-    if (arcade && held > arcade.overchargeMs) {
-      this.feedback?.sound("error");
-      this.feedback?.vibrate([26, 18, 30]);
+    // Vorwarnung fürs Gefühl; die Entscheidung fällt serverseitig. Zu kurz
+    // gehalten zählt gar nicht, und ein Schlag ausserhalb der eigenen
+    // Reichweite geht ins Leere.
+    if (arcade && held < arcade.chargeMs * 0.14) {
+      this.feedback?.sound("clack");
+    } else if (!this.stoneInReach()) {
+      this.feedback?.sound("swish");
+      this.feedback?.vibrate([22, 14, 8]);
     } else {
       this.feedback?.sound("impact");
       this.feedback?.vibrate([14, 8, 20]);
@@ -346,13 +368,12 @@ export class SumoPush {
         meter.visible = charging;
         if (charging) {
           const held = Math.max(0, now - entry.chargeStart);
-          const span = arcade.overchargeMs * 1.15;
-          const ratio = Math.min(1, held / span);
-          const over = held > arcade.overchargeMs;
+          const ratio = Math.min(1, held / arcade.chargeMs);
           meter.userData.fill.scale.x = Math.max(0.02, ratio);
           meter.userData.fill.position.x = -0.3 + (0.6 * ratio) / 2;
-          meter.userData.fill.material.color.set(over ? "#e0334f" : (held > arcade.chargeMs * 0.8 ? "#ffe36b" : "#7fe06f"));
-          meter.userData.limit.position.x = -0.3 + 0.6 * (arcade.overchargeMs / span);
+          // Grün, sobald voll — halten kostet nichts mehr, es IST die Deckung.
+          meter.userData.fill.material.color.set(ratio >= 1 ? "#7fe06f" : "#ffe36b");
+          meter.userData.limit.position.x = 0.3;
           meter.rotation.y = -kin.rotation.y;      // Balken bleibt zur Kamera
         }
       }
@@ -362,10 +383,10 @@ export class SumoPush {
       const seen = this.lastShoveAt.get(player.id);
       if (shove && shove.at !== seen) {
         this.lastShoveAt.set(player.id, shove.at);
-        if (shove.slipped) {
-          animator?.trigger("fall");
-          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "AUSGERUTSCHT!", { color: "#ff9aa8", size: 0.36, life: 1 });
-          if (player.id === controlledId) this.shake = Math.max(this.shake, 0.4);
+        if (shove.whiffed) {
+          animator?.trigger("stumble");
+          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "INS LEERE!", { color: "#ff9aa8", size: 0.36, life: 1 });
+          if (player.id === controlledId) this.shake = Math.max(this.shake, 0.3);
         } else {
           animator?.trigger("jump");
           const at = new THREE.Vector3(viewX * (RING_WORLD - 0.9), 0.4, viewZ * (RING_WORLD - 0.9));
@@ -452,19 +473,25 @@ export class SumoPush {
       charge.hidden = !charging;
       if (charging) {
         const held = now - this.holdStart;
-        const span = arcade.overchargeMs * 1.15;
-        const ratio = Math.min(1, held / span);
-        const over = held > arcade.overchargeMs;
+        const ratio = Math.min(1, held / arcade.chargeMs);
+        const ready = ratio >= 1;
+        const inReach = this.stoneInReach();
         const fill = this.hud.querySelector("[data-sumo-fill]");
         const safe = this.hud.querySelector("[data-sumo-safe]");
         const label = this.hud.querySelector("[data-sumo-charge-label]");
         if (fill) {
           fill.style.width = `${ratio * 100}%`;
-          fill.style.background = over ? "#e0334f" : (held > arcade.chargeMs * 0.8 ? "#ffe36b" : "#7fe06f");
+          fill.style.background = ready ? (inReach ? "#7fe06f" : "#ffe36b") : "#ffb347";
         }
-        // Der sichere Bereich endet beim Überladen-Limit.
-        if (safe) safe.style.width = `${(arcade.overchargeMs / span) * 100}%`;
-        if (label) label.textContent = over ? "ZU VIEL — loslassen rutscht aus!" : `Kraft ${Math.round(Math.min(1, held / arcade.chargeMs) * 100)}%`;
+        if (safe) safe.style.width = "100%";
+        // Der Text sagt genau das, was über Treffer oder Fehlgriff entscheidet:
+        // ist der Stein in Reichweite? Ohne diese Ansage wirkt ein Schlag ins
+        // Leere wie ein verschluckter Befehl.
+        if (label) {
+          label.textContent = !ready
+            ? `Lädt ${Math.round(ratio * 100)}%`
+            : (inReach ? "JETZT! Stein in Reichweite" : "Warten — noch zu weit weg");
+        }
       }
     }
 
@@ -476,11 +503,16 @@ export class SumoPush {
         banner.textContent = "Rausgeschubst!";
         banner.style.background = "#40506a";
         banner.style.color = "#ffffff";
-      } else if (now < (own?.slipUntil || 0)) {
+      } else if (now < (own?.recoverUntil || 0)) {
         banner.hidden = false;
-        banner.textContent = "Ausgerutscht — kurz sammeln";
+        banner.textContent = "Ausgeholt — kurz ungedeckt!";
         banner.style.background = "#e0334f";
         banner.style.color = "#ffffff";
+      } else if (this.stoneReach() >= (arcade.zone ?? 0.35)) {
+        banner.hidden = false;
+        banner.textContent = "Der Stein kommt auf dich zu!";
+        banner.style.background = "#ffc400";
+        banner.style.color = "#5c4508";
       } else if (alive <= 2 && state.players.length > 2) {
         banner.hidden = false;
         banner.textContent = "Nur noch zwei im Ring!";

@@ -3,6 +3,7 @@ import {
   CubeBurst,
   FloatingText,
   KinAnimator,
+  applyFinaleMood,
   createCloud,
   createNameLabel,
   createShadowBlob,
@@ -21,14 +22,13 @@ import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin83";
 // Trampolin — ein Takt schlägt gleichmässig; tippt man IM Takt, federt der Kin
 // höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie. Der Takt
 // wird schneller, man muss sich also immer neu einhören.
-// Die Taktzeiten stammen aus derselben Formel wie auf dem Server.
-// ACHTUNG: diese drei Werte müssen mit BOUNCE_BEAT_START_MS, BOUNCE_BEAT_MIN_MS
-// und BOUNCE_BEAT_RAMP auf dem Server übereinstimmen. Weichen sie ab, zeigt die
-// Taktanzeige einen anderen Schlag an, als der Server wertet — und je weiter die
-// Runde läuft, desto grösser wird der Versatz.
-const BEAT_START_MS = 900;
-const BEAT_MIN_MS = 520;
-const BEAT_RAMP = 0.965;
+// Die Taktzeiten kommen jetzt aus dem Spielzustand (arcade.tempos und
+// arcade.barBeats), NICHT aus abgeschriebenen Konstanten. Vorher standen hier
+// drei Zahlen, die mit dem Server übereinstimmen mussten; wich eine davon ab,
+// zeigte die Taktanzeige einen anderen Schlag an als der Server wertete, und der
+// Versatz wuchs mit jeder Sekunde der Runde.
+const FALLBACK_TEMPOS = [900, 800, 720, 650, 590, 540];
+const FALLBACK_BAR = 8;
 // Bahnabstand ist am Portrait-Bild gerechnet, nicht geschätzt: bei z=9.6 und
 // 62° FOV reicht das sichtbare Fenster bis ±2.66. Mit 2.1 Abstand lagen die
 // äusseren Bahnen bei ±3.15 — der eigene Kin war je nach Index gar nicht im
@@ -37,28 +37,35 @@ const LANE_GAP = 1.25;
 const PAD_R = 0.46;
 const PAD_Y = 0.3;
 const WORLD_PER_HEIGHT = 0.28;   // Server-Höheneinheit → Weltmaß
+// Höhenstufen. Vorher gab es genau zwei Zustände — springt oder steht — und auf
+// dreissig Höhenmetern sah das aus wie auf drei. Der Aufstieg muss sich ansehen
+// lassen, sonst fühlt er sich folgenlos an.
+const TIER_HEIGHTS = [4, 9, 16, 26, 40];
+const TIER_LABELS = ["ABGEHOBEN!", "HOCH HINAUS!", "ÜBER DEN WOLKEN!", "SCHWERELOS!", "IN DEN STERNEN!"];
 
-function beatTime(index) {
-  let time = 0;
-  let interval = BEAT_START_MS;
-  for (let i = 0; i < index; i += 1) {
-    time += interval;
-    interval = Math.max(BEAT_MIN_MS, interval * BEAT_RAMP);
-  }
-  return time;
+// Der Abstand VOR dem Schlag mit dieser Nummer. Innerhalb eines Taktes gleich,
+// an der Taktgrenze eine Stufe schneller.
+function beatInterval(index, tempos, bar) {
+  const step = Math.floor(Math.max(0, index - 1) / bar);
+  return tempos[Math.min(step, tempos.length - 1)];
 }
 
 // Nächster Schlag zu `elapsed` plus der Abstand zum folgenden — für die Anzeige.
-function beatWindow(elapsed) {
+function beatWindow(elapsed, arcade) {
+  const tempos = arcade?.tempos?.length ? arcade.tempos : FALLBACK_TEMPOS;
+  const bar = arcade?.barBeats || FALLBACK_BAR;
   let index = 0;
   let time = 0;
-  let interval = BEAT_START_MS;
-  while (time + interval <= elapsed) {
-    time += interval;
-    interval = Math.max(BEAT_MIN_MS, interval * BEAT_RAMP);
+  while (time + beatInterval(index + 1, tempos, bar) <= elapsed) {
+    time += beatInterval(index + 1, tempos, bar);
     index += 1;
   }
-  return { index, start: time, interval };
+  const interval = beatInterval(index + 1, tempos, bar);
+  // Wie viele Schläge noch bis zum Tempowechsel — daran hängt die Ansage.
+  const inBar = index % bar;
+  const step = Math.floor(index / bar);
+  const faster = step < tempos.length - 1;
+  return { index, start: time, interval, inBar, bar, step, beatsToChange: faster ? bar - inBar : null };
 }
 
 export class Trampoline {
@@ -82,6 +89,8 @@ export class Trampoline {
     this.animators = new Map();
     this.pads = new Map();
     this.lastTapAt = new Map();
+    this.tierSeen = new Map();
+    this.lastBarStep = null;
     this.lastBeatSeen = -1;
     this.lastFrameAt = performance.now();
     this.shake = 0;
@@ -251,12 +260,25 @@ export class Trampoline {
     const elapsed = Math.max(0, now - minigame.startedAt);
 
     // Takt: wo stehen wir zwischen zwei Schlägen?
-    const window = beatWindow(elapsed);
+    const window = beatWindow(elapsed, arcade);
+    this.lastWindow = window;
     const phase = Math.min(1, Math.max(0, (elapsed - window.start) / window.interval));
     // Hörbarer Taktschlag, damit man sich einhören kann statt nur zu schauen.
     if (window.index !== this.lastBeatSeen) {
       this.lastBeatSeen = window.index;
-      this.feedback?.sound("plink");
+      // Die EINS eines Taktes klingt anders als die übrigen sieben. Genau daran
+      // hört man, wo der Takt anfängt — ohne diese Betonung ist ein
+      // gleichmässiger Puls nur ein Ticken, in das man sich nicht einhören kann.
+      this.feedback?.sound(window.inBar === 0 ? "clack" : "plink");
+    }
+    // Tempowechsel: er kommt an einer Taktgrenze und wird angekündigt, statt
+    // schleichend zu passieren.
+    if (window.step !== this.lastBarStep) {
+      if (this.lastBarStep !== undefined && this.lastBarStep !== null) {
+        this.floaters.pop(new THREE.Vector3(0, 3.2, 0), "SCHNELLER!", { color: "#ffe36b", size: 0.44, life: 1 });
+        this.feedback?.sound("combo");
+      }
+      this.lastBarStep = window.step;
     }
 
     state.players.forEach((player, index) => {
@@ -302,9 +324,40 @@ export class Trampoline {
         }
       }
 
-      if (minigame.finaleAt) animator.set("cheer", { base: true });
-      else animator.set(swing > 0.35 ? "jump" : "idle", { base: true });
+      // Je höher man kommt, desto ausgelassener wird die Figur. Vorher gab es
+      // genau zwei Zustände (springt / steht) — auf 30 Höhenmetern sah das
+      // exakt so aus wie auf dreien, und der ganze Aufstieg fühlte sich
+      // folgenlos an.
+      const tier = this.heightTier(entry.height || 0);
+      if (minigame.finaleAt) {
+        const place = this.finalePlace(arcade, state, player.id);
+        applyFinaleMood(animator, place, state.players.length);
+      } else if (swing > 0.35) {
+        animator.set(tier >= 2 ? "cheer" : "jump", { base: true });
+      } else {
+        animator.set("idle", { base: true });
+      }
+      // Der Kin dreht sich in der Luft, sobald es richtig hoch geht — das ist
+      // die Belohnung dafür, den Takt gehalten zu haben.
+      kin.rotation.y = tier >= 1 ? kin.rotation.y + dt * (1.6 + tier * 1.8) * swing : 0;
+      // Und er streckt sich am höchsten Punkt.
+      kin.scale.setScalar(1 + swing * 0.06 * tier);
       animator.update(now);
+
+      // Beim Überschreiten einer Höhenstufe gibt es einen sichtbaren Moment.
+      const known = this.tierSeen.get(player.id) ?? 0;
+      if (tier > known) {
+        this.tierSeen.set(player.id, tier);
+        const at = new THREE.Vector3(pad.x, animator.groundY + 0.7, 0);
+        this.bursts.spawn(at, [pad.color, "#ffffff", "#ffe36b"],
+          { count: 10 + tier * 6, speed: 2.0 + tier * 0.4, up: 2.2, size: 0.08, life: 0.8, drag: 1.5 });
+        this.floaters.pop(at, TIER_LABELS[Math.min(tier, TIER_LABELS.length - 1)],
+          { color: "#ffe36b", size: 0.4 + tier * 0.04, life: 1 });
+        if (player.id === controlledId) {
+          this.feedback?.sound("sparkle");
+          this.feedback?.vibrate([10, 8, 16]);
+        }
+      }
 
       kin.userData.shadow.position.set(pad.x, 0.05, 0);
       kin.userData.shadow.material.opacity = 0.1 + (1 - swing) * 0.2;
@@ -331,6 +384,23 @@ export class Trampoline {
     this.renderer.render(this.scene, this.camera);
   }
 
+  // Welche Höhenstufe gerade erreicht ist. 0 = noch am Boden herumfedern.
+  heightTier(height) {
+    let tier = 0;
+    for (let i = 0; i < TIER_HEIGHTS.length; i += 1) {
+      if (height >= TIER_HEIGHTS[i]) tier = i + 1;
+    }
+    return tier;
+  }
+
+  finalePlace(arcade, state, playerId) {
+    const scored = state.players
+      .map((player) => ({ id: player.id, height: arcade.players[player.id]?.height || 0 }))
+      .sort((a, b) => b.height - a.height);
+    const index = scored.findIndex((entry) => entry.id === playerId);
+    return index < 0 ? state.players.length : index + 1;
+  }
+
   updateHud(minigame, arcade, state, now, phase) {
     if (!this.hud) return;
     this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
@@ -353,9 +423,13 @@ export class Trampoline {
 
     const banner = this.hud.querySelector("[data-bounce-banner]");
     if (banner) {
-      if ((own?.height || 0) >= arcade.maxHeight) {
+      const beatsLeft = this.lastWindow?.beatsToChange;
+      if (beatsLeft !== null && beatsLeft !== undefined && beatsLeft <= 2) {
+        // Der Tempowechsel wird ZWEI Schläge vorher angesagt. Überraschend
+        // schneller zu werden ist kein Können, sondern Pech — vorbereitet
+        // schneller zu werden ist genau das, worum es geht.
         banner.hidden = false;
-        banner.textContent = "Maximale Höhe! 🚀";
+        banner.textContent = "Gleich schneller!";
         banner.style.background = "#ffc400";
         banner.style.color = "#5c4508";
       } else if ((own?.streak || 0) >= 5) {
