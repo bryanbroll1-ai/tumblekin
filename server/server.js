@@ -2351,25 +2351,25 @@ function minigameResultDetail(minigame, playerId, finishedAt) {
 function arcadeResultDetail(arcade, arcadePlayer) {
   if (!arcadePlayer) return null;
   if (arcade.mode === "sweep" || arcade.mode === "collect") {
-    return { kind: "coins", value: arcadePlayer.successes || 0, mistakes: arcadePlayer.mistakes || 0, label: "Münzen" };
+    return { kind: "coins", value: arcadePlayer.successes || 0, label: "Münzen" };
   }
   if (arcade.mode === "course" || arcade.mode === "avoid") {
     return { kind: "hits", value: arcadePlayer.mistakes || 0, label: "Treffer" };
   }
   if (arcade.mode === "catch") {
-    return { kind: "catches", value: arcadePlayer.successes || 0, mistakes: arcadePlayer.mistakes || 0, label: "Lichter" };
+    return { kind: "catches", value: arcadePlayer.successes || 0, label: "Lichter" };
   }
   if (arcade.mode === "balance" || arcade.mode === "chase" || arcade.mode === "stay") {
     return { kind: "zoneTime", value: Math.round(arcadePlayer.activeMs || 0), label: "Im Ziel" };
   }
   if (arcade.family === "choice") {
-    return { kind: "correct", value: arcadePlayer.successes || 0, mistakes: arcadePlayer.mistakes || 0, label: "Richtig" };
+    return { kind: "correct", value: arcadePlayer.successes || 0, label: "Richtig" };
   }
   if (arcade.family === "timing") {
     return { kind: "precision", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Präzision" };
   }
   if (arcade.family === "target") {
-    return { kind: "targets", value: arcadePlayer.successes || 0, mistakes: arcadePlayer.mistakes || 0, label: "Treffer" };
+    return { kind: "targets", value: arcadePlayer.successes || 0, label: "Treffer" };
   }
   if (arcade.family === "plinko") {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
@@ -2378,7 +2378,17 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Ring-Punkte" };
   }
   if (arcade.family === "stopclock") {
-    return { kind: "deviationMs", value: arcadePlayer.deviationMs };
+    // Eine Zahl, und zwar die, nach der auch sortiert wird: wie weit die
+    // Schätzung danebenlag. `deviationMs` als Art kannte die Oberfläche gar
+    // nicht — angezeigt wurde deshalb der rohe Punktestand (eine Zahl um
+    // 99 900), die mit dem Spiel nichts zu tun hatte.
+    return {
+      kind: "deviation",
+      value: arcadePlayer.deviationMs === null || arcadePlayer.deviationMs === undefined
+        ? null
+        : Math.round(arcadePlayer.deviationMs),
+      label: "daneben"
+    };
   }
   if (arcade.family === "runner") {
     return arcadePlayer.finishedAt
@@ -2400,7 +2410,14 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: arcadePlayer.pumps || 0, label: "Pumps" };
   }
   if (arcade.family === "barrel") {
-    return { kind: "zoneTime", value: Math.round(arcadePlayer.fallenAt ? (arcadePlayer.survivedMs || 0) : (arcadePlayer.score || 0)), label: "Auf dem Fass" };
+    // Reine Zeit. Der Punktestand mischt Zeit und Balancearbeit — als Dauer
+    // formatiert ergab das eine Zahl, die niemand einordnen kann.
+    return {
+      kind: "standing",
+      survived: !arcadePlayer.fallenAt,
+      value: Math.round(arcadePlayer.survivedMs || 0),
+      label: "Auf dem Fass"
+    };
   }
   if (arcade.family === "bomb") {
     // Gewertet wird, wer die Bombe NICHT in der Hand hatte, als sie hochging.
@@ -2414,10 +2431,10 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     };
   }
   if (arcade.family === "catchfall") {
-    return { kind: "coins", value: arcadePlayer.catches || 0, mistakes: arcadePlayer.bombs || 0, label: "Münzen" };
+    return { kind: "coins", value: arcadePlayer.catches || 0, label: "Münzen" };
   }
   if (arcade.family === "whack") {
-    return { kind: "targets", value: arcadePlayer.hits || 0, mistakes: arcadePlayer.badHits || 0, label: "Treffer" };
+    return { kind: "targets", value: arcadePlayer.hits || 0, label: "Treffer" };
   }
   if (arcade.family === "cannon") {
     return { kind: "points", value: arcadePlayer.distance || 0, label: "Meter" };
@@ -2428,10 +2445,15 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "react") {
     const played = arcadePlayer.times || [];
     const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
-    return { kind: "deviationMs", value: total };
+    return { kind: "sumTime", value: Math.round(total), label: "gesamt" };
   }
   if (arcade.family === "knife") {
-    return { kind: "points", value: arcadePlayer.stuck || 0, label: "Treffer" };
+    // Zuerst entscheidet, ob man noch dabei ist — also steht das auch da.
+    // Ein Ausgeschiedener mit fünf Treffern liegt hinter einem Überlebenden mit
+    // zwei, und eine reine Trefferzahl behauptete das Gegenteil.
+    return arcadePlayer.eliminated
+      ? { kind: "knifeOut", survived: false, value: arcadePlayer.stuck || 0, label: "Treffer" }
+      : { kind: "points", value: arcadePlayer.stuck || 0, label: "Treffer" };
   }
   if (arcade.family === "stack") {
     return { kind: "points", value: arcadePlayer.height || 0, label: "Etagen" };
@@ -2440,32 +2462,25 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: Math.round((arcadePlayer.best || 0) * 10) / 10, label: "Höhe" };
   }
   if (arcade.family === "feint") {
-    return {
-      kind: "reaction",
-      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
-      bestMs: arcadePlayer.bestMs,
-      mistakes: arcadePlayer.falseStarts || 0,
-      label: "Punkte"
-    };
+    return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "paint") {
     // Eigene Art, nicht das vorhandene "territory": dort gibt es kein Feld für
     // die übermalten Felder, und die sind hier die halbe Geschichte.
     return {
-      kind: "paintTiles",
+      kind: "points",
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
-      owned: arcadePlayer.owned || 0,
-      claimed: arcadePlayer.claimed || 0,
       label: "Punkte"
     };
   }
   if (arcade.family === "fish") {
+    // Eine Zahl, und zwar die, nach der auch sortiert wird. Die Oberfläche
+    // zeigte bisher die STÜCKZAHL — seit die Arten unterschiedlich viel wert
+    // sind, konnte damit jemand mit weniger Fischen vorne stehen und die
+    // Anzeige behauptete das Gegenteil.
     return {
-      kind: "catch",
+      kind: "points",
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
-      landed: arcadePlayer.landed || 0,
-      progress: Math.round((1 - clamp(arcadePlayer.distance ?? 1, 0, 1)) * 100),
-      mistakes: arcadePlayer.snaps || 0,
       label: "Punkte"
     };
   }
@@ -2475,12 +2490,12 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "trace") {
+    // Eine Zahl, und zwar die, nach der auch sortiert wird. Die Oberfläche
+    // zeigte die RUNDEN — mit Kristallen und Sauber-Bonus kann aber jemand mit
+    // weniger Runden vorne liegen.
     return {
-      kind: "laps",
+      kind: "points",
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
-      laps: arcadePlayer.lapsDone || 0,
-      progress: Math.round((arcadePlayer.progress || 0) * 100),
-      mistakes: arcadePlayer.slips || 0,
       label: "Punkte"
     };
   }

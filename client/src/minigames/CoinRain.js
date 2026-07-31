@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin83";
+} from "./VoxelKit.js?v=tumblekin84";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin83";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin83";
+} from "./SceneKit.js?v=tumblekin84";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin84";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -62,15 +62,11 @@ export class CoinRain {
     `);
     this.createScene();
 
-    this.controls.innerHTML = `
-      <div class="runner-lane-controls">
-        <button type="button" data-lane="-1" aria-label="Nach links">◀</button>
-        <button type="button" data-lane="1" aria-label="Nach rechts">▶</button>
-      </div>
-    `;
-    this.controls.querySelectorAll("[data-lane]").forEach((button) => {
-      button.addEventListener("pointerdown", () => this.sendLane(Number(button.dataset.lane)));
-    });
+    // Kein Knopfstreifen. Die Spur wechselt man durch Wischen auf dem ganzen
+    // Bild — ein Knopf am unteren Rand ist bei einem Spiel, in dem man nach
+    // oben schaut, nur ein zweiter Ort für den Blick.
+    this.controls.innerHTML = `<p class="trace-hint">◀ Wischen zum Spurwechsel ▶</p>`;
+    this.controls.style.pointerEvents = "none";
     this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
     this.onCanvasPointerUp = (event) => {
       if (!this.swipe) return;
@@ -97,6 +93,7 @@ export class CoinRain {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
+    this.controls.style.pointerEvents = "";
     if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
     if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
     teardownStage(this);

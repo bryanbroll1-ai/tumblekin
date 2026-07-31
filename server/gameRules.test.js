@@ -173,6 +173,25 @@ test("board uses one readable field language", () => {
   );
 });
 
+// Die Regel, die sich sonst über 22 Familien einzeln wieder auflöst: JEDES
+// Minispiel zeigt am Ende genau EINE Zahl, und zwar die, nach der auch sortiert
+// wird. Vorher standen dort bis zu fünf Angaben nebeneinander, und die
+// auffälligste war nicht immer die, die über die Platzierung entschied.
+test("every game reports exactly one number in its result", () => {
+  const players = [{ id: "a", name: "A", isBot: false }, { id: "b", name: "B", isBot: false }];
+  // Nebenangaben, die KEINE zweite Zahl sind, sondern zur ersten gehören.
+  const allowed = new Set(["kind", "label", "value", "total", "survived"]);
+  MINIGAMES.filter((game) => game.arcadeFamily).forEach((game) => {
+    const arcade = createArcadeState(game.type, players, Date.now());
+    const detail = arcadeResultDetail(arcade, arcade.players.a);
+    assert.ok(detail, `${game.type} liefert gar kein Ergebnis`);
+    assert.ok(detail.kind, `${game.type} hat keine Ergebnisart`);
+    Object.keys(detail).forEach((key) => {
+      assert.ok(allowed.has(key), `${game.type} zeigt eine zweite Zahl: ${key}`);
+    });
+  });
+});
+
 test("catalog contains only the 3D challenges", () => {
   assert.equal(MINIGAMES.length, 23);
   assert.deepEqual(
@@ -2505,14 +2524,13 @@ test("feint: a missed real signal costs nothing but closes", () => {
   assert.equal(entry.hits, 0);
 });
 
-test("feint: the result reports points, best reaction and false starts", () => {
+test("feint: the result reports one number and it is the one that ranks", () => {
   const { arcade, entry, reactTo, firstOfKind } = feintRoom();
   reactTo(firstOfKind("go"), 120);
   const detail = arcadeResultDetail(arcade, entry);
-  assert.equal(detail.kind, "reaction");
-  assert.ok(detail.value > 0);
-  assert.equal(detail.bestMs, entry.bestMs);
-  assert.equal(detail.mistakes, 0);
+  assert.equal(detail.kind, "points");
+  assert.equal(detail.value, Math.max(0, Math.round(entry.score)));
+  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
 });
 
 test("feint: wrong action is refused", () => {
@@ -2811,14 +2829,13 @@ test("trace: the finger cannot outrun the stroke", () => {
   assert.ok(entry.progress < before + 0.2, `the brush crept to ${entry.progress} anyway`);
 });
 
-test("trace: the result reports points, laps and slips", () => {
+test("trace: the result reports one number and it is the one that ranks", () => {
   const { arcade, entry, traceUp } = traceRoom();
   traceUp(1);
   const detail = arcadeResultDetail(arcade, entry);
-  assert.equal(detail.kind, "laps");
-  assert.equal(detail.laps, 1);
-  assert.equal(detail.mistakes, 0);
-  assert.ok(detail.value > 0);
+  assert.equal(detail.kind, "points");
+  assert.equal(detail.value, Math.max(0, Math.round(entry.score)));
+  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
 });
 
 test("trace: wrong action is refused", () => {
@@ -3293,14 +3310,17 @@ test("fish: a rigid rhythm is not enough — the surge has to be watched", () =>
   assert.ok(blind.entry.snaps > 0, "a rhythm that ignores the surge has to snap sometimes");
 });
 
-test("fish: the result reports points, fish and snaps", () => {
+test("fish: the result reports one number and it is the one that ranks", () => {
+  // Seit die Arten unterschiedlich viel wert sind, sagt die STÜCKZAHL nichts
+  // mehr: jemand mit weniger, aber grösseren Fischen liegt vorne. Die Anzeige
+  // zeigte trotzdem die Stückzahl und behauptete damit das Gegenteil.
   const { arcade, entry, advance, intoCalm } = fishRoom();
   intoCalm();
   advance(1000, { holding: true });
   const detail = arcadeResultDetail(arcade, entry);
-  assert.equal(detail.kind, "catch");
-  assert.equal(detail.landed, entry.landed);
-  assert.ok(detail.progress > 0, "the started fish has to show up");
+  assert.equal(detail.kind, "points");
+  assert.equal(detail.value, Math.max(0, Math.round(entry.score)));
+  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
 });
 
 test("fish: wrong action is refused", () => {
@@ -3516,16 +3536,15 @@ test("paint: the score is area over TIME, not the final snapshot", () => {
   assert.ok(entry.score >= banked, "what was earned cannot be taken away again");
 });
 
-test("paint: the result reports tiles and how many were taken from others", () => {
+test("paint: the result reports one number and it is the one that ranks", () => {
   const { arcade, entry, advance, steer, players, place } = paintRoom(2);
   place(players[0], 1, 4);
   steer(1, 0);
   advance(900);
   const detail = arcadeResultDetail(arcade, entry);
-  assert.equal(detail.kind, "paintTiles");
+  assert.equal(detail.kind, "points");
   assert.equal(detail.value, Math.round(entry.score));
-  assert.equal(detail.owned, entry.owned);
-  assert.equal(detail.claimed, entry.claimed);
+  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
 });
 
 test("paint: wrong action and a broken direction are refused", () => {

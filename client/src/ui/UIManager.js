@@ -1,6 +1,6 @@
-import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin83";
-import { playerStatus } from "../game/Player.js?v=tumblekin83";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin83";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin84";
+import { playerStatus } from "../game/Player.js?v=tumblekin84";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin84";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -835,42 +835,44 @@ function formatScore(value) {
 function formatResultMetric(entry) {
   const detail = entry?.detail;
   if (!detail) return `${formatScore(entry?.score)} Punkte`;
+
+  // EINE Zahl je Spiel, und zwar die, nach der auch sortiert wird.
+  //
+  // Vorher standen hier bis zu fünf Angaben nebeneinander — Punkte, Bestzeit,
+  // Fehlgriffe, Prozent, Stückzahlen. Das las niemand, und schlimmer: die
+  // auffälligste Zahl war nicht immer die, die über die Platzierung entschied.
+  // Beim Angelduell zeigte die Liste zuletzt die STÜCKZAHL, während nach
+  // Punkten sortiert wurde: jemand mit weniger, aber grösseren Fischen stand
+  // vorne und die Anzeige behauptete das Gegenteil.
   if (detail.kind === "time") return `${formatMilliseconds(detail.value)} Zielzeit`;
   if (detail.kind === "progress") return `${detail.value}/${detail.total} ${detail.label}`;
-  if (detail.kind === "territory") return countNoun(detail.value, detail.label);
-  if (detail.kind === "survival") {
-    const knockoutText = detail.knockouts ? ` · ${detail.knockouts} K.O.` : "";
-    return detail.alive ? `Bis zuletzt auf der Platte${knockoutText}` : `${formatMilliseconds(detail.value)} überlebt${knockoutText}`;
-  }
-  if (detail.kind === "knockouts") {
-    const survived = detail.survivedMs ? ` · ${formatMilliseconds(detail.survivedMs)} auf der Platte` : "";
-    return `${countNoun(detail.value, "Rauswürfe")}${survived}`;
-  }
-  if (detail.kind === "strikes") return `${countNoun(detail.value, "Treffer")} · ${countNoun(detail.passes, "Pässe")}`;
-  if (detail.kind === "hits" || detail.kind === "lines") return countNoun(detail.value, detail.label);
-  if (detail.kind === "fit") return `${detail.value}/${detail.total} ${detail.label}`;
-  if (detail.kind === "coins") return `${countNoun(detail.value, "Münzen")}${detail.mistakes ? ` · ${countNoun(detail.mistakes, "Treffer")}` : ""}`;
-  if (detail.kind === "catches") return `${countNoun(detail.value, detail.label)}${detail.mistakes ? ` · ${countNoun(detail.mistakes, "Stürme")}` : ""}`;
   if (detail.kind === "zoneTime") return `${formatMilliseconds(detail.value)} ${detail.label}`;
-  if (detail.kind === "correct" || detail.kind === "targets") {
-    return `${countNoun(detail.value, detail.label)}${detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehler")}` : ""}`;
+  // Näher dran ist besser — deshalb steht hier der Abstand, nicht ein
+  // Punktestand um 99 900, der mit dem Spiel nichts zu tun hat.
+  if (detail.kind === "deviation") {
+    return detail.value === null || detail.value === undefined
+      ? "Nicht gedrückt"
+      : `${formatMilliseconds(detail.value)} ${detail.label}`;
   }
-  if (detail.kind === "precision") return `${detail.value} ${detail.label}`;
-  if (detail.kind === "points") return `${detail.value} ${detail.label}`;
-  // Eine Zahl, und zwar die, nach der auch sortiert wird. Vorher standen hier
-  // bis zu fünf Angaben nebeneinander (Punkte, Bestzeit, Fehlgriffe, Prozent,
-  // Stückzahlen) — das las niemand, und schlimmer: die auffälligste Zahl war
-  // nicht immer die, die über die Platzierung entschied.
-  if (detail.kind === "reaction") return `${detail.value} ${detail.label}`;
-  if (detail.kind === "paintTiles") return `${detail.value} ${detail.label}`;
-  if (detail.kind === "catch") return countNoun(detail.landed, "Fische");
-  if (detail.kind === "plateTime") return `${detail.value} ${detail.label}`;
-  if (detail.kind === "laps") return countNoun(detail.laps, "Runden");
+  if (detail.kind === "sumTime") return `${formatMilliseconds(detail.value)} ${detail.label}`;
   // Bei „wer hält am längsten durch" sagt die Zahl der Aktionen nichts: wer oft
   // weitergibt, kann trotzdem als Erster fliegen. Also der Ausgang selbst.
   if (detail.kind === "standing") {
     return detail.survived ? "Überlebt" : `Raus nach ${formatMilliseconds(detail.value)}`;
   }
+  if (detail.kind === "survival") {
+    return detail.alive ? "Bis zuletzt auf der Platte" : `${formatMilliseconds(detail.value)} überlebt`;
+  }
+  if (detail.kind === "knockouts") return countNoun(detail.value, "Rauswürfe");
+  // Beim Messerwurf entscheidet zuerst, ob man noch dabei ist. Eine reine
+  // Trefferzahl behauptete sonst das Gegenteil der Rangfolge: ein
+  // Ausgeschiedener mit fünf Treffern liegt hinter einem Überlebenden mit zwei.
+  if (detail.kind === "knifeOut") return `Raus · ${countNoun(detail.value, detail.label)}`;
+  if (detail.kind === "strikes") return countNoun(detail.value, "Treffer");
+  if (detail.kind === "fit") return `${detail.value}/${detail.total} ${detail.label}`;
+  // Alles Übrige ist eine gezählte Grösse mit eigener Beschriftung.
+  if (detail.value !== undefined && detail.label) return countNoun(detail.value, detail.label);
+  if (detail.value !== undefined) return formatScore(detail.value);
   return `${formatScore(entry?.score)} Punkte`;
 }
 
@@ -886,14 +888,23 @@ const SINGULAR_NOUNS = {
   "Rauswürfe": "Rauswurf",
   "Fehlgriffe": "Fehlgriff",
   "Abrutscher": "Abrutscher",
-  "Teller verloren": "Teller verloren",
   "Fische": "Fisch",
-  "Risse": "Riss",
-  "übermalt": "übermalt",
-  "erobert": "erobert",
-  "Felder am Ende": "Feld am Ende",
   "Runden": "Runde",
-  "Punkte": "Punkt"
+  "Punkte": "Punkt",
+  "Treffer": "Treffer",
+  "Meter": "Meter",
+  "Wellen": "Welle",
+  "Pumps": "Pump",
+  "Etagen": "Etage",
+  "Sprossen": "Sprosse",
+  "Pakete": "Paket",
+  "Höhe": "Höhe",
+  "Abgewehrt": "Abgewehrt",
+  "Richtig": "Richtig",
+  "Präzision": "Präzision",
+  "Ring-Punkte": "Ring-Punkt",
+  "Auf dem Fass": "Auf dem Fass",
+  "Im Ziel": "Im Ziel"
 };
 
 function countNoun(value, plural) {

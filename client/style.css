@@ -2001,6 +2001,23 @@ body[data-screen="minigame"] .game-menu-button {
   backdrop-filter: blur(14px);
 }
 
+/* Der Hinweis meldet, wenn eine Stachelkugel bereit ist. Ohne Knopf ist er die
+   einzige Ansage, dass jetzt getippt werden kann. */
+.runner-swipe-hint.has-item {
+  color: #ffd15c;
+  font-weight: 900;
+  animation: runner-hint-pop 0.3s ease;
+}
+
+@keyframes runner-hint-pop {
+  0% { transform: scale(0.9); }
+  70% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
+   dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
+   Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
 .runner-lane-controls button {
   flex: 1 1 0;
   min-width: 0;
@@ -2015,83 +2032,14 @@ body[data-screen="minigame"] .game-menu-button {
   box-shadow: 0 7px 0 #071014;
 }
 
-/* Pickup throw: pops in between the lane buttons once you carry an orb. */
-.runner-lane-controls .runner-throw {
-  flex: 0.8 1 0;
-  background: linear-gradient(180deg, #ff9d3d, #f26a13);
-  border-color: #ffffff;
-  box-shadow: 0 7px 0 #7c3a08, 0 0 22px rgba(255, 139, 46, 0.55);
-  animation: runner-throw-pop 0.3s ease;
-}
-
-.runner-lane-controls .runner-throw[hidden] {
-  display: none;
-}
-
-@keyframes runner-throw-pop {
-  0% { transform: scale(0.6); }
-  70% { transform: scale(1.08); }
-  100% { transform: scale(1); }
-}
-
 .runner-lane-controls button:first-child {
   border-color: var(--blue);
-}
-
-.runner-lane-controls button:last-child {
-  border-color: var(--green);
 }
 
 .runner-lane-controls button:active {
   transform: translateY(4px);
   background: #33474f;
   box-shadow: 0 3px 0 #071014;
-}
-
-/* Bergsteiger: the hand you should tap next glows. */
-.runner-lane-controls button.climb-next {
-  background: #43e38c;
-  border-color: #ffffff;
-  box-shadow: 0 7px 0 #14532d, 0 0 20px rgba(67, 227, 140, 0.6);
-}
-
-.color-dpad {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: var(--radius);
-  background: rgba(10, 18, 21, 0.88);
-  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(14px);
-}
-
-.color-dpad-row {
-  display: flex;
-  gap: 72px;
-}
-
-.color-dpad button {
-  display: grid;
-  place-items: center;
-  width: 72px;
-  height: 62px;
-  border: 2px solid rgba(255, 255, 255, 0.7);
-  border-radius: 16px;
-  background: #203037;
-  color: #fff;
-  font-size: 1.9rem;
-  font-weight: 1000;
-  line-height: 1;
-  box-shadow: 0 6px 0 #071014;
-}
-
-.color-dpad button:active {
-  transform: translateY(4px);
-  background: #33474f;
-  box-shadow: 0 2px 0 #071014;
 }
 
 /* Big single-action buttons for the new 3D games. */

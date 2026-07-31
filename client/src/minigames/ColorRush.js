@@ -8,7 +8,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin83";
+} from "./VoxelKit.js?v=tumblekin84";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin83";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin83";
+} from "./SceneKit.js?v=tumblekin84";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin84";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
@@ -78,19 +78,11 @@ export class ColorRush {
     `);
     this.createScene();
 
-    this.controls.innerHTML = `
-      <div class="color-dpad">
-        <button type="button" data-step="up" aria-label="Hoch">▲</button>
-        <div class="color-dpad-row">
-          <button type="button" data-step="left" aria-label="Links">◀</button>
-          <button type="button" data-step="right" aria-label="Rechts">▶</button>
-        </div>
-        <button type="button" data-step="down" aria-label="Runter">▼</button>
-      </div>
-    `;
-    this.controls.querySelectorAll("[data-step]").forEach((button) => {
-      button.addEventListener("pointerdown", () => this.sendStep(button.dataset.step));
-    });
+    // Kein Steuerkreuz. Gewischt wird auf dem ganzen Bild, und das ist auch
+    // dort, wo das Feld liegt — ein Kreuz am unteren Rand verlangte, zwischen
+    // Feld und Daumen hin und her zu schauen, während der Boden wegbricht.
+    this.controls.innerHTML = `<p class="trace-hint">In die angesagte Farbe wischen</p>`;
+    this.controls.style.pointerEvents = "none";
     this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
     this.onCanvasPointerUp = (event) => this.resolveSwipe(event);
     this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
@@ -125,6 +117,7 @@ export class ColorRush {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
+    this.controls.style.pointerEvents = "";
     if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
     if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
     teardownStage(this);

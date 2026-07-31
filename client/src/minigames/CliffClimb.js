@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin83";
+} from "./VoxelKit.js?v=tumblekin84";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin83";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin83";
+} from "./SceneKit.js?v=tumblekin84";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin84";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
@@ -73,21 +73,19 @@ export class CliffClimb {
     `);
     this.createScene();
 
-    this.controls.innerHTML = `
-      <div class="runner-lane-controls">
-        <button type="button" data-climb-side="-1" aria-label="Linke Hand">✋</button>
-        <button type="button" data-climb-side="1" aria-label="Rechte Hand">🤚</button>
-      </div>
-    `;
-    this.buttons = {};
-    this.controls.querySelectorAll("[data-climb-side]").forEach((button) => {
-      const side = Number(button.dataset.climbSide);
-      this.buttons[side] = button;
-      button.addEventListener("pointerdown", (event) => {
-        event.preventDefault();
-        this.sendGrab(side);
-      });
-    });
+    // Keine Knöpfe: die LINKE Bildhälfte ist die linke Hand, die rechte die
+    // rechte. Das ist dieselbe Geste, aber sie zeigt direkt auf das, was man
+    // meint — und der Blick bleibt oben an der Wand, statt zwischen Wand und
+    // Knopfleiste zu pendeln.
+    this.controls.innerHTML = `<p class="trace-hint" data-climb-hint>Abwechselnd links und rechts tippen</p>`;
+    this.controls.style.pointerEvents = "none";
+    this.onClimbTap = (event) => {
+      event.preventDefault();
+      const rect = this.webglCanvas.getBoundingClientRect();
+      const share = (event.clientX - rect.left) / Math.max(1, rect.width);
+      this.sendGrab(share < 0.5 ? -1 : 1);
+    };
+    this.webglCanvas.addEventListener("pointerdown", this.onClimbTap);
     this.loop();
   }
 
@@ -106,6 +104,8 @@ export class CliffClimb {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
+    this.controls.style.pointerEvents = "";
+    if (this.onClimbTap) this.webglCanvas?.removeEventListener("pointerdown", this.onClimbTap);
     this.holds = [];
     teardownStage(this);
     this.kins.clear();
@@ -393,13 +393,15 @@ export class CliffClimb {
 
     this.floaters.update(dt);
 
-    // Highlight the hand the controlled player should tap next.
+    // Welche Hand als Nächstes dran ist, steht in der Hinweiszeile. Ohne Knöpfe
+    // ist das die einzige Ansage — und sie muss da sein, sonst tippt man auf
+    // Verdacht und rutscht ab.
     const own = arcade.players[controlledId];
-    if (own && this.buttons) {
-      Object.entries(this.buttons).forEach(([side, button]) => {
-        const isNext = !own.finishedAt && Number(side) === own.nextSide;
-        button.classList.toggle("climb-next", isNext);
-      });
+    const wantsLeft = own && !own.finishedAt && own.nextSide === -1;
+    if (own && wantsLeft !== this.hintSide) {
+      this.hintSide = wantsLeft;
+      const hint = this.controls?.querySelector("[data-climb-hint]");
+      if (hint) hint.textContent = wantsLeft ? "◀ Jetzt LINKS tippen" : "Jetzt RECHTS tippen ▶";
     }
 
     // Wand mitziehen: Griffe, die unter dem Bild verschwinden, werden oben

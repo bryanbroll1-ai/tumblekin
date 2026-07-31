@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin83";
+} from "./VoxelKit.js?v=tumblekin84";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin83";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin83";
+} from "./SceneKit.js?v=tumblekin84";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin84";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -91,15 +91,16 @@ export class RunnerDerby {
     // Gewischt wird auf der Szene — Bahnknöpfe braucht es dafür nicht, sie
     // verdoppelten nur die Geste und nahmen Platz weg. Der Wurf bleibt ein
     // Knopf: er hat keine Richtung und ist eine eigene Entscheidung.
+    // Kein Knopf mehr. Wischen wechselt die Bahn, TIPPEN wirft — beides auf dem
+    // ganzen Bild, beides dort, wo der Daumen ohnehin liegt. Der Wurfknopf sass
+    // am unteren Rand und verlangte, den Blick von der Strecke zu nehmen, genau
+    // in dem Moment, in dem man jemanden treffen will.
     this.controls.innerHTML = `
       <div class="runner-lane-controls">
         <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen zum Bahnwechsel ▶</p>
-        <button type="button" class="runner-throw" data-throw aria-label="Wurfgeschoss werfen" hidden>💥</button>
       </div>
     `;
-    this.throwButton = this.controls.querySelector("[data-throw]");
-    this.throwButton.addEventListener("pointerdown", () => this.sendThrow());
-    this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
+    this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY, at: performance.now() }; };
     this.onCanvasPointerUp = (event) => this.resolveSwipe(event);
     this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
     this.webglCanvas.addEventListener("pointerup", this.onCanvasPointerUp);
@@ -109,7 +110,15 @@ export class RunnerDerby {
   resolveSwipe(event) {
     if (!this.swipe) return;
     const dx = event.clientX - this.swipe.x;
+    const dy = event.clientY - this.swipe.y;
+    const held = performance.now() - this.swipe.at;
     this.swipe = null;
+    // Kurzer Kontakt ohne Weg ist ein Tipp und damit ein Wurf; alles mit Weg
+    // nach links oder rechts ist ein Bahnwechsel.
+    if (Math.hypot(dx, dy) < 24) {
+      if (held < 400) this.sendThrow();
+      return;
+    }
     if (Math.abs(dx) < 24) return;
     this.sendLane(dx > 0 ? 1 : -1);
   }
@@ -665,18 +674,25 @@ export class RunnerDerby {
       this.shotMeshes.delete(id);
     });
 
-    // Own pickup state drives the throw button + a little grab celebration.
+    // Eine aufgesammelte Stachelkugel wird gefeiert UND in der Hinweiszeile
+    // angesagt — ohne Knopf muss der Hinweis sagen, dass jetzt getippt werden
+    // kann, sonst weiss man nicht, dass man etwas hat.
     const own = arcade.players[controlledId];
-    if (this.throwButton) {
-      const showThrow = Boolean(own?.hasItem && !own?.finishedAt);
-      this.throwButton.hidden = !showThrow;
-      if (own?.hasItem && !this.lastHasItem) {
-        const ownKin = this.kins.get(controlledId);
-        if (ownKin) this.bursts.spawn(ownKin.position.clone(), ["#ff8b2e", "#ffd15c"], { count: 10, speed: 1.8, up: 2, size: 0.08, life: 0.6 });
-        this.feedback?.sound("coin");
-        this.feedback?.vibrate(14);
-      }
-      this.lastHasItem = Boolean(own?.hasItem);
+    const hasItem = Boolean(own?.hasItem && !own?.finishedAt);
+    if (hasItem && !this.lastHasItem) {
+      const ownKin = this.kins.get(controlledId);
+      if (ownKin) this.bursts.spawn(ownKin.position.clone(), ["#ff8b2e", "#ffd15c"], { count: 10, speed: 1.8, up: 2, size: 0.08, life: 0.6 });
+      this.feedback?.sound("coin");
+      this.feedback?.vibrate(14);
+    }
+    this.lastHasItem = hasItem;
+    const hint = this.controls?.querySelector("[data-swipe-hint]");
+    if (hint && hasItem !== this.hintShowsItem) {
+      this.hintShowsItem = hasItem;
+      hint.textContent = hasItem
+        ? "💥 Tippen zum Werfen · ◀ Wischen ▶"
+        : "◀ Wischen zum Bahnwechsel ▶";
+      hint.classList.toggle("has-item", hasItem);
     }
 
     this.bursts.update(dt);
