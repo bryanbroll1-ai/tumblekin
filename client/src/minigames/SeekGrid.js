@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin95";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin95";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin95";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Spürsinn — im Feld liegt ein Fundstück versteckt. Jeder Tipp auf ein Feld
 // verrät, wie viele Schritte es bis dorthin sind. Wer die Angaben kombiniert,
@@ -111,9 +111,9 @@ export class SeekGrid {
 
     mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-      <div class="seek-round" data-seek-round>Tipps: 0</div>
+      <div class="simon-round" data-seek-round>Tipps: 0</div>
       <div class="simon-chips" data-seek-chips></div>
-      <div class="color-banner seek-banner" data-seek-banner hidden></div>
+      <div class="color-banner" data-seek-banner hidden></div>
     `);
     this.createScene();
 
@@ -510,12 +510,23 @@ export class SeekGrid {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      // Von schräg oben, damit alle 36 Felder gleich gut zu treffen sind. Steiler
-      // als bei den anderen Rasterspielen: hier zählt das Lesen der Zahlen, und
-      // in flacher Sicht verdecken die vorderen Klötze die hinteren Ziffern.
-      this.baseCamY = portrait ? 7.6 : 6.6;
-      this.baseCamZ = portrait ? 5.2 : 6.4;
-      camera.fov = portrait ? 56 : 48;
+      // Fast von oben, und WEIT genug weg. Das Sichtfeld in three.js ist
+      // senkrecht gemessen; auf einem hochkanten Handy (Seitenverhältnis ~0.6)
+      // schrumpft das waagerechte Feld damit auf gut ein Drittel. Bei y=7.6,
+      // z=5.2 passten von den sechs Spalten nur vier ins Bild, die vorderste
+      // Reihe füllte den halben Schirm — das Raster war als Raster nicht mehr
+      // zu erkennen.
+      //
+      // Gerechnet statt geraten: bei 5.3 Einheiten Rasterbreite und 18 Grad
+      // halbem waagerechtem Sichtfeld braucht es mindestens 5.3/2/tan(18°) ≈ 8.2
+      // Einheiten Abstand zur VORDEREN Kante. Mit Rand darum herum: y=12, z=7.
+      // Diese Zahlen sind ERPROBT, nicht gerechnet: der erste Versuch (7.6/5.2)
+      // schnitt die äusseren Spalten ab, ein zweiter (9.6/5.8) ebenso. Wer sie
+      // ändert, muss sich das Bild ansehen — die Rechnung übers Sichtfeld führt
+      // hier in die Irre, weil die Leinwand nicht die ganze Bildschirmhöhe hat.
+      this.baseCamY = portrait ? 12 : 10.5;
+      this.baseCamZ = portrait ? 7 : 8.5;
+      camera.fov = portrait ? 52 : 46;
     });
   }
 }

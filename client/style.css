@@ -3476,11 +3476,19 @@ body[data-screen="minigame"] .game-menu-button {
 /* Augenmaß: der Schieberegler ist hier das ganze Spielgerät, also darf er auch
    so aussehen. Gross genug für den Daumen, mit einer Zahl darüber, die man
    ohne Hinsehen findet — man schaut ja auf den Schwarm, nicht auf die Hand. */
+/* Eigene Tafel, kein blosser Kasten: .minigame-controls liegt ohne Hintergrund
+   ÜBER der 3D-Szene, und die anderen Spiele stellen dort Knöpfe hin, die ihren
+   Hintergrund selbst mitbringen. Ohne das schwebten Zahl, Regler und Skala
+   direkt auf der Wiese und waren nicht zu lesen. */
 .estimate-pad {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 0.5rem 0.9rem 0.7rem;
+  padding: 0.6rem 1rem 0.8rem;
+  border: 3px solid rgba(255, 255, 255, 0.75);
+  border-radius: var(--radius);
+  background: rgba(16, 26, 44, 0.92);
+  box-shadow: var(--strong-shadow);
 }
 
 .estimate-value {

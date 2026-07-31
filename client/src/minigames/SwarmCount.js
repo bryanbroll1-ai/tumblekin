@@ -7,15 +7,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin95";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin95";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin95";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Augenmaß — ein Schwarm Glühkäfer blitzt anderthalb Sekunden auf, danach
 // schätzt man, wie viele es waren.
@@ -33,7 +33,11 @@ import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumbl
 // Beim Auflösen werden sie einzeln hochgezählt. Das ist der Moment, auf den die
 // Runde wartet, und er darf nicht als blosse Zahl vorbeigehen.
 const MAX_SWARM = 95;
-const SPAWN_RADIUS = 4.1;
+// Der Schwarm muss GANZ ins Bild — wer einen Teil nicht sieht, schätzt nicht,
+// sondern rät. Bei 4.1 ragten die äusseren Käfer links und rechts aus dem Bild:
+// das senkrecht gemessene Sichtfeld ergibt auf einem hochkanten Handy nur rund
+// 6.3 Einheiten Breite, der Schwarm war 8.2 breit. Jetzt passt er mit Rand.
+const SPAWN_RADIUS = 2.6;
 
 // Ein eigener Zufallszahlengeber je Durchgang: alle Geräte zeigen denselben
 // Schwarm, und die Auflösung zählt genau die Käfer hoch, die man gesehen hat.
@@ -84,9 +88,9 @@ export class SwarmCount {
 
     mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-      <div class="seek-round" data-swarm-round>Durchgang 1/4</div>
+      <div class="simon-round" data-swarm-round>Durchgang 1/4</div>
       <div class="simon-chips" data-swarm-chips></div>
-      <div class="color-banner seek-banner" data-swarm-banner hidden></div>
+      <div class="color-banner" data-swarm-banner hidden></div>
     `);
     this.createScene();
     this.buildControls();
@@ -99,7 +103,7 @@ export class SwarmCount {
   buildControls() {
     this.controls.innerHTML = `
       <div class="estimate-pad">
-        <div class="estimate-value"><strong data-estimate-value>–</strong><span>Stück</span></div>
+        <div class="estimate-value"><strong data-estimate-value>?</strong><span>Stück</span></div>
         <input type="range" class="estimate-slider" data-estimate-slider
           min="0" max="10" step="1" value="5" aria-label="Deine Schätzung" disabled>
         <div class="estimate-scale"><span data-estimate-low>0</span><span data-estimate-high>10</span></div>
@@ -182,7 +186,7 @@ export class SwarmCount {
     this.buildWatcher();
     this.resizeRenderer();
     this.camera.position.set(0, 3.4, 8.4);
-    this.camera.lookAt(0, 2.2, 0);
+    this.camera.lookAt(0, 2.8, 0);
   }
 
   buildWatcher() {
@@ -193,10 +197,10 @@ export class SwarmCount {
     const label = createNameLabel("du", me?.color || "#ff5d73");
     label.position.y = 0.72;
     kin.add(label);
-    kin.position.set(0, 0, 4.6);
+    kin.position.set(0, 0, 2.2);
     this.scene.add(kin);
     const shadow = createShadowBlob(0.4);
-    shadow.position.set(0, 0.06, 4.6);
+    shadow.position.set(0, 0.06, 2.2);
     this.scene.add(shadow);
     this.watcher = kin;
     this.watcherAnimator = new KinAnimator(kin);
@@ -272,7 +276,7 @@ export class SwarmCount {
     this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
     this.camera.position.y = this.baseCamY || 3.4;
     this.camera.position.z = this.baseCamZ || 8.4;
-    this.camera.lookAt(0, 2.2, 0);
+    this.camera.lookAt(0, 2.8, 0);
 
     this.updateHud(minigame, arcade, state, now, own, active);
     this.renderer.render(this.scene, this.camera);
@@ -296,22 +300,30 @@ export class SwarmCount {
 
     if (phase === "show") {
       this.feedback?.sound("sparkle");
-      if (this.slider) this.slider.disabled = true;
-    }
-
-    if (phase === "guess") {
-      // Regler auf die Spanne dieses Durchgangs stellen und in die Mitte —
-      // das ist auch der Wert, mit dem der Server rechnet, wenn niemand ihn
-      // anfasst. Was man sieht, ist also genau das, was gewertet wird.
+      // Die Spanne steht schon beim HINSEHEN da, der Regler bleibt aber
+      // gesperrt. Zu wissen, dass zwischen 45 und 95 Käfer fliegen, gehört zur
+      // Aufgabe — man schätzt anders, wenn man den Rahmen kennt. Erst danach
+      // die Skala einzublenden hiesse, die Hälfte der Information zu spät zu
+      // geben.
       if (this.slider) {
         const middle = Math.round((round.low + round.high) / 2);
         this.slider.min = String(round.low);
         this.slider.max = String(round.high);
         this.slider.value = String(middle);
-        this.slider.disabled = false;
-        if (this.valueLabel) this.valueLabel.textContent = String(middle);
+        this.slider.disabled = true;
+        if (this.valueLabel) this.valueLabel.textContent = "?";
         if (this.lowLabel) this.lowLabel.textContent = String(round.low);
         if (this.highLabel) this.highLabel.textContent = String(round.high);
+      }
+    }
+
+    if (phase === "guess") {
+      // Freigeben und die Mitte als Startwert zeigen — das ist auch der Wert,
+      // mit dem der Server rechnet, wenn niemand den Regler anfasst. Was man
+      // sieht, ist also genau das, was gewertet wird.
+      if (this.slider) {
+        this.slider.disabled = false;
+        if (this.valueLabel) this.valueLabel.textContent = String(this.slider.value);
       }
       this.feedback?.sound("lock");
     }
@@ -448,11 +460,10 @@ export class SwarmCount {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      // Im Hochformat weiter weg, damit der ganze Schwarm ins Bild passt: wer
-      // einen Teil nicht sieht, schätzt nicht, sondern rät.
-      this.baseCamY = portrait ? 3.2 : 3.0;
-      this.baseCamZ = portrait ? 9.2 : 8.0;
-      camera.fov = portrait ? 60 : 50;
+      // Weit genug weg für den ganzen Schwarm, siehe SPAWN_RADIUS.
+      this.baseCamY = portrait ? 3.0 : 2.8;
+      this.baseCamZ = portrait ? 10.5 : 9.0;
+      camera.fov = portrait ? 58 : 50;
     });
   }
 }
