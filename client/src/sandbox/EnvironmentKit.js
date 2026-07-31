@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, noise } from "../minigames/VoxelKit.js?v=tumblekin81";
+import { createCloud, noise } from "../minigames/VoxelKit.js?v=tumblekin82";
 
 // Reusable voxel environment sets and obstacles for every 3D minigame.
 // All sets share one footprint: a ~12x12 diorama centered on the origin

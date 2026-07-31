@@ -3817,3 +3817,16 @@ body[data-screen="minigame"] .game-menu-button {
 @media (prefers-reduced-motion: reduce) {
   .junction-options button { transition: none; }
 }
+
+/* Zielgerade wird gewischt, nicht geknöpft. Der Hinweis steht dort, wo vorher
+   die Bahnknöpfe waren — er verschwindet nicht, weil die Geste sonst niemand
+   findet, aber er drängt sich auch nicht auf. */
+.runner-swipe-hint {
+  margin: 0;
+  flex: 1;
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.78);
+}

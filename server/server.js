@@ -109,7 +109,7 @@ const PAINT_DURATION_MS = 32000;
 const MINIGAMES = [
   { type: "bounceArena", title: "Bumper Bloom", duration: 18000 },
   { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
-  { type: "colorEscape", title: "Farbflucht", duration: 38000, arcadeFamily: "colorgrid" },
+  { type: "colorEscape", title: "Farbflucht", duration: 46000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
   { type: "ballonPump", title: "Pump-Panik", duration: 12000, arcadeFamily: "pump" },
@@ -119,7 +119,7 @@ const MINIGAMES = [
   { type: "blobklopfe", title: "Blob-Klopfe", duration: 25000, arcadeFamily: "whack" },
   { type: "seilspringen", title: "Seilspringen", duration: 35000, arcadeFamily: "wave" },
   { type: "kanonenflug", title: "Kanonenflug", duration: 16000, arcadeFamily: "cannon" },
-  { type: "messerwurf", title: "Messerwurf", duration: 46000, arcadeFamily: "knife" },
+  { type: "messerwurf", title: "Messerwurf", duration: 60000, arcadeFamily: "knife" },
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
   { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" },
@@ -219,7 +219,10 @@ const BOUNCE_MISS_PENALTY = 1.2;       // Höhenverlust bei Fehltritt
 // Höchsthöhe — auch die schwache mit acht Fehltritten. Höhe muss oben riskant
 // werden, sonst ist der Deckel nach ein paar Sekunden für jeden erreicht.
 const BOUNCE_MISS_SCALE = 0.12;        // zusätzlicher Verlust je Höhenmeter
-const BOUNCE_MAX_HEIGHT = 32;
+// Kein Deckel nach oben: wer den Takt hält, steigt weiter. Vorher war bei 32
+// Schluss und die letzten Sekunden liefen ins Leere. Der Wert bleibt als
+// Sicherheitsnetz stehen, damit die Kamera nicht ins Nichts fährt.
+const BOUNCE_MAX_HEIGHT = 400;
 
 // Falschsignal: nur das ECHTE Signal darf angetippt werden. Die Fälschungen
 // sehen absichtlich ähnlich aus, und ein Antäuscher blitzt zu kurz auf, um echt
@@ -347,6 +350,10 @@ const PAINT_ROWS = 11;
 //    entscheidet nichts mehr.
 const PAINT_SPEED = 2.2;               // Felder pro Sekunde
 const PAINT_CLAIM_RATE = 3.5;          // Anspruch pro Sekunde
+// Ein fremdes Feld zu übermalen dauert etwas länger als ein freies zu nehmen —
+// aber nur etwas. Es muss sich lohnen, dem Gegner etwas wegzunehmen, ohne dass
+// Angriff immer die beste Antwort ist.
+const PAINT_STEAL_RATE = 0.75;
 const PAINT_ACCEL = 14;                // wie schnell die Richtung greift
 const PAINT_DAMPING = 0.86;
 const PAINT_BUMP_RADIUS = 0.78;        // ab hier schubsen sich zwei Kins
@@ -367,18 +374,22 @@ const RUNNER_STUMBLE_MS = 1500;
 const RUNNER_BOOST_MS = 1300;
 const COLORGRID_SIZE = 6;
 const COLORGRID_ROUNDS = 6;
-const COLORGRID_ROUND_MS = 6000;
-const COLORGRID_ANNOUNCE_MS = 2600;
+const COLORGRID_ROUND_MS = 7000;
+const COLORGRID_ANNOUNCE_MS = 2300;
 const COLORGRID_DROP_END_MS = 4800;
-const COLORGRID_LEAD_MS = 3000;       // calm lead-in before the first drop
+// Vorlauf, bevor der Boden zum ersten Mal fällt. Vorher 3000 ms — zusammen mit
+// 2600 ms Vorwarnung standen am Anfang 5,6 Sekunden zur Verfügung, um auf eines
+// von zehn sicheren Feldern zu treten. Die erste Farbe konnte niemanden
+// erwischen und fühlte sich folgerichtig an, als passiere nichts.
+const COLORGRID_LEAD_MS = 1400;
 // Die Runden ziehen an. Vorher war jede Runde gleich lang und gleich leicht: bei
 // 2,6 s Vorwarnung und im Schnitt neun sicheren Feldern war das nächste Ziel
 // meist einen Schritt entfernt, und gemessen überlebten ALLE drei Bot-Stufen
 // gleich viele Runden. Ohne Steigerung entscheidet nur das Pech.
-const COLORGRID_ANNOUNCE_MIN_MS = 900;
-const COLORGRID_ANNOUNCE_STEP_MS = 340;   // je Runde weniger Vorwarnung
+const COLORGRID_ANNOUNCE_MIN_MS = 1300;
+const COLORGRID_ANNOUNCE_STEP_MS = 200;   // je Runde weniger Vorwarnung, aber sanft
 const COLORGRID_DROP_MS = 2200;           // Fallphase, unabhängig von der Vorwarnung
-const COLORGRID_SAFE_START = 10;          // sichere Felder in Runde 1
+const COLORGRID_SAFE_START = 8;           // sichere Felder in Runde 1
 const COLORGRID_SAFE_MIN = 4;
 
 // Lichtwächter — red light, green light: hold to run, freeze on red.
@@ -416,7 +427,11 @@ const KNIFE_MIN_GAP_DEG = 22;         // knives closer than this collide
 // Zusammenstoss war praktisch unmöglich und die Partie endete gemessen IMMER
 // unentschieden. Über vier Runden füllt sich die Scheibe bis an ihre Grenze, und
 // genau dann fängt das Spiel an, eines zu sein.
-const KNIFE_ROUNDS = 3;
+// So viele Runden, dass die Scheibe wirklich eng wird. Das Ende kommt in der
+// Praxis früher: entweder ist nur noch eine Person übrig, oder die Minute ist um
+// (duration). Ein festes kleines Rundenlimit liess das Spiel vorher aufhören,
+// obwohl noch alle standen.
+const KNIFE_ROUNDS = 8;
 // Ein Treffer auf ein anderes Messer kostet den Wurf und die Runde, aber nicht
 // gleich die ganze Partie: mit sofortigem Aus schieden gemessen 9 von 10
 // schwächeren Mitspielenden nach dem ersten oder zweiten Wurf aus und sahen den
@@ -427,7 +442,11 @@ const KNIFE_TURN_MIN_MS = 1500;
 const KNIFE_TURN_STEP = 0.84;         // je Runde wird es enger
 
 // Turmbau — drop the sliding block onto your tower; misalignment trims it.
-const STACK_BLOCKS = 14;
+// Kein festes Ziel mehr: gebaut wird, so hoch man kommt, bis die Zeit um ist
+// oder der Turm einstürzt. Vorher war bei 14 Etagen Schluss, und ein starker
+// Bot stand die letzten Sekunden nur herum. Die Zahl bleibt als Sicherheitsnetz
+// gegen einen Turm, der ins Unendliche wächst.
+const STACK_BLOCKS = 99;
 // Blickabstand des Bots. Muss zum schnellen Bot-Takt (120–180 ms) passen: der
 // Bot vergleicht damit den vorigen und den nächsten Blick, um den dichtesten
 // Moment zu erkennen. Zu gross, und er hält einen Ausschlag für eine Annäherung.
@@ -440,7 +459,10 @@ const STACK_BOT_LOOKAHEAD_MS = 150;
 const BOT_TICK_LEAD_MS = 75;
 
 // Bergsteiger — alternate left/right taps to climb; wrong side slips you.
-const CLIMB_HEIGHT = 30;
+// Auch hier kein Gipfel mehr, an dem alles endet: geklettert wird auf Zeit, und
+// gewertet wird, wie weit man kommt. Bleibt als Obergrenze stehen, damit die
+// Wand nicht endlos gebaut werden muss.
+const CLIMB_HEIGHT = 400;
 
 // Blob-Klopfe — whack the blobs that pop out of the 3x3 holes.
 const WHACK_CELLS = 9;
@@ -1968,9 +1990,37 @@ function knockArenaPlayerOff(arena, ap, now) {
 
 // Schedule the wind-down: gameplay keeps rendering for a short finale so
 // everyone sees who is still standing, then the scoreboard follows.
+// Platzierung aus einer Wertungsfunktion. Gleichstand teilt sich den Platz —
+// sonst wäre einer von zwei exakt gleich guten Läufen grundlos der traurigere.
+function rankPlaces(players, scoreOf) {
+  const ranked = players
+    .map((player) => ({ id: player.id, rank: scoreOf(player) }))
+    .sort((one, two) => two.rank - one.rank);
+  const places = {};
+  ranked.forEach((entry, index) => {
+    const tie = index > 0 && ranked[index - 1].rank === entry.rank;
+    places[entry.id] = tie ? places[ranked[index - 1].id] : index + 1;
+  });
+  return places;
+}
+
 function beginMinigameFinale(room, minigame) {
   if (!minigame || minigame.finaleAt || minigame.finishing) return;
   minigame.finaleAt = Date.now() + MINIGAME_FINALE_MS;
+  // Die Platzierung steht mit dem Finale fest — sie wird hier EINMAL berechnet
+  // und mitgeschickt, damit alle Geräte dieselbe Reaktion zeigen. Vorher kannte
+  // jede Szene nur „Sieger ja/nein" und jubelte oder trauerte binär; jetzt
+  // reagiert jeder Platz eigen (siehe finaleMood im Client).
+  if (minigame.arcade) {
+    minigame.arcade.places = rankPlaces(room.players, (player) =>
+      arcadeRankingScore(minigame.arcade, minigame.arcade.players[player.id]));
+  }
+  // Rempelkugel läuft nicht über die Arcade-Familien, braucht die Plätze aber
+  // genauso — sonst reagierte dort weiter jeder gleich.
+  if (minigame.arena) {
+    minigame.arena.places = rankPlaces(room.players, (player) =>
+      bounceResultScore(minigame.arena.players[player.id]));
+  }
   emitMinigameUpdate(room);
 }
 
@@ -2250,7 +2300,15 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "zoneTime", value: Math.round(arcadePlayer.fallenAt ? (arcadePlayer.survivedMs || 0) : (arcadePlayer.score || 0)), label: "Auf dem Fass" };
   }
   if (arcade.family === "bomb") {
-    return { kind: "points", value: arcadePlayer.passes || 0, label: "Weitergaben" };
+    // Gewertet wird, wer die Bombe NICHT in der Hand hatte, als sie hochging.
+    // Die Zahl der Weitergaben sagte darüber nichts — wer viel weitergab, konnte
+    // trotzdem als Erster fliegen.
+    return {
+      kind: "standing",
+      survived: !arcadePlayer.outAt,
+      value: arcadePlayer.outAt ? Math.max(0, arcadePlayer.outAt - (arcade.startedAt || arcadePlayer.outAt)) : 0,
+      label: "Ausgang"
+    };
   }
   if (arcade.family === "catchfall") {
     return { kind: "coins", value: arcadePlayer.catches || 0, mistakes: arcadePlayer.bombs || 0, label: "Münzen" };
@@ -3005,6 +3063,9 @@ function createArcadeState(type, players, startedAt) {
   const arcade = {
     type,
     family: config.family,
+    // Startzeitpunkt am Zustand: einige Ergebnisse rechnen in Sekunden ab
+    // Rundenbeginn, und die kennen das Minispiel-Objekt nicht.
+    startedAt,
     mode: config.steerMode || config.targetMode || config.kineticMode || config.directMode || null,
     seed: config.seed,
     beatMs: config.beatMs || null,
@@ -3681,14 +3742,22 @@ function createRunnerCourse(seed) {
   const rows = [];
   let position = 14;
   let index = 0;
+  // Kisten und Booster REIHUM auf die Bahnen verteilen statt zufällig. Bei
+  // zufälliger Wahl konnte eine Bahn über eine ganze Strecke deutlich mehr
+  // abbekommen — wer dort lief, hatte ohne eigenes Zutun mehr Würfe.
+  let laneCursor = Math.floor(arcadeNoise(seed + 5) * 3);
+  const giveLane = () => {
+    laneCursor = (laneCursor + 1) % 3;
+    return laneCursor;
+  };
   while (position < RUNNER_LENGTH - 10) {
     const roll = arcadeNoise(seed + index * 17);
     if (roll < 0.1) {
       // Occasional breather with a boost pad.
-      rows.push({ position, kind: "boost", lane: Math.floor(arcadeNoise(seed + index * 23) * 3) });
+      rows.push({ position, kind: "boost", lane: giveLane() });
     } else if (roll < 0.38) {
       // Pickup orb: grab it to throw a straight tumble-shot down your lane.
-      rows.push({ position, kind: "item", lane: Math.floor(arcadeNoise(seed + index * 47) * 3) });
+      rows.push({ position, kind: "item", lane: giveLane() });
     } else if (roll < 0.56) {
       // Log blocks two adjacent lanes.
       const freeLane = Math.floor(arcadeNoise(seed + index * 29) * 3);
@@ -5183,6 +5252,11 @@ function updateRunner(room, minigame, arcade, dt, now) {
       } else if (row.kind === "item") {
         if (row.lane === entry.lane && !entry.hasItem) {
           entry.hasItem = true;
+          // Aufgesammelte Kisten merken, damit der Client sie verschwinden
+          // lassen kann. Vorher blieb die Kiste stehen, obwohl man sie schon
+          // hatte — man sah nicht, ob der Griff gesessen hatte.
+          entry.takenRows = entry.takenRows || [];
+          entry.takenRows.push(entry.nextRow - 1);
           entry.flash = "good";
           entry.lastHitAt = now;
         }
@@ -5212,6 +5286,13 @@ function updateRunner(room, minigame, arcade, dt, now) {
   arcade.shots.forEach((shot) => {
     if (shot.resolved) return;
     const travelled = ((now - shot.firedAt) / 1000) * shot.speed;
+    // Der Schuss ist ein FLIEGENDES Geschoss, kein wachsendes Band. Vorher lief
+    // die Trefferprüfung über die ganze Strecke vom Abschusspunkt bis zur
+    // Spitze — wer von hinten über den Abschusspunkt lief, während der Schuss
+    // noch unterwegs war, wurde dadurch nachträglich getroffen, obwohl das
+    // Geschoss längst vorbei war. Geprüft wird jetzt nur das Stück, das in
+    // DIESEM Tick überstrichen wurde.
+    const tail = shot.headProgress ?? shot.fromProgress;
     shot.headProgress = shot.fromProgress + travelled;
     const thrower = arcade.players[shot.fromId];
     let hit = null;
@@ -5219,7 +5300,7 @@ function updateRunner(room, minigame, arcade, dt, now) {
       const entry = arcade.players[candidate.id];
       if (!entry || candidate.id === shot.fromId || entry.finishedAt) return;
       if (entry.lane !== shot.lane) return;
-      if (entry.progress > shot.fromProgress && entry.progress <= shot.headProgress) {
+      if (entry.progress > tail && entry.progress <= shot.headProgress) {
         if (!hit || entry.progress < arcade.players[hit].progress) hit = candidate.id;
       }
     });
@@ -5323,6 +5404,19 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     const alive = room.players.filter((player) => !arcade.players[player.id]?.eliminated);
     done = room.players.length > 1 && alive.length <= 1;
   }
+  // Allgemeine Regel über ALLE Familien: kann niemand mehr etwas tun, ist die
+  // Runde vorbei. Vorher lief die Uhr in manchen Spielen weiter, obwohl längst
+  // alle draussen oder im Ziel waren — man sass vor einem Bild, in dem nichts
+  // mehr passieren konnte, und wartete auf den Ablauf der Zeit.
+  if (!done && room.players.length > 0) {
+    done = room.players.every((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return true;
+      return Boolean(entry.eliminated || entry.finishedAt || entry.outAt
+        || entry.toppled || entry.fallenAt);
+    });
+  }
+
   if (done) {
     beginMinigameFinale(room, minigame);
   }
@@ -5727,11 +5821,15 @@ function paintClaim(arcade, entry, col, row, playerId, dt) {
     return "mine";
   }
   if (owner) {
-    arcade.charge[at] -= step;
+    // Fremdes Feld: einmal drüber genügt. Vorher wurde es beim Nulldurchgang
+    // nur NEUTRAL — man musste ein zweites Mal darüberfahren, um es wirklich zu
+    // bekommen. Das fühlte sich an, als würde das Malen nicht wirken.
+    arcade.charge[at] -= step * PAINT_STEAL_RATE;
     if (arcade.charge[at] > 0) return "eroding";
-    arcade.grid[at] = null;
-    arcade.charge[at] = 0;
-    return "neutralised";
+    arcade.grid[at] = playerId;
+    arcade.charge[at] = 0;      // frisch übernommen, noch nicht gefestigt
+    entry.claimed += 1;
+    return "claimed";
   }
   arcade.charge[at] += step;
   if (arcade.charge[at] < 1) return "claiming";
@@ -6398,13 +6496,11 @@ function arcadeBotStep(room, bot) {
     const reached = player.botTarget
       && Math.hypot(player.botTarget.col + 0.5 - player.px, player.botTarget.row + 0.5 - player.py) < 0.45;
     if (!player.botTarget || reached || now >= player.botTargetUntil) {
-      // Gewertet werden Feld-SEKUNDEN. Ein fremdes Feld muss erst weggewischt und
-      // dann beansprucht werden, kostet also doppelt so lange wie ein freies —
-      // für den eigenen Punktestand ist es damit die schlechtere Wahl, solange
-      // es noch freie Felder gibt. Vorher belohnte die Bewertung genau umgekehrt
-      // den Angriff, und gemessen gewann deshalb der SCHWACHE Bot die Hälfte
-      // aller Runden: er malte brav leere Flächen voll.
-      const STEAL_WORTH = 0.55;
+      // Gewertet werden Feld-SEKUNDEN. Ein fremdes Feld kostet etwas mehr Zeit
+      // als ein freies (PAINT_STEAL_RATE), bringt aber doppelt: eins mehr für
+      // mich, eins weniger für den anderen. Für den eigenen Punktestand bleibt
+      // das freie Feld knapp die bessere Wahl, solange es noch welche gibt.
+      const STEAL_WORTH = 0.8;
       // Das Können steckt jetzt darin, wie sauber der Bot bewertet: wie stark er
       // sich verschätzt, wie oft er neu schaut und ob ihm eine Rolle auffällt.
       // Der Fehler muss je Bot GEWÜRFELT werden. arcadeNoise hängt nur an Feld,
@@ -6677,6 +6773,39 @@ function arcadeBotStep(room, bot) {
     // starken Bot — nutzte ausgerechnet er das Fenster am wenigsten.
     const guard = profile.level === "hard" ? 90 : profile.level === "normal" ? 200 : -150;
     const wanted = profile.level === "hard" ? 0.3 : profile.level === "normal" ? 0 : -0.4;
+
+    // NICHT auf den Schwächsten eindreschen. Jeder Stoss schiebt den Stein vom
+    // eigenen Platz weg — bei drei Bots und einer Person zeigt die Summe dieser
+    // Richtungen zwangsläufig auf den vierten Platz. Ohne Absicht wirkte es
+    // genau wie Absicht: die Bots „zielten" auf einen, und dagegen war nichts
+    // auszurichten. Wer bereits am dichtesten am Ausscheiden ist, wird deshalb
+    // verschont, solange es noch jemand anderen zu treffen gibt.
+    if (stone) {
+      const nx = -player.spotX;
+      const ny = -player.spotY;
+      let wouldHit = null;
+      let bestAim = -Infinity;
+      room.players.forEach((other) => {
+        const entry = arcade.players[other.id];
+        if (!entry || entry.eliminated) return;
+        const aim = entry.spotX * nx + entry.spotY * ny;
+        if (aim > bestAim) { bestAim = aim; wouldHit = entry; }
+      });
+      const worst = room.players.reduce((most, other) => {
+        const entry = arcade.players[other.id];
+        if (!entry || entry.eliminated) return most;
+        return !most || entry.hits > most.hits ? entry : most;
+      }, null);
+      const others = room.players.filter((other) => !arcade.players[other.id]?.eliminated).length;
+      if (wouldHit && worst && wouldHit === worst && worst.hits > 0 && others > 2) {
+        // Der Stoss ginge auf die Person, die ohnehin am dichtesten am Aus ist —
+        // dann lieber diese Gelegenheit auslassen. Die Schwelle ist bewusst für
+        // ALLE Stufen gleich: hängt sie am könnensabhängigen Sicherheitsabstand,
+        // lässt der starke Bot am häufigsten aus und verliert dadurch.
+        if (held < SUMO_OVERCHARGE_MS - 260) return;
+      }
+    }
+
     if (closing >= wanted || held >= SUMO_OVERCHARGE_MS - guard) {
       handleArcadeInput(room, bot, { action: "shove" });
     }
@@ -7232,6 +7361,7 @@ module.exports = {
     standingsLeader,
 
     arcadeRankingScore,
+    rankPlaces,
     bounceResultScore,
     buildBoardPath,
     canopyRaceScore,
@@ -7363,6 +7493,7 @@ module.exports = {
     PAINT_SPEED,
     PAINT_BUMP_RADIUS,
     PAINT_CLAIM_RATE,
+    PAINT_STEAL_RATE,
     PAINT_TILE_SECOND_POINTS,
     PAINT_BUMP_COOLDOWN_MS,
     PAINT_BOOST_MS,

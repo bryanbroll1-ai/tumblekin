@@ -126,6 +126,7 @@ const {
   PAINT_ROWS,
   PAINT_BUMP_RADIUS,
   PAINT_CLAIM_RATE,
+  PAINT_STEAL_RATE,
   PAINT_TILE_SECOND_POINTS,
   PAINT_BOOST_MS,
   PAINT_PICKUP_MAX,
@@ -611,6 +612,19 @@ test("color escape: later rounds warn shorter and offer fewer safe tiles", () =>
   }
 });
 
+test("Platzierung: Gleichstand teilt sich den Platz", () => {
+  // Jede Szene reagiert auf den Platz — 1. jubelt, 4. ist geknickt. Zwei exakt
+  // gleich gute Läufe dürfen darum nicht künstlich getrennt werden.
+  const players = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+  const points = { a: 10, b: 30, c: 30, d: 5 };
+  const places = testRules.rankPlaces(players, (player) => points[player.id]);
+
+  assert.equal(places.b, 1);
+  assert.equal(places.c, 1, "gleicher Punktestand, gleicher Platz");
+  assert.equal(places.a, 3, "nach zwei geteilten Ersten folgt Platz 3, nicht 2");
+  assert.equal(places.d, 4);
+});
+
 test("arcade rankings prioritize the visible objective", () => {
   const sweep = { family: "kinetic", mode: "sweep" };
   const oneCoin = arcadeRankingScore(sweep, { successes: 1, mistakes: 8, score: 1 });
@@ -765,6 +779,48 @@ test("zielgerade: pickups can be thrown and tumble the runner ahead", () => {
   laneShot.firedAt = Date.now() - 1000;
   testRules.updateArcade(room);
   assert.equal(arcade.players[dodger.id].stumbles, 0, "a runner in another lane is safe");
+});
+
+test("zielgerade: a shot that has already passed cannot hit someone from behind", () => {
+  // Der Schuss war vorher ein WACHSENDES Band ab dem Abschusspunkt statt eines
+  // fliegenden Geschosses. Wer von hinten über diesen Punkt lief, während der
+  // Schuss noch unterwegs war, wurde nachträglich getroffen — im Spiel sah es
+  // so aus, als träfe der Schuss zufällig jemanden hinter einem.
+  const shooter = player({ id: "sa", name: "SA", color: "#fff" });
+  const behind = player({ id: "sb", name: "SB", color: "#0ff" });
+  const startedAt = Date.now() - 100;
+  const arcade = createArcadeState("finishRush", [shooter, behind], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
+  const room = { currentMinigame: minigame, players: [shooter, behind] };
+  const me = arcade.players[shooter.id];
+  const other = arcade.players[behind.id];
+
+  me.lane = 1; other.lane = 1;
+  me.progress = 50;
+  other.progress = 20;          // deutlich HINTER mir
+  me.hasItem = true;
+  me.lastInputAt = 0;
+  handleArcadeInput(room, shooter, { action: "throw" });
+
+  // Der Schuss fliegt los und ist nach kurzer Zeit weit vorn.
+  arcade.shots[0].firedAt = Date.now() - 400;   // 0.4 s * 60 = 24 m voraus
+  testRules.updateArcade(room);
+  // Gezählt wird die Treffergutschrift des Schützen: `stumbles` steigt auch
+  // durch Hindernisse auf der Strecke und würde hier das Falsche messen.
+  assert.equal(me.throwsHit || 0, 0, "wer hinten ist, wird vom Schuss nach vorn nicht getroffen");
+
+  // Jetzt läuft der Hintermann über den Abschusspunkt hinaus, während der Schuss
+  // noch in der Luft ist. Genau hier schlug der alte Fehler zu.
+  other.progress = 62;
+  arcade.shots[0].firedAt = Date.now() - 500;
+  testRules.updateArcade(room);
+  assert.equal(me.throwsHit || 0, 0, "ein längst vorbeigeflogener Schuss darf nicht nachträglich treffen");
+
+  // Gegenprobe: wer WIRKLICH im überstrichenen Stück steht, wird getroffen.
+  other.progress = arcade.shots[0].headProgress + 4;
+  arcade.shots[0].firedAt = Date.now() - 900;
+  testRules.updateArcade(room);
+  assert.equal(me.throwsHit, 1, "ein Ziel im Flugweg muss sehr wohl getroffen werden");
 });
 
 test("zielgerade: running over an item pad picks it up", () => {
@@ -2971,23 +3027,44 @@ test("paint: a free tile has to be worked on before it is yours", () => {
   assert.equal(entry.claimed, 1, "topping up my own tile must not count again");
 });
 
-test("paint: taking a rival tile costs twice — erase, then claim", () => {
+test("paint: one pass over a rival tile takes it — no second lap", () => {
   const { arcade, players, entry } = paintRoom(2);
   const other = arcade.players[players[1].id];
   const full = 1 / PAINT_CLAIM_RATE;
   paintClaim(arcade, entry, 2, 4, players[0].id, full);
   assert.equal(paintOwnedCount(arcade, players[0].id), 2);
 
-  // Der Rivale muss erst abtragen — das Feld wird dabei frei, nicht sein.
-  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full * 0.4), "eroding");
+  // Angefangen zählt noch nicht — man muss schon drüberbleiben.
+  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full * 0.3), "eroding");
   assert.equal(paintOwnedCount(arcade, players[1].id), 1, "eroding alone gains nothing");
-  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full), "neutralised");
-  assert.equal(paintOwnedCount(arcade, players[0].id), 1, "the tile is lost to me");
-  assert.equal(paintOwnedCount(arcade, players[1].id), 1, "but not his yet");
 
-  // Und erst danach kann er es beanspruchen.
-  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full), "claimed");
-  assert.equal(paintOwnedCount(arcade, players[1].id), 2);
+  // Aber EIN durchgezogener Strich reicht. Vorher wurde das Feld dabei nur
+  // neutral und man musste ein zweites Mal darüber — das fühlte sich an, als
+  // würde das Malen nicht wirken.
+  const rest = (1 / PAINT_STEAL_RATE) * full;
+  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, rest), "claimed");
+  assert.equal(paintOwnedCount(arcade, players[1].id), 2, "das Feld gehört jetzt ihm");
+  assert.equal(paintOwnedCount(arcade, players[0].id), 1, "und mir nicht mehr");
+});
+
+test("paint: a rival tile still costs more than an empty one", () => {
+  // Sonst wäre Angriff immer richtig und die freie Fläche wertlos.
+  const step = 0.02;
+  // Ein Feld nehmen, das beim Start wirklich niemandem gehört.
+  const free = paintRoom(2);
+  const spot = free.arcade.grid.findIndex((owner) => !owner);
+  const col = spot % PAINT_COLS;
+  const row = Math.floor(spot / PAINT_COLS);
+  let freeSteps = 0;
+  while (paintClaim(free.arcade, free.entry, col, row, free.players[0].id, step) !== "claimed" && freeSteps < 500) freeSteps += 1;
+
+  const taken = paintRoom(2);
+  const rival = taken.arcade.players[taken.players[1].id];
+  paintClaim(taken.arcade, taken.entry, col, row, taken.players[0].id, 1);
+  let stealSteps = 0;
+  while (paintClaim(taken.arcade, rival, col, row, taken.players[1].id, step) !== "claimed" && stealSteps < 500) stealSteps += 1;
+
+  assert.ok(stealSteps > freeSteps, `Übermalen (${stealSteps}) muss länger dauern als ein freies Feld (${freeSteps})`);
 });
 
 test("paint: the grid edges cannot be painted past", () => {

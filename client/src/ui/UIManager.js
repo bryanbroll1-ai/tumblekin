@@ -1,6 +1,6 @@
-import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin81";
-import { playerStatus } from "../game/Player.js?v=tumblekin81";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin81";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin82";
+import { playerStatus } from "../game/Player.js?v=tumblekin82";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin82";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -857,39 +857,19 @@ function formatResultMetric(entry) {
   }
   if (detail.kind === "precision") return `${detail.value} ${detail.label}`;
   if (detail.kind === "points") return `${detail.value} ${detail.label}`;
-  if (detail.kind === "reaction") {
-    // Punkte sind die Wertung; die beste Reaktionszeit und die Fehlgriffe
-    // erzählen daneben, WIE die Punkte zustande kamen.
-    const best = detail.bestMs === null || detail.bestMs === undefined ? "" : ` · ${formatMilliseconds(detail.bestMs)} schnellste`;
-    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehlgriffe")}` : "";
-    return `${detail.value} ${detail.label}${best}${slips}`;
-  }
-  if (detail.kind === "paintTiles") {
-    // Gewertet wird die Fläche über die ZEIT. Der Stand am Ende und die selbst
-    // erobierten Felder erzählen daneben, wie es dazu kam.
-    const held = ` · ${countNoun(detail.owned, "Felder")} am Ende`;
-    const took = detail.claimed ? ` · ${countNoun(detail.claimed, "erobert")}` : "";
-    return `${detail.value} ${detail.label}${held}${took}`;
-  }
-  if (detail.kind === "catch") {
-    // Punkte entscheiden; die Fische und der angefangene zeigen, woher sie
-    // kommen, die Risse, was sie gekostet haben.
-    const started = detail.progress ? ` + ${detail.progress}%` : "";
-    const snaps = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Risse")}` : "";
-    return `${detail.value} ${detail.label} · ${countNoun(detail.landed, "Fische")}${started}${snaps}`;
-  }
-  if (detail.kind === "plateTime") {
-    // Punkte entscheiden; Tellersekunden zeigen, wie viel gleichzeitig lief,
-    // und die gefallenen Teller, was es gekostet hat.
-    const drops = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Teller verloren")}` : "";
-    return `${detail.value} ${detail.label} · ${detail.seconds}s Tellerzeit${drops}`;
-  }
-  if (detail.kind === "laps") {
-    // Punkte entscheiden; Runden und der angefangene Rest machen sichtbar,
-    // woher sie kommen — und Abrutscher, was sie gekostet haben.
-    const rest = detail.progress ? ` + ${detail.progress}%` : "";
-    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Abrutscher")}` : "";
-    return `${detail.value} ${detail.label} · ${countNoun(detail.laps, "Runden")}${rest}${slips}`;
+  // Eine Zahl, und zwar die, nach der auch sortiert wird. Vorher standen hier
+  // bis zu fünf Angaben nebeneinander (Punkte, Bestzeit, Fehlgriffe, Prozent,
+  // Stückzahlen) — das las niemand, und schlimmer: die auffälligste Zahl war
+  // nicht immer die, die über die Platzierung entschied.
+  if (detail.kind === "reaction") return `${detail.value} ${detail.label}`;
+  if (detail.kind === "paintTiles") return `${detail.value} ${detail.label}`;
+  if (detail.kind === "catch") return countNoun(detail.landed, "Fische");
+  if (detail.kind === "plateTime") return `${detail.value} ${detail.label}`;
+  if (detail.kind === "laps") return countNoun(detail.laps, "Runden");
+  // Bei „wer hält am längsten durch" sagt die Zahl der Aktionen nichts: wer oft
+  // weitergibt, kann trotzdem als Erster fliegen. Also der Ausgang selbst.
+  if (detail.kind === "standing") {
+    return detail.survived ? "Überlebt" : `Raus nach ${formatMilliseconds(detail.value)}`;
   }
   return `${formatScore(entry?.score)} Punkte`;
 }

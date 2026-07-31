@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin81";
+} from "./VoxelKit.js?v=tumblekin82";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin81";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin81";
+} from "./SceneKit.js?v=tumblekin82";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin82";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -88,16 +88,15 @@ export class RunnerDerby {
     `);
     this.createScene();
 
+    // Gewischt wird auf der Szene — Bahnknöpfe braucht es dafür nicht, sie
+    // verdoppelten nur die Geste und nahmen Platz weg. Der Wurf bleibt ein
+    // Knopf: er hat keine Richtung und ist eine eigene Entscheidung.
     this.controls.innerHTML = `
       <div class="runner-lane-controls">
-        <button type="button" data-lane="-1" aria-label="Nach links">◀</button>
+        <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen zum Bahnwechsel ▶</p>
         <button type="button" class="runner-throw" data-throw aria-label="Wurfgeschoss werfen" hidden>💥</button>
-        <button type="button" data-lane="1" aria-label="Nach rechts">▶</button>
       </div>
     `;
-    this.controls.querySelectorAll("[data-lane]").forEach((button) => {
-      button.addEventListener("pointerdown", () => this.sendLane(Number(button.dataset.lane)));
-    });
     this.throwButton = this.controls.querySelector("[data-throw]");
     this.throwButton.addEventListener("pointerdown", () => this.sendThrow());
     this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
@@ -263,7 +262,7 @@ export class RunnerDerby {
     });
 
     // Obstacles from the shared course.
-    arcade.rows.forEach((row) => {
+    arcade.rows.forEach((row, rowIndex) => {
       const z = row.position * SEGMENT;
       if (row.kind === "boost") {
         const pad = new THREE.Mesh(
@@ -296,7 +295,7 @@ export class RunnerDerby {
         spikes2.rotation.y = Math.PI / 2;
         orb.add(spikes2);
         orb.position.set(laneX(row.lane), FLOOR_Y + 0.55, z);
-        orb.userData = { baseY: FLOOR_Y + 0.55, phase: z };
+        orb.userData = { baseY: FLOOR_Y + 0.55, phase: z, rowIndex, taken: 0 };
         this.scene.add(orb);
         this.itemPads.push(orb);
       } else if (row.kind === "cone") {
@@ -503,8 +502,21 @@ export class RunnerDerby {
     this.boosts.forEach((pad) => {
       pad.material.emissiveIntensity = 0.4 + Math.abs(Math.sin(now / 240)) * 0.4;
     });
-    // Pickup orbs bob and spin invitingly.
+    // Kisten schweben und drehen sich einladend — und verschwinden, sobald man
+    // sie eingesammelt hat. Vorher blieben sie stehen, und man sah dem Brett
+    // nicht an, ob der Griff gesessen hatte.
+    const takenRows = new Set(arcade.players[controlledId]?.takenRows || []);
     this.itemPads.forEach((orb) => {
+      if (takenRows.has(orb.userData.rowIndex)) {
+        // Einsaugen: schrumpfen und aufsteigen, dann ausblenden.
+        orb.userData.taken = Math.min(1, orb.userData.taken + dt * 4);
+        const t = orb.userData.taken;
+        orb.scale.setScalar(Math.max(0.001, 1 - t));
+        orb.position.y = orb.userData.baseY + t * 0.9;
+        orb.rotation.y += dt * 14;
+        orb.visible = t < 1;
+        return;
+      }
       orb.position.y = orb.userData.baseY + Math.sin(now / 420 + orb.userData.phase) * 0.09;
       orb.rotation.y = now / 500 + orb.userData.phase;
     });

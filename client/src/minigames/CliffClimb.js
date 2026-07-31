@@ -3,11 +3,12 @@ import {
   CubeBurst,
   FloatingText,
   KinAnimator,
+  applyFinaleMood,
   createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin81";
+} from "./VoxelKit.js?v=tumblekin82";
 import {
   mountStage,
   mountHud,
@@ -15,13 +16,20 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin81";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin81";
+} from "./SceneKit.js?v=tumblekin82";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin82";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
 const LANE_GAP = 1.55;
-const CLIMB_WORLD = 12;    // world height of the whole climb
+const CLIMB_WORLD = 12;    // Welthöhe des SICHTBAREN Wandstücks
+// Kletterhöhe je Sprosse. Vorher wurde die Höhe auf die gesamte Wand normiert
+// (rung / arcade.height); seit es keinen Gipfel mehr gibt, ist arcade.height nur
+// noch ein Sicherheitsnetz — normiert darauf käme man optisch kaum vom Boden.
+// Jetzt zählt ein fester Abstand je Sprosse, und die Kamera fährt mit.
+const WORLD_PER_RUNG = 0.42;
+const HOLDS_PER_LANE = 40;            // so viele Griffe je Bahn wandern mit
+const WALL_SPAN = 90;                 // Höhe des Wandblocks, der mitgezogen wird
 const KIN_BASE_Y = 0.5;
 
 export class CliffClimb {
@@ -44,6 +52,9 @@ export class CliffClimb {
     this.kins = new Map();
     this.animators = new Map();
     this.smoothRung = new Map();
+    this.holds = [];
+    this.fallFrom = new Map();     // Höhe, aus der jemand losgelassen hat
+    this.fellDone = new Set();
     this.lastRung = new Map();
     this.lastSlips = new Map();
     this.lastFinished = new Map();
@@ -95,6 +106,7 @@ export class CliffClimb {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
+    this.holds = [];
     teardownStage(this);
     this.kins.clear();
     this.animators.clear();
@@ -108,14 +120,16 @@ export class CliffClimb {
       groundColor: 0x8a9ab0
     });
 
-    // The cliff face: a tall stone wall with ledges and a green summit.
-    const cliff = new THREE.Mesh(
-      new THREE.BoxGeometry(9, CLIMB_WORLD + 3, 1),
+    // Die Wand hat kein Ende mehr — geklettert wird auf Zeit. Sie ist deshalb
+    // ein hoher Block, der mit der Kamera mitwandert, statt eines Stücks, das
+    // irgendwann unter einem aufhört.
+    this.cliff = new THREE.Mesh(
+      new THREE.BoxGeometry(9, WALL_SPAN, 1),
       new THREE.MeshLambertMaterial({ color: "#9c8f7a" })
     );
-    cliff.position.set(0, CLIMB_WORLD / 2 - 0.5, -1.1);
-    cliff.receiveShadow = true;
-    this.scene.add(cliff);
+    this.cliff.position.set(0, WALL_SPAN / 2 - 2, -1.1);
+    this.cliff.receiveShadow = true;
+    this.scene.add(this.cliff);
     // No protruding grey rocks — only the colourful climbing holds stand out.
     // Colourful climbing holds in each lane, staggered left/right so the
     // hand-over-hand motion has something to grip.
@@ -123,15 +137,21 @@ export class CliffClimb {
     const count = this.getState()?.players?.length || 4;
     for (let lane = 0; lane < count; lane += 1) {
       const lx = this.laneX(lane, count);
-      for (let step = 0; step < 24; step += 1) {
+      // Genau so viele Griffe, wie ins Bild passen — sie werden beim Steigen
+      // oben wieder angesetzt (siehe scrollWall). Ein endloser Vorrat wäre
+      // sonst tausende Objekte für eine Wand, von der man immer nur ein Stück
+      // sieht.
+      for (let step = 0; step < HOLDS_PER_LANE; step += 1) {
         const side = step % 2 === 0 ? -1 : 1;
         const hold = new THREE.Mesh(
           new THREE.BoxGeometry(0.24, 0.18, 0.22),
           new THREE.MeshLambertMaterial({ color: holdColors[lane % holdColors.length] })
         );
-        hold.position.set(lx + side * 0.34, 0.7 + step * (CLIMB_WORLD / 24), -0.42);
+        hold.position.set(lx + side * 0.34, 0.7 + step * WORLD_PER_RUNG, -0.42);
         hold.castShadow = true;
+        hold.userData.step = step;
         this.scene.add(hold);
+        this.holds.push(hold);
       }
     }
     // Summit deck the finishers hop onto — a wooden lookout platform (no more
@@ -221,7 +241,7 @@ export class CliffClimb {
 
       const shown = THREE.MathUtils.lerp(this.smoothRung.get(player.id) ?? 0, entry.rung || 0, Math.min(1, dt * 10));
       this.smoothRung.set(player.id, shown);
-      const y = KIN_BASE_Y + (shown / arcade.height) * CLIMB_WORLD;
+      const y = KIN_BASE_Y + shown * WORLD_PER_RUNG;
       animator.groundY = y;
 
       if ((entry.rung || 0) > (this.lastRung.get(player.id) || 0)) {
@@ -257,15 +277,30 @@ export class CliffClimb {
 
       // At the finale, everyone who reached the top hops up onto the summit
       // deck, turns around to face the camera and celebrates.
-      const celebrating = Boolean(minigame.finaleAt && entry.finishedAt);
-      if (celebrating) {
-        const spreadX = kin.userData.laneX * 0.6;
-        animator.groundY = THREE.MathUtils.lerp(animator.groundY, this.summitY + 0.3, Math.min(1, dt * 3));
-        animator.set("cheer", { base: true });
+      if (minigame.finaleAt) {
+        // Es gibt keinen Gipfel mehr, auf den man klettert — am Ende lassen alle
+        // los und fallen. Wer weiter oben war, hängt länger, bevor es ihn
+        // erwischt: die Reihenfolge des Sturzes IST die Platzierung.
+        const place = arcade.places?.[player.id] || 1;
+        const since = Math.max(0, now - minigame.finaleAt + 2600);
+        const letGoAt = (place - 1) * 340;
+        const pose = applyFinaleMood(animator, place, state.players.length);
+        if (since > letGoAt) {
+          const falling = (since - letGoAt) / 1000;
+          // Freier Fall mit Erdbeschleunigung, bis der Boden kommt.
+          const drop = 0.5 * 9.81 * falling * falling;
+          animator.groundY = Math.max(KIN_BASE_Y, (this.fallFrom.get(player.id) ?? animator.groundY) - drop);
+          kin.rotation.z = Math.sin(falling * 7) * 0.5;
+          if (!this.fellDone.has(player.id) && animator.groundY <= KIN_BASE_Y + 0.01) {
+            this.fellDone.add(player.id);
+            this.bursts.spawn(kin.position.clone(), ["#ab9e88", "#ffffff"], { count: 12, speed: 1.8, up: 1, size: 0.07, life: 0.6, gravity: 2.4 });
+            if (player.id === controlledId) this.feedback?.vibrate([20, 14, 26]);
+          }
+        } else {
+          this.fallFrom.set(player.id, animator.groundY);
+        }
         animator.update(now);
-        kin.position.x = THREE.MathUtils.lerp(kin.position.x, spreadX, Math.min(1, dt * 3));
-        kin.position.z = THREE.MathUtils.lerp(kin.position.z, 0.4, Math.min(1, dt * 3));
-        kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, Math.min(1, dt * 4));
+        if (pose.cheer) kin.rotation.z = 0;
       } else {
         // Sway toward the reaching hand while climbing.
         const reach = now < (entry.lastHitAt || 0) + 220 ? entry.nextSide * -0.12 : 0;
@@ -309,6 +344,10 @@ export class CliffClimb {
       });
     }
 
+    // Wand mitziehen: Griffe, die unter dem Bild verschwinden, werden oben
+    // wieder angesetzt. So wirkt die Wand endlos, ohne endlos zu sein.
+    this.scrollWall(ownY);
+
     this.shake *= frameDecay(0.9, dt);
     if (minigame.finaleAt) {
       // Pull back to frame the whole summit deck and the celebration.
@@ -338,7 +377,8 @@ export class CliffClimb {
     const own = arcade.players[this.getControlledPlayerId()];
     const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
     this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = `${own?.rung || 0}/${arcade.height}`;
+    // Ohne Gipfel gibt es kein „von" — die erreichte Höhe IST die Wertung.
+    this.hud.querySelector("[data-kinetic-score]").textContent = `${own?.rung || 0}`;
 
     const banner = this.hud.querySelector("[data-climb-banner]");
     if (banner) {
@@ -350,6 +390,22 @@ export class CliffClimb {
       } else {
         banner.hidden = true;
       }
+    }
+  }
+
+  // Setzt Griffe, die weit unter der Kamera liegen, um ein ganzes Band nach
+  // oben. Der Wandblock folgt in groben Schritten, damit seine Textur nicht
+  // sichtbar mitrutscht.
+  scrollWall(ownY) {
+    const band = HOLDS_PER_LANE * WORLD_PER_RUNG;
+    const floor = ownY - band * 0.3;
+    this.holds.forEach((hold) => {
+      while (hold.position.y < floor) hold.position.y += band;
+      while (hold.position.y > floor + band) hold.position.y -= band;
+    });
+    if (this.cliff) {
+      const target = Math.floor(ownY / 20) * 20;
+      this.cliff.position.y = target + WALL_SPAN / 2 - 2;
     }
   }
 

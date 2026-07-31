@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale } from "./Quality.js?v=tumblekin81";
+import { fxScale } from "./Quality.js?v=tumblekin82";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 
@@ -601,4 +601,31 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.lineTo(x, y + radius);
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
+}
+
+// --- Reaktion auf die Platzierung -----------------------------------------
+// Vorher kannte jede Szene nur „Sieger ja/nein" und liess entweder jubeln oder
+// trauern — Platz 2 sah damit genauso aus wie Platz 4. Der Server schickt seit
+// dem Finale die Platzierung mit; daraus wird hier eine abgestufte Reaktion.
+//
+//   1. Platz  jubelt ausgelassen
+//   2. Platz  freut sich
+//   3. Platz  nimmt es gelassen
+//   4. Platz  ist geknickt
+export function finalePose(place, total = 4) {
+  if (!place) return { state: "idle", cheer: false, hop: 0 };
+  if (place === 1) return { state: "cheer", cheer: true, hop: 1 };
+  if (place === 2) return { state: "cheer", cheer: true, hop: 0.45 };
+  // Der vorletzte Platz ist nur dann „okay", wenn es überhaupt jemanden hinter
+  // einem gibt — im Zweikampf ist Platz 2 der letzte und darf knicken.
+  if (place < total) return { state: "idle", cheer: false, hop: 0 };
+  return { state: "sad", cheer: false, hop: 0 };
+}
+
+// Setzt die Figur auf die Reaktion ihrer Platzierung. Gibt zurück, ob gejubelt
+// wird — Szenen hängen daran gern noch Konfetti.
+export function applyFinaleMood(animator, place, total = 4) {
+  const pose = finalePose(place, total);
+  animator?.set(pose.state, { base: true });
+  return pose;
 }
