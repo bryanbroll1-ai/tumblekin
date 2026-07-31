@@ -7,6 +7,8 @@ const {
   FIELD_TYPES,
   GATE_COIN_BONUS,
   MINIGAMES,
+  SEEK_SIZE,
+  publicArcade,
   GOLD_DICE_MIN,
   GOLD_DICE_SPAN,
   applyFieldEffect,
@@ -3979,4 +3981,35 @@ test("Schlusstabelle: der Browser sortiert wie der Server wertet", async () => {
   // — D führt, B ist zweiter, und der Millionär ohne Stern bleibt letzter.
   assert.deepEqual(fromClient, ["d", "b", "c", "a"],
     "Sterne zuerst, Münzen nur bei Gleichstand");
+});
+
+// --- Geheimnisse dürfen nicht im Netzpaket stehen --------------------------
+// Der ganze Arcade-Zustand geht unverändert an jedes Gerät im Raum. Für die
+// meisten Minispiele ist das richtig — dort IST der Zustand das, was man sieht.
+// Spürsinn ist der erste Fall mit echtem Geheimnis: läge das Versteck im Paket,
+// wäre das Spiel mit einem Blick in die Entwicklerkonsole erledigt.
+test("Spürsinn: das Versteck verlässt den Server nicht", () => {
+  const one = player({ id: "sk1", name: "SK1", color: "#fff" });
+  const two = player({ id: "sk2", name: "SK2", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("spuersinn", [one, two], startedAt);
+
+  // Auf dem Server muss es natürlich stehen, sonst könnte niemand werten.
+  assert.ok(arcade.secret?.gems?.[one.id], "der Server kennt das Versteck");
+
+  const sent = JSON.stringify(publicArcade(arcade));
+  assert.ok(!sent.includes("secret"), "kein Geheimnisfach im Paket");
+  assert.ok(!sent.includes("gems"), "keine Verstecke im Paket");
+
+  // Und die Probe aufs Exempel: der Zustand, den ein Gerät bekommt, enthält
+  // nirgends die Koordinaten des Verstecks als Paar.
+  const gem = arcade.secret.gems[one.id];
+  const parsed = JSON.parse(sent);
+  assert.equal(parsed.players[one.id].gem, undefined, "der Eintrag trägt kein Versteck");
+  assert.ok(gem.x >= 0 && gem.x < SEEK_SIZE && gem.y >= 0 && gem.y < SEEK_SIZE,
+    "das Versteck liegt im Feld");
+
+  // Was das Gerät braucht, ist weiterhin da — sonst wäre nichts zu spielen.
+  assert.ok(Array.isArray(parsed.players[one.id].probes), "die eigenen Tipps kommen an");
+  assert.equal(parsed.size, SEEK_SIZE, "die Feldgrösse kommt an");
 });

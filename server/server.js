@@ -3924,6 +3924,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "seek") {
     arcade.size = SEEK_SIZE;
+    arcade.secret = { gems: {} };
     arcade.basePoints = SEEK_BASE_POINTS;
     arcade.probeCost = SEEK_PROBE_COST;
     arcade.minPoints = SEEK_MIN_POINTS;
@@ -3940,7 +3941,10 @@ function createArcadeState(type, players, startedAt) {
       entry.totalProbes = 0;
       entry.bestProbes = null;         // wenigste Tipps für einen Fund
       entry.lastFind = null;
-      entry.gem = seekGemFor(entry.seekSeed, 0);
+      // Das Versteck liegt unter arcade.secret und wird NICHT mitgeschickt —
+      // sonst stünde die Antwort im Netzpaket und ein Blick in die
+      // Entwicklerkonsole ersetzte das ganze Spiel.
+      arcade.secret.gems[player.id] = seekGemFor(entry.seekSeed, 0);
     });
   }
   if (config.family === "paint") {
@@ -4796,7 +4800,9 @@ function handleArcadeInput(room, player, rawInput) {
     if (arcadePlayer.probes.some((probe) => probe.x === x && probe.y === y)) return { ok: true };
 
     arcadePlayer.hasMoved = true;
-    const steps = seekSteps(x, y, arcadePlayer.gem.x, arcadePlayer.gem.y);
+    const gem = arcade.secret?.gems?.[player.id];
+    if (!gem) return { ok: true };
+    const steps = seekSteps(x, y, gem.x, gem.y);
     arcadePlayer.totalProbes += 1;
 
     if (steps === 0) {
@@ -4813,7 +4819,7 @@ function handleArcadeInput(room, player, rawInput) {
       arcadePlayer.lastFind = { x, y, probes: used, value, at: now };
       arcadePlayer.round += 1;
       arcadePlayer.probes = [];
-      arcadePlayer.gem = seekGemFor(arcadePlayer.seekSeed, arcadePlayer.round);
+      arcade.secret.gems[player.id] = seekGemFor(arcadePlayer.seekSeed, arcadePlayer.round);
       arcadePlayer.flash = "good";
       arcadePlayer.lastHitAt = now;
       syncArcadeScore(room.currentMinigame, player, arcadePlayer);
@@ -8583,6 +8589,23 @@ function serializeRoom(room) {
   };
 }
 
+// Alles unter arcade.secret bleibt auf dem Server. Der ganze Arcade-Zustand
+// geht sonst unverändert an jedes Gerät im Raum — für 28 der 30 Minispiele ist
+// das richtig so, denn dort IST der Zustand das, was man ohnehin sieht.
+//
+// Spürsinn ist der erste Fall mit echtem Geheimnis: läge das Versteck im Paket,
+// wäre das Spiel mit einem Blick in die Entwicklerkonsole erledigt.
+//
+// Augenmaß lässt sich so NICHT schützen, und das ist keine Nachlässigkeit: der
+// Browser muss die Anzahl kennen, um den Schwarm überhaupt zu zeichnen. Wer die
+// Zahl im Paket abliest statt zu schätzen, betrügt bei einem Spiel, das im
+// selben Raum am selben Tisch gespielt wird — dagegen hilft kein Code.
+function publicArcade(arcade) {
+  if (!arcade || !arcade.secret) return arcade;
+  const { secret, ...rest } = arcade;
+  return rest;
+}
+
 function serializeMinigame(minigame) {
   return {
     id: minigame.id,
@@ -8599,7 +8622,7 @@ function serializeMinigame(minigame) {
     arena: minigame.arena,
     flux: minigame.flux,
     canopy: minigame.canopy,
-    arcade: minigame.arcade,
+    arcade: publicArcade(minigame.arcade),
     blocks: minigame.blocks
   };
 }
@@ -8826,6 +8849,7 @@ module.exports = {
     GATE_COIN_BONUS,
     MINIGAMES,
     SEEK_SIZE,
+    publicArcade,
     ESTIMATE_ROUNDS,
     ESTIMATE_BANDS,
     buildEstimateRounds,
