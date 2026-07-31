@@ -50,6 +50,8 @@ const {
   MAX_ROOMS_PER_ADDRESS,
   GLIDE_DURATION_MS,
   DIVE_DURATION_MS,
+  KNIFE_MIN_GAP_DEG,
+  knifeRoundsFor,
   DIVE_MAX_DEPTH,
   DIVE_RISK_MAX,
   diveGain,
@@ -1844,6 +1846,30 @@ test("glide: the result reports one number and it is the one that ranks", () => 
 test("glide: wrong action is refused", () => {
   const { room, me } = glideRoom();
   assert.equal(handleArcadeInput(room, me, { action: "shoot" }).ok, false);
+});
+
+// --- Messerwurf ------------------------------------------------------------
+
+test("knife: the disc can actually hold every knife that gets thrown", () => {
+  // Bei 360 Grad und 22 Grad Mindestabstand passen rechnerisch 16 Messer auf
+  // die Scheibe, in der Praxis eher zwölf. Mit acht festen Runden landeten bei
+  // vier Personen 32 dort — das Spiel war mathematisch nicht zu überleben, und
+  // gemessen flogen in JEDER Partie alle raus. Gewonnen hatte, wer zufällig
+  // zuletzt ausschied.
+  const theoretical = Math.floor(360 / KNIFE_MIN_GAP_DEG);
+  for (let count = 2; count <= 4; count += 1) {
+    const total = knifeRoundsFor(count) * count;
+    assert.ok(total <= theoretical,
+      `${count} Personen werfen ${total} Messer, es passen aber nur ${theoretical}`);
+    // Und es muss auch genug zu tun geben: unter drei Würfen je Person ist es
+    // kein Spiel mehr, sondern eine Stichprobe.
+    assert.ok(knifeRoundsFor(count) >= 3, `${count} Personen bekommen nur ${knifeRoundsFor(count)} Würfe`);
+  }
+});
+
+test("knife: fewer players means more throws each", () => {
+  assert.ok(knifeRoundsFor(2) > knifeRoundsFor(4));
+  assert.ok(knifeRoundsFor(3) >= knifeRoundsFor(4));
 });
 
 // --- Tiefenrausch ----------------------------------------------------------

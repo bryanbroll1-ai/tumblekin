@@ -35,7 +35,20 @@ const ONLY = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : nu
 // Vier Bots, einer je Stufe plus ein zweiter „normal" — vier ist die echte
 // Tischgrösse, und mit nur drei Spielern verhalten sich Verdrängungsspiele
 // (Sumo, Bumper) anders als im Spiel.
-const SEATS = ["easy", "normal", "hard", "normal"];
+// Tischgrösse. Vier ist der Normalfall, aber ein Partyspiel wird auch zu zweit
+// und zu dritt gespielt — und genau dort brechen Spiele gern, weil überall
+// stillschweigend vier Plätze angenommen werden.
+// Die Besetzung muss bei JEDER Tischgrösse beide Extreme enthalten, sonst misst
+// der Lauf nichts: mit den ersten beiden Einträgen einer festen Reihe sass zu
+// zweit gar kein starker Bot am Tisch, und die Spalte "hard" stand überall auf
+// null.
+const SEAT_SETS = {
+  2: ["easy", "hard"],
+  3: ["easy", "normal", "hard"],
+  4: ["easy", "normal", "hard", "normal"]
+};
+const SEAT_COUNT = Math.max(2, Math.min(4, Number(process.env.TUMBLEKIN_SEATS) || 4));
+const SEATS = SEAT_SETS[SEAT_COUNT];
 
 function makeRoom(type) {
   const players = SEATS.map((level, index) => ({
@@ -141,7 +154,7 @@ if (targets.length === 0) {
 }
 
 let broken = 0;
-console.log(`Bot-Waage · ${ROUNDS} Runden je Spiel\n`);
+console.log(`Bot-Waage · ${ROUNDS} Runden je Spiel · ${SEATS.length} Spieler\n`);
 console.log("Spiel               easy      normal    hard      Urteil   (Ø Platz, klein = gut)");
 console.log("-".repeat(66));
 
@@ -164,15 +177,21 @@ for (const game of targets) {
   // Kleiner Platz ist besser. Gleichstand ist genauso schlimm wie eine
   // Umkehrung: beides heisst, dass Koennen nichts bringt. 0.12 Plaetze ist die
   // Schwelle — darunter entscheidet ueber vier Runden der Zufall.
-  const gapLow = avg.easy - avg.normal;
-  const gapHigh = avg.normal - avg.hard;
+  //
+  // Verglichen wird nur, was auch am Tisch sass: zu zweit gibt es kein
+  // "normal", und eine fehlende Stufe als 0 zu lesen erklaerte jede Familie fuer
+  // kaputt (gemessen: 27 von 27).
+  const present = LEVELS.filter((level) => totals[level].length > 0);
   let verdict = "ok";
-  if (gapLow < -0.12 || gapHigh < -0.12) verdict = "UMGEKEHRT";
-  else if (gapLow < 0.12 || gapHigh < 0.12) verdict = "flach";
+  for (let i = 1; i < present.length; i += 1) {
+    const gap = avg[present[i - 1]] - avg[present[i]];
+    if (gap < -0.12) { verdict = "UMGEKEHRT"; break; }
+    if (gap < 0.12) verdict = "flach";
+  }
   if (verdict !== "ok") broken += 1;
 
-  const fmt = (value) => value.toFixed(2).padEnd(10);
-  console.log(`${game.type.padEnd(20)}${fmt(avg.easy)}${fmt(avg.normal)}${fmt(avg.hard)}${verdict}`);
+  const fmt = (value, level) => (totals[level].length > 0 ? value.toFixed(2) : "—").padEnd(10);
+  console.log(`${game.type.padEnd(20)}${fmt(avg.easy, "easy")}${fmt(avg.normal, "normal")}${fmt(avg.hard, "hard")}${verdict}`);
 }
 
 console.log("-".repeat(66));

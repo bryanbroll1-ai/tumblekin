@@ -532,7 +532,19 @@ const KNIFE_MIN_GAP_DEG = 22;         // knives closer than this collide
 // Praxis früher: entweder ist nur noch eine Person übrig, oder die Minute ist um
 // (duration). Ein festes kleines Rundenlimit liess das Spiel vorher aufhören,
 // obwohl noch alle standen.
-const KNIFE_ROUNDS = 8;
+// Wie viele Messer die Scheibe ÜBERHAUPT fassen kann, bevor jeder weitere Wurf
+// zwangsläufig kollidiert: bei 360 Grad und 22 Grad Mindestabstand sind das
+// rechnerisch 16, in der Praxis eher zwölf, weil sie nie gleichmässig liegen.
+//
+// Mit acht festen Runden landeten bei drei Personen 24 Messer auf der Scheibe
+// und bei vier sogar 32. Das Spiel war also mathematisch nicht zu überleben —
+// gemessen flogen in jeder einzelnen Partie ALLE raus, und gewonnen hatte, wer
+// zufällig zuletzt ausschied. Die Rundenzahl richtet sich deshalb nach der
+// Tischgrösse.
+const KNIFE_DISC_CAPACITY = 13;
+function knifeRoundsFor(playerCount) {
+  return clamp(Math.round(KNIFE_DISC_CAPACITY / Math.max(1, playerCount)), 3, 7);
+}
 // Ein Treffer auf ein anderes Messer kostet den Wurf und die Runde, aber nicht
 // gleich die ganze Partie: mit sofortigem Aus schieden gemessen 9 von 10
 // schwächeren Mitspielenden nach dem ersten oder zweiten Wurf aus und sahen den
@@ -3532,7 +3544,7 @@ function createArcadeState(type, players, startedAt) {
     arcade.turnIndex = 0;
     arcade.activeId = arcade.order[0] || null;
     arcade.round = 0;
-    arcade.rounds = KNIFE_ROUNDS;
+    arcade.rounds = knifeRoundsFor(players.length);
     arcade.turnMs = knifeTurnMs(0);
     arcade.turnEndsAt = startedAt + arcade.turnMs;
     arcade.spinSpeed = 1.1;
@@ -7198,25 +7210,51 @@ function arcadeBotStep(room, bot) {
     if (arcade.activeId !== bot.id || player.eliminated || player.turnDone) return;
     const now = Date.now();
     const profile = botProfile(player);
-    const angleDeg = (((arcade.logAngle * 180) / Math.PI) % 360 + 360) % 360;
-    // Abstand zum nächstliegenden Messer. Ohne Messer ist die Scheibe frei.
-    let gap = 180;
-    arcade.knives.forEach((knife) => {
-      const diff = Math.abs(((knife.angleDeg - angleDeg + 540) % 360) - 180);
-      if (diff < gap) gap = diff;
-    });
-    // Der Bot MISST die Lücke nicht, er SCHÄTZT sie — und der Fehler geht in
-    // beide Richtungen. Vorher wurde nur mit einem festen Aufschlag geprüft; da
-    // der Wurf denselben Winkel benutzt, den der Bot gerade gelesen hat, konnte
-    // dabei nie ein Zusammenstoss entstehen. Gemessen ging es 40 von 40 Partien
-    // unentschieden aus.
-    const err = profile.level === "hard" ? 4 : profile.level === "normal" ? 10 : 24;
-    const perceived = gap + (Math.random() * 2 - 1) * err;
-    // Wer zu lange zögert, verliert das Fenster und scheidet aus. Kurz vor
-    // Schluss wird also geworfen, ob die Lücke passt oder nicht.
-    const nerve = profile.level === "hard" ? 280 : profile.level === "normal" ? 400 : 560;
-    const panic = arcade.turnEndsAt - now <= nerve;
-    if (perceived >= KNIFE_MIN_GAP_DEG || panic) {
+
+    // Der Bot spielt das, was auch ein Mensch hier spielt: er SCHAUT der Scheibe
+    // zu und lässt im richtigen Moment los.
+    //
+    // Vorher war der Fehler auf die geschätzte LÜCKE modelliert, und das ging
+    // zweimal schief. Ein fester Anspruch liess den genauen Bot bei enger
+    // Scheibe zwangsläufig bis zum Panikwurf warten — und der fällt immer auf
+    // denselben Augenblick, also denselben Drehwinkel; der schlampige streute
+    // über das Fenster und erwischte zufällig gute Momente. Ein fallender
+    // Anspruch machte es schlimmer, weil dann der Zufall noch früher greifen
+    // durfte. Gemessen stand die Rangfolge beide Male auf dem Kopf.
+    //
+    // Der Fehler gehört auf die ZEIT, nicht auf die Lücke: die Scheibe dreht
+    // sich, also ist ein Zeitfehler direkt ein Winkelfehler, und wer genauer
+    // trifft, wirft in grössere Lücken. Genau das ist das Können des Spiels.
+    if (player.botTurnKey !== `${arcade.round}:${arcade.turnIndex}`) {
+      player.botTurnKey = `${arcade.round}:${arcade.turnIndex}`;
+      const spread = profile.level === "hard" ? 55 : profile.level === "normal" ? 150 : 320;
+      player.botAimError = (Math.random() * 2 - 1) * spread;
+      player.botThrowAt = null;
+    }
+
+    // Den besten Augenblick im verbleibenden Fenster suchen: die Scheibe dreht
+    // gleichmässig, ihre Lage lässt sich also vorausrechnen.
+    if (player.botThrowAt === null || player.botThrowAt === undefined) {
+      const dir = arcade.turnIndex % 2 === 0 ? 1 : -1;
+      const perMs = (arcade.spinSpeed * dir * 180) / Math.PI / 1000;
+      const nowAngle = (((arcade.logAngle * 180) / Math.PI) % 360 + 360) % 360;
+      const nerve = 420;                 // grösser als der Bot-Takt (120-180 ms)
+      const horizon = Math.max(0, arcade.turnEndsAt - now - nerve);
+      let bestAt = now;
+      let bestGap = -1;
+      for (let ahead = 0; ahead <= horizon; ahead += 40) {
+        const angle = (nowAngle + perMs * ahead % 360 + 360) % 360;
+        let gap = 180;
+        arcade.knives.forEach((knife) => {
+          const diff = Math.abs(((knife.angleDeg - angle + 540) % 360) - 180);
+          if (diff < gap) gap = diff;
+        });
+        if (gap > bestGap) { bestGap = gap; bestAt = now + ahead; }
+      }
+      player.botThrowAt = bestAt + player.botAimError;
+    }
+
+    if (now >= player.botThrowAt || arcade.turnEndsAt - now <= 200) {
       handleArcadeInput(room, bot, { action: "throw" });
     }
     return;
@@ -8267,6 +8305,8 @@ module.exports = {
     BARREL_LIMIT,
     BOMB_PASS_LOCK_MS,
     KNIFE_MIN_GAP_DEG,
+    KNIFE_DISC_CAPACITY,
+    knifeRoundsFor,
     STACK_BLOCKS,
     CLIMB_HEIGHT,
     resolveGateRewards,
