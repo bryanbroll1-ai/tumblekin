@@ -46,18 +46,21 @@ const MAX_ITEMS = 3;
 const BONUS_STAR_COINS = 1;
 const BONUS_STAR_WINS = 1;
 
+const GOLD_DICE_MIN = 6;
+const GOLD_DICE_SPAN = 3;              // 6, 7 oder 8
+
 const ITEM_DEFINITIONS = [
   {
     id: "doubleDice",
     name: "Doppelwürfel",
     icon: "🎲",
-    help: "Würfelt zweimal und addiert — die beste Chance, den Stern zu erreichen."
+    help: "Zwei Würfel addiert: 2 bis 12. Die einzige Chance auf mehr als acht — dafür kann es auch danebengehen."
   },
   {
     id: "goldDice",
     name: "Goldwürfel",
     icon: "✨",
-    help: "Garantiert eine hohe Zahl (7–9)."
+    help: "Sicher 6, 7 oder 8. Nie mehr, aber auch nie weniger."
   },
   {
     id: "swapBell",
@@ -1319,7 +1322,16 @@ function performRoll(room, player) {
     baseDice = (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6));
     diceNote = "Doppelwürfel";
   } else if (pending === "goldDice") {
-    baseDice = 7 + Math.floor(Math.random() * 3);
+    // 6–8, nicht 7–9. Mit 7–9 war der Goldwürfel dem Doppelwürfel bei JEDER
+    // Sternentfernung überlegen, die einer von beiden überhaupt schafft: höherer
+    // Schnitt (8 statt 7), höherer Boden (7 statt 2) und selbst bei neun Feldern
+    // noch die bessere Chance (33 % gegen 28 %). Eines von fünf Items war damit
+    // Ausschuss.
+    //
+    // Bei 6–8 haben beide den Schnitt 7 und tauschen bei acht Feldern die
+    // Rollen: bis sieben ist der Goldwürfel sicherer, ab acht ist der
+    // Doppelwürfel die einzige Chance. Das ist eine echte Wahl.
+    baseDice = GOLD_DICE_MIN + Math.floor(Math.random() * GOLD_DICE_SPAN);
     diceNote = "Goldwürfel";
   } else {
     baseDice = 1 + Math.floor(Math.random() * 6);
@@ -8405,6 +8417,9 @@ module.exports = {
     FIELD_TYPES,
     GATE_COIN_BONUS,
     MINIGAMES,
+    ITEM_DEFINITIONS,
+    GOLD_DICE_MIN,
+    GOLD_DICE_SPAN,
     applyFieldEffect,
     STAR_PRICE,
     COIN_FIELD_REWARD,

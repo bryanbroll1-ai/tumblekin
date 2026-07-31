@@ -7,6 +7,8 @@ const {
   FIELD_TYPES,
   GATE_COIN_BONUS,
   MINIGAMES,
+  GOLD_DICE_MIN,
+  GOLD_DICE_SPAN,
   applyFieldEffect,
 
   arcadeRankingScore,
@@ -3857,4 +3859,60 @@ test("Katalog: jedes Minispiel hat Titel, Geste und Hilfetext", async () => {
     assert.equal(game.family || undefined, template.arcadeFamily || undefined,
       `${game.type}: Familie im Katalog (${game.family}) passt nicht zum Server (${template.arcadeFamily})`);
   });
+});
+
+// --- Würfel-Items: keines darf das andere schlucken -----------------------
+// Der Stern wird auch beim VORBEIGEHEN gekauft, es zählt also "mindestens so
+// weit" und nicht "genau". Damit lassen sich die beiden Würfel-Items direkt
+// vergleichen: für jede Sternentfernung gewinnt, wer sie eher erreicht.
+//
+// Mit 7–9 war der Goldwürfel bei JEDER Entfernung besser, die einer von beiden
+// überhaupt schafft — höherer Schnitt, höherer Boden, und selbst bei neun
+// Feldern noch die bessere Chance. Eines von fünf Items war Ausschuss.
+test("Items: Gold- und Doppelwürfel tauschen die Rollen, keiner dominiert", () => {
+  const reachGold = (need) => {
+    let hits = 0;
+    for (let face = 0; face < GOLD_DICE_SPAN; face += 1) {
+      if (GOLD_DICE_MIN + face >= need) hits += 1;
+    }
+    return hits / GOLD_DICE_SPAN;
+  };
+  const reachDouble = (need) => {
+    let hits = 0;
+    for (let a = 1; a <= 6; a += 1) for (let b = 1; b <= 6; b += 1) if (a + b >= need) hits += 1;
+    return hits / 36;
+  };
+
+  // Gleicher Schnitt: keiner ist schlicht der stärkere Würfel.
+  const meanGold = GOLD_DICE_MIN + (GOLD_DICE_SPAN - 1) / 2;
+  assert.equal(meanGold, 7, "Goldwürfel im Schnitt 7");
+  assert.equal(reachDouble(2), 1, "zwei Würfel schaffen immer mindestens 2");
+
+  // Es muss eine Entfernung geben, bei der Gold führt, und eine, bei der der
+  // Doppelwürfel führt. Sonst ist eines der beiden Items überflüssig.
+  const goldAhead = [];
+  const doubleAhead = [];
+  for (let need = 1; need <= 12; need += 1) {
+    const gold = reachGold(need);
+    const dbl = reachDouble(need);
+    if (gold > dbl) goldAhead.push(need);
+    if (dbl > gold) doubleAhead.push(need);
+  }
+  assert.ok(goldAhead.length > 0, "der Goldwürfel muss irgendwo vorne liegen");
+  assert.ok(doubleAhead.length > 0,
+    `der Doppelwürfel muss irgendwo vorne liegen — Gold führt bei ${goldAhead.join(",")}`);
+
+  // Und der Wechsel muss sauber sein: erst Gold, dann Doppel, nicht kreuz und
+  // quer. Sonst kann kein Mensch die Entscheidung am Tisch treffen.
+  assert.ok(Math.max(...goldAhead) < Math.min(...doubleAhead),
+    `Gold bis ${Math.max(...goldAhead)}, Doppel ab ${Math.min(...doubleAhead)}`);
+});
+
+test("Items: jedes hat Name, Symbol und Hilfetext", () => {
+  assert.ok(ITEM_DEFINITIONS.length >= 4, "zu wenige Items für echte Entscheidungen");
+  ITEM_DEFINITIONS.forEach((item) => {
+    assert.ok(item.id && item.name && item.icon, `${item.id}: unvollständig`);
+    assert.ok((item.help || "").trim().length >= 20, `${item.id}: Hilfetext zu dünn`);
+  });
+  assert.equal(new Set(ITEM_DEFINITIONS.map((i) => i.id)).size, ITEM_DEFINITIONS.length, "doppelte Item-Id");
 });
