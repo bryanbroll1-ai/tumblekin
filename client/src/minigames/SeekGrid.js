@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin94";
+} from "./VoxelKit.js?v=tumblekin95";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin94";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin94";
+} from "./SceneKit.js?v=tumblekin95";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin95";
 
 // Spürsinn — im Feld liegt ein Fundstück versteckt. Jeder Tipp auf ein Feld
 // verrät, wie viele Schritte es bis dorthin sind. Wer die Angaben kombiniert,

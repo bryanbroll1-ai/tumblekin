@@ -1,37 +1,61 @@
-import { BoardGame } from "./game/BoardGame.js?v=tumblekin94";
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin94";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin94";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin94";
-import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin94";
-import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin94";
-import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin94";
-import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin94";
-import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin94";
-import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin94";
-import { BombPass } from "./minigames/BombPass.js?v=tumblekin94";
-import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin94";
-import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin94";
-import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin94";
-import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin94";
-import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin94";
-import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin94";
-import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin94";
-import { BalloonGlide } from "./minigames/BalloonGlide.js?v=tumblekin94";
-import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin94";
-import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin94";
-import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin94";
-import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin94";
-import { SortBelt } from "./minigames/SortBelt.js?v=tumblekin94";
-import { SeekGrid } from "./minigames/SeekGrid.js?v=tumblekin94";
-import { SwarmCount } from "./minigames/SwarmCount.js?v=tumblekin94";
-import { LightSequence } from "./minigames/LightSequence.js?v=tumblekin94";
-import { FlashReflex } from "./minigames/FlashReflex.js?v=tumblekin94";
-import { PegBoard } from "./minigames/PegBoard.js?v=tumblekin94";
-import { IceStock } from "./minigames/IceStock.js?v=tumblekin94";
-import { DeepDig } from "./minigames/DeepDig.js?v=tumblekin94";
-import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin94";
-import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin94";
-import { Feedback } from "./game/Feedback.js?v=tumblekin94";
+import { BoardGame } from "./game/BoardGame.js?v=tumblekin95";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin95";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin95";
+import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin95";
+import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin95";
+import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin95";
+import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin95";
+import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin95";
+import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin95";
+import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin95";
+import { BombPass } from "./minigames/BombPass.js?v=tumblekin95";
+import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin95";
+import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin95";
+import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin95";
+import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin95";
+import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin95";
+import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin95";
+import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin95";
+import { BalloonGlide } from "./minigames/BalloonGlide.js?v=tumblekin95";
+import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin95";
+import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin95";
+import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin95";
+import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin95";
+import { SortBelt } from "./minigames/SortBelt.js?v=tumblekin95";
+import { SeekGrid } from "./minigames/SeekGrid.js?v=tumblekin95";
+import { SwarmCount } from "./minigames/SwarmCount.js?v=tumblekin95";
+import { LightSequence } from "./minigames/LightSequence.js?v=tumblekin95";
+import { FlashReflex } from "./minigames/FlashReflex.js?v=tumblekin95";
+import { PegBoard } from "./minigames/PegBoard.js?v=tumblekin95";
+import { IceStock } from "./minigames/IceStock.js?v=tumblekin95";
+import { DeepDig } from "./minigames/DeepDig.js?v=tumblekin95";
+import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin95";
+import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin95";
+import { Feedback } from "./game/Feedback.js?v=tumblekin95";
+
+// socket.io kommt als eigenes Skript vom Server (<script src="/socket.io/…">).
+// Fehlt es, wirft `new ClientNetwork()` beim Laden dieses Moduls — und dann
+// passiert etwas Heimtückisches: der Startbildschirm steht schon im HTML, wird
+// also ganz normal angezeigt, aber KEIN Knopf bekommt je einen Zuhörer. Die App
+// sieht heil aus und tut nichts, ohne ein Wort Erklärung.
+//
+// Genau so sah es aus, als der Server nicht erreichbar war: "Start ist da, aber
+// Button macht nix." Eine Stunde Fehlersuche an der falschen Stelle.
+//
+// Darum hier eine Wache VOR allem anderen. Sie kann die Verbindung nicht
+// retten, aber sie sagt, was los ist — und das ist der ganze Unterschied
+// zwischen "kaputt" und "der Server ist weg".
+if (typeof window.io !== "function") {
+  const banner = document.getElementById("connection-banner");
+  if (banner) {
+    banner.hidden = false;
+    banner.textContent = "Keine Verbindung zum Spielserver. Läuft er noch? Dann Seite neu laden.";
+  }
+  document.querySelectorAll("#screen-start button").forEach((button) => {
+    button.disabled = true;
+  });
+  throw new Error("socket.io konnte nicht geladen werden — Spielserver nicht erreichbar.");
+}
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
