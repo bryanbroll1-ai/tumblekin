@@ -2591,6 +2591,12 @@ body[data-screen="minigame"] .game-menu-button {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    /* Übergänge gehörten hierher wie Animationen. Wer Bewegung abgestellt hat,
+       hat sie wegen Schwindel abgestellt, und eine 300-ms-Fahrt eines Panels
+       schwindelt genauso wie ein Keyframe. Nicht auf 0 setzen, sondern auf fast
+       0: bei exakt 0 fällt transitionend aus, und daran hängt Aufräumcode. */
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
   }
 }
 

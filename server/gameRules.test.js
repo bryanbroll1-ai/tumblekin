@@ -3916,3 +3916,40 @@ test("Items: jedes hat Name, Symbol und Hilfetext", () => {
   });
   assert.equal(new Set(ITEM_DEFINITIONS.map((i) => i.id)).size, ITEM_DEFINITIONS.length, "doppelte Item-Id");
 });
+
+// --- Kein Klangname darf ins Leere zeigen ---------------------------------
+// feedback.sound("…") mit unbekanntem Namen tut einfach NICHTS: kein Fehler,
+// keine Warnung, nur Stille. Genau so war die Kreuzung stumm — der Aufruf stand
+// seit jeher im Code, der Klang war nie definiert, und niemandem fiel auf, dass
+// der einzige Moment mit ausdrücklich eigenem Ton keinen hatte.
+test("Klänge: jeder gerufene Name ist auch definiert", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const clientDir = path.join(__dirname, "..", "client", "src");
+
+  const files = [];
+  (function walk(dir) {
+    fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".js")) files.push(full);
+    });
+  })(clientDir);
+
+  const feedback = fs.readFileSync(path.join(clientDir, "game", "Feedback.js"), "utf8");
+  const defined = new Set([...feedback.matchAll(/^ {6}([a-zA-Z]+):\s*\[/gm)].map((m) => m[1]));
+  assert.ok(defined.size > 10, "Klangtabelle nicht gefunden — Muster angepasst?");
+
+  const missing = new Map();
+  files.forEach((file) => {
+    const source = fs.readFileSync(file, "utf8");
+    [...source.matchAll(/sound\("([a-zA-Z]+)"/g)].forEach((match) => {
+      if (!defined.has(match[1])) {
+        missing.set(match[1], path.relative(clientDir, file));
+      }
+    });
+  });
+
+  assert.deepEqual([...missing.entries()], [],
+    "gerufen, aber nie definiert — diese Stellen sind stumm");
+});
