@@ -874,6 +874,19 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
+// Mitschrift für die Fehlersuche: TUMBLEKIN_VERBOSE=1 protokolliert jede
+// Anfrage und jede Socket-Verbindung. Standardmässig aus, weil im Betrieb
+// niemand ein volles Zugriffsprotokoll auf der Konsole braucht — beim Suchen
+// ist es aber der Unterschied zwischen "kommt das Gerät überhaupt an?" und
+// Raten.
+const VERBOSE = process.env.TUMBLEKIN_VERBOSE === "1";
+if (VERBOSE) {
+  app.use((req, _res, next) => {
+    console.log(`[http] ${req.method} ${req.url}  ua=${(req.headers["user-agent"] || "?").slice(0, 40)}`);
+    next();
+  });
+}
+
 app.use(express.static(path.join(__dirname, "../client")));
 app.use("/vendor/three", express.static(path.join(__dirname, "../node_modules/three/build")));
 app.get("/health", (_req, res) => res.json({ ok: true, rooms: rooms.size }));
@@ -907,6 +920,15 @@ app.get("/qr.svg", async (req, res) => {
 });
 
 io.on("connection", (socket) => {
+  if (VERBOSE) {
+    console.log(`[socket] verbunden ${socket.id} über ${socket.conn.transport.name}`);
+    socket.conn.on("upgrade", (t) => console.log(`[socket] ${socket.id} aufgewertet auf ${t.name}`));
+    socket.on("disconnect", (reason) => console.log(`[socket] getrennt ${socket.id}: ${reason}`));
+    socket.onAny((event, payload) => {
+      console.log(`[socket] ${socket.id} → ${event} ${JSON.stringify(payload)?.slice(0, 120)}`);
+    });
+  }
+
   // Jeder Handler bekommt eine Sicherung. Wirft einer, bevor er geantwortet
   // hat, wartet der Client sonst ewig auf seinen Rückruf: der Knopf im Spiel
   // reagiert einfach nicht mehr, ohne Fehlermeldung, ohne Hinweis. Ein
