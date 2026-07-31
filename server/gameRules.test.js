@@ -47,13 +47,14 @@ const {
   resolveStarPurchase,
   roomCreateBlockedReason,
   MAX_ROOMS_PER_ADDRESS,
-  SLING_SHOTS,
-  SLING_RING_SCORES,
-  SLING_RING_RADII,
-  SLING_BASE_DISTANCE,
-  SLING_DISTANCE_STEP,
-  SLING_MAX_SPEED,
-  SLING_GRAVITY,
+  GLIDE_DURATION_MS,
+  GLIDE_VY_MAX,
+  GLIDE_GATE_EVERY_MS,
+  GLIDE_GATE_MAX_STEP,
+  GLIDE_GATE_POINTS,
+  GLIDE_CENTRE_BONUS,
+  GLIDE_STALL_MS,
+  buildGlideGates,
   SUMO_RING_RADIUS,
   SUMO_CHARGE_MS,
   SUMO_OVERCHARGE_MS,
@@ -92,22 +93,22 @@ const {
   tracePathX,
   traceOffset,
   traceScore,
-  PLATE_START,
-  PLATE_MAX,
-  PLATE_ADD_MS,
-  PLATE_SPIN_GAIN,
-  PLATE_HAND_RATE,
-  PLATE_HAND_MAX,
-  PLATE_DECAY_START,
-  PLATE_DECAY_END,
-  PLATE_TOUCH_MS,
-  PLATE_RESPAWN_MS,
-  PLATE_DROP_COST,
-  PLATE_POINTS_PER_SECOND,
-  PLATE_DURATION_MS,
-  plateCountAt,
-  plateDecayAt,
-  plateScore,
+  BELT_COLOURS,
+  BELT_CHUTES,
+  BELT_QUEUE,
+  BELT_SPEED_START,
+  BELT_SPEED_END,
+  BELT_REACH_AT,
+  BELT_SWAP_FIRST_MS,
+  BELT_SWAP_WARN_MS,
+  BELT_POINTS,
+  BELT_STREAK_BONUS,
+  BELT_STREAK_MAX,
+  BELT_WRONG_COST,
+  BELT_MISS_COST,
+  BELT_DURATION_MS,
+  beltSpeed,
+  buildBeltChutePlan,
   FISH_DURATION_MS,
   FISH_REEL_SPEED,
   FISH_SLIP_SPEED,
@@ -164,7 +165,7 @@ test("catalog contains only the 3D challenges", () => {
   assert.equal(MINIGAMES.length, 23);
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["angelduell", "ballonPump", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "schleuderschuss", "seilspringen", "spurmaler", "sumoschubs", "tellerdreher", "trampolin", "turmbau", "zuendstoff"]
+    ["angelduell", "ballonPump", "ballonfahrt", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "seilspringen", "sortierband", "spurmaler", "sumoschubs", "trampolin", "turmbau", "zuendstoff"]
   );
 });
 
@@ -1580,130 +1581,198 @@ test("a forwarded client address is preferred over the proxy address", () => {
 });
 
 
-// --- Schleuderschuss -------------------------------------------------------
+// --- Ballonfahrt -----------------------------------------------------------
 
-function slingRoom() {
-  const shooter = { id: "s1", name: "Schütze", isBot: false };
-  const startedAt = Date.now() - 1000;
-  const arcade = createArcadeState("schleuderschuss", [shooter], startedAt);
-  const minigame = {
-    id: 1, type: "schleuderschuss", startedAt, duration: 28000,
-    arcade, scores: {}, lastInputAt: {}
+function glideRoom(players = [{ id: "g1", name: "Pilot", isBot: false }]) {
+  const startedAt = Date.now();
+  const arcade = createArcadeState("ballonfahrt", players, startedAt);
+  const minigame = { id: 1, type: "ballonfahrt", startedAt, duration: GLIDE_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+
+  // Der Tick deckelt seinen Zeitschritt auf 0.2 s. Ein Sprung von 2 s zaehlte
+  // also nur 0.2 s — darum in Schritten laufen lassen.
+  const STEP = 60;
+  const advance = (ms) => {
+    let left = ms;
+    while (left > 0) {
+      const chunk = Math.min(STEP, left);
+      const now = Date.now();
+      arcade.lastUpdateAt = now - chunk;
+      minigame.startedAt -= chunk;
+      if (entry.stallUntil) entry.stallUntil -= chunk;
+      updateArcade(room);
+      left -= chunk;
+    }
   };
-  const room = { currentMinigame: minigame, players: [shooter] };
-  // Schiesst ohne Rücksicht auf den Eingabe-Cooldown; der wird separat geprüft.
-  const shoot = (power, angle) => {
-    // Der Cooldown liegt am Arcade-Spieler; zurücksetzen, damit hier die
-    // Ballistik geprüft wird und nicht die Ratenbegrenzung.
-    arcade.players[shooter.id].lastInputAt = 0;
-    return handleArcadeInput(room, shooter, { action: "shoot", power, angle });
+  const hold = (down) => {
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "lift", down });
   };
-  return { room, shooter, arcade, shoot };
+  return { room, me, arcade, entry, minigame, advance, hold };
 }
 
-// Die Kraft, die einen Schuss bei gegebenem Winkel genau auf die Distanz bringt.
-function perfectPower(distance, angleDeg) {
-  const angle = (angleDeg * Math.PI) / 180;
-  return Math.sqrt((distance * SLING_GRAVITY) / Math.sin(2 * angle)) / SLING_MAX_SPEED;
-}
-
-test("sling: a perfectly dosed shot is a bullseye", () => {
-  const { shooter, arcade, shoot } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  const power = perfectPower(entry.distance, 45);
-
-  const result = shoot(power, 45);
-  assert.equal(result.ok, true);
-  assert.equal(entry.rings[0], 0, "exact range has to hit the centre ring");
-  assert.equal(entry.bullseyes, 1);
-  assert.equal(entry.score, SLING_RING_SCORES[0]);
+test("glide: holding rises, letting go sinks", () => {
+  const { entry, advance, hold } = glideRoom();
+  const start = entry.y;
+  hold(true);
+  advance(700);
+  assert.ok(entry.y > start, `Halten muss steigen, war ${entry.y}`);
+  const high = entry.y;
+  hold(false);
+  // Deutlich laenger als beim Steigen: der Ballon traegt seinen Schwung noch
+  // ein Stueck weiter, bevor er kippt. Genau das macht ihn spielbar.
+  advance(1600);
+  assert.ok(entry.y < high, `Loslassen muss sinken, war ${entry.y}`);
 });
 
-test("sling: too little power falls short and scores less or nothing", () => {
-  const { shooter, arcade, shoot } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  shoot(0.1, 45);
-  assert.equal(entry.rings[0], null, "a wildly short shot misses the target");
-  assert.equal(entry.score, 0);
+test("glide: the balloon never leaves the shaft", () => {
+  const { entry, advance, hold } = glideRoom();
+  hold(true);
+  advance(6000);
+  assert.ok(entry.y <= 1 && entry.y >= 0, `oben raus: ${entry.y}`);
+  hold(false);
+  advance(6000);
+  assert.ok(entry.y <= 1 && entry.y >= 0, `unten raus: ${entry.y}`);
 });
 
-test("sling: the target retreats after every shot", () => {
-  const { shooter, arcade, shoot } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  assert.equal(entry.distance, SLING_BASE_DISTANCE);
-  shoot(0.5, 45);
-  assert.equal(entry.distance, SLING_BASE_DISTANCE + SLING_DISTANCE_STEP);
-  shoot(0.5, 45);
-  assert.equal(entry.distance, SLING_BASE_DISTANCE + SLING_DISTANCE_STEP * 2);
+test("glide: bumping stalls the balloon for a moment", () => {
+  // Die Strafe fuers Anecken ist kein Abzug, sondern ein Moment, in dem die
+  // Hand nichts bewirkt. Ohne das waere der Boden ein bequemer Parkplatz.
+  const { entry, advance, hold } = glideRoom();
+  hold(false);
+  advance(3000);
+  assert.equal(entry.y, 0, "der Ballon muss auf dem Boden liegen");
+  assert.ok(entry.bumps >= 1, "eine Bodenberuehrung muss zaehlen");
+  hold(true);
+  advance(120);
+  assert.ok(entry.y < 0.02, "waehrend der Stockung darf Halten nichts bringen");
+  advance(GLIDE_STALL_MS + 300);
+  assert.ok(entry.y > 0.05, "danach muss der Ballon wieder steigen");
 });
 
-test("sling: repeating the same shot cannot keep hitting", () => {
-  // Das ist der Kern des Spiels: weil das Ziel zurückweicht, muss jede Kraft
-  // neu dosiert werden. Zweimal derselbe perfekte Wurf darf nicht zweimal
-  // treffen.
-  const { shooter, arcade, shoot } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  const power = perfectPower(SLING_BASE_DISTANCE, 45);
-  shoot(power, 45);
-  shoot(power, 45);
-  assert.equal(entry.rings[0], 0);
-  assert.notEqual(entry.rings[1], 0, "the identical shot must fall short of the moved target");
-});
-
-test("sling: the shot count is capped", () => {
-  const { shooter, arcade, shoot } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  for (let i = 0; i < SLING_SHOTS + 4; i += 1) {
-    shoot(0.6, 45);
-  }
-  assert.equal(entry.shotsUsed, SLING_SHOTS);
-  assert.equal(entry.rings.length, SLING_SHOTS);
-});
-
-test("sling: power and angle are clamped server-side", () => {
-  // Ein manipulierter Client darf keine unmöglichen Werte durchdrücken.
-  const { shooter, arcade, shoot } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  shoot(999, 8000);
-  const shot = entry.lastShot;
-  assert.ok(shot.power <= 1 && shot.power >= 0, `power ${shot.power} out of range`);
-  assert.ok(shot.angleDeg >= 5 && shot.angleDeg <= 85, `angle ${shot.angleDeg} out of range`);
-  assert.ok(Number.isFinite(shot.range), "the range must stay a real number");
-});
-
-test("sling: garbage input does not corrupt the state", () => {
-  const { shooter, arcade, shoot } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  shoot("viel", null);
-  assert.ok(Number.isFinite(entry.score), "score stays a number");
-  assert.ok(Number.isFinite(entry.distance), "distance stays a number");
-});
-
-test("sling: wrong action is refused", () => {
-  const { room, shooter } = slingRoom();
-  const result = handleArcadeInput(room, shooter, { action: "drop" });
-  assert.equal(result.ok, false);
-});
-
-test("sling: closer rings are worth more", () => {
-  for (let i = 1; i < SLING_RING_SCORES.length; i += 1) {
-    assert.ok(SLING_RING_SCORES[i] < SLING_RING_SCORES[i - 1], "outer rings must score less");
-    assert.ok(SLING_RING_RADII[i] > SLING_RING_RADII[i - 1], "outer rings must be wider");
+test("glide: every gate is reachable from the one before", () => {
+  // Ein Tor, das aus der vorherigen Hoehe in der Zeit nicht erreichbar ist,
+  // waere nicht schwer, sondern unfair. Aus der Physik gerechnet: mit
+  // GLIDE_VY_MAX schafft man in einem Torabstand hoechstens diese Strecke, und
+  // Beschleunigen wie Abbremsen kosten davon.
+  const reach = (GLIDE_VY_MAX * GLIDE_GATE_EVERY_MS) / 1000;
+  for (let seed = 0; seed < 30; seed += 1) {
+    const gates = buildGlideGates(seed * 61 + 7, GLIDE_DURATION_MS);
+    for (let i = 1; i < gates.length; i += 1) {
+      const step = Math.abs(gates[i].y - gates[i - 1].y);
+      assert.ok(step <= GLIDE_GATE_MAX_STEP + 1e-9, `Startwert ${seed}, Tor ${i}: Sprung ${step}`);
+      assert.ok(step < reach, `Tor ${i} liegt ausserhalb der Reichweite (${step} > ${reach})`);
+    }
   }
 });
 
-test("sling: rapid fire is blocked by the input cooldown", () => {
-  // Ohne Cooldown könnte man alle Schüsse in einem Frame abfeuern und die
-  // Zieldosierung völlig umgehen. Hier absichtlich OHNE den shoot-Helfer, der
-  // den Cooldown zurücksetzt.
-  const { room, shooter, arcade } = slingRoom();
-  const entry = arcade.players[shooter.id];
-  for (let i = 0; i < 6; i += 1) {
-    handleArcadeInput(room, shooter, { action: "shoot", power: 0.6, angle: 45 });
+test("glide: no gate sits half outside the shaft", () => {
+  for (let seed = 0; seed < 30; seed += 1) {
+    const gates = buildGlideGates(seed * 61 + 7, GLIDE_DURATION_MS);
+    gates.forEach((gate) => {
+      assert.ok(gate.y - gate.gap / 2 >= 0, `Tor ${gate.index} ragt unten raus`);
+      assert.ok(gate.y + gate.gap / 2 <= 1, `Tor ${gate.index} ragt oben raus`);
+    });
   }
-  assert.equal(entry.shotsUsed, 1, "only the first shot of a burst may count");
 });
 
+test("glide: every gate demands a move, and the course gets tighter", () => {
+  const gates = buildGlideGates(467, GLIDE_DURATION_MS);
+  assert.ok(gates.length >= 15, `zu wenige Tore: ${gates.length}`);
+  for (let i = 1; i < gates.length; i += 1) {
+    const step = Math.abs(gates[i].y - gates[i - 1].y);
+    assert.ok(step >= gates[i].gap * 0.4, `Tor ${i} steht praktisch still (${step})`);
+  }
+  assert.ok(gates[gates.length - 1].gap < gates[0].gap, "die Tore muessen enger werden");
+  assert.ok(gates[gates.length - 1].at < GLIDE_DURATION_MS, "kein Tor nach dem Abpfiff");
+});
+
+test("glide: the course is the same for everyone and deterministic", () => {
+  const a = buildGlideGates(99, GLIDE_DURATION_MS);
+  const b = buildGlideGates(99, GLIDE_DURATION_MS);
+  assert.deepEqual(a, b);
+  const room = glideRoom([
+    { id: "g1", name: "A", isBot: false },
+    { id: "g2", name: "B", isBot: false }
+  ]);
+  assert.ok(room.arcade.gates.length > 0);
+});
+
+test("glide: passing a gate scores, missing it does not", () => {
+  const { arcade, entry, advance } = glideRoom();
+  const gate = arcade.gates[0];
+  entry.y = gate.y;
+  entry.vy = 0;
+  entry.holding = false;
+  // Genau bis kurz hinter das erste Tor laufen lassen und die Hoehe halten.
+  const keep = () => { entry.y = gate.y; entry.vy = 0; };
+  for (let t = 0; t < gate.at + 200; t += 60) { keep(); advance(60); }
+  assert.equal(entry.gatesPassed, 1);
+  assert.ok(entry.score >= GLIDE_GATE_POINTS, `Punkte: ${entry.score}`);
+  assert.equal(entry.gatesMissed, 0);
+
+  const missed = glideRoom();
+  const other = missed.arcade.gates[0];
+  const away = other.y > 0.5 ? 0 : 1;
+  for (let t = 0; t < other.at + 200; t += 60) {
+    missed.entry.y = away;
+    missed.entry.vy = 0;
+    missed.advance(60);
+  }
+  assert.equal(missed.entry.gatesPassed, 0);
+  assert.equal(missed.entry.gatesMissed, 1);
+  assert.equal(missed.entry.score, 0);
+});
+
+test("glide: the centre of a gate is worth more than its edge", () => {
+  // Sonst waere jeder Durchflug gleich viel wert und die Runde endete
+  // reihenweise unentschieden.
+  const run = (offsetShare) => {
+    const room = glideRoom();
+    const gate = room.arcade.gates[0];
+    const y = Math.min(1, Math.max(0, gate.y + (gate.gap / 2) * offsetShare));
+    for (let t = 0; t < gate.at + 200; t += 60) {
+      room.entry.y = y;
+      room.entry.vy = 0;
+      room.advance(60);
+    }
+    return room.entry.score;
+  };
+  assert.ok(run(0) > run(0.9), `Mitte ${run(0)} muss mehr sein als Rand ${run(0.9)}`);
+  // Nicht auf den Punkt genau: der Ballon faellt waehrend des Ticks um ein
+  // Tausendstel, bevor das Tor abgerechnet wird. Geprueft wird die Regel, nicht
+  // die Rundung.
+  assert.ok(run(0) >= GLIDE_GATE_POINTS + GLIDE_CENTRE_BONUS - 3, `Mitte gab nur ${run(0)}`);
+});
+
+test("glide: gates settle once, not once per tick", () => {
+  // Derselbe Fehler wie anderswo schon mehrfach: was pro Tick geprueft wird,
+  // haengt an der Tickrate. Ein Tor darf nur EINMAL zaehlen.
+  const coarse = glideRoom();
+  const fine = glideRoom();
+  const gate = coarse.arcade.gates[0];
+  for (let t = 0; t < gate.at + 400; t += 200) { coarse.entry.y = gate.y; coarse.entry.vy = 0; coarse.advance(200); }
+  for (let t = 0; t < gate.at + 400; t += 30) { fine.entry.y = gate.y; fine.entry.vy = 0; fine.advance(30); }
+  assert.equal(coarse.entry.gatesPassed, 1);
+  assert.equal(fine.entry.gatesPassed, 1);
+  assert.equal(coarse.entry.nextGate, fine.entry.nextGate, "beide muessen genau ein Tor abgerechnet haben");
+});
+
+test("glide: the result reports one number and it is the one that ranks", () => {
+  const { arcade, entry } = glideRoom();
+  entry.score = 640;
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "points");
+  assert.equal(detail.value, 640);
+  assert.equal(arcadeRankingScore(arcade, entry), 640);
+});
+
+test("glide: wrong action is refused", () => {
+  const { room, me } = glideRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "shoot" }).ok, false);
+});
 
 // --- Sumo-Schubs -----------------------------------------------------------
 
@@ -2566,198 +2635,216 @@ test("trace: wrong action is refused", () => {
   assert.equal(result.ok, false);
 });
 
-// --- Tellerdreher ----------------------------------------------------------
+// --- Sortierband -----------------------------------------------------------
 
-function plateRoom() {
-  const players = [{ id: "p1", name: "Dreher", isBot: false }];
+function beltRoom(players = [{ id: "p1", name: "Sortierer", isBot: false }]) {
   const startedAt = Date.now();
-  const arcade = createArcadeState("tellerdreher", players, startedAt);
-  const minigame = { id: 1, type: "tellerdreher", startedAt, duration: PLATE_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const arcade = createArcadeState("sortierband", players, startedAt);
+  const minigame = { id: 1, type: "sortierband", startedAt, duration: BELT_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
   const room = { currentMinigame: minigame, players };
   const me = players[0];
   const entry = arcade.players[me.id];
 
-  // Lässt `ms` Spielzeit verstreichen, ohne echte Zeit zu verbrennen. Zwei
-  // Dinge müssen dabei stimmen, sonst prüft der Test etwas anderes als das Spiel:
-  //  * Der Tick begrenzt seinen Zeitschritt auf 0.2 s (Schutz gegen einen
-  //    Aussetzer). Ein Sprung von 2 s zählte also nur 0.2 s — in Schritten
-  //    laufen lassen, nicht in einem Satz.
-  //  * Rückkehr eines Tellers und Tellersperre hängen an der ECHTEN Uhr. Deren
-  //    Zeitstempel müssen mitwandern, sonst kommt ein gefallener Teller nie
-  //    zurück, obwohl er das im Spiel nach 1.8 s täte.
-  const STEP = 120;
-  const advance = (ms, atElapsed = null) => {
+  // Der Tick deckelt seinen Zeitschritt auf 0.2 s (Schutz gegen einen
+  // Aussetzer). Ein Sprung von 2 s zaehlte also nur 0.2 s — darum in Schritten.
+  const STEP = 100;
+  const advance = (ms) => {
     let left = ms;
     while (left > 0) {
       const chunk = Math.min(STEP, left);
       const now = Date.now();
       arcade.lastUpdateAt = now - chunk;
-      if (atElapsed !== null) minigame.startedAt = now - atElapsed;
-      else minigame.startedAt -= chunk;
-      entry.plates.forEach((plate) => {
-        if (plate.fallenAt) plate.fallenAt -= chunk;
-        if (plate.lastTouchAt) plate.lastTouchAt -= chunk;
-      });
+      minigame.startedAt -= chunk;
       updateArcade(room);
       left -= chunk;
     }
   };
-  const touch = (index) => {
+  const sort = (chute) => {
     entry.lastInputAt = 0;
-    const plate = entry.plates[index];
-    if (plate) plate.lastTouchAt = 0;
-    return handleArcadeInput(room, me, { action: "spin", plate: index });
+    return handleArcadeInput(room, me, { action: "sort", chute });
   };
-  return { room, me, arcade, entry, minigame, advance, touch };
+  // Die Rutsche, in die das vorderste Paket gehoert.
+  const rightChute = () => arcade.chutes.indexOf(entry.queue[0].colour);
+  return { room, me, arcade, entry, minigame, advance, sort, rightChute };
 }
 
-test("plates: the plates arrive one at a time so attention has to split", () => {
-  assert.equal(plateCountAt(0), PLATE_START);
-  assert.equal(plateCountAt(PLATE_ADD_MS - 1), PLATE_START);
-  assert.equal(plateCountAt(PLATE_ADD_MS), PLATE_START + 1);
-  assert.equal(plateCountAt(PLATE_ADD_MS * 20), PLATE_MAX, "and never past the cap");
-  assert.ok(PLATE_MAX > PLATE_START);
+test("belt: every parcel colour always has a chute", () => {
+  // Mehr Farben als Rutschen hiesse: manche Pakete sind nicht sortierbar. Das
+  // waere kein Koennen mehr, sondern Pech.
+  assert.equal(BELT_COLOURS, BELT_CHUTES);
+  const plan = buildBeltChutePlan(1234, BELT_DURATION_MS);
+  plan.forEach((step) => {
+    for (let colour = 0; colour < BELT_COLOURS; colour += 1) {
+      assert.ok(step.chutes.includes(colour), `Farbe ${colour} fehlt bei ${step.at} ms`);
+    }
+  });
 });
 
-test("plates: they run down faster towards the end of the round", () => {
-  assert.equal(plateDecayAt(0), PLATE_DECAY_START);
-  assert.equal(plateDecayAt(PLATE_DURATION_MS), PLATE_DECAY_END);
-  assert.ok(plateDecayAt(PLATE_DURATION_MS / 2) > plateDecayAt(0));
-  assert.ok(PLATE_DECAY_END > PLATE_DECAY_START);
-});
-
-test("plates: spinning down costs, a touch gives it back", () => {
-  const { entry, advance, touch } = plateRoom();
-  advance(1000);
-  const worn = entry.plates[0].spin;
-  assert.ok(worn < 1, "a plate has to lose spin over time");
-  touch(0);
-  assert.ok(entry.plates[0].spin > worn, "a touch has to restore spin");
-  assert.ok(entry.plates[0].spin <= 1, "and never beyond full");
-});
-
-test("plates: the hand is the limit, not the tapping speed", () => {
-  const { entry, touch } = plateRoom();
-  entry.plates.forEach((plate) => { plate.active = true; plate.spin = 0.2; });
-  entry.hand = PLATE_HAND_MAX;
-  // Ohne Pause auf alles tippen: nach dem Verbrauch des Vorrats muss Schluss sein.
-  let landed = 0;
-  for (let round = 0; round < 4; round += 1) {
-    for (let index = 0; index < PLATE_MAX; index += 1) {
-      const before = entry.plates[index].spin;
-      touch(index);
-      if (entry.plates[index].spin > before + 1e-9) landed += 1;
+test("belt: every swap moves at least two chutes", () => {
+  // Ein Tausch, bei dem sich nur eine Rutsche aendert, ist gar keiner: bei drei
+  // Rutschen muessen mindestens zwei die Plaetze tauschen. Ein unsichtbarer
+  // Tausch waere schlimmer als keiner — man wuerde ihn nur am Fehlgriff merken.
+  for (let seed = 0; seed < 40; seed += 1) {
+    const plan = buildBeltChutePlan(seed * 37 + 3, BELT_DURATION_MS);
+    for (let i = 1; i < plan.length; i += 1) {
+      const changed = plan[i].chutes.filter((colour, index) => colour !== plan[i - 1].chutes[index]).length;
+      assert.ok(changed >= 2, `Startwert ${seed}, Schritt ${i}: nur ${changed} Rutschen bewegt`);
     }
   }
-  const affordable = Math.floor(PLATE_HAND_MAX / PLATE_SPIN_GAIN);
-  assert.equal(landed, affordable, `mashing landed ${landed} grabs, the hand allows ${affordable}`);
-  assert.ok(entry.wasted > 0, "the grabs into an empty hand have to be recorded");
 });
 
-test("plates: the hand refills over time but cannot be hoarded", () => {
-  const { entry, advance } = plateRoom();
-  entry.hand = 0;
+test("belt: the plan covers the whole round and is deterministic", () => {
+  const a = buildBeltChutePlan(77, BELT_DURATION_MS);
+  const b = buildBeltChutePlan(77, BELT_DURATION_MS);
+  assert.deepEqual(a, b, "gleicher Startwert muss denselben Ablauf ergeben");
+  assert.ok(a.length >= 2, "in einer Runde muss mindestens einmal getauscht werden");
+  assert.ok(a[a.length - 1].at < BELT_DURATION_MS, "kein Tausch nach dem Abpfiff");
+  assert.equal(a[0].at, 0);
+});
+
+test("belt: the belt runs faster towards the end", () => {
+  assert.equal(beltSpeed(0, BELT_DURATION_MS), BELT_SPEED_START);
+  assert.ok(Math.abs(beltSpeed(BELT_DURATION_MS, BELT_DURATION_MS) - BELT_SPEED_END) < 1e-9);
+  assert.ok(beltSpeed(BELT_DURATION_MS / 2, BELT_DURATION_MS) > beltSpeed(0, BELT_DURATION_MS));
+  assert.ok(BELT_SPEED_END > BELT_SPEED_START);
+});
+
+test("belt: a parcel out of reach cannot be sorted", () => {
+  // Sonst koennte man blind vorsortieren, ohne je hinzuschauen.
+  const { entry, sort } = beltRoom();
+  entry.beltPos = 0;
+  const before = entry.sorted;
+  sort(0);
+  assert.equal(entry.sorted, before, "vor der Greifkante darf nichts passieren");
+  assert.equal(entry.wrong, 0, "und es darf auch nichts kosten");
+});
+
+test("belt: the right chute scores, the wrong one costs", () => {
+  const { entry, sort, rightChute } = beltRoom();
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  const wanted = rightChute();
+  sort(wanted);
+  assert.equal(entry.sorted, 1);
+  assert.equal(entry.score, BELT_POINTS + BELT_STREAK_BONUS, "erstes Paket: Punkte plus eine Serie");
+
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  const wrong = (rightChute() + 1) % BELT_CHUTES;
+  const before = entry.score;
+  sort(wrong);
+  assert.equal(entry.wrong, 1);
+  assert.equal(entry.score, before - BELT_WRONG_COST);
+  assert.equal(entry.streak, 0, "ein Fehlgriff reisst die Serie ab");
+});
+
+test("belt: the streak bonus is capped", () => {
+  const { entry, sort, rightChute } = beltRoom();
+  let last = 0;
+  for (let i = 0; i < BELT_STREAK_MAX + 6; i += 1) {
+    entry.beltPos = BELT_REACH_AT + 0.1;
+    const before = entry.score;
+    sort(rightChute());
+    last = entry.score - before;
+  }
+  assert.equal(last, BELT_POINTS + BELT_STREAK_MAX * BELT_STREAK_BONUS, "der Bonus muss gedeckelt sein");
+  assert.equal(entry.bestStreak, BELT_STREAK_MAX + 6);
+});
+
+test("belt: letting a parcel through costs and resets the streak", () => {
+  const { entry, advance, sort, rightChute } = beltRoom();
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  sort(rightChute());
+  const scored = entry.score;
+  assert.equal(entry.streak, 1);
+
+  entry.beltPos = 0.999;
   advance(200);
-  assert.ok(entry.hand > 0, "the hand has to refill");
-  const afterShort = entry.hand;
-  advance(3000);
-  assert.ok(entry.hand > afterShort);
-  assert.ok(entry.hand <= PLATE_HAND_MAX + 1e-9, `hand banked up to ${entry.hand}`);
+  assert.equal(entry.missed, 1, "ein durchgelaufenes Paket muss zaehlen");
+  assert.equal(entry.streak, 0);
+  assert.equal(entry.score, scored - BELT_MISS_COST);
 });
 
-test("plates: touching an almost full plate wastes the hand", () => {
-  // Das ist der Kern: nur zu zahlen, was ankommt, würde blindes Dauertippen
-  // zur besten Strategie machen. Der Griff kostet immer voll.
-  const { entry, touch } = plateRoom();
-  entry.hand = PLATE_HAND_MAX;
-  entry.plates[0].spin = 1;
-  const handBefore = entry.hand;
-  touch(0);
-  assert.ok(entry.hand < handBefore - PLATE_SPIN_GAIN + 1e-9, "a full plate still costs the full grab");
-  assert.equal(entry.plates[0].spin, 1);
-  assert.ok(entry.wasted > 0, "and counts as wasted");
+test("belt: sorting early buys real time, missing does not cascade", () => {
+  // Die Pakete stehen in festem Abstand, also ruecken sie beim Sortieren um
+  // genau diesen Abstand vor: wer frueh greift, hat beim naechsten mehr Band.
+  const early = beltRoom();
+  early.entry.beltPos = BELT_REACH_AT + 0.02;
+  early.sort(early.rightChute());
+  const late = beltRoom();
+  late.entry.beltPos = 0.95;
+  late.sort(late.rightChute());
+  assert.ok(early.entry.beltPos < late.entry.beltPos, "wer frueher greift, startet weiter hinten");
+  assert.ok(late.entry.beltPos < 1, "und auch spaet greifen darf nicht sofort durchrutschen");
+
+  // Ein durchgerutschtes Paket darf den naechsten Fehler nicht erzwingen —
+  // sonst reisst ein Aussetzer die halbe Runde mit.
+  const slipped = beltRoom();
+  slipped.entry.beltPos = 0.999;
+  slipped.advance(200);
+  assert.equal(slipped.entry.missed, 1);
+  assert.ok(slipped.entry.beltPos < 0.1, `nach einem Durchrutscher faengt das Band von vorne an, war ${slipped.entry.beltPos}`);
 });
 
-test("plates: a plate that stops falls, costs points and comes back", () => {
-  const { entry, advance } = plateRoom();
-  entry.plates[0].spin = 0.01;
-  advance(400);
-  assert.equal(entry.plates[0].active, false, "an empty plate has to fall");
-  assert.equal(entry.drops, 1);
-  assert.ok(entry.plates[0].fallenAt > 0);
-
-  // Niemand ist ausgeschieden: der Teller kommt zurück.
-  advance(PLATE_RESPAWN_MS + 100);
-  assert.equal(entry.plates[0].active, true, "the plate has to return");
-  assert.ok(entry.plates[0].spin > 0);
+test("belt: the queue always looks the same distance ahead", () => {
+  const { entry, sort, rightChute } = beltRoom();
+  assert.equal(entry.queue.length, BELT_QUEUE);
+  for (let i = 0; i < 12; i += 1) {
+    entry.beltPos = BELT_REACH_AT + 0.1;
+    sort(rightChute());
+    assert.equal(entry.queue.length, BELT_QUEUE, "die Vorschau darf nie kuerzer werden");
+    assert.ok(entry.queue.every((parcel) => parcel.colour >= 0 && parcel.colour < BELT_COLOURS));
+  }
 });
 
-test("plates: the score counts plate-seconds and subtracts drops", () => {
-  assert.equal(plateScore({ upTime: 10, drops: 0 }), 10 * PLATE_POINTS_PER_SECOND);
-  assert.equal(plateScore({ upTime: 10, drops: 2 }), 10 * PLATE_POINTS_PER_SECOND - 2 * PLATE_DROP_COST);
-  // Fünf Teller oben müssen fünfmal so viel wert sein wie einer — sonst lohnt
-  // es sich, einen zu pflegen und die anderen fallen zu lassen.
-  const many = plateRoom();
-  many.entry.plates.forEach((plate) => { plate.active = true; plate.spin = 1; });
-  many.advance(1000);
-  const few = plateRoom();
-  few.entry.plates.forEach((plate, index) => { plate.active = index === 0; plate.spin = 1; });
-  few.entry.plateCount = 1;
-  few.advance(1000);
-  assert.ok(many.entry.upTime > few.entry.upTime * 3, `${many.entry.upTime} vs ${few.entry.upTime}`);
+test("belt: two players get different parcel orders from the same round", () => {
+  // Gleiche Schwierigkeit, aber man kann nicht beim Nachbarn ablesen.
+  const { arcade } = beltRoom([
+    { id: "p1", name: "A", isBot: false },
+    { id: "p2", name: "B", isBot: false }
+  ]);
+  const a = arcade.players.p1.queue.map((parcel) => parcel.colour);
+  const b = arcade.players.p2.queue.map((parcel) => parcel.colour);
+  assert.notDeepEqual(a, b);
 });
 
-test("plates: the same plate cannot be hammered", () => {
-  const { entry, room, me } = plateRoom();
-  entry.hand = PLATE_HAND_MAX;
-  entry.plates[0].spin = 0.1;
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, me, { action: "spin", plate: 0 });
-  const after = entry.plates[0].spin;
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, me, { action: "spin", plate: 0 });
-  assert.equal(entry.plates[0].spin, after, "a second grab inside the touch window must not count");
-  assert.ok(PLATE_TOUCH_MS > 0);
+test("belt: the swap plan advances with the clock, not with the tick rate", () => {
+  // Derselbe Fehler wie anderswo schon mehrfach: was pro Tick entschieden wird,
+  // haengt an der Tickrate. Der Farbplan darf das nicht.
+  const coarse = beltRoom();
+  coarse.advance(BELT_SWAP_FIRST_MS + 500);
+  const fine = beltRoom();
+  for (let i = 0; i < (BELT_SWAP_FIRST_MS + 500) / 100; i += 1) fine.advance(100);
+  assert.deepEqual(coarse.arcade.chutes, fine.arcade.chutes);
+  assert.equal(coarse.arcade.swapIndex, 1, "nach der ersten Frist muss genau einmal getauscht sein");
 });
 
-test("plates: keeping every plate up beats nursing one", () => {
-  // Spielt zwei Strategien über die halbe Runde gegeneinander: immer den
-  // schwächsten Teller versorgen gegen immer denselben.
-  const play = (pick) => {
-    const room = plateRoom();
-    room.entry.plates.forEach((plate, index) => { plate.active = index < PLATE_START; });
-    for (let step = 0; step < 120; step += 1) {
-      const elapsed = step * 140;
-      room.advance(140, elapsed);
-      const active = room.entry.plates.filter((plate) => plate.active);
-      if (active.length === 0) continue;
-      const target = pick(active);
-      room.entry.lastInputAt = 0;
-      target.lastTouchAt = 0;
-      handleArcadeInput(room.room, room.me, { action: "spin", plate: target.index });
-    }
-    return room.entry;
-  };
-  const spread = play((active) => active.reduce((worst, plate) => (plate.spin < worst.spin ? plate : worst), active[0]));
-  const nursed = play((active) => active[0]);
-  assert.ok(spread.drops < nursed.drops, `spread dropped ${spread.drops}, nursing dropped ${nursed.drops}`);
-  assert.ok(plateScore(spread) > plateScore(nursed), `${plateScore(spread)} vs ${plateScore(nursed)}`);
+test("belt: the swap is announced before it happens", () => {
+  const { arcade, advance } = beltRoom();
+  advance(BELT_SWAP_FIRST_MS - BELT_SWAP_WARN_MS - 800);
+  assert.equal(arcade.nextChutes, null, "zu frueh gewarnt waere nur Rauschen");
+  advance(1000);
+  assert.ok(Array.isArray(arcade.nextChutes), "kurz davor muss die naechste Anordnung sichtbar sein");
+  assert.notDeepEqual(arcade.nextChutes, arcade.chutes);
 });
 
-test("plates: the result reports points, plate-seconds and drops", () => {
-  const { arcade, entry, advance } = plateRoom();
-  advance(2000);
+test("belt: the result reports one number and it is the one that ranks", () => {
+  const { arcade, entry, sort, rightChute } = beltRoom();
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  sort(rightChute());
   const detail = arcadeResultDetail(arcade, entry);
-  assert.equal(detail.kind, "plateTime");
-  assert.ok(detail.seconds >= 1);
-  assert.equal(detail.mistakes, entry.drops);
+  assert.equal(detail.kind, "points");
+  assert.equal(detail.value, Math.round(entry.score));
+  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
 });
 
-test("plates: unknown plate and wrong action are refused", () => {
-  const { room, me } = plateRoom();
-  assert.equal(handleArcadeInput(room, me, { action: "jump" }).ok, false);
-  assert.equal(handleArcadeInput(room, me, { action: "spin", plate: 99 }).ok, false);
-  assert.equal(handleArcadeInput(room, me, { action: "spin", plate: "x" }).ok, false);
+test("belt: unknown chute and wrong action are refused", () => {
+  // lastInputAt jedes Mal zuruecksetzen: sonst verschluckt der Cooldown die
+  // zweite Eingabe und der Test prueft nur noch die erste.
+  const { room, me, entry } = beltRoom();
+  const send = (input) => { entry.lastInputAt = 0; return handleArcadeInput(room, me, input); };
+  assert.equal(send({ action: "jump" }).ok, false);
+  assert.equal(send({ action: "sort", chute: 9 }).ok, false);
+  assert.equal(send({ action: "sort", chute: -1 }).ok, false);
+  assert.equal(send({ action: "sort", chute: "x" }).ok, false);
 });
 
 // --- Angelduell ------------------------------------------------------------

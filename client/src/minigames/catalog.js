@@ -12,7 +12,7 @@ export const GESTURES = {
   rhythm: { icon: "👆🎵", label: "Im Takt tippen" },
   react: { icon: "👆⚡", label: "Blitzschnell tippen" },
   trace: { icon: "👆〰️", label: "Finger auf der Spur führen" },
-  plates: { icon: "👆🌀", label: "Teller antippen" },
+  belt: { icon: "👆↔️", label: "Ins Fach wischen" },
   fish: { icon: "👆🎣", label: "Halten und im Schub loslassen" }
 };
 
@@ -32,12 +32,12 @@ export const MINIGAME_CATALOG = [
   { type: "messerwurf", title: "Messerwurf", family: "knife", gesture: "tap", help: "Drei Runden, je ein Wurf in den drehenden Baumstamm. Je enger die Lücke, desto mehr zählt der Treffer – aber zweimal auf ein fremdes Messer und du bist raus!" },
   { type: "turmbau", title: "Turmbau", family: "stack", gesture: "tap", help: "Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!" },
   { type: "bergsteiger", title: "Bergsteiger", family: "climb", gesture: "taps", help: "Tippe abwechselnd links und rechts, um die Wand hochzuklettern. Wer zuerst oben ist, gewinnt!" },
-  { type: "schleuderschuss", title: "Schleuderschuss", family: "sling", gesture: "pull", help: "Zieh die Schleuder zurück und lass los. Länge = Kraft, Richtung = Winkel — und die Scheibe weicht nach jedem Schuss zurück!" },
+  { type: "ballonfahrt", title: "Ballonfahrt", family: "glide", gesture: "hold", help: "Halte den Finger auf dem Bild, dann steigt dein Ballon — loslassen lässt ihn sinken. Flieg durch die Tore, mittig durch bringt mehr, und Boden oder Decke schalten den Brenner kurz ab." },
   { type: "sumoschubs", title: "Sumo-Schubs", family: "sumo", gesture: "charge", help: "Halten lädt deinen Stoss auf, loslassen schubst den Stein weg. Am meisten Wucht hat ein Konter: warte, bis der Stein auf dich zurollt. Aber lade nicht zu lange — dann rutschst du aus!" },
   { type: "trampolin", title: "Trampolin", family: "bounce", gesture: "rhythm", help: "Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller!" },
   { type: "falschsignal", title: "Falschsignal", family: "feint", gesture: "react", help: "Nur der runde grüne Kreis, der BLEIBT, ist echt. Falsche Farbe, falsche Form und kurzes Aufblitzen kosten Punkte — schnell tippen bringt mehr, zu schnell bringt Minus." },
   { type: "spurmaler", title: "Spurmaler", family: "trace", gesture: "trace", help: "Zieh den Finger auf der Spur nach oben und mal sie aus. Verlässt du das Band, reisst der Strich ab — jede geschaffte Runde bringt eine neue Kurve." },
-  { type: "tellerdreher", title: "Tellerdreher", family: "plates", gesture: "plates", help: "Tippe den Teller an, der am langsamsten dreht. Du hast nur EINE Hand: jeder Griff kostet Vorrat, und ein voller Teller verschluckt ihn. Immer mehr Teller kommen dazu." },
+  { type: "sortierband", title: "Sortierband", family: "belt", gesture: "belt", help: "Wisch jedes Paket in die Rutsche mit seiner Farbe — links, unten oder rechts. Die Rutschen tauschen zwischendurch die Farben, also nicht auswendig lernen, sondern hinschauen. Eine Serie ohne Fehler bringt Zusatzpunkte." },
   { type: "angelduell", title: "Angelduell", family: "fish", gesture: "fish", help: "Halten holt den Fisch ein und spannt die Schnur. Wenn er zieht, steigt die Spannung viermal so schnell — dann loslassen, sonst reisst sie. Wer sie ausreizt, ist schneller." },
   { type: "farbenjagd", title: "Farbenjagd", family: "paint", gesture: "joystick", help: "Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal." }
 ];

@@ -101,7 +101,8 @@ const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 // endet das Spiel mitten in einem Signal oder läuft am Ende leer weiter. Steht
 // darum hier oben, wo der Katalog die Länge schon braucht.
 const FEINT_DURATION_MS = 32000;
-const PLATE_DURATION_MS = 34000;
+const BELT_DURATION_MS = 34000;
+const GLIDE_DURATION_MS = 34000;
 const FISH_DURATION_MS = 34000;
 const PAINT_DURATION_MS = 32000;
 
@@ -122,12 +123,12 @@ const MINIGAMES = [
   { type: "messerwurf", title: "Messerwurf", duration: 60000, arcadeFamily: "knife" },
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
-  { type: "schleuderschuss", title: "Schleuderschuss", duration: 28000, arcadeFamily: "sling" },
+  { type: "ballonfahrt", title: "Ballonfahrt", duration: GLIDE_DURATION_MS, arcadeFamily: "glide" },
   { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" },
   { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" },
   { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
   { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" },
-  { type: "tellerdreher", title: "Tellerdreher", duration: PLATE_DURATION_MS, arcadeFamily: "plates" },
+  { type: "sortierband", title: "Sortierband", duration: BELT_DURATION_MS, arcadeFamily: "belt" },
   { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" },
   { type: "farbenjagd", title: "Farbenjagd", duration: PAINT_DURATION_MS, arcadeFamily: "paint" }
 ];
@@ -147,30 +148,39 @@ const ARCADE_CONFIGS = {
   messerwurf: { family: "knife", seed: 457 },
   turmbau: { family: "stack", seed: 461 },
   bergsteiger: { family: "climb", seed: 463 },
-  schleuderschuss: { family: "sling", seed: 467 },
+  ballonfahrt: { family: "glide", seed: 467 },
   sumoschubs: { family: "sumo", seed: 479 },
   trampolin: { family: "bounce", seed: 487 },
   falschsignal: { family: "feint", seed: 491 },
   spurmaler: { family: "trace", seed: 499 },
-  tellerdreher: { family: "plates", seed: 503 },
+  sortierband: { family: "belt", seed: 503 },
   angelduell: { family: "fish", seed: 509 },
   farbenjagd: { family: "paint", seed: 521 }
 };
 
-// Schleuderschuss: Zurückziehen lädt Kraft, Winkel bestimmt die Flugbahn.
-// Ringe zählen nach Nähe zur Mitte; jeder Schuss zieht das Ziel weiter weg,
-// damit spätere Treffer mehr wert sind und Kraftdosierung wirklich zählt.
-const SLING_SHOTS = 5;
-const SLING_RING_SCORES = [100, 60, 30, 10];   // Bulls-eye nach außen
-// Toleranzen in Metern Abweichung von der Zieldistanz. Bewusst grosszügig:
-// mit Daumensteuerung sind 1 % Kraftunterschied ~1,6 px — enge Ringe (erster
-// Versuch: 0,12 m) machten das Spiel zu reinem Raten. Zusammen mit der
-// Landevorschau im Client bleibt es trotzdem Können statt Zufall.
-const SLING_RING_RADII = [0.35, 0.85, 1.6, 2.6];
-const SLING_BASE_DISTANCE = 9;
-const SLING_DISTANCE_STEP = 1.6;
-const SLING_GRAVITY = 9.81;
-const SLING_MAX_SPEED = 15;
+// Ballonfahrt — halten steigt, loslassen sinkt, und der Kurs kommt in Toren
+// auf einen zu. Ersetzt den Schleuderschuss.
+//
+// Der Schleuderschuss hatte einen Grundfehler, den man nicht wegtunen kann:
+// zwischen Zug und Einschlag passiert NICHTS. Man stellt zwei Zahlen ein und
+// schaut dann zu. Hier hängt jede Millisekunde an der Hand, alle vier fliegen
+// gleichzeitig durch denselben Kurs, und man sieht die ganze Zeit, wer vorn
+// liegt.
+const GLIDE_GRAVITY = 0.95;            // Höhenanteile pro Sekunde²
+const GLIDE_LIFT = 1.9;                // beim Halten, also netto +0.95 nach oben
+const GLIDE_VY_MAX = 0.72;             // Höhenanteile pro Sekunde
+const GLIDE_GATE_FIRST_MS = 2600;      // das erste Tor kommt mit Vorlauf
+const GLIDE_GATE_EVERY_MS = 1500;
+const GLIDE_GATE_GAP_START = 0.30;     // lichte Weite als Höhenanteil
+const GLIDE_GATE_GAP_END = 0.15;
+// Wieviel ein Tor gegenüber dem vorherigen springen darf. Aus der Physik
+// gerechnet und nicht geraten: mit GLIDE_VY_MAX schafft man in 1500 ms rund
+// 1.08 Höhenanteile, aber Beschleunigen und Abbremsen kosten davon gut die
+// Hälfte. Grössere Sprünge wären nicht schwer, sondern unmöglich.
+const GLIDE_GATE_MAX_STEP = 0.52;
+const GLIDE_GATE_POINTS = 100;
+const GLIDE_CENTRE_BONUS = 50;         // volle Zugabe für die Tormitte
+const GLIDE_STALL_MS = 420;            // nach Boden- oder Deckenberührung
 
 // Sumo-Schubs: alle laden gleichzeitig auf und stossen den Stein von sich weg.
 // Wer zu lange lädt, rutscht aus und stösst gar nicht — das ist der Reiz, nicht
@@ -264,36 +274,28 @@ const TRACE_SLIP_COST = 25;            // Abzug je Abrutscher
 const TRACE_CLEAN_BONUS = 40;          // Zugabe für eine Runde ohne Abrutscher
 const TRACE_MAX_LAPS = 40;             // Sicherheitsnetz gegen endlose Runden
 
-// Tellerdreher: mehrere Teller drehen sich langsam aus. Ein Antippen gibt einem
-// Teller Schwung zurück — aber man hat nur EINE Hand.
-//
-// Diese Hand ist der Kern des Spiels und der Grund, warum Dauertippen nichts
-// bringt: jedes Antippen kostet aus einem Vorrat, der sich mit fester Rate
-// füllt, und ein fast voller Teller verschluckt den Rest. Wer wild auf alles
-// tippt, verschwendet die Hand an Teller, die sie nicht brauchen, und die
-// vernachlässigten fallen. Das Können liegt im Verteilen, nicht im Tempo.
-const PLATE_START = 2;                 // Teller am Anfang
-const PLATE_MAX = 6;
-const PLATE_ADD_MS = 5000;             // alle 5 s kommt einer dazu
-const PLATE_SPIN_GAIN = 0.34;          // Schwung je Antippen
-const PLATE_HAND_RATE = 1.5;           // Handvorrat pro Sekunde
-const PLATE_HAND_MAX = 0.68;           // höchstens zwei Antipper im Vorrat
-// Am gespielten Ergebnis geeicht, nicht geschätzt. Mit 0.13/0.26 hielt selbst
-// gemächliches Spiel alle sechs Teller: 96% der möglichen Tellerzeit, kein
-// einziger Verlust — es gab nichts zu entscheiden. Jetzt gilt: bei einem
-// Handvorrat von 1.5 pro Sekunde sind sustainable = 1.5/Verlust Teller. Am
-// Anfang (0.20) sind das 7.5 — die ersten Teller laufen also mühelos. Am Ende
-// (0.40) nur noch 3.75, sechs sind dann nicht zu halten. Genau das ist die
-// Dramaturgie: entspannter Start, überfordertes Finale, und das Können liegt
-// darin, WELCHE Teller man aufgibt.
-const PLATE_DECAY_START = 0.20;        // Schwungverlust pro Sekunde je Teller
-const PLATE_DECAY_END = 0.40;          // am Ende der Runde
-const PLATE_TOUCH_MS = 140;            // derselbe Teller nicht im Dauerfeuer
-const PLATE_RESPAWN_MS = 1800;         // ein gefallener Teller kommt zurück
-const PLATE_RESPAWN_SPIN = 0.5;
-const PLATE_DROP_COST = 60;
-const PLATE_POINTS_PER_SECOND = 10;    // je drehender Teller
-const PLATE_WOBBLE_AT = 0.34;          // ab hier wackelt der Teller sichtbar
+// Sortierband — Pakete laufen auf einen zu, drei Rutschen tragen Farben, und
+// jedes Paket muss in die passende. Ersetzt den Tellerdreher: der Archetyp
+// „Aufmerksamkeit teilen" bleibt, aber statt sechs Tellern immer wieder
+// dieselbe Bewegung zu geben, trifft man laufend echte Entscheidungen — und die
+// Rutschen tauschen zwischendurch die Farben, sodass Auswendiglernen nicht
+// reicht.
+const BELT_COLOURS = 3;                // Farben — genau so viele wie Rutschen,
+                                       // damit jedes Paket IMMER ein Ziel hat
+const BELT_CHUTES = 3;                 // so viele Rutschen stehen zur Wahl
+const BELT_QUEUE = 3;                  // so weit sieht man voraus
+const BELT_GAP = 0.34;                 // Abstand der Pakete auf dem Band
+const BELT_SPEED_START = 0.30;         // Bandanteil pro Sekunde
+const BELT_SPEED_END = 0.86;           // am Ende der Runde
+const BELT_REACH_AT = 0.34;            // ab hier ist das vorderste Paket greifbar
+const BELT_SWAP_FIRST_MS = 7000;       // erster Farbtausch der Rutschen
+const BELT_SWAP_EVERY_MS = 6500;
+const BELT_SWAP_WARN_MS = 1200;        // so lange vorher wird der Tausch angekündigt
+const BELT_POINTS = 100;               // richtig einsortiert
+const BELT_STREAK_BONUS = 12;          // je Paket in Folge, gedeckelt
+const BELT_STREAK_MAX = 8;
+const BELT_WRONG_COST = 60;            // falsche Rutsche
+const BELT_MISS_COST = 40;             // Paket durchgelassen
 
 // Angelduell: der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
 // baut Spannung auf, Loslassen lässt sie sinken. Der Fisch wehrt sich in
@@ -406,7 +408,15 @@ const WAVE_MIN_GAP = 1150;            // passes accelerate down to this gap
 
 // Fassrolle — everyone balances on one giant rolling barrel; run against the
 // spin or slide off. Last Kin on the barrel wins.
-const BARREL_LIMIT = 1.35;            // slide distance before falling off
+// Fassrolle: das Fass dreht sich in Schueben, man laeuft dagegen an.
+//
+// Das Gegenlaufen hatte eine feste Zugabe auf die Fassgeschwindigkeit — wer in
+// die richtige Richtung hielt, konnte damit gar nicht herunterfallen, und
+// gemessen ueberlebten 115 von 120 Bots die volle Runde. Ein Spiel, in dem
+// niemand ausscheidet, hat keinen Einsatz. Jetzt ist die Laufgeschwindigkeit
+// FEST: in ruhigen Schueben rennt man muehelos zurueck, in schnellen haelt man
+// sich gerade eben, und wer eine Richtungsaenderung verschlaeft, ist weg.
+const BARREL_LIMIT = 1.7;             // slide distance before falling off
 const BARREL_RUN_SPEED = 2.1;         // counter-run speed while holding
 const BARREL_HOLD_FRESH_MS = 220;     // "holding" = a run ping this recent
 
@@ -1838,9 +1848,10 @@ function scheduleBotMinigameInputs(room) {
       // Finger liefert laufend Positionen. Mit dem normalen Entscheidungstakt
       // (~300 ms) käme ein Bot wegen der Sprungweite nie über 0.17 Fortschritt
       // pro Sekunde und damit nie in die Nähe einer Hand.
-      // trace ist eine Zugbewegung, plates ein Wechseln zwischen sechs Zielen —
-      // beide brauchen Handrate, nicht Entscheidungsrate. Bei ~300 ms käme ein
-      // Bot hier nur auf 1.0 Schwung pro Sekunde, gebraucht werden bis zu 1.56.
+      // trace ist eine Zugbewegung, belt ein Treffen enger Bandpositionen —
+      // beide brauchen Handrate, nicht Entscheidungsrate. Bei ~300 ms wandert
+      // ein Paket am Rundenende um 0.26 Bandanteil weiter, das Greiffenster des
+      // starken Bots ist nur 0.22 breit: er verpasst es strukturell.
       // fish braucht ebenfalls einen dichten Takt: Halten wird als Ping gemeldet,
       // und bei ~300 ms Abstand würde ein Ping-Fenster von 190 ms Lücken lassen.
       // paint ebenso: die Richtung wird laufend gehalten wie an einem Stick.
@@ -1851,7 +1862,10 @@ function scheduleBotMinigameInputs(room) {
       // bounce genauso: das Volltrefferfenster ist ±110 ms breit. Bei 320 ms Takt
       // wäre der Bot-eigene Fehler allein durch den Takt schon ±160 ms, das
       // Können könnte sich gar nicht zeigen.
-      const fastHand = ["trace", "plates", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "sumo", "bomb", "stopclock", "cannon", "wave", "barrel"].includes(minigame.arcade.family);
+      // glide ebenso: der Brenner ist eine gehaltene Hand, keine Entscheidung. Bei
+      // ~300 ms Takt kaeme der Ballon zwischen zwei Bot-Ticks um 0.2 Hoehenanteile
+      // vom Kurs ab — mehr als die lichte Weite eines spaeten Tores.
+      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "sumo", "bomb", "stopclock", "cannon", "wave", "barrel"].includes(minigame.arcade.family);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
@@ -2366,14 +2380,10 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       label: "Punkte"
     };
   }
-  if (arcade.family === "plates") {
-    return {
-      kind: "plateTime",
-      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
-      seconds: Math.round(arcadePlayer.upTime || 0),
-      mistakes: arcadePlayer.drops || 0,
-      label: "Punkte"
-    };
+  if (arcade.family === "belt") {
+    // Eine Zahl, und zwar genau die, nach der auch sortiert wird. Pakete,
+    // Fehlgriffe und Serie stecken alle schon im Punktestand.
+    return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "trace") {
     return {
@@ -2390,8 +2400,9 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       ? { kind: "hits", value: arcadePlayer.hits || 0, label: "Treffer" }
       : { kind: "points", value: arcadePlayer.score || 0, label: "Standfest" };
   }
-  if (arcade.family === "sling") {
-    return { kind: "points", value: arcadePlayer.score || 0, label: "Ringpunkte" };
+  if (arcade.family === "glide") {
+    // Eine Zahl. Die Tore stecken schon drin, samt Zugabe für die Mitte.
+    return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "climb") {
     return arcadePlayer.finishedAt
@@ -3424,27 +3435,35 @@ function createArcadeState(type, players, startedAt) {
       entry.lastLapAt = 0;
     });
   }
-  if (config.family === "plates") {
-    arcade.plateMax = PLATE_MAX;
-    arcade.spinGain = PLATE_SPIN_GAIN;
-    arcade.handMax = PLATE_HAND_MAX;
-    arcade.wobbleAt = PLATE_WOBBLE_AT;
+  if (config.family === "belt") {
+    arcade.chuteCount = BELT_CHUTES;
+    arcade.colourCount = BELT_COLOURS;
+    arcade.queueLength = BELT_QUEUE;
+    arcade.parcelGap = BELT_GAP;
+    // Der Farbplan der Rutschen gilt für ALLE gleich und steht von Anfang an
+    // fest: derselbe Ablauf für jeden, und der Client kann den nächsten Tausch
+    // ankündigen, ohne raten zu müssen.
+    arcade.chutePlan = buildBeltChutePlan(config.seed, BELT_DURATION_MS);
+    arcade.chutes = arcade.chutePlan[0].chutes;
+    arcade.swapIndex = 0;
+    arcade.speed = BELT_SPEED_START;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
-      entry.hand = PLATE_HAND_MAX;
-      entry.drops = 0;
-      entry.upTime = 0;              // Tellersekunden, die eigentliche Wertung
-      entry.wasted = 0;              // Antipper, die nichts gebracht haben
-      entry.plateCount = PLATE_START;
-      entry.plates = Array.from({ length: PLATE_MAX }, (_, index) => ({
-        index,
-        spin: index < PLATE_START ? 1 : 0,
-        active: index < PLATE_START,
-        fallenAt: 0,
-        lastTouchAt: 0
-      }));
-      entry.lastDropAt = 0;
-      entry.lastSpinAt = 0;
+      entry.sorted = 0;
+      entry.wrong = 0;
+      entry.missed = 0;
+      entry.streak = 0;
+      entry.bestStreak = 0;
+      entry.beltPos = 0;             // wie weit das vorderste Paket gelaufen ist
+      entry.nextParcel = 0;
+      entry.reachable = false;
+      // Jede Person bekommt ihre EIGENE Paketfolge aus demselben Startwert —
+      // gleiche Schwierigkeit, aber man kann nicht beim Nachbarn ablesen.
+      entry.parcelSeed = config.seed + hashBeltSeed(player.id);
+      entry.queue = Array.from({ length: BELT_QUEUE }, () =>
+        makeBeltParcel(arcade, entry.parcelSeed, entry.nextParcel++));
+      entry.lastSortAt = 0;
+      entry.lastVerdict = null;
     });
   }
   if (config.family === "paint") {
@@ -3546,15 +3565,24 @@ function createArcadeState(type, players, startedAt) {
       entry.eliminated = false;
     });
   }
-  if (config.family === "sling") {
-    arcade.shots = SLING_SHOTS;
+  if (config.family === "glide") {
+    // Der Kurs steht von Anfang an fest und gilt für ALLE gleich. Zwei Gründe:
+    // niemand bekommt ein leichteres Feld, und der Client kann die nächsten
+    // Tore schon zeichnen, statt sie erst beim Auftauchen zu erfahren.
+    arcade.gates = buildGlideGates(config.seed, GLIDE_DURATION_MS);
+    arcade.gateCount = arcade.gates.length;
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
-      entry.shotsUsed = 0;
-      entry.rings = [];                  // getroffener Ring je Schuss (null = daneben)
-      entry.bullseyes = 0;
-      entry.distance = SLING_BASE_DISTANCE;
-      entry.lastShot = null;             // { power, angleDeg, ring, offset, at }
+      entry.y = 0.5;                   // Höhenanteil, 0 = Boden, 1 = Decke
+      entry.vy = 0;
+      entry.holding = false;
+      entry.stallUntil = 0;
+      entry.gatesPassed = 0;
+      entry.gatesMissed = 0;
+      entry.perfect = 0;               // durch die Mitte
+      entry.nextGate = 0;
+      entry.bumps = 0;
+      entry.lastGate = null;
       entry.lane = index;
     });
   }
@@ -3582,8 +3610,14 @@ function buildBarrelPhases(seed, totalMs) {
   while (at < totalMs) {
     const length = 1250 + arcadeNoise(seed + index * 13) * 1150;
     // A short calm start, then a livelier ramp so it stays exciting.
-    const ramp = Math.min(1, index * 0.08);
-    const magnitude = 0.5 + ramp * 1.35 + arcadeNoise(seed + index * 19) * 0.28;
+    const ramp = Math.min(1, index * 0.07);
+    // Die spaeten Schuebe sind SCHNELLER als man laufen kann. Genau daran haengt
+    // das ganze Spiel: in einem schnellen Schub kann man den Rutsch nur
+    // verlangsamen, nicht umkehren — man muss vorher Platz gesammelt haben.
+    // Blieben alle Schuebe unter der Laufgeschwindigkeit, koennte man jede Lage
+    // jederzeit retten, und gemessen ueberlebten dann 120 von 120 Bots die
+    // volle Runde: ein Spiel ganz ohne Einsatz.
+    const magnitude = 0.5 + ramp * 1.9 + arcadeNoise(seed + index * 19) * 0.25;
     // Mostly alternate, sometimes double up in the same direction for surprise.
     if (arcadeNoise(seed + index * 29) > 0.28) sign = -sign;
     phases.push({ from: at, until: at + length, vel: sign * magnitude });
@@ -3825,7 +3859,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, sling: 400, sumo: 0, bounce: 0, feint: 0, trace: 45, plates: 0, fish: 60, paint: 55 };
+  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -3833,9 +3867,9 @@ function handleArcadeInput(room, player, input) {
   // bounce und feint ebenso ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
-  // plates ohne Cooldown, weil jede Eingabe einen ANDEREN Teller meint: ein
-  // globaler Cooldown würde beim schnellen Wechseln echte Griffe verschlucken.
-  // Begrenzt wird stattdessen pro Teller und über den Handvorrat.
+  // belt mit kurzem Cooldown: ein Wisch darf nur EIN Paket einsortieren. Ohne
+  // Sperre würde ein zittriger Wisch zwei Ereignisse liefern und das zweite
+  // Paket blind mitreissen.
   // `lift` (Finger vom Bildschirm) ist keine Spielaktion, sondern eine Meldung,
   // und sie folgt der letzten Zugposition im Abstand von Millisekunden. Vom
   // Cooldown geschluckt hielte der Server den Strich für weiterhin unten — der
@@ -4214,39 +4248,36 @@ function handleArcadeInput(room, player, input) {
     return { ok: true };
   }
 
-  if (arcade.family === "plates") {
-    if (input.action !== "spin") return { ok: false, error: "Tippe einen Teller an." };
-    const index = Math.floor(Number(input.plate));
-    if (!Number.isInteger(index) || index < 0 || index >= PLATE_MAX) return { ok: false, error: "Diesen Teller gibt es nicht." };
-    const plate = arcadePlayer.plates[index];
-    if (!plate || !plate.active) return { ok: true };
-    if (now - plate.lastTouchAt < PLATE_TOUCH_MS) return { ok: true };
+  if (arcade.family === "belt") {
+    if (input.action !== "sort") return { ok: false, error: "Wisch das Paket in eine Rutsche." };
+    const chute = Math.floor(Number(input.chute));
+    if (!Number.isInteger(chute) || chute < 0 || chute >= BELT_CHUTES) return { ok: false, error: "Diese Rutsche gibt es nicht." };
+    const parcel = arcadePlayer.queue[0];
+    if (!parcel) return { ok: true };
+    // Ganz am Anfang des Bandes greift man ins Leere: das Paket muss erst in die
+    // Reichweite fahren. Ohne diese Sperre koennte man blind vorsortieren.
+    if (arcadePlayer.beltPos < BELT_REACH_AT) return { ok: true };
+
     arcadePlayer.hasMoved = true;
-    plate.lastTouchAt = now;
-
-    // Leere Hand: der Griff geht ins Nichts. Sichtbar, aber ohne Abzug — die
-    // Strafe ist, dass die Zeit für den Teller verloren ist, der sie gebraucht
-    // hätte.
-    if (arcadePlayer.hand < PLATE_SPIN_GAIN) {
-      arcadePlayer.wasted += 1;
-      arcadePlayer.lastSpinAt = now;
-      arcadePlayer.flash = "bad";
-      return { ok: true };
+    const wanted = arcade.chutes[chute];
+    if (wanted === parcel.colour) {
+      arcadePlayer.streak += 1;
+      if (arcadePlayer.streak > arcadePlayer.bestStreak) arcadePlayer.bestStreak = arcadePlayer.streak;
+      const bonus = Math.min(arcadePlayer.streak, BELT_STREAK_MAX) * BELT_STREAK_BONUS;
+      arcadePlayer.score += BELT_POINTS + bonus;
+      arcadePlayer.sorted += 1;
+      arcadePlayer.lastVerdict = { kind: "good", chute, colour: parcel.colour, at: now, bonus };
+    } else {
+      arcadePlayer.streak = 0;
+      arcadePlayer.score = Math.max(0, arcadePlayer.score - BELT_WRONG_COST);
+      arcadePlayer.wrong += 1;
+      arcadePlayer.lastVerdict = { kind: "wrong", chute, colour: parcel.colour, at: now, bonus: 0 };
     }
-
-    // Der Griff kostet IMMER voll, auch wenn der Teller schon fast rund läuft.
-    // Genau daran hängt das Spiel: nur zu bezahlen, was ankommt, würde blindes
-    // Dauertippen zur besten Strategie machen.
-    arcadePlayer.hand -= PLATE_SPIN_GAIN;
-    const before = plate.spin;
-    plate.spin = Math.min(1, plate.spin + PLATE_SPIN_GAIN);
-    if (plate.spin - before < PLATE_SPIN_GAIN * 0.5) arcadePlayer.wasted += 1;
-    arcadePlayer.lastSpinAt = now;
-    arcadePlayer.lastSpinPlate = index;
-    arcadePlayer.flash = "good";
-    arcadePlayer.lastHitAt = now;
+    arcadePlayer.lastSortAt = now;
+    advanceBeltQueue(arcade, arcadePlayer);
     return { ok: true };
   }
+
 
   if (arcade.family === "trace") {
     // Finger hoch: der Strich reisst ab, aber ohne Abzug. Der Fortschritt bleibt
@@ -4397,44 +4428,12 @@ function handleArcadeInput(room, player, input) {
     return { ok: true };
   }
 
-  if (arcade.family === "sling") {
-    if (input.action !== "shoot") return { ok: false, error: "Ziehen und loslassen, um zu schiessen." };
-    if (arcadePlayer.shotsUsed >= arcade.shots) return { ok: true };
-
-    // Der Client schickt Zugkraft (0..1) und Winkel in Grad. Beides wird hier
-    // geklemmt — der Server rechnet die Flugbahn, nicht der Client.
-    const power = clamp(Number(input.power) || 0, 0, 1);
-    const angleDeg = clamp(Number(input.angle) || 0, 5, 85);
-    const speed = power * SLING_MAX_SPEED;
-    const angle = (angleDeg * Math.PI) / 180;
-
-    // Schiefer Wurf auf gleicher Höhe: Reichweite = v² · sin(2θ) / g.
-    const range = (speed * speed * Math.sin(2 * angle)) / SLING_GRAVITY;
-    const offset = range - arcadePlayer.distance;      // + = zu weit, - = zu kurz
-    const miss = Math.abs(offset);
-
-    let ring = null;
-    for (let index = 0; index < SLING_RING_RADII.length; index += 1) {
-      if (miss <= SLING_RING_RADII[index]) { ring = index; break; }
-    }
-
-    arcadePlayer.shotsUsed += 1;
-    arcadePlayer.rings.push(ring);
-    if (ring === 0) arcadePlayer.bullseyes += 1;
-    arcadePlayer.lastShot = { power, angleDeg, range, offset, ring, at: now };
-    arcadePlayer.flash = ring === 0 ? "good" : (ring === null ? "bad" : null);
-    arcadePlayer.lastHitAt = now;
-
-    // Das Ziel weicht nach jedem Schuss zurück: gleiche Kraft trifft nicht
-    // zweimal, jeder Treffer muss neu dosiert werden.
-    arcadePlayer.distance += SLING_DISTANCE_STEP;
-
-    arcadePlayer.score = arcadePlayer.rings.reduce(
-      (sum, hit) => sum + (hit === null ? 0 : SLING_RING_SCORES[hit]),
-      0
-    );
+  if (arcade.family === "glide") {
+    if (input.action !== "lift") return { ok: false, error: "Halte den Finger auf dem Bild, um zu steigen." };
+    // Der Client meldet nur, OB gerade gehalten wird. Gerechnet wird im Tick —
+    // sonst hinge die Steighöhe an der Ping-Rate des Geräts statt an der Hand.
+    arcadePlayer.holding = input.down === true || input.down === 1 || input.down === "1";
     arcadePlayer.hasMoved = true;
-    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
 
@@ -4840,54 +4839,101 @@ function updateArcade(room) {
     return;
   }
 
-  if (arcade.family === "plates") {
+  if (arcade.family === "belt") {
     const dt = Math.min(0.2, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
     const elapsed = Math.max(0, now - minigame.startedAt);
-    const decay = plateDecayAt(elapsed, minigame.duration);
-    const wanted = plateCountAt(elapsed);
-    arcade.decay = decay;
-    arcade.plateCount = wanted;
+
+    // Der Farbplan liegt fest; hier wird nur nachgeschaut, welcher Eintrag
+    // gerade gilt. Kein Zufall pro Tick — sonst wuerde derselbe Tausch bei
+    // unterschiedlichen Tickraten unterschiedlich oft passieren.
+    while (arcade.swapIndex + 1 < arcade.chutePlan.length
+      && elapsed >= arcade.chutePlan[arcade.swapIndex + 1].at) {
+      arcade.swapIndex += 1;
+      arcade.chutes = arcade.chutePlan[arcade.swapIndex].chutes;
+      arcade.lastSwapAt = now;
+    }
+    const nextSwap = arcade.chutePlan[arcade.swapIndex + 1] || null;
+    arcade.nextSwapIn = nextSwap ? Math.max(0, nextSwap.at - elapsed) : null;
+    arcade.nextChutes = nextSwap && arcade.nextSwapIn <= BELT_SWAP_WARN_MS ? nextSwap.chutes : null;
+
+    arcade.speed = beltSpeed(elapsed, minigame.duration);
+
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
       if (!entry) return;
-      entry.plateCount = wanted;
-      // Die Hand füllt sich nach, aber man kann sie nicht horten.
-      entry.hand = Math.min(PLATE_HAND_MAX, entry.hand + PLATE_HAND_RATE * dt);
-
-      let spinning = 0;
-      entry.plates.forEach((plate) => {
-        if (!plate.active) {
-          // Neuer Teller: kommt mit halbem Schwung dazu, sobald er ansteht.
-          if (plate.index < wanted && (plate.fallenAt === 0 || now - plate.fallenAt >= PLATE_RESPAWN_MS)) {
-            plate.active = true;
-            plate.spin = plate.fallenAt === 0 ? 1 : PLATE_RESPAWN_SPIN;
-            plate.fallenAt = 0;
-          }
-          return;
-        }
-        plate.spin = Math.max(0, plate.spin - decay * dt);
-        if (plate.spin <= 0) {
-          plate.active = false;
-          plate.fallenAt = now;
-          entry.drops += 1;
-          entry.lastDropAt = now;
-          entry.flash = "bad";
-          entry.lastHitAt = now;
-          return;
-        }
-        spinning += 1;
-      });
-
-      // Die Wertung sind Tellersekunden: fünf Teller oben sind fünfmal so viel
-      // wert wie einer. Damit lohnt es, alle zu halten, statt einen zu pflegen.
-      entry.upTime += spinning * dt;
-      entry.spinning = spinning;
-      entry.score = plateScore(entry);
+      entry.beltPos += arcade.speed * dt;
+      // Durchgerutscht: das Paket faellt hinten runter. Kostet Punkte und die
+      // Serie — Nichtstun ist damit teurer als ein Fehlgriff pro Paket.
+      if (entry.beltPos >= 1) {
+        entry.missed += 1;
+        entry.streak = 0;
+        entry.score = Math.max(0, entry.score - BELT_MISS_COST);
+        entry.lastVerdict = { kind: "missed", chute: -1, colour: entry.queue[0] ? entry.queue[0].colour : 0, at: now, bonus: 0 };
+        advanceBeltQueue(arcade, entry, true);
+      }
+      entry.reachable = entry.beltPos >= BELT_REACH_AT;
       syncArcadeScore(minigame, player, entry);
     });
     return;
   }
+
+  if (arcade.family === "glide") {
+    const dt = Math.min(0.2, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    arcade.elapsed = elapsed;
+
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+
+      // Nach einer Boden- oder Deckenberührung trägt der Ballon kurz nicht.
+      // Das ist die eigentliche Strafe fürs Anecken: nicht ein Abzug, sondern
+      // ein Moment, in dem die Hand nichts bewirkt.
+      const stalled = now < entry.stallUntil;
+      const lift = entry.holding && !stalled ? GLIDE_LIFT : 0;
+      entry.vy = clamp(entry.vy + (lift - GLIDE_GRAVITY) * dt, -GLIDE_VY_MAX, GLIDE_VY_MAX);
+      entry.y += entry.vy * dt;
+
+      if (entry.y <= 0) {
+        entry.y = 0;
+        if (entry.vy < -0.15) { entry.bumps += 1; entry.stallUntil = now + GLIDE_STALL_MS; }
+        entry.vy = 0;
+      } else if (entry.y >= 1) {
+        entry.y = 1;
+        if (entry.vy > 0.15) { entry.bumps += 1; entry.stallUntil = now + GLIDE_STALL_MS; }
+        entry.vy = 0;
+      }
+      entry.stalled = stalled;
+
+      // Tore werden EINMAL abgerechnet, wenn sie den Ballon erreichen — nicht
+      // pro Tick. Eine Prüfung, die pro Tick läuft, hängt sonst an der Tickrate.
+      while (entry.nextGate < arcade.gates.length && elapsed >= arcade.gates[entry.nextGate].at) {
+        const gate = arcade.gates[entry.nextGate];
+        const miss = Math.abs(entry.y - gate.y);
+        const half = gate.gap / 2;
+        if (miss <= half) {
+          entry.gatesPassed += 1;
+          // Zugabe für die Mitte: durchkommen ist gut, mittig durchkommen ist
+          // besser. Sonst wäre der Rand genauso viel wert und das Spiel endete
+          // reihenweise unentschieden.
+          const centre = Math.round(GLIDE_CENTRE_BONUS * (1 - miss / half));
+          if (miss <= half * 0.25) entry.perfect += 1;
+          entry.score += GLIDE_GATE_POINTS + centre;
+          entry.lastGate = { index: entry.nextGate, hit: true, centre, at: now };
+        } else {
+          entry.gatesMissed += 1;
+          entry.lastGate = { index: entry.nextGate, hit: false, centre: 0, at: now };
+        }
+        entry.nextGate += 1;
+      }
+
+      syncArcadeScore(minigame, player, entry);
+    });
+    return;
+  }
+
 
   if (arcade.family === "feint") {
     // Verpasste echte Signale werden hier abgeschlossen: der Client zeigt sie
@@ -5123,9 +5169,12 @@ function updateBarrel(room, minigame, arcade, dt, now) {
     const entry = arcade.players[player.id];
     if (!entry || entry.fallenAt) return;
     const holding = now - (entry.lastRunAt || 0) <= BARREL_HOLD_FRESH_MS;
-    // Counter-running always beats the barrel by a fixed margin, so slow
-    // phases stay just as controllable as fast ones (no overshoot slingshot).
-    const runVel = holding ? entry.runDir * (Math.abs(phase.vel) + 0.55) : 0;
+    // Feste Laufgeschwindigkeit, NICHT relativ zum Fass. Relativ gerechnet
+    // gewann Gegenhalten immer, und niemand fiel je herunter. Fest gerechnet
+    // heisst: der schnellste Schub (1.9) laesst sich mit 2.1 gerade noch
+    // zurueckdrehen, und in die falsche Richtung zu halten kostet 4.0 pro
+    // Sekunde — von der Mitte bis zum Rand also gut vier Zehntel.
+    const runVel = holding ? entry.runDir * BARREL_RUN_SPEED : 0;
     // The spinning barrel carries you along; counter-run to stay on top.
     entry.offset += (phase.vel + runVel) * dt;
     if (Math.abs(entry.offset) >= arcade.limit) {
@@ -5398,8 +5447,6 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     });
   } else if (arcade.family === "climb") {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
-  } else if (arcade.family === "sling") {
-    done = room.players.every((player) => (arcade.players[player.id]?.shotsUsed || 0) >= arcade.shots);
   } else if (arcade.family === "sumo") {
     const alive = room.players.filter((player) => !arcade.players[player.id]?.eliminated);
     done = room.players.length > 1 && alive.length <= 1;
@@ -5892,22 +5939,127 @@ function fishScore(entry) {
   return landed + progress - (entry.snaps || 0) * FISH_SNAP_COST;
 }
 
-// Wie viele Teller zu diesem Zeitpunkt in der Runde stehen. Sie kommen einzeln
-// dazu, damit sich die Aufmerksamkeit immer weiter aufteilen muss.
-function plateCountAt(elapsed) {
-  return Math.min(PLATE_MAX, PLATE_START + Math.floor(Math.max(0, elapsed) / PLATE_ADD_MS));
-}
-
-// Schwungverlust pro Sekunde. Steigt über die Runde, damit es zum Schluss auch
-// mit sauberer Verteilung eng wird.
-function plateDecayAt(elapsed, durationMs = PLATE_DURATION_MS) {
+// Lichte Weite eines Tores. Wird über die Runde enger — der Anfang ist zum
+// Lernen da, das Ende zum Schwitzen.
+function glideGateGap(elapsed, durationMs = GLIDE_DURATION_MS) {
   const share = clamp(elapsed / Math.max(1, durationMs), 0, 1);
-  return PLATE_DECAY_START + (PLATE_DECAY_END - PLATE_DECAY_START) * share;
+  return GLIDE_GATE_GAP_START + (GLIDE_GATE_GAP_END - GLIDE_GATE_GAP_START) * share;
 }
 
-// Wertung: Punkte je drehender Teller und Sekunde, minus die gefallenen.
-function plateScore(entry) {
-  return Math.round((entry.upTime || 0) * PLATE_POINTS_PER_SECOND - (entry.drops || 0) * PLATE_DROP_COST);
+// Der ganze Kurs, im Voraus und aus dem Startwert. Zwei Gründe: alle vier
+// fliegen denselben Kurs, und der Client kann weit vorausschauen, statt Tore
+// aus dem Nichts auftauchen zu lassen.
+//
+// Der Sprung zum nächsten Tor ist begrenzt (GLIDE_GATE_MAX_STEP). Ohne die
+// Grenze käme irgendwann ein Tor, das aus der aktuellen Höhe in der Zeit
+// physikalisch nicht erreichbar ist — das wäre nicht schwer, sondern unfair,
+// und man merkt den Unterschied im Spiel sofort.
+function buildGlideGates(seed, durationMs = GLIDE_DURATION_MS) {
+  const gates = [];
+  let at = GLIDE_GATE_FIRST_MS;
+  let y = 0.5;
+  let index = 0;
+  while (at < durationMs - 600) {
+    const gap = glideGateGap(at, durationMs);
+    // Der Sprung darf nicht beliebig klein sein, sonst steht der Kurs still.
+    // Ein Mindestabstand von einer halben lichten Weite heisst: jedes Tor
+    // verlangt eine Bewegung, aber keine hektische.
+    const roll = arcadeNoise(seed + index * 421);
+    const dir = arcadeNoise(seed + index * 421 + 11) < 0.5 ? -1 : 1;
+    const step = (gap * 0.5 + roll * (GLIDE_GATE_MAX_STEP - gap * 0.5)) * dir;
+    // Am Rand die RICHTUNG drehen statt zu klemmen oder zu spiegeln. Klemmen
+    // klebte mehrere Tore in Folge an der Decke — man flöge oben entlang, ohne
+    // etwas zu tun. Spiegeln behielt zwar den Abstand zum Rand, verkürzte aber
+    // den Sprung, und dann kamen Tore, die praktisch stillstanden. Umdrehen
+    // erhält die Sprungweite exakt, und die ist hier die eigentliche Aufgabe.
+    const margin = gap / 2 + 0.06;
+    let next = y + step;
+    if (next < margin || next > 1 - margin) next = y - step;
+    y = clamp(next, margin, 1 - margin);
+    gates.push({ index, at, y: Math.round(y * 1000) / 1000, gap: Math.round(gap * 1000) / 1000 });
+    at += GLIDE_GATE_EVERY_MS;
+    index += 1;
+  }
+  return gates;
+}
+
+// Bandgeschwindigkeit. Waechst linear ueber die Runde — der Anfang ist zum
+// Lernen da, das Ende zum Schwitzen.
+function beltSpeed(elapsed, durationMs = BELT_DURATION_MS) {
+  const share = clamp(elapsed / Math.max(1, durationMs), 0, 1);
+  return BELT_SPEED_START + (BELT_SPEED_END - BELT_SPEED_START) * share;
+}
+
+// Stabiler Startwert je Spieler-ID, damit jede Person ihre eigene Paketfolge
+// bekommt und trotzdem alles vorhersagbar bleibt.
+function hashBeltSeed(id) {
+  let h = 2166136261;
+  const text = String(id);
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h % 100000);
+}
+
+// Der komplette Farbplan der Rutschen, im Voraus. Zwei Gruende: der Client kann
+// den naechsten Tausch ankuendigen, ohne zu raten, und der Ablauf haengt nicht
+// an der Tickrate. Jede Anordnung unterscheidet sich von der vorherigen an
+// MINDESTENS zwei Stellen — sonst faellt ein Tausch nicht auf.
+function buildBeltChutePlan(seed, durationMs = BELT_DURATION_MS) {
+  const base = [];
+  for (let i = 0; i < BELT_CHUTES; i += 1) base.push(i % BELT_COLOURS);
+  const plan = [{ at: 0, chutes: base.slice() }];
+  let at = BELT_SWAP_FIRST_MS;
+  let step = 0;
+  while (at < durationMs) {
+    const previous = plan[plan.length - 1].chutes;
+    let next = previous.slice();
+    let guard = 0;
+    do {
+      next = previous.slice();
+      // Fisher-Yates mit festem Startwert: gleiche Runde, gleicher Ablauf.
+      for (let i = next.length - 1; i > 0; i -= 1) {
+        const r = arcadeNoise(seed + step * 977 + i * 31);
+        const j = Math.floor(r * (i + 1));
+        const tmp = next[i];
+        next[i] = next[j];
+        next[j] = tmp;
+      }
+      step += 1;
+      guard += 1;
+    } while (guard < 12 && next.filter((colour, i) => colour !== previous[i]).length < 2);
+    plan.push({ at, chutes: next });
+    at += BELT_SWAP_EVERY_MS;
+  }
+  return plan;
+}
+
+// Ein Paket. Die Farbe haengt nur an Startwert und laufender Nummer, nie am
+// Zeitpunkt — sonst laege dieselbe Runde bei jedem anders.
+function makeBeltParcel(arcade, seed, index) {
+  const r = arcadeNoise(seed + index * 613);
+  return {
+    id: index,
+    colour: Math.floor(r * BELT_COLOURS) % BELT_COLOURS,
+    // Groesse ist reine Optik, aber sie macht das Band lebendig statt gleichfoermig.
+    size: 0.8 + arcadeNoise(seed + index * 613 + 7) * 0.45
+  };
+}
+
+// Naechstes Paket nachruecken. Das Band springt NICHT auf 0 zurueck: die Pakete
+// stehen in festem Abstand, also ruecken sie beim Sortieren um genau diesen
+// Abstand vor. Wer frueh greift, gewinnt dadurch echte Zeit beim naechsten.
+//
+// Ein DURCHGERUTSCHTES Paket ist die Ausnahme: dort stuende das naechste sonst
+// schon fast an der Kante, und ein einziger Aussetzer wuerde sich durch die
+// halbe Runde durchreissen. Das waere kein Koennen mehr, sondern eine Strafe,
+// die sich selbst verstaerkt — die Strafe sind die Punkte und die Serie.
+function advanceBeltQueue(arcade, entry, missed = false) {
+  entry.queue.shift();
+  entry.queue.push(makeBeltParcel(arcade, entry.parcelSeed, entry.nextParcel));
+  entry.nextParcel += 1;
+  entry.beltPos = missed ? 0 : Math.max(0, entry.beltPos - BELT_GAP);
 }
 
 // Wertung: geschaffte Runden plus der angefangene Rest, ein Bonus für ganz
@@ -6283,9 +6435,14 @@ function arcadeBotStep(room, bot) {
       player.botSeenVel = arcade.barrelVel;
     }
     const seenVel = player.botSeenVel ?? arcade.barrelVel;
-    const drift = player.offset + seenVel * 0.25;
-    if (Math.abs(drift) > 0.06) {
-      handleArcadeInput(room, bot, { action: "run", dir: drift > 0 ? -1 : 1 });
+    // Der Bot stellt sich gegen die Drehrichtung ins Fass, und zwar umso weiter,
+    // je schneller es dreht: in einem schnellen Schub kann er den Rutsch nur
+    // verlangsamen, also braucht er den Platz VORHER. Genau das ist auch der
+    // Trick, den ein Mensch hier lernt.
+    const bank = Math.min(arcade.limit * 0.75, 0.3 + Math.abs(seenVel) * 0.35);
+    const target = -Math.sign(seenVel || 1) * bank;
+    if (Math.abs(player.offset - target) > 0.05) {
+      handleArcadeInput(room, bot, { action: "run", dir: player.offset > target ? -1 : 1 });
     }
     return;
   }
@@ -6607,35 +6764,38 @@ function arcadeBotStep(room, bot) {
     handleArcadeInput(room, bot, { action: "reel" });
     return;
   }
-  if (arcade.family === "plates") {
-    const now = Date.now();
+  if (arcade.family === "belt") {
+    const parcel = player.queue[0];
+    if (!parcel) return;
     const profile = botProfile(player);
-    // Kein Vorrat, kein Griff — der Bot wartet, statt ins Leere zu greifen.
-    if (player.hand < PLATE_SPIN_GAIN) return;
-    const active = player.plates.filter((plate) => plate.active && now - plate.lastTouchAt >= PLATE_TOUCH_MS);
-    if (active.length === 0) return;
 
-    // Das Können steckt in der AUSWAHL, nicht im Tempo — genau da liegt auch
-    // das Können des Spielers. Ein starker Bot greift zuverlässig zum
-    // langsamsten Teller, ein schwacher greift oft daneben und verschwendet
-    // seine Hand an einen, der noch rund läuft.
-    const wrongPick = profile.level === "hard" ? 0.10 : profile.level === "normal" ? 0.30 : 0.55;
-    let target;
-    if (Math.random() < wrongPick) {
-      // Ein Fehlgriff heisst NICHT "irgendeinen nehmen": bei sechs Tellern wäre
-      // jeder sechste Zufallsgriff versehentlich der richtige, und gemessen
-      // spielten dadurch alle drei Stufen praktisch gleich (920/930/949).
-      // Unaufmerksam heisst: den nehmen, der gerade am besten läuft — also den,
-      // der die Hand am meisten verschwendet.
-      target = active.reduce((best, plate) => (plate.spin > best.spin ? plate : best), active[0]);
-    } else {
-      target = active.reduce((worst, plate) => (plate.spin < worst.spin ? plate : worst), active[0]);
+    // EINMAL pro Paket entscheiden, nicht pro Tick. Eine Wahrscheinlichkeit, die
+    // bei jedem Tick neu gewuerfelt wird, laeuft ueber viele Ticks gegen
+    // Gewissheit — derselbe Fehler, der hier schon mehrfach steckte.
+    if (player.botParcelId !== parcel.id) {
+      player.botParcelId = parcel.id;
+      const rightChance = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.78 : 0.55;
+      player.botRight = Math.random() < rightChance;
+      // Wo auf dem Band gegriffen wird. Der schwache Bot laesst sich Zeit, und
+      // sein Band reicht ueber 1 hinaus — dann rutscht das Paket durch.
+      const band = profile.level === "hard" ? [0.40, 0.62]
+        : profile.level === "normal" ? [0.48, 0.86]
+        : [0.58, 1.14];
+      player.botActPos = band[0] + Math.random() * (band[1] - band[0]);
     }
-    // Nicht bei jedem Tick greifen: sonst wäre die Hand die einzige Grenze und
-    // alle Stufen spielten gleich.
-    const reach = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.8 : 0.6;
-    if (Math.random() > reach) return;
-    handleArcadeInput(room, bot, { action: "spin", plate: target.index });
+    if (player.beltPos < Math.max(BELT_REACH_AT, player.botActPos)) return;
+
+    // Erst JETZT wird die Rutsche gesucht: die Farben tauschen waehrend das
+    // Paket faehrt, und wer sich auf die alte Position verlaesst, greift daneben.
+    // Genau das ist auch die Aufgabe des Menschen.
+    let chute = arcade.chutes.indexOf(parcel.colour);
+    if (chute < 0) chute = 0;
+    if (!player.botRight) {
+      const wrong = [];
+      for (let i = 0; i < BELT_CHUTES; i += 1) if (i !== chute) wrong.push(i);
+      chute = wrong[Math.floor(Math.random() * wrong.length)];
+    }
+    handleArcadeInput(room, bot, { action: "sort", chute });
     return;
   }
   if (arcade.family === "trace") {
@@ -6811,21 +6971,31 @@ function arcadeBotStep(room, bot) {
     }
     return;
   }
-  if (arcade.family === "sling") {
-    if ((player.shotsUsed || 0) >= arcade.shots) return;
+  if (arcade.family === "glide") {
     const profile = botProfile(player);
-    // Bots pick a plausible angle, then solve for the power that would land the
-    // shot dead centre — and miss it by an amount their skill level allows.
-    const angleDeg = 35 + Math.random() * 20;
-    const angle = (angleDeg * Math.PI) / 180;
-    const perfectSpeed = Math.sqrt((player.distance * SLING_GRAVITY) / Math.sin(2 * angle));
-    const spread = profile.level === "hard" ? 0.035 : profile.level === "normal" ? 0.075 : 0.14;
-    const power = clamp(
-      perfectSpeed / SLING_MAX_SPEED + (Math.random() - 0.5) * 2 * spread,
-      0.05,
-      1
-    );
-    handleArcadeInput(room, bot, { action: "shoot", power, angle: angleDeg });
+    const elapsed = arcade.elapsed || 0;
+    const gate = arcade.gates[player.nextGate];
+    if (!gate) return;
+
+    // EINMAL pro Tor entscheiden, wie genau dieser Bot es nimmt. Pro Tick neu
+    // gewürfelt liefe jede Streuung über viele Ticks gegen null aus — der Bot
+    // flöge dann durch die Mitte jedes Tores, egal welche Stufe.
+    if (player.botGateId !== player.nextGate) {
+      player.botGateId = player.nextGate;
+      const slop = profile.level === "hard" ? 0.035 : profile.level === "normal" ? 0.10 : 0.19;
+      player.botAim = clamp(gate.y + (Math.random() - 0.5) * 2 * slop, 0.05, 0.95);
+    }
+
+    // Wie früh der Bot anfängt, auf das nächste Tor zuzusteuern. Das ist das
+    // eigentliche Können hier: wer zu spät anfängt, kommt mit zu viel Schwung
+    // an und schiesst durch, egal wie genau er zielt.
+    const lookahead = profile.level === "hard" ? 1500 : profile.level === "normal" ? 1000 : 620;
+    const aim = gate.at - elapsed <= lookahead ? player.botAim : 0.5;
+
+    // Halten, wenn man unter dem Ziel liegt — mit Blick auf die eigene
+    // Steiggeschwindigkeit, sonst pendelt der Ballon um das Ziel herum.
+    const predicted = player.y + player.vy * 0.42;
+    handleArcadeInput(room, bot, { action: "lift", down: predicted < aim });
     return;
   }
   if (arcade.family === "climb") {
@@ -7412,13 +7582,20 @@ module.exports = {
     resolveStarPurchase,
     roomCreateBlockedReason,
     MAX_ROOMS_PER_ADDRESS,
-    SLING_SHOTS,
-    SLING_RING_SCORES,
-    SLING_RING_RADII,
-    SLING_BASE_DISTANCE,
-    SLING_DISTANCE_STEP,
-    SLING_MAX_SPEED,
-    SLING_GRAVITY,
+    GLIDE_DURATION_MS,
+    GLIDE_GRAVITY,
+    GLIDE_LIFT,
+    GLIDE_VY_MAX,
+    GLIDE_GATE_FIRST_MS,
+    GLIDE_GATE_EVERY_MS,
+    GLIDE_GATE_GAP_START,
+    GLIDE_GATE_GAP_END,
+    GLIDE_GATE_MAX_STEP,
+    GLIDE_GATE_POINTS,
+    GLIDE_CENTRE_BONUS,
+    GLIDE_STALL_MS,
+    buildGlideGates,
+    glideGateGap,
     SUMO_RING_RADIUS,
     SUMO_CHARGE_MS,
     SUMO_OVERCHARGE_MS,
@@ -7457,22 +7634,25 @@ module.exports = {
     tracePathX,
     traceOffset,
     traceScore,
-    PLATE_START,
-    PLATE_MAX,
-    PLATE_ADD_MS,
-    PLATE_SPIN_GAIN,
-    PLATE_HAND_RATE,
-    PLATE_HAND_MAX,
-    PLATE_DECAY_START,
-    PLATE_DECAY_END,
-    PLATE_TOUCH_MS,
-    PLATE_RESPAWN_MS,
-    PLATE_DROP_COST,
-    PLATE_POINTS_PER_SECOND,
-    PLATE_DURATION_MS,
-    plateCountAt,
-    plateDecayAt,
-    plateScore,
+    BELT_COLOURS,
+    BELT_CHUTES,
+    BELT_QUEUE,
+    BELT_SPEED_START,
+    BELT_SPEED_END,
+    BELT_REACH_AT,
+    BELT_SWAP_FIRST_MS,
+    BELT_SWAP_EVERY_MS,
+    BELT_SWAP_WARN_MS,
+    BELT_POINTS,
+    BELT_STREAK_BONUS,
+    BELT_STREAK_MAX,
+    BELT_WRONG_COST,
+    BELT_MISS_COST,
+    BELT_DURATION_MS,
+    beltSpeed,
+    buildBeltChutePlan,
+    makeBeltParcel,
+    advanceBeltQueue,
     FISH_DURATION_MS,
     FISH_REEL_SPEED,
     FISH_SLIP_SPEED,

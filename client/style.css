@@ -3311,51 +3311,56 @@ body[data-screen="minigame"] .game-menu-button {
   color: var(--muted);
 }
 
-/* --- Schleuderschuss: Zieh-Pad ----------------------------------------- */
-.sling-pad {
-  position: relative;
-  min-height: var(--touch);
+/* --- Ballonfahrt: Torzähler und Ballonstände --------------------------- */
+.glide-gates {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffe36b;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.glide-chips {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.glide-chip {
   display: grid;
   place-items: center;
-  border-radius: var(--radius);
-  border: 2px dashed rgba(255, 255, 255, 0.3);
-  background: rgba(21, 33, 38, 0.72);
-  touch-action: none;             /* Ziehen darf die Seite nicht scrollen */
-  overflow: hidden;
-}
-
-.sling-pad-hint {
-  font-size: 0.82rem;
-  font-weight: 900;
-  color: rgba(255, 255, 255, 0.72);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-/* Zugvektor: Länge zeigt die Kraft, Drehung den Abschusswinkel. */
-.sling-pad-vector {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
-  width: 6px;
-  height: calc(14px + var(--sling-power, 0) * 74px);
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #ffe36b, #ff9f4a);
-  transform-origin: bottom center;
-  transform: translateX(-50%) rotate(calc(180deg - var(--sling-angle, 45deg)));
-  box-shadow: 0 0 12px rgba(255, 227, 107, 0.6);
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
 }
 
-.sling-readout {
-  display: flex;
-  gap: 10px;
-  align-self: center;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: rgba(21, 33, 38, 0.82);
-  color: #ffe36b;
-  font-size: 0.76rem;
-  font-weight: 900;
+.glide-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Nach unten gesetzt: oben liegt die Schachtdecke, und genau dort eckt man an
+   — ein Banner davor verdeckte die Ursache der Meldung. */
+.kinetic-hud .color-banner.glide-banner,
+.kinetic-hud.dev-mode .color-banner.glide-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
 }
 
 /* --- Sumo-Schubs: Halte-Knopf und Ladebalken ---------------------------- */
@@ -3542,75 +3547,55 @@ body[data-screen="minigame"] .game-menu-button {
   text-align: center;
 }
 
-/* --- Tellerdreher: Handvorrat und Tellerzähler -------------------------- */
-/* Der Handvorrat ist die zentrale Regel — ohne Anzeige wirkt ein Griff ins
-   Leere wie ein Fehler des Spiels statt wie eine Entscheidung. */
-.plate-hand {
+/* --- Sortierband: Serie und Punktestände ------------------------------- */
+/* Die Serie ist der Grund, warum ein einzelner Fehlgriff wehtut — sie muss
+   sichtbar sein, sonst fühlt sich der Abzug willkürlich an. */
+.belt-streak {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
   left: 132px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);
-  color: #ffffff;
+  color: #c6ffb0;
   font-size: 0.66rem;
   font-weight: 900;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  transition: opacity 0.14s linear;
 }
 
-.plate-hand-track {
-  position: relative;
-  display: block;
-  width: 92px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.2);
-  overflow: hidden;
-}
-
-.plate-hand-track i {
+.belt-chips {
   position: absolute;
-  inset: 0;
-  border-radius: 999px;
-  background: #7fe06f;
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: background 0.12s linear;
-}
-
-.plate-chips {
-  position: absolute;
-  top: calc(60px + env(safe-area-inset-top));
+  top: calc(52px + env(safe-area-inset-top));
   left: 132px;
   display: flex;
   gap: 6px;
 }
 
-.plate-chip {
+.belt-chip {
   display: grid;
   place-items: center;
-  min-width: 24px;
+  min-width: 30px;
   height: 24px;
+  padding: 0 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--chip) 30%, #101a1f);
   color: #ffffff;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 900;
   box-shadow: inset 0 0 0 2px var(--chip);
 }
 
-.plate-chip.is-own {
+.belt-chip.is-own {
   background: var(--chip);
   color: #10201a;
 }
 
-/* Wie beim Spurmaler nach unten: oben deckte der Banner die hinteren Teller ab. */
-.kinetic-hud .color-banner.plate-banner,
-.kinetic-hud.dev-mode .color-banner.plate-banner {
+/* Nach unten gesetzt: oben deckte der Banner das hintere Bandstück ab, und
+   genau dort schaut man hin, um die nächsten Farben zu lesen. */
+.kinetic-hud .color-banner.belt-banner,
+.kinetic-hud.dev-mode .color-banner.belt-banner {
   top: auto;
   bottom: calc(58px + env(safe-area-inset-bottom));
   padding: 7px 16px;

@@ -9,6 +9,7 @@
     "test": "node --test server/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "board-sim": "node scripts/board-sim.mjs",
+    "bot-sim": "node scripts/bot-sim.mjs",
     "icons": "node scripts/icons.mjs"
   },
   "keywords": [
