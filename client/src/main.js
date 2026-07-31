@@ -1,30 +1,34 @@
-import { BoardGame } from "./game/BoardGame.js?v=tumblekin84";
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin84";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin84";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin84";
-import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin84";
-import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin84";
-import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin84";
-import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin84";
-import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin84";
-import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin84";
-import { BombPass } from "./minigames/BombPass.js?v=tumblekin84";
-import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin84";
-import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin84";
-import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin84";
-import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin84";
-import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin84";
-import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin84";
-import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin84";
-import { BalloonGlide } from "./minigames/BalloonGlide.js?v=tumblekin84";
-import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin84";
-import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin84";
-import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin84";
-import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin84";
-import { SortBelt } from "./minigames/SortBelt.js?v=tumblekin84";
-import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin84";
-import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin84";
-import { Feedback } from "./game/Feedback.js?v=tumblekin84";
+import { BoardGame } from "./game/BoardGame.js?v=tumblekin85";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin85";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin85";
+import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin85";
+import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin85";
+import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin85";
+import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin85";
+import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin85";
+import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin85";
+import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin85";
+import { BombPass } from "./minigames/BombPass.js?v=tumblekin85";
+import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin85";
+import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin85";
+import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin85";
+import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin85";
+import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin85";
+import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin85";
+import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin85";
+import { BalloonGlide } from "./minigames/BalloonGlide.js?v=tumblekin85";
+import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin85";
+import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin85";
+import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin85";
+import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin85";
+import { SortBelt } from "./minigames/SortBelt.js?v=tumblekin85";
+import { LightSequence } from "./minigames/LightSequence.js?v=tumblekin85";
+import { FlashReflex } from "./minigames/FlashReflex.js?v=tumblekin85";
+import { PegBoard } from "./minigames/PegBoard.js?v=tumblekin85";
+import { IceStock } from "./minigames/IceStock.js?v=tumblekin85";
+import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin85";
+import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin85";
+import { Feedback } from "./game/Feedback.js?v=tumblekin85";
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
@@ -227,6 +231,10 @@ function startOrUpdateMinigame(minigame) {
     falschsignal: FalseSignal,
     spurmaler: TracePainter,
     sortierband: SortBelt,
+    leuchtfolge: LightSequence,
+    blitzreflex: FlashReflex,
+    nagelbrett: PegBoard,
+    eisstock: IceStock,
     angelduell: FishDuel,
     farbenjagd: ColorHunt
   }[minigame.type] || null;

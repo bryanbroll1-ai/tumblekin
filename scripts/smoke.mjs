@@ -18,7 +18,7 @@ const ALL_GAMES = [
   "bounceArena", "finishRush", "colorEscape", "nervenprobe", "lichtwaechter",
   "ballonPump", "fassrolle", "zuendstoff", "muenzregen", "blobklopfe",
   "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger",
-  "ballonfahrt", "sumoschubs", "trampolin", "falschsignal", "spurmaler", "sortierband", "angelduell", "farbenjagd"
+  "ballonfahrt", "sumoschubs", "trampolin", "falschsignal", "spurmaler", "sortierband", "leuchtfolge", "blitzreflex", "nagelbrett", "eisstock", "angelduell", "farbenjagd"
 ];
 
 const argv = process.argv.slice(2);

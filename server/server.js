@@ -103,6 +103,7 @@ const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 const FEINT_DURATION_MS = 32000;
 const BELT_DURATION_MS = 34000;
 const GLIDE_DURATION_MS = 34000;
+const SIMON_DURATION_MS = 36000;
 const FISH_DURATION_MS = 34000;
 const PAINT_DURATION_MS = 32000;
 
@@ -129,6 +130,10 @@ const MINIGAMES = [
   { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
   { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" },
   { type: "sortierband", title: "Sortierband", duration: BELT_DURATION_MS, arcadeFamily: "belt" },
+  { type: "leuchtfolge", title: "Leuchtfolge", duration: SIMON_DURATION_MS, arcadeFamily: "simon" },
+  { type: "blitzreflex", title: "Blitzreflex", duration: 19000, arcadeFamily: "react" },
+  { type: "nagelbrett", title: "Nagelbrett", duration: 28000, arcadeFamily: "plinko" },
+  { type: "eisstock", title: "Eisstock", duration: 34000, arcadeFamily: "curling" },
   { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" },
   { type: "farbenjagd", title: "Farbenjagd", duration: PAINT_DURATION_MS, arcadeFamily: "paint" }
 ];
@@ -154,6 +159,10 @@ const ARCADE_CONFIGS = {
   falschsignal: { family: "feint", seed: 491 },
   spurmaler: { family: "trace", seed: 499 },
   sortierband: { family: "belt", seed: 503 },
+  leuchtfolge: { family: "simon", seed: 521 },
+  blitzreflex: { family: "react", seed: 541 },
+  nagelbrett: { family: "plinko", seed: 563 },
+  eisstock: { family: "curling", seed: 577 },
   angelduell: { family: "fish", seed: 509 },
   farbenjagd: { family: "paint", seed: 521 }
 };
@@ -561,12 +570,19 @@ const CANNON_PERIOD_MS = 1300;        // full swing of the power gauge
 const CANNON_ANGLE_PERIOD_MS = 1500;  // full sweep of the angle gauge (5°-85°)
 
 // Blitzfang — wait for green, tap first; a false start costs dearly.
+const SIMON_ROUNDS = 5;
 const REACT_ROUNDS = 3;
 const REACT_WINDOW_MS = 2200;
 const REACT_PENALTY_MS = 900;
 
 const PLINKO_SLOTS = [1, 4, 7, 12, 7, 4, 1];
 const PLINKO_GRAVITY = 1.35;
+// Ein Stups je Kugel. Ohne ihn war Nagelbrett reines Glück: man tippte eine
+// Startposition an und schaute zu. Gemessen lagen alle drei Bot-Stufen gleich
+// auf (und der schwache sogar vorne), weil das Abprallen jede Absicht
+// überdeckte. Der Stups macht daraus ein Spiel: die Kugel läuft schief, man
+// sieht es kommen, und man hat GENAU einen Eingriff.
+const PLINKO_NUDGE = 0.85;            // seitlicher Schub beim Stups
 const PLINKO_FLOOR_Y = 1.3;
 const CURLING_SHEET_Y = 1.3;
 const CURLING_RINGS = [
@@ -2440,7 +2456,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: arcadePlayer.distance || 0, label: "Meter" };
   }
   if (arcade.family === "simon") {
-    return { kind: "correct", value: arcadePlayer.survived || 0, mistakes: arcadePlayer.mistakes || 0, label: "Runden" };
+    return { kind: "correct", value: arcadePlayer.survived || 0, label: "Runden" };
   }
   if (arcade.family === "react") {
     const played = arcadePlayer.times || [];
@@ -3286,9 +3302,11 @@ function createArcadeState(type, players, startedAt) {
     arcade.slots = [...PLINKO_SLOTS];
     arcade.balls = [];
     arcade.nextBallId = 1;
+    arcade.nudgePower = PLINKO_NUDGE;
     players.forEach((player, index) => {
       arcade.players[player.id].aimX = 0.2 + index * 0.2;
       arcade.players[player.id].plinks = 0;
+      arcade.players[player.id].nudges = 0;
     });
   }
   if (config.family === "curling") {
@@ -3832,14 +3850,18 @@ function buildWhackPops(seed, totalMs) {
 }
 
 // Farbfolge rounds: watch the growing colour sequence, then repeat it.
+// Fünf Runden, nicht acht, und straffer getaktet. Acht Runden nach der alten
+// Formel brauchten 87 Sekunden — für ein Partyspiel ist das eine halbe Ewigkeit,
+// in der drei Leute zuschauen. Fünf Runden von zwei auf sechs Farben passen in
+// 36 Sekunden und reichen völlig: ab sechs merkt sich das ohnehin kaum jemand.
 function buildSimonRounds(seed) {
   const rounds = [];
-  let at = 1500;
-  for (let r = 0; r < 8; r += 1) {
+  let at = 1000;
+  for (let r = 0; r < SIMON_ROUNDS; r += 1) {
     const seqLen = 2 + r;
     const sequence = Array.from({ length: seqLen }, (_v, i) => Math.floor(arcadeNoise(seed + r * 97 + i * 13) * 4));
-    const showMs = seqLen * 650 + 700;
-    const inputMs = seqLen * 950 + 900;
+    const showMs = seqLen * 520 + 500;
+    const inputMs = seqLen * 760 + 700;
     rounds.push({ index: r, sequence, showFrom: at, inputFrom: at + showMs, until: at + showMs + inputMs });
     at += showMs + inputMs + 400;
   }
@@ -4691,6 +4713,23 @@ function handleArcadeInput(room, player, input) {
   }
 
   if (arcade.family === "plinko") {
+    // Stups: EINMAL je Kugel, und nur solange sie fällt. Das ist der einzige
+    // Eingriff nach dem Loslassen — und der Grund, warum das Spiel nicht nur
+    // Glück ist.
+    if (input.action === "nudge") {
+      const mine = arcade.balls.find((ball) => ball.playerId === player.id && !ball.nudged);
+      if (!mine) return { ok: true };
+      const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
+      mine.nudged = true;
+      // Setzen statt addieren: ein Stups soll ENTSCHEIDEN, wohin die Kugel
+      // läuft. Addiert und danach an jedem Nagel um 45 % gedämpft brachte er
+      // gemessen weniger als eine halbe Slotbreite — man sah ihn kaum.
+      mine.vx = dir * PLINKO_NUDGE;
+      arcadePlayer.nudges = (arcadePlayer.nudges || 0) + 1;
+      arcadePlayer.lastNudge = { dir, at: now };
+      arcadePlayer.hasMoved = true;
+      return { ok: true };
+    }
     if (input.action !== "drop") return { ok: false, error: "Tippe, um eine Kugel fallen zu lassen." };
     const inFlight = arcade.balls.some((ball) => ball.playerId === player.id);
     if (inFlight) return { ok: true };
@@ -4704,7 +4743,8 @@ function handleArcadeInput(room, player, input) {
       y: 0.05,
       vx: (arcadeNoise(arcade.seed + arcade.nextBallId * 13) - 0.5) * 0.06,
       vy: 0.05,
-      plinks: 0
+      plinks: 0,
+      nudged: false
     });
     return { ok: true };
   }
@@ -5687,7 +5727,9 @@ function updatePlinko(room, minigame, arcade, dt, now) {
         ball.vy -= 2 * dot * ny;
         ball.vx *= 0.55;
         ball.vy *= 0.55;
-        ball.vx += (arcadeNoise(arcade.seed + ball.id * 7 + ball.plinks * 3) - 0.5) * 0.09;
+        // Weniger Streuung als früher (0.09): sonst überdeckt der Zufall am Nagel
+        // die Absicht beim Zielen und beim Stups.
+        ball.vx += (arcadeNoise(arcade.seed + ball.id * 7 + ball.plinks * 3) - 0.5) * 0.05;
         ball.plinks += 1;
         const owner = arcade.players[ball.playerId];
         if (owner) owner.plinks = (owner.plinks || 0) + 1;
@@ -6668,18 +6710,70 @@ function arcadeBotStep(room, bot) {
     return;
   }
   if (arcade.family === "plinko") {
-    const inFlight = arcade.balls.some((ball) => ball.playerId === bot.id);
-    if (!inFlight && Math.random() > 0.35) {
-      handleArcadeInput(room, bot, { action: "drop", x: 0.32 + Math.random() * 0.36 });
+    const profile = botProfile(player);
+    const mine = arcade.balls.find((ball) => ball.playerId === bot.id);
+    if (!mine) {
+      // Zielen: die Mitte ist am meisten wert. Wie genau gezielt wird, ist das
+      // erste Können — vorher warfen alle drei Stufen blind irgendwo zwischen
+      // 0.32 und 0.68, und gemessen lag der schwache Bot damit sogar vorne.
+      if (Math.random() > 0.35) {
+        const spread = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.13 : 0.26;
+        handleArcadeInput(room, bot, { action: "drop", x: clamp(0.5 + (Math.random() - 0.5) * 2 * spread, 0.08, 0.92) });
+      }
+      return;
     }
+    if (mine.nudged) return;
+
+    // EINMAL je Kugel entscheiden, wo gestupst wird und ob richtig. Pro Tick
+    // gewürfelt liefe die Wahrscheinlichkeit über die Flugzeit gegen Gewissheit.
+    if (player.botBallId !== mine.id) {
+      player.botBallId = mine.id;
+      const reads = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.65 : 0.35;
+      player.botNudgeRight = Math.random() < reads;
+      // Wann gestupst wird: zu früh weiss man noch nicht, wohin die Kugel
+      // läuft, zu spät wirkt der Stups nicht mehr.
+      player.botNudgeAt = profile.level === "hard" ? 0.62 : profile.level === "normal" ? 0.5 : 0.34;
+    }
+    const share = mine.y / Math.max(0.001, arcade.floorY);
+    if (share < player.botNudgeAt) return;
+    const wanted = mine.x < 0.5 ? 1 : -1;
+    handleArcadeInput(room, bot, { action: "nudge", dir: player.botNudgeRight ? wanted : -wanted });
     return;
   }
   if (arcade.family === "curling") {
     if ((player.stonesLeft || 0) <= 0 || Math.random() < 0.82) return;
+    const profile = botProfile(player);
     const startX = player.startX || 0.5;
-    const dx = clamp((arcade.house.x - startX) * 0.75 + (Math.random() - 0.5) * 0.1, -1, 1);
-    const dy = clamp(-0.5 + (Math.random() - 0.5) * 0.12, -1, -0.3);
-    handleArcadeInput(room, bot, { action: "flick", dx, dy });
+
+    // Vorher warfen alle drei Stufen mit derselben Streuung — die Rangfolge kam
+    // rein aus dem Zufall des Eises. Jetzt steckt das Können in zwei Zahlen:
+    // wie genau gezielt wird und wie gut die Kraft dosiert ist.
+    const aimErr = profile.level === "hard" ? 0.035 : profile.level === "normal" ? 0.09 : 0.19;
+    const powerErr = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.12 : 0.24;
+
+    // Die Kraft, die den Stein genau ins Haus trägt, aus der Reibung gerechnet:
+    // Weg = v/Reibung · (1 − e^(−Reibung·t)), im Grenzfall also v/Reibung.
+    const distance = Math.max(0.05, (arcade.sheetY - 0.14) - arcade.house.y);
+    const wantedSpeed = distance * CURLING_FRICTION;
+    const power = clamp((wantedSpeed / 1.7) * (1 + (Math.random() - 0.5) * 2 * powerErr), 0.25, 1);
+
+    // Ein starker Bot legt sich vor einen fremden Stein, der schon gut liegt —
+    // wegrempeln ist hier die halbe Miete.
+    let targetX = arcade.house.x;
+    if (profile.level === "hard") {
+      const rival = (arcade.stones || [])
+        .filter((stone) => stone.playerId !== bot.id)
+        .map((stone) => ({ stone, miss: Math.hypot(stone.x - arcade.house.x, stone.y - arcade.house.y) }))
+        .sort((a, b) => a.miss - b.miss)[0];
+      if (rival && rival.miss < 0.14) targetX = rival.stone.x;
+    }
+
+    const spread = (targetX - startX) + (Math.random() - 0.5) * 2 * aimErr;
+    handleArcadeInput(room, bot, {
+      action: "flick",
+      dx: clamp(spread * 0.9, -1, 1),
+      dy: clamp(-power, -1, -0.2)
+    });
     return;
   }
   if (arcade.family === "stopclock") {
@@ -8019,6 +8113,11 @@ module.exports = {
     BELT_WRONG_COST,
     BELT_MISS_COST,
     BELT_DURATION_MS,
+    SIMON_ROUNDS,
+    SIMON_DURATION_MS,
+    REACT_ROUNDS,
+    buildSimonRounds,
+    buildReactRounds,
     beltSpeed,
     buildBeltChutePlan,
     makeBeltParcel,

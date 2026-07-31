@@ -193,10 +193,18 @@ test("every game reports exactly one number in its result", () => {
 });
 
 test("catalog contains only the 3D challenges", () => {
-  assert.equal(MINIGAMES.length, 23);
+  // Die Liste wird SORTIERT verglichen, damit ein neues Spiel nicht an einer
+  // beliebigen Stelle eingefügt werden kann, ohne dass es auffällt.
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
-    ["angelduell", "ballonPump", "ballonfahrt", "bergsteiger", "blobklopfe", "bounceArena", "colorEscape", "falschsignal", "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "lichtwaechter", "messerwurf", "muenzregen", "nervenprobe", "seilspringen", "sortierband", "spurmaler", "sumoschubs", "trampolin", "turmbau", "zuendstoff"]
+    [
+      "angelduell", "ballonPump", "ballonfahrt", "bergsteiger", "blitzreflex",
+      "blobklopfe", "bounceArena", "colorEscape", "eisstock", "falschsignal",
+      "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "leuchtfolge",
+      "lichtwaechter", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
+      "seilspringen", "sortierband", "spurmaler", "sumoschubs", "trampolin",
+      "turmbau", "zuendstoff"
+    ]
   );
 });
 

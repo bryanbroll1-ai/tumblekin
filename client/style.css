@@ -3259,6 +3259,146 @@ body[data-screen="minigame"] .game-menu-button {
   color: var(--muted);
 }
 
+/* --- Nagelbrett und Eisstock: Punktestände ------------------------------ */
+.stock-left {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #bfe6f7;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.peg-chips,
+.stock-chips {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.peg-chips {
+  top: calc(12px + env(safe-area-inset-top));
+}
+
+.peg-chip,
+.stock-chip {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.peg-chip.is-own,
+.stock-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+.kinetic-hud .color-banner.peg-banner,
+.kinetic-hud.dev-mode .color-banner.peg-banner,
+.kinetic-hud .color-banner.stock-banner,
+.kinetic-hud.dev-mode .color-banner.stock-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* --- Leuchtfolge: Runde und Bestleistungen ----------------------------- */
+.simon-round {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffe36b;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.simon-chips,
+.react-rounds {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.simon-chip {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.simon-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* --- Blitzreflex: die drei Läufe --------------------------------------- */
+/* Jeder Lauf bekommt ein eigenes Feld. Man sieht damit auf einen Blick, wie
+   viele noch kommen und wie der letzte ausging — ohne eine Zahl zu lesen. */
+.react-slot {
+  display: grid;
+  place-items: center;
+  min-width: 46px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #8fa4b4;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.react-slot.is-good {
+  background: #7fe06f;
+  color: #14361a;
+}
+
+.react-slot.is-bad {
+  background: #ff6b7f;
+  color: #42101a;
+}
+
+/* Beide Banner nach unten: oben stehen Pilze bzw. Ampel, und genau dorthin
+   schaut man. */
+.kinetic-hud .color-banner.simon-banner,
+.kinetic-hud.dev-mode .color-banner.simon-banner,
+.kinetic-hud .color-banner.react-banner,
+.kinetic-hud.dev-mode .color-banner.react-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
 /* --- Ballonfahrt: Torzähler und Ballonstände --------------------------- */
 .glide-gates {
   position: absolute;

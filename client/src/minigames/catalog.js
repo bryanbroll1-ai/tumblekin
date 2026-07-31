@@ -13,6 +13,9 @@ export const GESTURES = {
   react: { icon: "👆⚡", label: "Blitzschnell tippen" },
   trace: { icon: "👆〰️", label: "Finger auf der Spur führen" },
   belt: { icon: "👆↔️", label: "Ins Fach wischen" },
+  memory: { icon: "👆🧠", label: "Folge nachtippen" },
+  aim: { icon: "👆🎯", label: "Tippen und stupsen" },
+  slide: { icon: "👆➡️", label: "Nach vorne wischen" },
   fish: { icon: "👆🎣", label: "Halten und im Schub loslassen" }
 };
 
@@ -39,6 +42,10 @@ export const MINIGAME_CATALOG = [
   { type: "spurmaler", title: "Spurmaler", family: "trace", gesture: "trace", help: "Zieh den Finger auf der Spur nach oben und mal sie aus. Das Band wird zwischendurch eng — dort zählt jeder Millimeter. Die Kristalle liegen am Bandrand: wer sie mitnimmt, muss nicht nur drinbleiben, sondern zielen. Verlässt du das Band, reisst der Strich ab." },
   { type: "sortierband", title: "Sortierband", family: "belt", gesture: "belt", help: "Wisch jedes Paket in die Rutsche mit seiner Farbe — links, unten oder rechts. Die Rutschen tauschen zwischendurch die Farben, also nicht auswendig lernen, sondern hinschauen. Eine Serie ohne Fehler bringt Zusatzpunkte." },
   { type: "angelduell", title: "Angelduell", family: "fish", gesture: "fish", help: "Halten holt den Fisch ein und spannt die Schnur. Wenn er zieht, steigt die Spannung viel schneller — dann loslassen, sonst reisst sie. Vier Arten beissen: die Sprotte kommt leicht und bringt wenig, der Wels bringt fünfmal so viel und zieht so hart, dass ein Moment Unachtsamkeit die Schnur kostet." },
+  { type: "leuchtfolge", title: "Leuchtfolge", family: "simon", gesture: "memory", help: "Vier Pilze leuchten der Reihe nach auf — tippe sie danach in derselben Reihenfolge an. Jede Runde kommt ein Pilz dazu. Ein Fehler beendet nur die laufende Runde, die nächste zählt wieder." },
+  { type: "blitzreflex", title: "Blitzreflex", family: "react", gesture: "react", help: "Drei Läufe an der Startampel. Tippe irgendwo auf den Bildschirm, sobald sie auf Grün springt — aber nicht vorher: ein Fehlstart kostet mehr als jede langsame Reaktion. Die kürzeste Gesamtzeit gewinnt." },
+  { type: "nagelbrett", title: "Nagelbrett", family: "plinko", gesture: "aim", help: "Tippe oben, wo die Kugel fallen soll — die Mitte ist am meisten wert. Während sie fällt, hast du GENAU einen Stups: tippe links oder rechts, um sie noch einmal zu lenken." },
+  { type: "eisstock", title: "Eisstock", family: "curling", gesture: "slide", help: "Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine pro Person, je näher an der Mitte, desto mehr Punkte. Fremde Steine wegrempeln ist erlaubt." },
   { type: "farbenjagd", title: "Farbenjagd", family: "paint", gesture: "joystick", help: "Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal." }
 ];
 
