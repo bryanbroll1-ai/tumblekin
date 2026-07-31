@@ -790,6 +790,7 @@ io.on("connection", (socket) => {
       currentMinigame: null,
       lastMinigameResult: null,
       resultEndsAt: null,
+      readyForNext: [],
       lastMessage: "Raum erstellt.",
       lastMove: null,
       winnerIds: [],
@@ -1081,6 +1082,34 @@ io.on("connection", (socket) => {
     resetToLobby(room);
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
+  });
+
+  // Weiter, wenn alle es eilig haben. Die Ergebnistafel steht 6.5 Sekunden, die
+  // Auflösung selbst dauert bei vier Personen aber nur 2.5 — danach schaut die
+  // Runde vier Sekunden lang auf ein Bild, in dem nichts mehr passiert. Wer
+  // tippt, meldet sich bereit; sind alle bereit, geht es sofort weiter. Ein
+  // einzelner Ungeduldiger kann damit niemanden überfahren.
+  socket.on("readyForNext", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (room.status !== "result") return replyError(reply, "Gerade läuft keine Ergebnistafel.");
+
+    const controlled = room.players.filter((candidate) =>
+      candidate.controllerId === socket.id || candidate.id === socket.data.playerId);
+    if (controlled.length === 0) return replyError(reply, "Du gehörst nicht zu diesem Raum.");
+
+    room.readyForNext = room.readyForNext || [];
+    controlled.forEach((candidate) => {
+      if (!candidate.isBot && !room.readyForNext.includes(candidate.id)) {
+        room.readyForNext.push(candidate.id);
+      }
+    });
+
+    const humans = humansInRoom(room);
+    const allReady = humans.length > 0 && humans.every((candidate) => room.readyForNext.includes(candidate.id));
+    reply?.({ ok: true, ready: room.readyForNext.length, needed: humans.length });
+    emitRoom(room);
+    if (allReady) continueAfterResult(room);
   });
 
   socket.on("disconnect", () => {
@@ -2254,6 +2283,7 @@ function finishMinigame(room) {
     ranking
   };
   room.resultEndsAt = Date.now() + RESULT_HOLD_MS;
+  room.readyForNext = [];
   room.currentMinigame = null;
   room.lastMessage = `${minigame.title}: ${ranking[0]?.name || "Niemand"} gewinnt.`;
   emitRoom(room);
@@ -2596,6 +2626,12 @@ function botProfile(arcadePlayer, seedHint = 0) {
         : { level: "hard", reactionMs: 300, mistake: 0.07, spreadMs: 160 };
   }
   return arcadePlayer.botProfile;
+}
+
+// Alle verbundenen Menschen im Raum. Bots und getrennte Geräte zählen nicht —
+// sonst könnte eine Runde nie weitergehen, weil jemand das Handy weggelegt hat.
+function humansInRoom(room) {
+  return room.players.filter((player) => !player.isBot && player.connected !== false);
 }
 
 function continueAfterResult(room) {
@@ -8007,6 +8043,8 @@ function serializeRoom(room) {
     currentMinigame: room.currentMinigame ? serializeMinigame(room.currentMinigame) : null,
     lastMinigameResult: room.lastMinigameResult,
     resultEndsAt: room.resultEndsAt,
+    readyForNext: room.readyForNext || [],
+    readyNeeded: humansInRoom(room).length,
     lastMove: room.lastMove,
     lastMessage: room.lastMessage,
     winnerIds: room.winnerIds,
@@ -8260,6 +8298,7 @@ module.exports = {
 
     arcadeRankingScore,
     beginMinigameFinale,
+    humansInRoom,
     rankPlaces,
     bounceResultScore,
     buildBoardPath,

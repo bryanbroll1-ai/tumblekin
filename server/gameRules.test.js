@@ -52,6 +52,7 @@ const {
   DIVE_DURATION_MS,
   KNIFE_MIN_GAP_DEG,
   knifeRoundsFor,
+  humansInRoom,
   DIVE_MAX_DEPTH,
   DIVE_RISK_MAX,
   diveGain,
@@ -1846,6 +1847,35 @@ test("glide: the result reports one number and it is the one that ranks", () => 
 test("glide: wrong action is refused", () => {
   const { room, me } = glideRoom();
   assert.equal(handleArcadeInput(room, me, { action: "shoot" }).ok, false);
+});
+
+// --- Ergebnistafel ---------------------------------------------------------
+
+test("result: only everyone together can skip the board", () => {
+  // Der Weiter-Knopf beschleunigt, er überspringt nicht. Ein einzelner
+  // Ungeduldiger darf den anderen die Tafel nicht wegnehmen, bevor sie sie
+  // gelesen haben — und ein Bot oder ein weggelegtes Handy darf die Runde
+  // umgekehrt nicht blockieren.
+  const room = {
+    status: "result",
+    players: [
+      { id: "a", name: "A", isBot: false, connected: true },
+      { id: "b", name: "B", isBot: false, connected: true },
+      { id: "c", name: "C", isBot: true, connected: true },
+      { id: "d", name: "D", isBot: false, connected: false }
+    ],
+    readyForNext: []
+  };
+  const humans = humansInRoom(room);
+  assert.deepEqual(humans.map((player) => player.id), ["a", "b"],
+    "Bots und getrennte Geräte zählen nicht mit");
+
+  const allReady = () => humans.every((player) => room.readyForNext.includes(player.id));
+  assert.equal(allReady(), false);
+  room.readyForNext.push("a");
+  assert.equal(allReady(), false, "einer allein reicht nicht");
+  room.readyForNext.push("b");
+  assert.equal(allReady(), true);
 });
 
 // --- Messerwurf ------------------------------------------------------------

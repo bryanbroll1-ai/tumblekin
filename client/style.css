@@ -1048,6 +1048,19 @@ body[data-screen="minigame"] .game-menu-button {
 }
 
 .player-card,
+/* Weiter-Knopf auf der Ergebnistafel. Er beschleunigt nur — weiter geht es
+   erst, wenn alle bereit sind. */
+.result-ready {
+  align-self: center;
+  min-width: 62%;
+  margin-top: 4px;
+}
+
+.result-ready:disabled {
+  filter: grayscale(0.5);
+  opacity: 0.7;
+}
+
 .ranking-card {
   display: grid;
   grid-template-columns: auto 1fr auto;

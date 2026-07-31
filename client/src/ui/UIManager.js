@@ -1,6 +1,6 @@
-import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin89";
-import { playerStatus } from "../game/Player.js?v=tumblekin89";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin89";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin90";
+import { playerStatus } from "../game/Player.js?v=tumblekin90";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin90";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -137,6 +137,7 @@ export class UIManager {
       resultReason: document.getElementById("result-reason"),
       resultWinner: document.getElementById("result-winner"),
       resultList: document.getElementById("result-list"),
+      resultReady: document.getElementById("result-ready"),
       winnerBanner: document.getElementById("winner-banner"),
       finalList: document.getElementById("final-list"),
       restart: document.getElementById("restart-game"),
@@ -205,6 +206,10 @@ export class UIManager {
       this.safeAction(() => this.handlers.chooseRoute(Number(button.dataset.route)));
     });
     this.el.restart.addEventListener("click", () => this.safeAction(() => this.handlers.restartGame()));
+    this.el.resultReady?.addEventListener("click", () => {
+      this.feedback?.sound("tap");
+      this.safeAction(() => this.handlers.readyForNext());
+    });
     this.el.copyLink.addEventListener("click", () => this.safeAction(() => this.copyJoinLink()));
     this.el.modeOptions?.querySelectorAll("[data-mode]").forEach((button) => {
       button.addEventListener("click", () => this.safeAction(() => this.handlers.selectMode(button.dataset.mode)));
@@ -675,6 +680,19 @@ export class UIManager {
         </li>
       `;
     }).join("");
+
+    // Der Weiter-Knopf: er beschleunigt nur, er überspringt nichts. Erst wenn
+    // ALLE bereit sind, geht es weiter — sonst könnte ein Ungeduldiger den
+    // anderen die Tafel wegnehmen, bevor sie sie gelesen haben.
+    const ready = (this.state.readyForNext || []).length;
+    const needed = this.state.readyNeeded || 0;
+    if (this.el.resultReady) {
+      const mine = (this.state.readyForNext || []).includes(this.myPlayerId);
+      this.el.resultReady.disabled = mine;
+      this.el.resultReady.textContent = needed > 1
+        ? (mine ? `Warte auf die anderen (${ready}/${needed})` : `Weiter (${ready}/${needed})`)
+        : "Weiter";
+    }
 
     if (isNewResult && ranking.length) {
       this.shownResultId = result.id;

@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin89";
+} from "./VoxelKit.js?v=tumblekin90";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin89";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin89";
+} from "./SceneKit.js?v=tumblekin90";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin90";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
