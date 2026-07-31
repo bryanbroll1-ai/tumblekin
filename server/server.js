@@ -109,6 +109,16 @@ const BELT_DURATION_MS = 34000;
 // Katalog das einzige Spiel, das nachrechnet statt zuckt. 42 s reichen bei
 // gutem Spiel für vier bis fünf Fundstücke und bei Rateglück für zwei.
 const SEEK_DURATION_MS = 42000;
+// Augenmass — ein Schwarm blitzt kurz auf, danach schätzt man, wie viele es
+// waren. Vier Durchgänge; die Zeiten stehen fest, damit alle denselben Blick
+// haben und die Anzeige nie gegen den Server läuft.
+const ESTIMATE_ROUNDS = 4;
+const ESTIMATE_SHOW_MS = 1500;         // so lange ist der Schwarm zu sehen
+const ESTIMATE_GUESS_MS = 4500;        // so lange darf geschätzt werden
+const ESTIMATE_REVEAL_MS = 1900;       // Auflösung, gemeinsam
+const ESTIMATE_LEAD_IN_MS = 900;
+const ESTIMATE_DURATION_MS = ESTIMATE_LEAD_IN_MS
+  + ESTIMATE_ROUNDS * (ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS) + 500;
 const GLIDE_DURATION_MS = 34000;
 const SIMON_DURATION_MS = 36000;
 const DIVE_DURATION_MS = 36000;
@@ -145,6 +155,7 @@ const MINIGAMES = [
   { type: "tiefenrausch", title: "Tiefenrausch", duration: DIVE_DURATION_MS, arcadeFamily: "dive" },
   { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" },
   { type: "spuersinn", title: "Spürsinn", duration: SEEK_DURATION_MS, arcadeFamily: "seek" },
+  { type: "augenmass", title: "Augenmaß", duration: ESTIMATE_DURATION_MS, arcadeFamily: "estimate" },
   { type: "farbenjagd", title: "Farbenjagd", duration: PAINT_DURATION_MS, arcadeFamily: "paint" }
 ];
 
@@ -176,7 +187,8 @@ const ARCADE_CONFIGS = {
   tiefenrausch: { family: "dive", seed: 599 },
   angelduell: { family: "fish", seed: 509 },
   farbenjagd: { family: "paint", seed: 521 },
-  spuersinn: { family: "seek", seed: 619 }
+  spuersinn: { family: "seek", seed: 619 },
+  augenmass: { family: "estimate", seed: 733 }
 };
 
 // Ballonfahrt — halten steigt, loslassen sinkt, und der Kurs kommt in Toren
@@ -499,6 +511,65 @@ const SEEK_COOLDOWN_MS = 260;
 // tippt eben schnell. Damit wird aus dem Spiel eine echte Frage — denken oder
 // draufhalten? — statt einer Rechenaufgabe, die der Schnellste gewinnt.
 const SEEK_BOT_INTERVAL = { easy: 400, normal: 700, hard: 1150 };
+
+// Augenmass — ein Schwarm blitzt auf, dann schätzt man die Anzahl.
+//
+// Der Katalog misst Reflex, Timing, Steuerung, Rhythmus, Gedächtnis und seit
+// Spürsinn auch Schlussfolgern. Was fehlt, ist WAHRNEHMUNG: die Fähigkeit, eine
+// Menge auf einen Blick einzuschätzen, ohne zu zählen. Darin sind Menschen sehr
+// unterschiedlich gut, und man merkt am Tisch sofort, wer ein Auge dafür hat.
+//
+// Die Spannen wachsen von Durchgang zu Durchgang. Bei acht bis zwanzig zählt
+// man notfalls noch mit; bei fünfundvierzig bis fünfundneunzig geht das in
+// anderthalb Sekunden nicht mehr, und genau dort trennt sich das Feld.
+const ESTIMATE_BANDS = [[8, 20], [16, 36], [28, 58], [45, 95]];
+const ESTIMATE_POINTS = 200;           // volle Punkte für einen genauen Treffer
+const ESTIMATE_BULLSEYE = 60;          // Zugabe, wenn die Zahl exakt stimmt
+// Wie schnell die Punkte mit dem Fehler fallen, gemessen an der Breite der
+// Spanne. Bei einem Drittel daneben ist nichts mehr zu holen — geraten in der
+// Mitte bringt gerade noch ein Viertel der Punkte, und das soll es auch.
+const ESTIMATE_FALLOFF = 3;
+
+function estimateBand(round) {
+  return ESTIMATE_BANDS[Math.min(ESTIMATE_BANDS.length - 1, Math.max(0, round))];
+}
+
+// Der Plan steht beim Start fest: Anzahl und Zeiten je Durchgang. Kein Zufall
+// pro Tick — sonst sähen zwei Geräte verschiedene Schwärme.
+function buildEstimateRounds(seed) {
+  const rounds = [];
+  let at = ESTIMATE_LEAD_IN_MS;
+  for (let index = 0; index < ESTIMATE_ROUNDS; index += 1) {
+    const [low, high] = estimateBand(index);
+    const count = low + Math.floor(arcadeNoise(seed + index * 6151) * (high - low + 1));
+    rounds.push({
+      index,
+      count: Math.min(high, count),
+      low,
+      high,
+      showFrom: at,
+      guessFrom: at + ESTIMATE_SHOW_MS,
+      revealFrom: at + ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS,
+      until: at + ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS
+    });
+    at += ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS;
+  }
+  return rounds;
+}
+
+function estimateRoundAt(arcade, elapsed) {
+  return (arcade.rounds || []).find((round) => elapsed >= round.showFrom && elapsed < round.until) || null;
+}
+
+// Was eine Schätzung wert ist. Der Fehler zählt relativ zur Spanne, sonst wäre
+// der letzte Durchgang (45 bis 95) fünfmal härter als der erste (8 bis 20) —
+// dabei ist er ohnehin schon der schwerste.
+function estimateValue(guess, round) {
+  const spread = Math.max(1, round.high - round.low);
+  const error = Math.abs(guess - round.count);
+  const points = Math.max(0, Math.round(ESTIMATE_POINTS * (1 - (error / spread) * ESTIMATE_FALLOFF)));
+  return { error, points: points + (error === 0 ? ESTIMATE_BULLSEYE : 0) };
+}
 
 // Aus der Spieler-Id eine eigene Zahl, damit nicht alle dasselbe Versteck haben.
 function hashSeekSeed(playerId) {
@@ -2512,6 +2583,12 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
     return Math.max(1, 1000000 - total);
   }
+  if (arcade.family === "estimate") {
+    // Der Punktestand steckt alles: jede Schätzung ist umso mehr wert, je näher
+    // sie lag. Bei Gleichstand rangiert höher, wer insgesamt weniger danebenlag.
+    return Math.max(0, Math.round(arcadePlayer.score || 0) * 1000
+      + Math.max(0, 900 - Math.round(arcadePlayer.totalError || 0)));
+  }
   if (arcade.family === "seek") {
     // Der Punktestand steckt schon alles: jeder Fund ist umso mehr wert, je
     // weniger Tipps er gekostet hat. Bei Gleichstand entscheidet die sparsamere
@@ -2669,6 +2746,12 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     const played = arcadePlayer.times || [];
     const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
     return { kind: "sumTime", value: Math.round(total), label: "gesamt" };
+  }
+  if (arcade.family === "estimate") {
+    // Eine Zahl, und zwar die, nach der auch sortiert wird. Der Gesamtfehler
+    // wäre die naheliegende Anzeige, widerspräche aber der Rangfolge, sobald
+    // jemand einen Volltreffer mit seiner Zugabe dabei hat.
+    return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "seek") {
     // Eine Zahl, und zwar die, nach der auch sortiert wird. Die Zahl der Funde
@@ -3827,6 +3910,18 @@ function createArcadeState(type, players, startedAt) {
       entry.lastVerdict = null;
     });
   }
+  if (config.family === "estimate") {
+    arcade.rounds = buildEstimateRounds(config.seed);
+    arcade.resolvedRound = -1;
+    arcade.lastReveal = null;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.guess = null;              // Schätzung des laufenden Durchgangs
+      entry.guesses = [];              // { round, guess, count, error, points }
+      entry.bullseyes = 0;
+      entry.totalError = 0;
+    });
+  }
   if (config.family === "seek") {
     arcade.size = SEEK_SIZE;
     arcade.basePoints = SEEK_BASE_POINTS;
@@ -4290,7 +4385,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -4670,6 +4765,21 @@ function handleArcadeInput(room, player, rawInput) {
     arcadePlayer.flash = "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "estimate") {
+    if (input.action !== "guess") return { ok: false, error: "Stell den Regler auf deine Schätzung." };
+    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
+    const round = estimateRoundAt(arcade, elapsed);
+    if (!round) return { ok: true };
+    if (elapsed < round.guessFrom) return { ok: false, error: "Erst schauen, dann schätzen." };
+    if (elapsed >= round.revealFrom) return { ok: true };   // schon aufgelöst
+    const value = Math.round(inputNumber(input.value));
+    if (!Number.isFinite(value)) return { ok: false, error: "Das ist keine Zahl." };
+    arcadePlayer.guess = clamp(value, round.low, round.high);
+    arcadePlayer.hasMoved = true;
+    arcadePlayer.lastHitAt = now;
     return { ok: true };
   }
 
@@ -5636,6 +5746,10 @@ function updateArcade(room) {
     updatePlinko(room, minigame, arcade, dt, now);
   }
 
+  if (arcade.family === "estimate") {
+    updateEstimate(room, minigame, arcade, now);
+  }
+
   if (arcade.family === "curling") {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
@@ -6193,6 +6307,48 @@ function updatePlinko(room, minigame, arcade, dt, now) {
     const entry = arcade.players[player.id];
     if (entry) syncArcadeScore(minigame, player, entry);
   });
+}
+
+function updateEstimate(room, minigame, arcade, now) {
+  const elapsed = Math.max(0, now - minigame.startedAt);
+  const round = estimateRoundAt(arcade, elapsed);
+  arcade.round = round ? round.index : null;
+  arcade.phase = !round ? "over"
+    : elapsed < round.guessFrom ? "show"
+      : elapsed < round.revealFrom ? "guess" : "reveal";
+  if (!round) return;
+
+  // Genau EINMAL je Durchgang werten, beim Übergang in die Auflösung. Ohne die
+  // Merkzahl liefe die Wertung mit jedem Tick erneut.
+  if (arcade.phase !== "reveal" || arcade.resolvedRound >= round.index) return;
+  arcade.resolvedRound = round.index;
+
+  const reveal = { round: round.index, count: round.count, at: now, guesses: {} };
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry) return;
+    // Wer den Regler nicht angefasst hat, wird mit der Mitte gewertet. Ein
+    // Nuller wäre härter, als das Spiel sein will: ein Aussetzer im Funknetz
+    // oder ein Blick zur Seite darf keinen Durchgang verschlucken — und die
+    // Mitte ist ohnehin nur ein Viertel der Punkte wert.
+    const guess = entry.guess === null || entry.guess === undefined
+      ? Math.round((round.low + round.high) / 2)
+      : entry.guess;
+    const { error, points } = estimateValue(guess, round);
+    entry.score += points;
+    entry.totalError += error;
+    if (error === 0) {
+      entry.bullseyes += 1;
+      entry.successes += 1;
+    }
+    entry.guesses.push({ round: round.index, guess, count: round.count, error, points });
+    entry.guess = null;
+    entry.flash = error === 0 ? "good" : (points > 0 ? null : "bad");
+    entry.lastHitAt = now;
+    reveal.guesses[player.id] = { guess, error, points };
+    syncArcadeScore(minigame, player, entry);
+  });
+  arcade.lastReveal = reveal;
 }
 
 function updateCurling(room, minigame, arcade, dt, now) {
@@ -7319,6 +7475,39 @@ function arcadeBotStep(room, bot) {
       pick = free[Math.floor(Math.random() * free.length)] || null;
     }
     if (pick) handleArcadeInput(room, bot, { action: "probe", x: pick.x, y: pick.y });
+    return;
+  }
+
+  if (arcade.family === "estimate") {
+    if (arcade.phase !== "guess") return;
+    const round = (arcade.rounds || [])[arcade.round];
+    if (!round) return;
+    // Einmal je Durchgang schätzen, und nicht sofort: ein Mensch schaut erst
+    // hin, dann schiebt er den Regler.
+    if (player.botRound !== round.index) {
+      player.botRound = round.index;
+      player.botGuessAt = Date.now() + 500 + Math.random() * (ESTIMATE_GUESS_MS - 1400);
+      player.botGuessDone = false;
+
+      // Das Können steckt in EINER Zahl: wie weit die Schätzung streut,
+      // gemessen an der Breite der Spanne. Ein Mensch, der ein Auge dafür hat,
+      // liegt bei grossen Mengen um wenige Prozent daneben; wer nur rät,
+      // verschätzt sich um ein Viertel der Spanne.
+      const profile = botProfile(player);
+      const spread = Math.max(1, round.high - round.low);
+      const relative = profile.level === "hard" ? 0.05
+        : profile.level === "normal" ? 0.13 : 0.27;
+      // Gauss-artig statt gleichverteilt: kleine Fehler sind viel häufiger als
+      // grosse. Gleichverteilt sähe die Streuung aus wie Würfeln.
+      const noise = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+      player.botGuess = clamp(
+        Math.round(round.count + noise * spread * relative),
+        round.low, round.high
+      );
+    }
+    if (player.botGuessDone || Date.now() < player.botGuessAt) return;
+    player.botGuessDone = true;
+    handleArcadeInput(room, bot, { action: "guess", value: player.botGuess });
     return;
   }
 
@@ -8637,6 +8826,11 @@ module.exports = {
     GATE_COIN_BONUS,
     MINIGAMES,
     SEEK_SIZE,
+    ESTIMATE_ROUNDS,
+    ESTIMATE_BANDS,
+    buildEstimateRounds,
+    estimateRoundAt,
+    estimateValue,
     seekSteps,
     seekGemFor,
     seekFindValue,

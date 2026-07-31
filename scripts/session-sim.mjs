@@ -44,7 +44,7 @@ const GAMES = [
   "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger",
   "ballonfahrt", "sumoschubs", "trampolin", "falschsignal", "spurmaler",
   "sortierband", "leuchtfolge", "blitzreflex", "nagelbrett", "eisstock",
-  "tiefenrausch", "angelduell", "farbenjagd", "spuersinn"
+  "tiefenrausch", "angelduell", "farbenjagd", "spuersinn", "augenmass"
 ];
 
 function freePort() {

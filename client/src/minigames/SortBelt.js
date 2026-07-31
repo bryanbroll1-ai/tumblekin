@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin92";
+} from "./VoxelKit.js?v=tumblekin93";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin92";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin92";
+} from "./SceneKit.js?v=tumblekin93";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin93";
 
 // Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die

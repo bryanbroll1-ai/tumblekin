@@ -236,7 +236,7 @@ test("catalog contains only the 3D challenges", () => {
   assert.deepEqual(
     MINIGAMES.map((game) => game.type).sort(),
     [
-      "angelduell", "ballonPump", "ballonfahrt", "bergsteiger", "blitzreflex",
+      "angelduell", "augenmass", "ballonPump", "ballonfahrt", "bergsteiger", "blitzreflex",
       "blobklopfe", "bounceArena", "colorEscape", "eisstock", "falschsignal",
       "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "leuchtfolge",
       "lichtwaechter", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
