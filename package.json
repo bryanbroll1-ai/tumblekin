@@ -10,7 +10,8 @@
     "smoke": "node scripts/smoke.mjs",
     "board-sim": "node scripts/board-sim.mjs",
     "bot-sim": "node scripts/bot-sim.mjs",
-    "icons": "node scripts/icons.mjs"
+    "icons": "node scripts/icons.mjs",
+    "fuzz": "node scripts/fuzz.mjs"
   },
   "keywords": [
     "party-game",

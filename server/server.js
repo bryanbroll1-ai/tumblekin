@@ -764,7 +764,22 @@ app.get("/qr.svg", async (req, res) => {
 });
 
 io.on("connection", (socket) => {
-  socket.on("createRoom", (payload, reply) => {
+  // Jeder Handler bekommt eine Sicherung. Wirft einer, bevor er geantwortet
+  // hat, wartet der Client sonst ewig auf seinen Rückruf: der Knopf im Spiel
+  // reagiert einfach nicht mehr, ohne Fehlermeldung, ohne Hinweis. Ein
+  // abgelehntes Paket ist in Ordnung, ein stummes nicht.
+  const on = (event, handler) => {
+    socket.on(event, (payload, reply) => {
+      try {
+        handler(payload, reply);
+      } catch (error) {
+        console.error(`[tumblekin] ${event} ist gescheitert:`, error);
+        replyError(reply, "Das hat der Server nicht verstanden.");
+      }
+    });
+  };
+
+  on("createRoom", (payload, reply) => {
     const blocked = roomCreateBlockedReason(socket);
     if (blocked) return replyError(reply, blocked);
     leaveCurrentRoom(socket, false, true);
@@ -822,7 +837,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("joinRoom", (payload, reply) => {
+  on("joinRoom", (payload, reply) => {
     leaveCurrentRoom(socket, false, true);
 
     const code = normalizeCode(payload?.code);
@@ -849,7 +864,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("resumeRoom", (payload, reply) => {
+  on("resumeRoom", (payload, reply) => {
     const code = normalizeCode(payload?.code);
     const room = rooms.get(code);
     if (!room) return replyError(reply, "Die vorherige Sitzung existiert nicht mehr.");
@@ -881,12 +896,12 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("leaveRoom", (_payload, reply) => {
+  on("leaveRoom", (_payload, reply) => {
     leaveCurrentRoom(socket, true, true);
     reply?.({ ok: true });
   });
 
-  socket.on("addTestPlayers", (payload, reply) => {
+  on("addTestPlayers", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann Bots hinzufügen.");
@@ -910,7 +925,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("enableDevMode", (payload, reply) => {
+  on("enableDevMode", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Testmodus ist in dieser Version deaktiviert.");
@@ -941,7 +956,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("selectBoard", (payload, reply) => {
+  on("selectBoard", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt das Brett.");
@@ -954,7 +969,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("selectMode", (payload, reply) => {
+  on("selectMode", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt den Modus.");
@@ -970,7 +985,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("selectSingleGame", (payload, reply) => {
+  on("selectSingleGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt das Minispiel.");
@@ -983,7 +998,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("startGame", (payload, reply) => {
+  on("startGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann starten.");
@@ -996,7 +1011,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("startDevMinigame", (payload, reply) => {
+  on("startDevMinigame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Challenge ist in dieser Version deaktiviert.");
@@ -1010,7 +1025,7 @@ io.on("connection", (socket) => {
   });
 
 
-  socket.on("rollDice", (payload, reply) => {
+  on("rollDice", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     const current = getCurrentPlayer(room);
@@ -1025,7 +1040,7 @@ io.on("connection", (socket) => {
     reply?.({ ok: true, dice: result.dice });
   });
 
-  socket.on("chooseRoute", (payload, reply) => {
+  on("chooseRoute", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     const pending = room.pendingJunction;
@@ -1039,7 +1054,7 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
-  socket.on("minigameInput", (payload, reply) => {
+  on("minigameInput", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     const player = room.players.find((candidate) => candidate.id === payload?.playerId)
@@ -1053,7 +1068,7 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
-  socket.on("useItem", (payload, reply) => {
+  on("useItem", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     const player = room.players.find((candidate) => candidate.id === payload?.playerId)
@@ -1085,7 +1100,7 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
-  socket.on("restartGame", (payload, reply) => {
+  on("restartGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann neu starten.");
@@ -1099,7 +1114,7 @@ io.on("connection", (socket) => {
   // Runde vier Sekunden lang auf ein Bild, in dem nichts mehr passiert. Wer
   // tippt, meldet sich bereit; sind alle bereit, geht es sofort weiter. Ein
   // einzelner Ungeduldiger kann damit niemanden überfahren.
-  socket.on("readyForNext", (payload, reply) => {
+  on("readyForNext", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (room.status !== "result") return replyError(reply, "Gerade läuft keine Ergebnistafel.");
@@ -1881,11 +1896,14 @@ function startMinigame(room, reason, afterAction, forcedType = null) {
   setTrackedTimeout(room, () => finishMinigame(room), countdownMs + template.duration + 350 + MINIGAME_FINALE_MS + 500);
 }
 
-function handleMinigameInput(room, player, input) {
+function handleMinigameInput(room, player, rawInput) {
   const minigame = room.currentMinigame;
   if (room.status !== "minigame" || !minigame) {
     return { ok: false, error: "Gerade läuft kein Minispiel." };
   }
+  // Ab hier lesen alle Familien Felder aus `input`. Ein Nicht-Objekt darf hier
+  // nicht durchrutschen — der Wurf käme mitten im Tick und nähme die Partie mit.
+  const input = (rawInput && typeof rawInput === "object") ? rawInput : {};
   const now = Date.now();
   if (now < minigame.startedAt) {
     return { ok: false, error: "Das Minispiel startet gleich." };
@@ -3152,20 +3170,23 @@ function createArenaState(players, startedAt) {
   return arena;
 }
 
-function handleArenaInput(room, player, input) {
+function handleArenaInput(room, player, rawInput) {
   const minigame = room.currentMinigame;
   const arenaPlayer = minigame?.arena?.players?.[player.id];
   if (!arenaPlayer) return { ok: false, error: "Arena nicht bereit." };
   if (!arenaPlayer.inPlay) return { ok: true }; // still respawning — ignore, don't error
 
+  // Wie in handleArcadeInput: die Regelschicht darf sich nicht auf das `|| {}`
+  // der Socket-Schicht verlassen, sie wird auch direkt gerufen.
+  const input = (rawInput && typeof rawInput === "object") ? rawInput : {};
   const now = Date.now();
   const action = input.action;
 
   // Analog stick: a direction vector in [-1, 1]. Stored as a steering
   // intent and applied continuously by the physics step for a short window.
   if (action === "thrust") {
-    let dx = Number(input.x) || 0;
-    let dy = Number(input.y) || 0;
+    let dx = inputNumber(input.x) || 0;
+    let dy = inputNumber(input.y) || 0;
     const length = Math.hypot(dx, dy);
     if (length > 1) { dx /= length; dy /= length; }
     arenaPlayer.thrustX = dx;
@@ -4139,11 +4160,19 @@ function advanceColorRound(arcade, round, now) {
   }
 }
 
-function handleArcadeInput(room, player, input) {
+function handleArcadeInput(room, player, rawInput) {
   const minigame = room.currentMinigame;
   const arcade = minigame?.arcade;
   const arcadePlayer = arcade?.players?.[player.id];
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
+
+  // 28 Familien lesen hier Felder aus `input`. Die Socket-Schicht schiebt schon
+  // ein `|| {}` davor, aber die Regelschicht darf sich darauf nicht verlassen:
+  // sie wird auch von den Bots und den Tests direkt gerufen, und ein Wurf hier
+  // fliegt mitten im Tick — der nimmt die ganze Partie mit, nicht nur den
+  // Spieler, der den Unsinn geschickt hat.
+  const input = (rawInput && typeof rawInput === "object") ? rawInput : {};
+
 
   const now = Date.now();
   const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
@@ -4230,7 +4259,7 @@ function handleArcadeInput(room, player, input) {
 
   if (arcade.family === "whack") {
     if (input.action !== "whack") return { ok: false, error: "Tippe auf das Feld mit dem Blob." };
-    const cell = clamp(Math.round(Number(input.cell) || 0), 0, WHACK_CELLS - 1);
+    const cell = clamp(Math.round(inputNumber(input.cell) || 0), 0, WHACK_CELLS - 1);
     const elapsed = now - room.currentMinigame.startedAt;
     const pop = arcade.pops.find((candidate) =>
       candidate.cell === cell && elapsed >= candidate.from && elapsed <= candidate.until && !arcadePlayer.hitPopIds[candidate.id]);
@@ -4291,7 +4320,7 @@ function handleArcadeInput(room, player, input) {
       arcadePlayer.roundFailed = false;
     }
     if (arcadePlayer.roundFailed || arcadePlayer.roundProgress >= round.sequence.length) return { ok: true };
-    const picked = clamp(Math.round(Number(input.index) || 0), 0, 3);
+    const picked = clamp(Math.round(inputNumber(input.index) || 0), 0, 3);
     if (picked === round.sequence[arcadePlayer.roundProgress]) {
       arcadePlayer.roundProgress += 1;
       arcadePlayer.hasMoved = true;
@@ -4531,8 +4560,8 @@ function handleArcadeInput(room, player, input) {
 
   if (arcade.family === "paint") {
     if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
-    const dx = Number(input.x);
-    const dy = Number(input.y);
+    const dx = inputNumber(input.x);
+    const dy = inputNumber(input.y);
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return { ok: false, error: "Ungültige Richtung." };
     // Nur die RICHTUNG wird übernommen, nicht die Länge über 1: sonst wäre ein
     // manipulierter Stick schneller als ein echter Daumen.
@@ -4556,7 +4585,7 @@ function handleArcadeInput(room, player, input) {
 
   if (arcade.family === "belt") {
     if (input.action !== "sort") return { ok: false, error: "Wisch das Paket in eine Rutsche." };
-    const chute = Math.floor(Number(input.chute));
+    const chute = Math.floor(inputNumber(input.chute));
     if (!Number.isInteger(chute) || chute < 0 || chute >= BELT_CHUTES) return { ok: false, error: "Diese Rutsche gibt es nicht." };
     const parcel = arcadePlayer.queue[0];
     if (!parcel) return { ok: true };
@@ -4595,8 +4624,8 @@ function handleArcadeInput(room, player, input) {
     if (input.action !== "trace") return { ok: false, error: "Zieh den Finger über die Spur." };
     if (now < arcadePlayer.lockUntil) return { ok: true };
 
-    const x = clamp(Number(input.x), 0, 1);
-    const y = clamp(Number(input.y), 0, 1);
+    const x = clamp(inputNumber(input.x), 0, 1);
+    const y = clamp(inputNumber(input.y), 0, 1);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Position." };
     arcadePlayer.hasMoved = true;
     arcadePlayer.brushX = x;
@@ -4932,7 +4961,7 @@ function handleArcadeInput(room, player, input) {
     if (input.action !== "drop") return { ok: false, error: "Tippe, um eine Kugel fallen zu lassen." };
     const inFlight = arcade.balls.some((ball) => ball.playerId === player.id);
     if (inFlight) return { ok: true };
-    const x = clamp(Number(input.x) || 0.5, 0.06, 0.94);
+    const x = clamp(inputNumber(input.x) || 0.5, 0.06, 0.94);
     arcadePlayer.aimX = x;
     arcadePlayer.hasMoved = true;
     arcade.balls.push({
@@ -4951,8 +4980,8 @@ function handleArcadeInput(room, player, input) {
   if (arcade.family === "curling") {
     if (input.action !== "flick") return { ok: false, error: "Wische, um einen Stein zu schieben." };
     if ((arcadePlayer.stonesLeft || 0) <= 0) return { ok: false, error: "Keine Steine mehr." };
-    const dx = clamp(Number(input.dx) || 0, -1, 1);
-    const dy = clamp(Number(input.dy) || 0, -1, 0.1);
+    const dx = clamp(inputNumber(input.dx) || 0, -1, 1);
+    const dy = clamp(inputNumber(input.dy) || 0, -1, 0.1);
     const power = Math.min(1, Math.hypot(dx, dy));
     if (power < 0.08) return { ok: true };
     arcadePlayer.stonesLeft -= 1;
@@ -5026,7 +5055,7 @@ function handleArcadeInput(room, player, input) {
 
   if (arcade.family === "direct") {
     if (input.action !== "move") return { ok: false, error: "Ziehe horizontal über das Spielfeld." };
-    const x = clamp(Number(input.x) || 0, 0.06, 0.94);
+    const x = clamp(inputNumber(input.x) || 0, 0.06, 0.94);
     arcadePlayer.hasMoved = true;
     arcadePlayer.desiredX = x;
     if (arcade.mode === "catch") arcadePlayer.x = x;
@@ -5035,8 +5064,8 @@ function handleArcadeInput(room, player, input) {
 
   if (arcade.family === "target") {
     if (input.action !== "target") return { ok: false, error: "Tippe ein Ziel an." };
-    const x = clamp(Number(input.x) || 0, 0, 1);
-    const y = clamp(Number(input.y) || 0, 0, 1);
+    const x = clamp(inputNumber(input.x) || 0, 0, 1);
+    const y = clamp(inputNumber(input.y) || 0, 0, 1);
     const active = arcade.targets
       .filter((target) => now >= target.spawnAt && now <= target.expiresAt && !arcadePlayer.hitTargets[target.id])
       .map((target) => ({ target, position: arcadeTargetPosition(arcade, target, now) }))
@@ -8263,7 +8292,13 @@ function cleanName(name, fallback) {
 }
 
 function normalizeCode(code) {
-  return String(code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  // Nur echte Zeichenketten und Zahlen werden umgewandelt. String(x) wirft bei
+  // Objekten ohne brauchbares toString ({ toString: null }, Object.create(null)),
+  // und dieser Wurf lag VOR jeder Antwort an den Client — der Rückruf kam dann
+  // nie, und ein Tipp im Spiel hing für immer still. Gemessen im Härtetest.
+  if (typeof code === "string") return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  if (typeof code === "number" && Number.isFinite(code)) return String(code).slice(0, 6);
+  return "";
 }
 
 function setTrackedTimeout(room, callback, ms) {
@@ -8307,6 +8342,21 @@ function clearRoomTimers(room) {
 
 function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
+}
+
+// Zahlenfelder aus Spielereingaben immer hierüber lesen, nie mit blossem
+// Number(). Number(x) ruft ToPrimitive und WIRFT bei Objekten ohne brauchbares
+// toString ({ toString: null }, Object.create(null)) — und das an 15 Stellen
+// quer durch alle Eingabe-Familien, jede davon mitten im Tick. Ein Wurf dort
+// nimmt die ganze Partie mit, nicht nur den, der den Unsinn geschickt hat.
+// Gemessen im Härtetest an der Farbenjagd.
+function inputNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+  return NaN;
 }
 
 function clamp(value, min, max) {
