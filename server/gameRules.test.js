@@ -10,6 +10,7 @@ const {
   applyFieldEffect,
 
   arcadeRankingScore,
+  beginMinigameFinale,
   arcadeResultDetail,
   bounceResultScore,
   buildBoardPath,
@@ -198,6 +199,30 @@ test("every game reports exactly one number in its result", () => {
       assert.ok(allowed.has(key), `${game.type} zeigt eine zweite Zahl: ${key}`);
     });
   });
+});
+
+// Regression: `minigame.arena` wird für JEDES Minispiel als leeres Objekt
+// angelegt, und ein leeres Objekt ist wahr. Die Prüfung `if (minigame.arena)`
+// liess deshalb bei jedem Arcade-Spiel eine Ausnahme fliegen, bevor die Plätze
+// verschickt wurden — die Schlussreaktion kam im echten Spiel nie an.
+test("the finale ranks everyone without tripping over the empty arena slot", () => {
+  const players = [
+    { id: "a", name: "A", isBot: false },
+    { id: "b", name: "B", isBot: false }
+  ];
+  const arcade = createArcadeState("sortierband", players, Date.now());
+  arcade.players.a.score = 500;
+  arcade.players.b.score = 100;
+  const minigame = {
+    id: 1, type: "sortierband", startedAt: Date.now(), duration: 30000,
+    arcade, scores: {}, lastInputAt: {},
+    // Genau wie beim echten Spielstart: leere Platzhalter für die anderen Modi.
+    arena: {}, flux: {}, canopy: {}
+  };
+  const room = { code: "TEST", players, currentMinigame: minigame };
+  beginMinigameFinale(room, minigame);
+  assert.ok(minigame.finaleAt, "das Finale muss starten");
+  assert.deepEqual(minigame.arcade.places, { a: 1, b: 2 });
 });
 
 test("catalog contains only the 3D challenges", () => {

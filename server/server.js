@@ -2149,7 +2149,15 @@ function beginMinigameFinale(room, minigame) {
   }
   // Rempelkugel läuft nicht über die Arcade-Familien, braucht die Plätze aber
   // genauso — sonst reagierte dort weiter jeder gleich.
-  if (minigame.arena) {
+  //
+  // Auf `minigame.arena.players` prüfen, NICHT nur auf `minigame.arena`: das
+  // Feld wird für jedes Minispiel als leeres Objekt angelegt, und ein leeres
+  // Objekt ist wahr. Dadurch flog hier bei JEDEM Arcade-Spiel eine Ausnahme,
+  // bevor emitMinigameUpdate lief — die eben berechneten Plätze wurden also nie
+  // verschickt, und die Schlussreaktion (Platz 1 jubelt, Platz 4 knickt ein)
+  // kam im echten Spiel nie an. Gefunden hat das der Brett-Simulator, der sechs
+  // Serverfehler je Partie meldete.
+  if (minigame.arena?.players) {
     minigame.arena.places = rankPlaces(room.players, (player) =>
       bounceResultScore(minigame.arena.players[player.id]));
   }
@@ -8213,6 +8221,7 @@ module.exports = {
     standingsLeader,
 
     arcadeRankingScore,
+    beginMinigameFinale,
     rankPlaces,
     bounceResultScore,
     buildBoardPath,

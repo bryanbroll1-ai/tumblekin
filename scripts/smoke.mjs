@@ -134,6 +134,7 @@ for (const game of games) {
   page.on("pageerror", (e) => errors.push("PAGEERROR: " + e.message.split("\n")[0]));
 
   let status = "ok";
+  let perf = null;
   try {
     // Dev-Modus: ein Gerät, vier lokale Spieler, Challenge direkt startbar.
     await page.goto(`${base}/?dev=1`, { waitUntil: "networkidle" });
@@ -161,14 +162,37 @@ for (const game of games) {
       return Boolean(c && c.width > 0 && c.height > 0);
     });
     if (!alive) { status = "leer"; errors.push("Canvas hat keine Größe"); }
+
+    // Bildlast messen. Auf einem Mittelklasse-Handy entscheidet die Zahl der
+    // Zeichenaufrufe darüber, ob eine Szene mit 60 oder mit 25 Bildern läuft —
+    // und das merkt man bei einem Reaktionsspiel sofort. Gemessen wird über die
+    // Renderer-Statistik von three.js, nicht geschätzt.
+    perf = await page.evaluate(() => new Promise((resolve) => {
+      const scene = window.__tumblekinScene;
+      if (!scene?.renderer) { resolve(null); return; }
+      // Zwei Bilder abwarten, damit die Statistik ein volles Bild beschreibt.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const info = scene.renderer.info;
+        let objects = 0;
+        scene.scene?.traverse(() => { objects += 1; });
+        resolve({
+          calls: info.render.calls,
+          triangles: info.render.triangles,
+          objects,
+          textures: info.memory.textures,
+          geometries: info.memory.geometries
+        });
+      }));
+    }));
   } catch (err) {
     status = "FEHLER";
     errors.push("ABLAUF: " + err.message.split("\n")[0]);
   }
   if (errors.length && status === "ok") status = "Konsolenfehler";
 
-  results.push({ game, status, errors });
-  console.log(`${status === "ok" ? "✓" : "✗"} ${game.padEnd(14)} ${status}`);
+  results.push({ game, status, errors, perf });
+  const load = perf ? `${String(perf.calls).padStart(4)} Aufrufe · ${String(Math.round(perf.triangles / 1000)).padStart(3)}k Dreiecke · ${String(perf.objects).padStart(4)} Objekte` : "";
+  console.log(`${status === "ok" ? "✓" : "✗"} ${game.padEnd(14)} ${status.padEnd(14)} ${load}`);
   errors.slice(0, 3).forEach((e) => console.log(`    ${e}`));
   await page.close();
 }
