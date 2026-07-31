@@ -266,27 +266,38 @@ const BOUNCE_MISS_SCALE = 0.12;        // zusätzlicher Verlust je Höhenmeter
 // Sicherheitsnetz stehen, damit die Kamera nicht ins Nichts fährt.
 const BOUNCE_MAX_HEIGHT = 400;
 
-// Falschsignal: nur das ECHTE Signal darf angetippt werden. Die Fälschungen
-// sehen absichtlich ähnlich aus, und ein Antäuscher blitzt zu kurz auf, um echt
-// zu sein. Wer auf eine Fälschung tippt, verliert Punkte — Abwarten kostet
-// nichts, bringt aber auch nichts.
-const FEINT_LEAD_IN_MS = 1400;         // Ruhe vor dem ersten Signal
-const FEINT_GAP_MIN_MS = 900;          // Abstand zwischen Signalen
-const FEINT_GAP_MAX_MS = 2200;
-const FEINT_GO_WINDOW_MS = 900;        // so lange gilt ein echtes Signal
-const FEINT_FAKE_WINDOW_MS = 700;
-const FEINT_FLICKER_MS = 130;          // Antäuscher: zu kurz für echt
-const FEINT_MIN_POINTS = 60;           // am Ende des Fensters
-const FEINT_MAX_POINTS = 500;          // bei sofortiger Reaktion
-// Der Abzug ist bewusst höher als der halbe Treffer: bei einem echten Signal
-// pro Dreierblock muss blindes Dauertippen unterm Strich Punkte KOSTEN. Ein
+// Falschsignal — aus einem Leuchtpunkt wächst ein Ring nach aussen. Nur ein
+// Ring, der die MARKE erreicht, ist echt; die anderen bleiben unterwegs stehen
+// und verlöschen. Wer tippt, wettet darauf, dass dieser Ring durchkommt.
+//
+// Vorher war es ein Nachschlagespiel: grüner Kreis = echt, andere Farbe oder
+// andere Form = falsch. Man erkannte es oder eben nicht, und dazwischen lag
+// nichts. Jetzt sammelt sich die Information ÜBER DIE ZEIT an: echt und falsch
+// starten mit exakt derselben Geschwindigkeit und laufen erst nach und nach
+// auseinander, weil der falsche Ring langsamer wird. Früh tippen bringt viel
+// und ist geraten, spät tippen ist sicher und bringt wenig. Das ist die
+// Entscheidung, die das Spiel jede einzelne Runde stellt.
+const FEINT_LEAD_IN_MS = 1400;         // Ruhe vor dem ersten Ring
+const FEINT_GAP_MIN_MS = 800;          // Abstand zwischen den Ringen
+const FEINT_GAP_MAX_MS = 1900;
+const FEINT_GROW_MS = 950;             // so lange braucht ein echter Ring bis zur Marke
+const FEINT_HOLD_MS = 480;             // danach steht er noch und zählt minimal
+const FEINT_FADE_MS = 420;             // ein falscher Ring verlischt so lange
+const FEINT_MIN_POINTS = 80;           // wer bis zur Marke wartet
+const FEINT_MAX_POINTS = 500;          // wer sofort tippt
+// Der Abzug ist bewusst höher als der halbe Treffer: bei einem echten Ring pro
+// Dreierblock muss blindes Dauertippen unterm Strich Punkte KOSTEN. Ein
 // einzelner Fehlgriff bleibt trotzdem aufholbar, weil ein guter Treffer mehr
 // bringt als ein Fehlgriff nimmt.
 const FEINT_FALSE_START = 300;         // Abzug für einen Fehlgriff
 const FEINT_LOCK_MS = 650;             // Sperre nach einem Fehlgriff
 const FEINT_DOUBLE_TAP_MS = 260;       // Nachzittern nach einem Treffer ignorieren
-const FEINT_FAKE_KINDS = ["colour", "shape", "flicker"];
-const FEINT_BLOCK = 3;                 // je Dreierblock genau ein echtes Signal
+// Wie weit ein falscher Ring kommt, bevor er stehenbleibt. Die drei Werte
+// rotieren, statt frei gewürfelt zu werden: gewürfelt kamen drei fast gleiche
+// Fälschungen in Folge, und die schwerste tauchte manchmal eine ganze Runde
+// nicht auf.
+const FEINT_FAKE_LIMITS = [0.56, 0.72, 0.88];
+const FEINT_BLOCK = 3;                 // je Dreierblock genau ein echter Ring
 
 // Spurmaler: eine geschwungene Spur läuft von unten nach oben; der Finger muss
 // im Toleranzband bleiben. Der Fortschritt hängt direkt daran, wie weit oben der
@@ -305,6 +316,22 @@ const TRACE_LAP_POINTS = 200;          // eine ganze Runde
 const TRACE_SLIP_COST = 25;            // Abzug je Abrutscher
 const TRACE_CLEAN_BONUS = 40;          // Zugabe für eine Runde ohne Abrutscher
 const TRACE_MAX_LAPS = 40;             // Sicherheitsnetz gegen endlose Runden
+// Die Spur ist nicht überall gleich breit, und auf ihr liegen Kristalle.
+//
+// Vorher war jede Runde derselbe gleichmässige Zug: die Kurve wechselte, die
+// Aufgabe nie. Man zog den Finger im Band nach oben, und ob man dabei mittig
+// oder am Rand lief, war völlig egal. Zwei Zutaten machen daraus ein Spiel mit
+// Verlauf: Engstellen geben der Runde einen Rhythmus aus leicht und eng, und
+// die Kristalle liegen ABSEITS der Mittellinie — man muss also nicht nur im
+// Band bleiben, sondern sich darin bewusst positionieren.
+const TRACE_NARROW_MIN = 0.42;         // engste Stelle als Anteil der Toleranz
+const TRACE_GEMS_PER_LAP = 4;
+const TRACE_GEM_POINTS = 55;
+// Die Reichweite muss KLEINER sein als der seitliche Versatz, sonst fällt einem
+// der Kristall schon auf der Mittellinie zu — dann wäre er kein Ziel, sondern
+// nur Deko, und der Griff nach ihm brächte nichts.
+const TRACE_GEM_REACH = 0.032;         // so nah muss der Finger am Kristall sein
+const TRACE_GEM_SIDE = 0.72;           // wie weit aussen im Band er liegt
 
 // Sortierband — Pakete laufen auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Ersetzt den Tellerdreher: der Archetyp
@@ -3462,7 +3489,8 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "feint") {
     arcade.signals = buildFeintSignals(config.seed, FEINT_DURATION_MS);
-    arcade.goWindowMs = FEINT_GO_WINDOW_MS;
+    arcade.growMs = FEINT_GROW_MS;
+    arcade.holdMs = FEINT_HOLD_MS;
     arcade.maxPoints = FEINT_MAX_POINTS;
     arcade.falseStartCost = FEINT_FALSE_START;
     players.forEach((player) => {
@@ -3471,6 +3499,7 @@ function createArcadeState(type, players, startedAt) {
       entry.falseStarts = 0;
       entry.missed = 0;
       entry.bestMs = null;
+      entry.boldest = 1;          // kleinster Radius, bei dem ein Treffer sass
       entry.handled = {};              // Signalindex -> true (einmal pro Signal)
       entry.lockUntil = 0;             // Sperre nach einem Fehlgriff
       entry.lastReact = null;          // { kind, points, reactionMs, at }
@@ -3480,6 +3509,9 @@ function createArcadeState(type, players, startedAt) {
     arcade.tolerance = TRACE_TOLERANCE;
     arcade.lapPoints = TRACE_LAP_POINTS;
     arcade.slipCost = TRACE_SLIP_COST;
+    arcade.gemPoints = TRACE_GEM_POINTS;
+    arcade.gemReach = TRACE_GEM_REACH;
+    arcade.narrowMin = TRACE_NARROW_MIN;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.lap = 0;
@@ -3491,6 +3523,10 @@ function createArcadeState(type, players, startedAt) {
       entry.lapSlips = 0;
       entry.lockUntil = 0;
       entry.brushX = tracePathX(config.seed, 0, 0);
+      entry.gems = buildTraceGems(config.seed, 0);
+      entry.gemsTaken = {};            // Index -> true, EINMAL je Kristall
+      entry.gemsTotal = 0;
+      entry.lastGemAt = 0;
       entry.brushY = 0;
       entry.lastAdvanceAt = startedAt;
       entry.lastSlipAt = 0;
@@ -4272,15 +4308,17 @@ function handleArcadeInput(room, player, input) {
     const signal = activeFeintSignal(arcade.signals, elapsed);
     arcadePlayer.hasMoved = true;
 
-    if (signal && signal.kind === "go") {
+    if (signal && signal.real) {
       if (arcadePlayer.handled[signal.index]) return { ok: true };
       arcadePlayer.handled[signal.index] = true;
       const reactionMs = Math.round(elapsed - signal.at);
-      const points = feintPoints(reactionMs, signal.windowMs);
+      const radius = feintRadius(signal, reactionMs);
+      const points = feintPoints(radius);
       arcadePlayer.hits += 1;
       arcadePlayer.score += points;
       arcadePlayer.bestMs = arcadePlayer.bestMs === null ? reactionMs : Math.min(arcadePlayer.bestMs, reactionMs);
-      arcadePlayer.lastReact = { kind: "go", points, reactionMs, at: now };
+      arcadePlayer.boldest = Math.min(arcadePlayer.boldest ?? 1, radius);
+      arcadePlayer.lastReact = { kind: "go", points, reactionMs, radius, at: now };
       arcadePlayer.flash = "good";
       arcadePlayer.lastHitAt = now;
       syncArcadeScore(room.currentMinigame, player, arcadePlayer);
@@ -4291,12 +4329,18 @@ function handleArcadeInput(room, player, input) {
     // kostet Punkte und sperrt kurz. Der Abzug darf den Punktestand unter Null
     // drücken — syncArcadeScore blendet das für die Wertung bei 0 ab, aber ein
     // Dauertipper gräbt sich so tief ein, dass er sich nicht mehr erholt.
-    const fake = signal ? signal.kind : "early";
+    const fake = signal ? "fake" : "early";
     if (signal) arcadePlayer.handled[signal.index] = true;
     arcadePlayer.falseStarts += 1;
     arcadePlayer.score -= FEINT_FALSE_START;
     arcadePlayer.lockUntil = now + FEINT_LOCK_MS;
-    arcadePlayer.lastReact = { kind: fake, points: -FEINT_FALSE_START, reactionMs: null, at: now };
+    arcadePlayer.lastReact = {
+      kind: fake,
+      points: -FEINT_FALSE_START,
+      reactionMs: null,
+      radius: signal ? feintRadius(signal, elapsed - signal.at) : 0,
+      at: now
+    };
     arcadePlayer.flash = "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
@@ -4377,7 +4421,11 @@ function handleArcadeInput(room, player, input) {
     arcadePlayer.brushY = y;
 
     const offset = traceOffset(arcade.seed, arcadePlayer.lap, x, y);
-    const onPath = offset <= TRACE_TOLERANCE;
+    // Die Toleranz hängt jetzt von der STELLE ab: an den Engstellen wird es
+    // schmal. Das gibt der Runde einen Rhythmus, statt überall gleich schwer zu
+    // sein.
+    const tolerance = traceToleranceAt(arcade.seed, arcadePlayer.lap, y);
+    const onPath = offset <= tolerance;
 
     // Wiedereinstieg nach einem Abriss: nur dort, wo der Strich endete. Sonst
     // liesse sich die Spur überspringen, statt sie zu ziehen.
@@ -4434,6 +4482,20 @@ function handleArcadeInput(room, player, input) {
       arcadePlayer.lastAdvanceAt = now;
     }
 
+    // Kristalle: einmal je Kristall, entschieden am Abstand des Fingers. Nicht
+    // pro Tick gewürfelt und nicht mehrfach zählbar.
+    arcadePlayer.gems.forEach((gem) => {
+      if (arcadePlayer.gemsTaken[gem.index]) return;
+      if (Math.abs(y - gem.t) > TRACE_GEM_REACH) return;
+      // Seitlicher Abstand zur MITTELLINIE vergleichen, nicht rohe x-Werte.
+      const lateral = x - tracePathX(arcade.seed, arcadePlayer.lap, y);
+      if (Math.abs(lateral - gem.offset) > TRACE_GEM_REACH) return;
+      arcadePlayer.gemsTaken[gem.index] = true;
+      arcadePlayer.gemsTotal += 1;
+      arcadePlayer.lastGem = { index: gem.index, x: gem.x, t: gem.t, at: now };
+      arcadePlayer.lastGemAt = now;
+    });
+
     if (arcadePlayer.progress >= 0.995 && arcadePlayer.lap < TRACE_MAX_LAPS) {
       // Runde geschafft: neue Kurve, Finger muss unten neu ansetzen.
       arcadePlayer.lapsDone += 1;
@@ -4442,6 +4504,8 @@ function handleArcadeInput(room, player, input) {
       arcadePlayer.lap += 1;
       arcadePlayer.progress = 0;
       arcadePlayer.brushDown = false;
+      arcadePlayer.gems = buildTraceGems(arcade.seed, arcadePlayer.lap);
+      arcadePlayer.gemsTaken = {};
       arcadePlayer.lastLapAt = now;
       arcadePlayer.flash = "good";
       arcadePlayer.lastHitAt = now;
@@ -5054,7 +5118,7 @@ function updateArcade(room) {
       const entry = arcade.players[player.id];
       if (!entry) return;
       arcade.signals.forEach((signal) => {
-        if (signal.kind !== "go") return;
+        if (!signal.real) return;
         if (elapsed <= signal.at + signal.windowMs) return;
         if (entry.handled[signal.index]) return;
         entry.handled[signal.index] = true;
@@ -5880,43 +5944,42 @@ function updateDirectWorld(room, minigame, arcade, elapsed, dt, now) {
   }
 }
 
-// Signalplan für Falschsignal. Aus dem Seed erzeugt, damit alle Clients
-// dieselbe Folge sehen und der Server sie autoritativ auswerten kann.
+// Ringplan für Falschsignal. Aus dem Seed erzeugt, damit alle Clients dieselbe
+// Folge sehen und der Server sie autoritativ auswerten kann.
 function buildFeintSignals(seed, durationMs) {
   const signals = [];
   let at = FEINT_LEAD_IN_MS;
   let index = 0;
-  while (at < durationMs - FEINT_GO_WINDOW_MS) {
+  while (at < durationMs - FEINT_GROW_MS - FEINT_HOLD_MS) {
     const roll = arcadeNoise(seed + index * 13);
-    // Blockweise geplant: in jedem Dreierblock ist GENAU ein Signal echt. Ein
-    // freier Würfel pro Signal traf beides — mit einem Seed war die Hälfte echt
+    // Blockweise geplant: in jedem Dreierblock ist GENAU ein Ring echt. Ein
+    // freier Würfel pro Ring traf beides — mit einem Seed war die Hälfte echt
     // (blindes Tippen zahlte sich aus), mit dem nächsten kamen fünf Fälschungen
     // in Folge und die Runde fühlte sich kaputt an. Die Position im Block bleibt
     // zufällig, die Mischung nicht.
     const block = Math.floor(index / FEINT_BLOCK);
     const goSlot = Math.min(FEINT_BLOCK - 1, Math.floor(arcadeNoise(seed + block * 29) * FEINT_BLOCK));
     const slot = index % FEINT_BLOCK;
-    const isGo = slot === goSlot;
-    // Die Fälschungen rotieren, statt frei gewürfelt zu werden. Gewürfelt kam
-    // dreimal dieselbe Fälschung in Folge — das lehrt "diese Farbe ist immer
-    // falsch" — und der Antäuscher tauchte kaum auf. So sind die beiden
-    // Fälschungen eines Blocks immer verschieden und alle drei Arten kommen dran.
+    const real = slot === goSlot;
+    // Die Fälschungen rotieren, statt frei gewürfelt zu werden: gewürfelt kamen
+    // drei fast gleiche in Folge, und die schwerste tauchte manchmal eine ganze
+    // Runde nicht auf.
     const fakeSlot = slot > goSlot ? slot - 1 : slot;
-    const rotation = Math.floor(arcadeNoise(seed + block * 41) * FEINT_FAKE_KINDS.length);
-    const kind = isGo
-      ? "go"
-      : FEINT_FAKE_KINDS[(block + fakeSlot + rotation) % FEINT_FAKE_KINDS.length];
-    const windowMs = kind === "go"
-      ? FEINT_GO_WINDOW_MS
-      : (kind === "flicker" ? FEINT_FLICKER_MS : FEINT_FAKE_WINDOW_MS);
-    signals.push({ index, at, kind, windowMs });
+    const rotation = Math.floor(arcadeNoise(seed + block * 41) * FEINT_FAKE_LIMITS.length);
+    const limit = real ? 1 : FEINT_FAKE_LIMITS[(block + fakeSlot + rotation) % FEINT_FAKE_LIMITS.length];
+    // Wie lange der Ring überhaupt zu sehen ist. Ein echter wächst bis zur Marke
+    // und steht dann noch kurz; ein falscher bleibt stehen und verlischt.
+    const windowMs = real
+      ? FEINT_GROW_MS + FEINT_HOLD_MS
+      : Math.round(FEINT_GROW_MS * limit * 1.25 + FEINT_FADE_MS);
+    signals.push({ index, at, real, limit, kind: real ? "go" : "fake", windowMs });
     at += windowMs + FEINT_GAP_MIN_MS + roll * (FEINT_GAP_MAX_MS - FEINT_GAP_MIN_MS);
     index += 1;
   }
   return signals;
 }
 
-// Das Signal, das zum Zeitpunkt `elapsed` gerade leuchtet — oder null.
+// Der Ring, der zum Zeitpunkt `elapsed` gerade zu sehen ist — oder null.
 function activeFeintSignal(signals, elapsed) {
   for (const signal of signals) {
     if (elapsed >= signal.at && elapsed <= signal.at + signal.windowMs) return signal;
@@ -5925,11 +5988,30 @@ function activeFeintSignal(signals, elapsed) {
   return null;
 }
 
-// Punkte für eine Reaktion. Sofort = volle Punktzahl, am Ende des Fensters
-// bleibt ein Rest, damit auch ein spätes Erkennen besser ist als Nichtstun.
-function feintPoints(reactionMs, windowMs = FEINT_GO_WINDOW_MS) {
-  const share = clamp(1 - Math.max(0, reactionMs) / windowMs, 0, 1);
-  return Math.round(FEINT_MIN_POINTS + (FEINT_MAX_POINTS - FEINT_MIN_POINTS) * share);
+// Radius eines Rings, `since` Millisekunden nach seinem Erscheinen.
+//
+// Das ist der Kern des ganzen Spiels. Echt und falsch starten mit EXAKT
+// derselben Geschwindigkeit und laufen erst nach und nach auseinander: der
+// echte Ring wächst gleichmässig bis zur Marke, der falsche wird langsamer und
+// bleibt vor ihr stehen. Deshalb sammelt sich die Information über die Zeit an,
+// statt sofort da zu sein — früh tippen ist geraten, spät tippen ist sicher.
+//
+// Für kleine Zeiten gilt tanh(x) ≈ x, und limit·tanh(t/(T·limit)) ist damit am
+// Anfang genau t/T — also dasselbe wie beim echten Ring. Genau darauf kommt es
+// an: wäre der Unterschied von Anfang an sichtbar, gäbe es nichts zu wetten.
+function feintRadius(signal, since) {
+  const t = Math.max(0, since);
+  if (signal.real) return clamp(t / FEINT_GROW_MS, 0, 1);
+  const limit = signal.limit;
+  return limit * Math.tanh(t / (FEINT_GROW_MS * limit));
+}
+
+// Punkte für einen Treffer, nach dem Radius im Moment des Tippens. Wer bei 0.3
+// tippt, hat kaum Information und bekommt fast die volle Punktzahl; wer bis zur
+// Marke wartet, ist sicher und bekommt den Rest.
+function feintPoints(radiusAtTap) {
+  const share = clamp(1 - clamp(radiusAtTap, 0, 1), 0, 1);
+  return Math.round(FEINT_MIN_POINTS + (FEINT_MAX_POINTS - FEINT_MIN_POINTS) * Math.pow(share, 1.25));
 }
 
 // Die Spur von Spurmaler: für den Fortschritt t (0 unten … 1 oben) die
@@ -5950,6 +6032,67 @@ function tracePathX(seed, lap, t) {
 }
 
 // Wie weit der Finger von der Spur weg ist, an der Höhe, auf der er steht.
+// Wie breit das Toleranzband an dieser Stelle ist, als Anteil von
+// TRACE_TOLERANCE. Zwei bis drei Engstellen je Runde, an fester Stelle aus dem
+// Startwert — nicht zufällig pro Tick, sonst wäre dieselbe Stelle mal eng und
+// mal weit und ein Abriss wirkte willkürlich.
+function traceWidthAt(seed, lap, t) {
+  const s = seed + lap * 97;
+  const knots = 2 + Math.floor(arcadeNoise(s + 61) * 2);   // 2 oder 3
+  const phase = arcadeNoise(s + 71) * Math.PI * 2;
+  // Eine Schwingung, deren Wellentäler die Engstellen sind. Sie läuft an den
+  // Rändern der Runde weit aus, damit Ansetzen und Abschluss nie am Nadelöhr
+  // liegen — dort hat man den Finger noch nicht auf der Kurve.
+  const wave = (Math.cos(t * Math.PI * 2 * knots + phase) + 1) / 2;
+  const edge = Math.min(1, Math.min(t, 1 - t) / 0.12);
+  const narrow = TRACE_NARROW_MIN + (1 - TRACE_NARROW_MIN) * wave;
+  return narrow + (1 - narrow) * (1 - edge);
+}
+
+// Erlaubter Abstand zur Spur an dieser Stelle.
+function traceToleranceAt(seed, lap, t) {
+  return TRACE_TOLERANCE * traceWidthAt(seed, lap, t);
+}
+
+// Die Kristalle einer Runde. Sie liegen ABSEITS der Mittellinie, abwechselnd
+// links und rechts — genau das macht aus "im Band bleiben" ein Steuern.
+function buildTraceGems(seed, lap) {
+  const s = seed + lap * 97;
+  // Erst die weiten Abschnitte suchen, DANN die Kristalle darauf verteilen.
+  //
+  // Andersherum — feste Abstände und bei einer Engstelle ausweichen — ging
+  // zweimal schief: das Ausweichen schob einen Kristall über den nächsten
+  // hinweg, und wenn oberhalb nichts Weites mehr kam, landete er doch auf einer
+  // Engstelle. Ein Kristall am Bandrand PLUS eine Engstelle heisst aber, dass
+  // die eine Aufgabe die andere unmöglich macht.
+  const wide = [];
+  for (let t = 0.10; t <= 0.90; t += 0.01) {
+    if (traceWidthAt(seed, lap, t) >= 0.8) wide.push(t);
+  }
+  if (wide.length === 0) return [];
+
+  const gems = [];
+  for (let i = 0; i < TRACE_GEMS_PER_LAP; i += 1) {
+    // Gleichmässig über die verfügbaren Abschnitte verteilt, mit etwas Streuung.
+    const share = (i + 0.5) / TRACE_GEMS_PER_LAP;
+    const jitter = (arcadeNoise(s + i * 53) - 0.5) * 0.6 / TRACE_GEMS_PER_LAP;
+    const pick = wide[clamp(Math.round((share + jitter) * (wide.length - 1)), 0, wide.length - 1)];
+    // Zu dicht beieinander wären zwei Kristalle einer zu viel.
+    if (gems.length > 0 && pick <= gems[gems.length - 1].t + 0.05) continue;
+    const t = Math.round(pick * 1000) / 1000;
+    const side = arcadeNoise(s + i * 53 + 7) < 0.5 ? -1 : 1;
+    // `offset` ist der seitliche Versatz zur Mittellinie und die Zahl, an der
+    // gemessen wird. `x` ist nur fürs Zeichnen da: die Kurve wandert, und ein
+    // Vergleich roher x-Werte fiel deshalb manchmal von selbst richtig aus —
+    // gemessen fiel ein Kristall zu, während der Finger sauber auf der
+    // Mittellinie lag, nur weil die Kurve gerade an ihm vorbeischwang.
+    const offset = side * traceToleranceAt(seed, lap, t) * TRACE_GEM_SIDE;
+    const x = clamp(tracePathX(seed, lap, t) + offset, 0.04, 0.96);
+    gems.push({ index: gems.length, t, side, offset, x });
+  }
+  return gems;
+}
+
 function traceOffset(seed, lap, x, y) {
   return Math.abs(x - tracePathX(seed, lap, clamp(y, 0, 1)));
 }
@@ -6200,7 +6343,8 @@ function traceScore(entry) {
   const laps = (entry.lapsDone || 0) * TRACE_LAP_POINTS;
   const partial = Math.round((entry.progress || 0) * TRACE_LAP_POINTS);
   const clean = (entry.cleanLaps || 0) * TRACE_CLEAN_BONUS;
-  return laps + partial + clean - (entry.slips || 0) * TRACE_SLIP_COST;
+  const gems = (entry.gemsTotal || 0) * TRACE_GEM_POINTS;
+  return laps + partial + clean + gems - (entry.slips || 0) * TRACE_SLIP_COST;
 }
 
 // Der Abstand VOR dem Schlag mit dieser Nummer. Innerhalb eines Taktes von acht
@@ -7001,10 +7145,33 @@ function arcadeBotStep(room, bot) {
       player.driftPhase = Math.random() * Math.PI * 2;
       player.driftPeriod = 900 + Math.random() * 900;
     }
-    const wander = Math.sin(now / player.driftPeriod + player.driftPhase) * drift;
+    // Die Handunruhe skaliert mit der ÖRTLICHEN Bandbreite: an einer Engstelle
+    // zieht man sich zusammen. Ohne das rutschte jeder Bot an jeder Engstelle
+    // ab, egal wie gut er war.
+    const width = traceWidthAt(arcade.seed, player.lap, clamp(player.progress + step, 0, 1));
+    const wander = Math.sin(now / player.driftPeriod + player.driftPhase) * drift * width;
     const slipNow = Math.random() < slipChance ? (TRACE_TOLERANCE + 0.05) * (Math.random() < 0.5 ? -1 : 1) : 0;
     const y = clamp(player.progress + step, 0, 1);
-    const x = clamp(tracePathX(arcade.seed, player.lap, y) + wander + slipNow, 0, 1);
+
+    // Kristalle liegen abseits der Mittellinie. Ein guter Bot greift danach,
+    // ein schwacher zieht stur die Mitte — das ist das zweite Können in diesem
+    // Spiel, neben dem sauberen Zug.
+    const reach = profile.level === "hard" ? 0.85 : profile.level === "normal" ? 0.55 : 0.15;
+    const centre = tracePathX(arcade.seed, player.lap, y);
+    let aim = centre;
+    const gem = (player.gems || []).find((candidate) => !player.gemsTaken[candidate.index]
+      && Math.abs(candidate.t - y) <= TRACE_GEM_REACH * 2.2);
+    if (gem) aim += (gem.x - aim) * reach;
+
+    // Der Bot hält sich im Band — wie ein Mensch, der weiss, wo der Rand ist.
+    // Ohne diese Klemme addierten sich Griff nach dem Kristall und Handunruhe:
+    // gemessen rutschten die starken Bots 45-mal pro Runde ab und schafften
+    // keine einzige Runde, während der schwache, der die Kristalle ignorierte,
+    // gewann. Die Abrutscher sollen aus `slipChance` kommen, nicht aus einer
+    // Summe zweier Absichten.
+    const limit = traceToleranceAt(arcade.seed, player.lap, y) * 0.8;
+    const drifted = clamp(aim + wander, centre - limit, centre + limit);
+    const x = clamp(drifted + slipNow, 0, 1);
     if (!player.brushDown) {
       // Nach einem Abriss erst wieder an der Bruchstelle ansetzen.
       handleArcadeInput(room, bot, { action: "trace", x: tracePathX(arcade.seed, player.lap, player.progress), y: player.progress });
@@ -7021,30 +7188,40 @@ function arcadeBotStep(room, bot) {
     const signal = activeFeintSignal(arcade.signals, elapsed);
     if (!signal || player.handled[signal.index]) return;
     const since = elapsed - signal.at;
+    const radius = feintRadius(signal, since);
 
-    if (signal.kind === "go") {
-      // Der Bot-Tick läuft nur alle ~300 ms, deshalb ist die Zielzeit die
-      // untere Grenze: der Bot tippt beim ersten Tick danach.
-      const target = profile.reactionMs * 0.55 + Math.random() * profile.spreadMs * 0.4;
-      if (since >= target) handleArcadeInput(room, bot, { action: "react" });
-      return;
+    // EINMAL pro Ring entscheiden, bei welchem Radius dieser Bot zuschlägt und
+    // wie gut er die Verzögerung liest. Pro Tick neu gewürfelt liefe jede
+    // Wahrscheinlichkeit über die vielen Ticks eines Rings gegen Gewissheit —
+    // dieselbe Falle wie anderswo schon mehrfach.
+    if (player.botRingId !== signal.index) {
+      player.botRingId = signal.index;
+      // Wie mutig: der starke Bot geht früher ins Risiko, weil er die
+      // Verzögerung früher sieht. Der schwache wartet und bekommt dafür wenig.
+      const band = profile.level === "hard" ? [0.34, 0.52]
+        : profile.level === "normal" ? [0.46, 0.68]
+        : [0.62, 0.94];
+      player.botCommitAt = band[0] + Math.random() * (band[1] - band[0]);
+      // Ob er den Unterschied überhaupt liest. Das ist das eigentliche Können
+      // hier: ein falscher Ring bleibt hinter dem echten zurück, aber am Anfang
+      // fast unmerklich.
+      const reads = profile.level === "hard" ? 0.93 : profile.level === "normal" ? 0.76 : 0.52;
+      player.botReadsIt = Math.random() < reads;
     }
 
-    // Fälschungen: pro Signal EINMAL entscheiden, ob der Bot hereinfällt —
-    // sonst würde die Wahrscheinlichkeit über die Ticks aufaddieren und jeder
-    // Bot in jede Falle tappen. Der Antäuscher blitzt so kurz auf, dass ihn
-    // selbst ein unaufmerksamer Bot meist verpasst.
-    if (!player.botBait) player.botBait = {};
-    if (player.botBait[signal.index] === undefined) {
-      // Die Fehlerquote der Bot-Profile ist an Spielen geeicht, in denen ein
-      // Fehler Bruchteile eines Treffers kostet. Hier kostet ein Fehlgriff mehr
-      // als ein Bot-Treffer einbringt — ungedämpft landeten zwei von drei Bots
-      // im Minus und damit in der Wertung auf 0. Gemessen: mit 0.4 punkten alle
-      // Bots, bleiben aber hinter sauberem Spiel.
-      const bait = profile.mistake * (signal.kind === "flicker" ? 0.15 : 0.4);
-      player.botBait[signal.index] = Math.random() < bait;
-    }
-    if (player.botBait[signal.index]) handleArcadeInput(room, bot, { action: "react" });
+    if (radius < player.botCommitAt) return;
+
+    // An seinem Punkt angekommen: erkennt er, dass der Ring zurückbleibt? Der
+    // Vergleich ist genau der, den auch ein Mensch anstellt — wo müsste ein
+    // echter Ring jetzt sein, und wo ist dieser wirklich.
+    const wouldBeReal = clamp(since / arcade.growMs, 0, 1);
+    const behind = wouldBeReal - radius;
+    // Je weiter der Ring zurückliegt, desto offensichtlicher ist die Fälschung.
+    // Unter der Schwelle sieht selbst ein starker Bot nichts und tippt.
+    const noticeAt = profile.level === "hard" ? 0.045 : profile.level === "normal" ? 0.085 : 0.16;
+    const spotsFake = player.botReadsIt && behind >= noticeAt;
+    if (spotsFake) return;               // wartet ab, richtig erkannt
+    handleArcadeInput(room, bot, { action: "react" });
     return;
   }
   if (arcade.family === "bounce") {
@@ -7782,8 +7959,10 @@ module.exports = {
     bounceBeatTime,
     bounceNearestBeat,
     FEINT_DURATION_MS,
-    FEINT_GO_WINDOW_MS,
-    FEINT_FLICKER_MS,
+    FEINT_GROW_MS,
+    FEINT_HOLD_MS,
+    FEINT_FAKE_LIMITS,
+    feintRadius,
     FEINT_MAX_POINTS,
     FEINT_MIN_POINTS,
     FEINT_FALSE_START,
@@ -7793,6 +7972,13 @@ module.exports = {
     activeFeintSignal,
     feintPoints,
     TRACE_TOLERANCE,
+    TRACE_NARROW_MIN,
+    TRACE_GEMS_PER_LAP,
+    TRACE_GEM_POINTS,
+    TRACE_GEM_REACH,
+    traceWidthAt,
+    traceToleranceAt,
+    buildTraceGems,
     TRACE_STEP_LIMIT,
     TRACE_MAX_SPEED,
     TRACE_REENTRY_WINDOW,

@@ -73,8 +73,9 @@ const {
   bounceBeatTime,
   bounceNearestBeat,
   FEINT_DURATION_MS,
-  FEINT_GO_WINDOW_MS,
-  FEINT_FLICKER_MS,
+  FEINT_GROW_MS,
+  FEINT_FAKE_LIMITS,
+  feintRadius,
   FEINT_MAX_POINTS,
   FEINT_MIN_POINTS,
   FEINT_FALSE_START,
@@ -84,6 +85,13 @@ const {
   activeFeintSignal,
   feintPoints,
   TRACE_TOLERANCE,
+  TRACE_NARROW_MIN,
+  TRACE_GEMS_PER_LAP,
+  TRACE_GEM_POINTS,
+  TRACE_GEM_REACH,
+  traceWidthAt,
+  traceToleranceAt,
+  buildTraceGems,
   TRACE_STEP_LIMIT,
   TRACE_MAX_SPEED,
   TRACE_REENTRY_WINDOW,
@@ -2303,34 +2311,69 @@ test("feint: the signal plan fills the round and mixes real with fake", () => {
   assert.ok(gos.length < signals.length / 2, `${gos.length}/${signals.length} real is too generous`);
 });
 
-test("feint: the fake kinds all appear and the flicker is too short to be real", () => {
-  const kinds = new Set(buildFeintSignals(491, FEINT_DURATION_MS).map((signal) => signal.kind));
-  assert.ok(kinds.has("go"));
-  assert.ok(kinds.size >= 3, `only ${[...kinds]} in one round`);
-  assert.ok(FEINT_FLICKER_MS < FEINT_GO_WINDOW_MS / 3, "the feint has to read as a flicker");
+test("feint: real and fake start at exactly the same speed", () => {
+  // DAS ist der Kern des Spiels. Wäre der Unterschied von Anfang an sichtbar,
+  // gäbe es nichts zu wetten — dann wäre es wieder ein Nachschlagespiel, bei
+  // dem man es entweder sofort sieht oder gar nicht.
+  const real = { real: true, limit: 1 };
+  FEINT_FAKE_LIMITS.forEach((limit) => {
+    const fake = { real: false, limit };
+    for (const t of [10, 25, 50]) {
+      const gap = Math.abs(feintRadius(real, t) - feintRadius(fake, t));
+      assert.ok(gap < 0.006, `bei ${t} ms schon ${gap.toFixed(4)} Unterschied (limit ${limit})`);
+    }
+    // Und später muss der Unterschied ABLESBAR sein, sonst ist es Raten.
+    const late = feintRadius(real, FEINT_GROW_MS * 0.9) - feintRadius(fake, FEINT_GROW_MS * 0.9);
+    assert.ok(late > 0.06, `am Ende nur ${late.toFixed(3)} Unterschied (limit ${limit})`);
+  });
+});
+
+test("feint: a fake never reaches the mark, a real one always does", () => {
+  const real = { real: true, limit: 1 };
+  assert.equal(feintRadius(real, FEINT_GROW_MS), 1);
+  assert.equal(feintRadius(real, FEINT_GROW_MS * 3), 1, "und bleibt dann stehen");
+  FEINT_FAKE_LIMITS.forEach((limit) => {
+    const fake = { real: false, limit };
+    assert.ok(feintRadius(fake, FEINT_GROW_MS * 10) < 1,
+      `eine Fälschung mit limit ${limit} darf die Marke nie erreichen`);
+    assert.ok(feintRadius(fake, FEINT_GROW_MS * 10) <= limit + 1e-9);
+  });
+});
+
+test("feint: the fake limits all appear and none of them is trivially early", () => {
+  const limits = new Set(buildFeintSignals(491, FEINT_DURATION_MS)
+    .filter((signal) => !signal.real)
+    .map((signal) => signal.limit));
+  FEINT_FAKE_LIMITS.forEach((limit) => {
+    assert.ok(limits.has(limit), `limit ${limit} kam in einer ganzen Runde nicht vor`);
+  });
+  // Keine Fälschung darf so früh stehenbleiben, dass sie niemanden je täuscht.
+  FEINT_FAKE_LIMITS.forEach((limit) => assert.ok(limit >= 0.5));
 });
 
 test("feint: neither the real signal nor a single fake takes over the round", () => {
   // Über mehrere Seeds, damit ein glücklicher Startwert nichts vertuscht.
   for (const seed of [491, 100, 7, 55, 913]) {
-    const kinds = buildFeintSignals(seed, FEINT_DURATION_MS).map((signal) => signal.kind);
-    // Kein Durststrecke ohne echtes Signal, sonst fühlt sich die Runde kaputt an.
+    const signals = buildFeintSignals(seed, FEINT_DURATION_MS);
+    // Keine Durststrecke ohne echten Ring, sonst fühlt sich die Runde kaputt an.
     let drought = 0;
     let worst = 0;
-    kinds.forEach((kind) => {
-      drought = kind === "go" ? 0 : drought + 1;
+    signals.forEach((signal) => {
+      drought = signal.real ? 0 : drought + 1;
       worst = Math.max(worst, drought);
     });
     assert.ok(worst <= 4, `seed ${seed} had ${worst} fakes in a row`);
-    // Und keine Fälschung wiederholt sich dreimal hintereinander — das würde
-    // sie verraten, statt zu täuschen.
-    for (let i = 2; i < kinds.length; i += 1) {
-      const triple = kinds[i] === kinds[i - 1] && kinds[i] === kinds[i - 2];
-      assert.ok(!triple || kinds[i] === "go", `seed ${seed}: ${kinds[i]} three times in a row`);
+    // Und dieselbe Fälschung nicht dreimal hintereinander — das würde sie
+    // verraten, statt zu täuschen.
+    for (let i = 2; i < signals.length; i += 1) {
+      const triple = !signals[i].real
+        && signals[i].limit === signals[i - 1].limit
+        && signals[i].limit === signals[i - 2].limit;
+      assert.ok(!triple, `seed ${seed}: dieselbe Fälschung dreimal in Folge`);
     }
-    // Alle drei Fälschungen müssen vorkommen.
-    ["colour", "shape", "flicker"].forEach((kind) => {
-      assert.ok(kinds.includes(kind), `seed ${seed} never showed ${kind}`);
+    FEINT_FAKE_LIMITS.forEach((limit) => {
+      assert.ok(signals.some((signal) => !signal.real && signal.limit === limit),
+        `seed ${seed} zeigte limit ${limit} nie`);
     });
   }
 });
@@ -2357,15 +2400,17 @@ test("feint: only the lit signal is active", () => {
   assert.equal(activeFeintSignal(signals, first.at + first.windowMs + 1), null, "the window has to close");
 });
 
-test("feint: reacting fast pays more than reacting late", () => {
+test("feint: tapping at a smaller ring pays more", () => {
+  // Der Preis für Sicherheit. Wer wartet, bis der Ring fast an der Marke ist,
+  // weiss zwar Bescheid — bekommt dafür aber nur den Rest.
   assert.equal(feintPoints(0), FEINT_MAX_POINTS);
-  assert.equal(feintPoints(FEINT_GO_WINDOW_MS), FEINT_MIN_POINTS);
-  assert.ok(feintPoints(150) > feintPoints(600), "faster has to be worth more");
+  assert.equal(feintPoints(1), FEINT_MIN_POINTS);
+  assert.ok(feintPoints(0.3) > feintPoints(0.8), "früher muss mehr wert sein");
   // Auch ein spätes Erkennen bringt noch etwas — Nichtstun bringt nichts.
   assert.ok(FEINT_MIN_POINTS > 0);
 });
 
-test("feint: hitting the real signal scores by reaction time", () => {
+test("feint: hitting the real signal scores by how small the ring was", () => {
   const fast = feintRoom();
   const go = fast.firstOfKind("go");
   fast.reactTo(go, 80);
@@ -2381,15 +2426,15 @@ test("feint: hitting the real signal scores by reaction time", () => {
 });
 
 test("feint: tapping a fake costs points and locks briefly", () => {
-  const { entry, arcade, reactTo, firstOfKind } = feintRoom();
-  const fake = firstOfKind("colour") >= 0 ? firstOfKind("colour") : firstOfKind("shape");
+  const { entry, reactTo, firstOfKind } = feintRoom();
+  const fake = firstOfKind("fake");
   assert.ok(fake >= 0, "the plan needs a visible fake to tap");
   reactTo(fake, 60);
   assert.equal(entry.falseStarts, 1);
   assert.equal(entry.hits, 0);
   assert.equal(entry.score, -FEINT_FALSE_START);
   assert.ok(entry.lockUntil > Date.now(), "a false start has to lock the button");
-  assert.equal(entry.lastReact.kind, arcade.signals[fake].kind);
+  assert.equal(entry.lastReact.kind, "fake");
 });
 
 test("feint: tapping into an empty gap is a false start too", () => {
@@ -2414,8 +2459,7 @@ test("feint: each signal can only be scored once", () => {
 
 test("feint: the lock swallows taps until it expires", () => {
   const { room, me, entry, reactTo, firstOfKind } = feintRoom();
-  const fake = firstOfKind("colour") >= 0 ? firstOfKind("colour") : firstOfKind("shape");
-  reactTo(fake, 60);
+  reactTo(firstOfKind("fake"), 60);
   const locked = entry.score;
   // Ein weiterer Griff während der Sperre darf nicht noch einmal kosten.
   entry.lastInputAt = 0;
@@ -2478,6 +2522,106 @@ test("feint: wrong action is refused", () => {
 });
 
 // --- Spurmaler -------------------------------------------------------------
+
+test("trace: the band narrows in places and never pinches shut", () => {
+  // Der Rhythmus aus weit und eng ist der halbe Reiz. Aber eine Engstelle, die
+  // schmaler ist als die Handunruhe, wäre keine Schwierigkeit, sondern Pech.
+  for (const seed of [503, 7, 91, 2024]) {
+    let narrowest = 1;
+    let widest = 0;
+    for (let i = 0; i <= 100; i += 1) {
+      const width = traceWidthAt(seed, 0, i / 100);
+      narrowest = Math.min(narrowest, width);
+      widest = Math.max(widest, width);
+    }
+    assert.ok(narrowest <= 0.6, `seed ${seed}: keine echte Engstelle (${narrowest.toFixed(2)})`);
+    assert.ok(narrowest >= TRACE_NARROW_MIN - 1e-9, `seed ${seed}: zu eng (${narrowest.toFixed(2)})`);
+    assert.ok(widest > 0.95, `seed ${seed}: nie richtig weit (${widest.toFixed(2)})`);
+  }
+  // Anfang und Ende einer Runde müssen weit sein: dort setzt man den Finger an
+  // und hat die Kurve noch gar nicht gefunden.
+  [503, 7, 91].forEach((seed) => {
+    assert.ok(traceWidthAt(seed, 0, 0) > 0.95, "der Anfang darf keine Engstelle sein");
+    assert.ok(traceWidthAt(seed, 0, 1) > 0.95, "das Ende auch nicht");
+  });
+});
+
+test("trace: the crystals sit inside the band and never on a bottleneck", () => {
+  // Ein Kristall am Bandrand PLUS eine Engstelle heisst: die eine Aufgabe macht
+  // die andere unmöglich. Gemessen rutschte genau der Bot ab, der nach den
+  // Kristallen griff, und der stur mittig ziehende gewann.
+  for (const seed of [503, 7, 91, 2024]) {
+    for (let lap = 0; lap < 4; lap += 1) {
+      const gems = buildTraceGems(seed, lap);
+      // In einer Runde mit vielen Engstellen bleiben weniger Plätze übrig —
+      // dann gibt es eben weniger Kristalle. Lieber weniger als einer, der
+      // nicht zu holen ist.
+      assert.ok(gems.length >= 2 && gems.length <= TRACE_GEMS_PER_LAP,
+        `seed ${seed} Runde ${lap}: ${gems.length} Kristalle`);
+      gems.forEach((gem) => {
+        const centre = tracePathX(seed, lap, gem.t);
+        const tolerance = traceToleranceAt(seed, lap, gem.t);
+        assert.ok(Math.abs(gem.x - centre) < tolerance,
+          `seed ${seed} Runde ${lap}: Kristall ${gem.index} liegt ausserhalb des Bandes`);
+        assert.ok(traceWidthAt(seed, lap, gem.t) >= 0.8,
+          `seed ${seed} Runde ${lap}: Kristall ${gem.index} liegt auf einer Engstelle`);
+        assert.ok(gem.t > 0.05 && gem.t < 0.92);
+      });
+      // Und sie liegen auseinander, nicht auf einem Haufen.
+      for (let i = 1; i < gems.length; i += 1) {
+        assert.ok(gems[i].t > gems[i - 1].t, "die Kristalle müssen der Reihe nach kommen");
+      }
+    }
+  }
+});
+
+test("trace: a crystal counts once and only when the finger is on it", () => {
+  const players = [{ id: "t1", name: "Maler", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("spurmaler", players, startedAt);
+  const minigame = { id: 1, type: "spurmaler", startedAt, duration: 32000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  const send = (x, y) => { entry.lastInputAt = 0; return handleArcadeInput(room, me, { action: "trace", x, y }); };
+
+  const gem = entry.gems[0];
+  // Bis kurz unter den Kristall ziehen — der Fortschritt ist gedeckelt, also in
+  // Schritten, und zwischendurch die Uhr weiterlaufen lassen.
+  for (let t = 0; t <= gem.t + 0.02; t += 0.02) {
+    entry.lastAdvanceAt = Date.now() - 400;
+    send(tracePathX(arcade.seed, 0, t), t);
+  }
+  assert.equal(entry.gemsTotal, 0, "auf der Mittellinie darf der Kristall nicht zufallen");
+
+  const fresh = createArcadeState("spurmaler", players, startedAt);
+  const room2 = { currentMinigame: { id: 2, type: "spurmaler", startedAt, duration: 32000, arcade: fresh, scores: {}, lastInputAt: {} }, players };
+  const e2 = fresh.players[me.id];
+  const send2 = (x, y) => { e2.lastInputAt = 0; return handleArcadeInput(room2, me, { action: "trace", x, y }); };
+  const g2 = e2.gems[0];
+  for (let t = 0; t <= g2.t + 0.02; t += 0.02) {
+    e2.lastAdvanceAt = Date.now() - 400;
+    // Auf der Höhe des Kristalls dorthin zielen, sonst mittig bleiben.
+    const aim = Math.abs(t - g2.t) <= TRACE_GEM_REACH ? g2.x : tracePathX(fresh.seed, 0, t);
+    send2(aim, t);
+  }
+  assert.equal(e2.gemsTotal, 1, "wer draufzieht, muss ihn bekommen");
+  // Und ein zweites Mal darüber zählt nicht noch einmal.
+  e2.progress = Math.max(0, g2.t - 0.01);
+  e2.lastAdvanceAt = Date.now() - 400;
+  send2(g2.x, g2.t);
+  assert.equal(e2.gemsTotal, 1, "ein Kristall zählt genau einmal");
+});
+
+test("trace: crystals are worth taking but do not outweigh finishing laps", () => {
+  // Wenn die Kristalle mehr brächten als die Runde, würde man aufhören zu
+  // malen und nur noch einsammeln — dann wäre es ein anderes Spiel.
+  const allGems = TRACE_GEMS_PER_LAP * TRACE_GEM_POINTS;
+  assert.ok(allGems > 0);
+  assert.ok(allGems < TRACE_LAP_POINTS + TRACE_CLEAN_BONUS,
+    `Kristalle einer Runde (${allGems}) dürfen die Runde selbst nicht überholen`);
+});
+
 
 function traceRoom() {
   const players = [{ id: "t1", name: "Maler", isBot: false }];
