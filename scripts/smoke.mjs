@@ -167,6 +167,30 @@ for (const game of games) {
     // Zeichenaufrufe darüber, ob eine Szene mit 60 oder mit 25 Bildern läuft —
     // und das merkt man bei einem Reaktionsspiel sofort. Gemessen wird über die
     // Renderer-Statistik von three.js, nicht geschätzt.
+    // Und einmal bis ins FINALE laufen lassen. Der Schlussmoment — Platz 1
+    // freut sich sehr, Platz 4 knickt ein — ist eigener Code in jeder Szene und
+    // lief bisher in keinem Test. Genau dort steckte zuletzt ein Fehler, der im
+    // Spiel nie auffiel, weil die Ausnahme serverseitig abgefangen wurde.
+    const finaleErrorsBefore = errors.length;
+    await page.evaluate(() => {
+      // Die Runde von aussen beenden, statt 30 Sekunden zu warten.
+      const game = window.__tumblekinScene;
+      if (!game) return;
+      const mg = game.update || game.minigame;
+      if (mg) {
+        mg.finaleAt = Date.now();
+        if (mg.arcade) {
+          mg.arcade.places = {};
+          Object.keys(mg.arcade.players || {}).forEach((id, index) => {
+            mg.arcade.places[id] = index + 1;
+          });
+        }
+        if (mg.arena) mg.arena.places = mg.arcade ? mg.arcade.places : {};
+      }
+    });
+    await page.waitForTimeout(1200);
+    if (errors.length > finaleErrorsBefore) status = "Finale kaputt";
+
     perf = await page.evaluate(() => new Promise((resolve) => {
       const scene = window.__tumblekinScene;
       if (!scene?.renderer) { resolve(null); return; }

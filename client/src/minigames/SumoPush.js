@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -8,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
@@ -16,8 +17,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
@@ -428,8 +429,8 @@ export class SumoPush {
         animator?.trigger("fall");
       }
 
-      if (minigame.finaleAt && !out) animator?.set("cheer", { base: true });
-      else animator?.set(out ? "sad" : (charging ? "idle" : "idle"), { base: true });
+      if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
+      else animator?.set(out ? "sad" : "idle", { base: true });
       animator?.update(now);
 
       kin.userData.shadow.position.set(kin.position.x, 0.11, kin.position.z);

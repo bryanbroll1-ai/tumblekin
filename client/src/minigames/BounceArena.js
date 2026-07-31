@@ -12,10 +12,10 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin87";
-import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin87";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin87";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
+import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin88";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin88";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin88";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -388,7 +388,10 @@ export class BounceArena {
       // Full animation state machine: sprint stride, breathing idle, hit
       // shock, and a victory dance during the finale.
       if (minigame.finaleAt && entry.inPlay) {
-        applyFinaleMood(animator, arena.places?.[player.id], state.players.length);
+        // `minigame.arena`, nicht `arena` — die freie Variable gab es hier nie.
+        // Aufgefallen ist das erst, als der Rauchtest bis ins Finale lief:
+        // vorher lief in diesem Zweig schlicht nie ein Test.
+        applyFinaleMood(animator, minigame.arena?.places?.[player.id], state.players.length);
         kin.rotation.y += dt * 5;
         if (!this.finaleCelebrated) {
           this.finaleCelebrated = true;

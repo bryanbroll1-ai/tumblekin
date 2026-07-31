@@ -1,20 +1,21 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Angelduell — der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
 // baut Spannung auf, Loslassen lässt sie sinken, kostet aber Weg. In seinen
@@ -355,7 +356,11 @@ export class FishDuel {
     this.rod.rotation.x += ((-0.62 + pull * 0.34 - tension * 0.3) - this.rod.rotation.x) * 0.18;
     this.angler.rotation.z += ((own.holding ? -0.14 - tension * 0.16 : 0) - this.angler.rotation.z) * 0.16;
     const minigame = this.update || this.minigame;
-    if (minigame.finaleAt) this.anglerAnimator.set("cheer", { base: true });
+    if (minigame.finaleAt) {
+      const arcade = minigame.arcade;
+      const total = this.getState()?.players?.length || 4;
+      applyFinaleMood(this.anglerAnimator, arcade?.places?.[this.getControlledPlayerId()], total);
+    }
     else if (own.surging && own.holding) this.anglerAnimator.set("hit", { base: true });
     else this.anglerAnimator.set("idle", { base: true });
     this.anglerAnimator.update(now);

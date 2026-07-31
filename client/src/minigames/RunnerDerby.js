@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
@@ -15,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -595,6 +596,13 @@ export class RunnerDerby {
       const prevZ = kin.position.z;
       kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.25, dt));
       kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, frameLerp(0.4, dt));
+
+      // Am Ende reagiert jeder Platz eigen. Vorher lief hier auch nach dem
+      // Abpfiff einfach jeder weiter — das war die einzige Szene ganz ohne
+      // Schlussreaktion.
+      if (minigame.finaleAt) {
+        applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
+      }
 
       // Shatter any glass pane this runner passes through.
       this.sliders.forEach((pane) => {

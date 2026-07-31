@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
@@ -15,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Kanonenflug — one perfectly timed tap fires your Kin out of the cannon.
 // The power gauge swings up and down; tap at the peak to fly the farthest.
@@ -284,7 +285,9 @@ export class CannonFly {
         if (t >= 1) {
           kin.rotation.x = 0;
           animator.groundY = 0.62;
-          animator.set(minigame.finaleAt && this.isWinner(arcade, players, entry) ? "cheer" : "idle", { base: true });
+          // Am Ende reagiert jeder Platz eigen, statt nur "Sieger ja/nein".
+          if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], players.length);
+          else animator.set("idle", { base: true });
         }
       } else {
         // Sit tucked in the barrel mouth, tilted with the tube, ready to fire.

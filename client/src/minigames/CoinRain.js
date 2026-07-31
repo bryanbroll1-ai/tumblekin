@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
@@ -15,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -307,7 +308,7 @@ export class CoinRain {
       }
 
       if (minigame.finaleAt) {
-        animator.set("cheer", { base: true });
+        applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
       } else {
         animator.set(moving ? "run" : "idle", { base: true });
       }

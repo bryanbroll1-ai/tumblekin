@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -8,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
@@ -16,8 +17,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
@@ -342,7 +343,8 @@ export class ColorRush {
       }
       // Finale: the survivor celebrates on camera before the scoreboard.
       if (!fallen) {
-        animator.set(minigame.finaleAt ? "cheer" : "idle", { base: true });
+        if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
+        else animator.set("idle", { base: true });
         if (minigame.finaleAt && !this.finaleCelebrated) {
           this.finaleCelebrated = true;
           this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffc400"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });

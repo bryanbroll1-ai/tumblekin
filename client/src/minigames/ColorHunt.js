@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
@@ -15,9 +16,9 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin87";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin88";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Farbenjagd — EINE geteilte Fläche für alle. Jeder Kin färbt das Feld, auf dem
 // er steht, in seine Farbe, auch wenn dort schon eine fremde liegt. Damit ist es
@@ -237,7 +238,7 @@ export class ColorHunt {
       kin.position.z += (z - kin.position.z) * 0.4;
 
       const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
-      if (minigame.finaleAt) animator.set("cheer", { base: true });
+      if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
       else animator.set(speed > 0.35 ? "run" : "idle", { base: true });
       // Blickrichtung in die Fahrtrichtung, damit man sieht, wohin einer will.
       if (speed > 0.2) {

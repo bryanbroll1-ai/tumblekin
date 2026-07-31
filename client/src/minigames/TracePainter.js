@@ -1,20 +1,21 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin87";
+} from "./VoxelKit.js?v=tumblekin88";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin87";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin87";
+} from "./SceneKit.js?v=tumblekin88";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin88";
 
 // Spurmaler — eine geschwungene Spur läuft von unten nach oben. Der eigene Kin
 // reitet als Pinsel darauf und malt sie aus, solange der Finger im Toleranzband
@@ -422,6 +423,10 @@ export class TracePainter {
       if (own.lap !== this.drawnLap) this.layoutRibbons(arcade.seed, own.lap);
       this.paintRibbons(own.progress || 0, this.ownColor);
       this.moveBrush(own, arcade, now, dt);
+      if (minigame.finaleAt) {
+        applyFinaleMood(this.brushAnimator, arcade.places?.[controlledId], state.players.length);
+        this.brushAnimator.update(now);
+      }
       this.syncGems(own, now);
       this.reactToEvents(own, now);
     }
