@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin90";
+} from "./VoxelKit.js?v=tumblekin91";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin90";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin90";
+} from "./SceneKit.js?v=tumblekin91";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin91";
 
 // Eisstock — drei Steine je Person, gewischt auf ein Ringziel. Länge des Wisches
 // ist Kraft, Richtung ist Richtung. Fremde Steine darf man wegrempeln, und genau

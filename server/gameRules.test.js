@@ -3817,3 +3817,44 @@ test("paint: wrong action and a broken direction are refused", () => {
   arcade.players[me.id].lastInputAt = 0;
   assert.equal(handleArcadeInput(room, me, { action: "steer", x: "x", y: 0 }).ok, false);
 });
+
+// --- Katalog und Regeln dürfen nicht auseinanderlaufen ---------------------
+// Der Hilfetext ist für viele Leute die EINZIGE Erklärung, die sie je lesen —
+// er steht auf der Startkarte und sonst nirgends. Läuft er den Regeln davon,
+// spielt die halbe Runde bewusst falsch. Genau das war beim Messerwurf
+// passiert: der Text empfahl die enge Lücke, während die Wertung längst den
+// sauberen Wurf belohnte.
+//
+// Automatisch prüfbar ist nur die Vollständigkeit — dass kein Minispiel ohne
+// Text oder Geste ausgeliefert wird und kein Text ohne Minispiel übrig bleibt.
+// Ob der Text auch STIMMT, muss beim Regeländern von Hand nachgezogen werden.
+test("Katalog: jedes Minispiel hat Titel, Geste und Hilfetext", async () => {
+  const { MINIGAME_CATALOG, GESTURES } = await import("../client/src/minigames/catalog.js");
+
+  const serverTypes = MINIGAMES.map((game) => game.type);
+  const catalogTypes = MINIGAME_CATALOG.map((game) => game.type);
+
+  assert.deepEqual(
+    serverTypes.filter((type) => !catalogTypes.includes(type)), [],
+    "Minispiel ohne Katalogeintrag: es startet, erklärt sich aber nicht");
+  assert.deepEqual(
+    catalogTypes.filter((type) => !serverTypes.includes(type)), [],
+    "Katalogeintrag ohne Minispiel: der Text zeigt auf nichts");
+  assert.equal(new Set(catalogTypes).size, catalogTypes.length, "doppelter Katalogeintrag");
+
+  MINIGAME_CATALOG.forEach((game) => {
+    assert.ok(game.title && game.title.trim().length > 0, `${game.type}: kein Titel`);
+    assert.ok(GESTURES[game.gesture], `${game.type}: unbekannte Geste "${game.gesture}"`);
+    // Kurze Texte sind hier immer ein Versehen, kein Stil: unter 40 Zeichen
+    // passt keine Regel rein, nur eine Umschreibung des Titels.
+    assert.ok((game.help || "").trim().length >= 40, `${game.type}: Hilfetext zu dünn`);
+  });
+
+  // Die Familie im Katalog muss die des Servers sein — sonst zeigt die
+  // Oberfläche das falsche Steuerungsbild.
+  MINIGAME_CATALOG.forEach((game) => {
+    const template = MINIGAMES.find((candidate) => candidate.type === game.type);
+    assert.equal(game.family || undefined, template.arcadeFamily || undefined,
+      `${game.type}: Familie im Katalog (${game.family}) passt nicht zum Server (${template.arcadeFamily})`);
+  });
+});
