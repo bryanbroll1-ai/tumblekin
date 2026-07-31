@@ -550,6 +550,16 @@ function knifeRoundsFor(playerCount) {
 // schwächeren Mitspielenden nach dem ersten oder zweiten Wurf aus und sahen den
 // Rest nur noch zu. Das zweite Mal ist das Aus.
 const KNIFE_LIVES = 2;
+// Die Scheibe dreht immer schneller. Das ist nicht nur Dramaturgie: ein
+// Zeitfehler ist hier direkt ein Winkelfehler, und nur wenn die Scheibe schnell
+// genug wird, entscheidet das Timing überhaupt etwas. Bei 2.4 rad/s lagen selbst
+// 150 ms Wackeln noch unter der Kollisionsschwelle — gemessen war zwischen
+// "normal" und "hard" kein Unterschied mehr.
+// 3.4 rad/s sind 195 Grad/s: 100 ms menschliches Zittern ergeben 19.5 Grad und
+// bleiben damit knapp unter den 22 Grad Mindestabstand. Eng, aber machbar.
+const KNIFE_SPIN_START = 1.1;
+const KNIFE_SPIN_STEP = 0.22;
+const KNIFE_SPIN_MAX = 3.4;
 const KNIFE_TURN_START_MS = 3000;     // Wurffenster in der ersten Runde
 const KNIFE_TURN_MIN_MS = 1500;
 const KNIFE_TURN_STEP = 0.84;         // je Runde wird es enger
@@ -2319,8 +2329,19 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   if (arcade.family === "choice" || arcade.family === "target") {
     return Math.max(0, 50000 + successes * 100000 - mistakes * 100 + score);
   }
-  if (arcade.family === "plinko" || arcade.family === "curling") {
+  if (arcade.family === "plinko") {
     return Math.max(0, score * 1000 + successes);
+  }
+  if (arcade.family === "curling") {
+    // Die Ringe sind grob: ein Stein 1 mm neben dem Knopf zählt genauso viel
+    // wie einer am Innenrand. Damit war das Spiel oben gedeckelt — "normal" und
+    // "hard" lagen gemessen gleichauf, weil Präzision ab einem gewissen Punkt
+    // gar nicht mehr belohnt wurde.
+    //
+    // Die Ringpunkte bleiben die Schlagzeile (die sieht der Spieler), darunter
+    // entscheidet die Nähe zum Knopf. Der Feinwert bleibt unter 1000 und kann
+    // deshalb keinen Ringunterschied kippen.
+    return Math.max(0, score * 1000 + (arcadePlayer.precision || 0));
   }
   if (arcade.family === "stopclock") {
     // Closest guess wins: a smaller deviation ranks higher.
@@ -2394,10 +2415,14 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   }
   if (arcade.family === "knife") {
     // Survivors rank above the eliminated; more knives stuck breaks ties, and
-    // among equals the cleaner hand (fewer Fehlwürfe) ranks higher.
+    // among equals der sauberere Wurf (näher am bestmöglichen) rangiert höher.
+    // Die Feinwertung ist auf 0..500 normiert und bleibt damit immer unter
+    // einem einzigen Treffer (1000) — sie ordnet Gleichstände, sie kippt nichts.
+    const precision = Math.round(
+      ((arcadePlayer.precision || 0) / Math.max(1, arcade.rounds || 1)) * 500);
     return Math.max(0, (arcadePlayer.eliminated ? 0 : 5000000)
       + (arcadePlayer.stuck || 0) * 1000
-      + (arcadePlayer.nerve || 0)
+      + precision
       - (arcadePlayer.clashes || 0) * 100);
   }
   if (arcade.family === "stack") {
@@ -3579,18 +3604,20 @@ function createArcadeState(type, players, startedAt) {
     arcade.order = players.map((player) => player.id);
     arcade.turnIndex = 0;
     arcade.activeId = arcade.order[0] || null;
+    arcade.turnPos = 1;                  // der Erste steht schon auf Position 0
     arcade.round = 0;
     arcade.rounds = knifeRoundsFor(players.length);
     arcade.turnMs = knifeTurnMs(0);
     arcade.turnEndsAt = startedAt + arcade.turnMs;
-    arcade.spinSpeed = 1.1;
+    arcade.spinSpeed = KNIFE_SPIN_START;
     arcade.logAngle = 0;
     arcade.knives = [];                  // { angleDeg, playerId }
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.stuck = 0;
       entry.clashes = 0;                 // Fehlwürfe auf ein anderes Messer
-      entry.nerve = 0;                   // Zugabe für enge Lücken
+      entry.precision = 0;               // Summe: Wurf gemessen am bestmöglichen
+      entry.posSum = 0;                  // bisherige Plätze in der Wurfreihenfolge
       entry.eliminated = false;          // beim zweiten Fehlwurf → raus
       entry.turnDone = false;            // has had their throwing window
     });
@@ -4351,15 +4378,26 @@ function handleArcadeInput(room, player, input) {
     } else {
       // One knife per turn: a clean throw lands and immediately hands the
       // spinning log to the next player.
-      // Nerven: je enger die Lücke war, in die das Messer ging, desto mehr zählt
-      // der Wurf. Ohne das endeten 42 % der Partien unentschieden, weil bei drei
-      // Runden fast jeder starke Spieler auf dieselben drei Treffer kommt.
+      // Feinwertung, damit nicht jede Partie unentschieden endet: bei drei
+      // Runden kommt fast jeder starke Spieler auf dieselben drei Treffer.
+      //
+      // Vorher zählte hier die ENGE der Lücke ("Nerven"). Das war genau
+      // verkehrt herum: das Spiel verlangt, in freien Raum zu werfen, die
+      // Zugabe belohnte das Gegenteil. Wer sauber zielte, bekam WENIGER — die
+      // beiden Regler zeigten in entgegengesetzte Richtungen und hoben sich
+      // auf. Gemessen lagen "normal" und "hard" exakt gleichauf.
+      //
+      // Die blosse Lückengrösse taugt aber auch nicht: die Scheibe füllt sich,
+      // also hat der erste Werfer jeder Runde strukturell mehr Platz. Gemessen
+      // wird darum, wie nah der Wurf am BESTMÖGLICHEN dieses Augenblicks lag —
+      // das ist Ausführung statt Gelegenheit und damit reihenfolgeneutral.
       let gap = 180;
       arcade.knives.forEach((knife) => {
         const diff = Math.abs(((knife.angleDeg - normalized + 540) % 360) - 180);
         if (diff < gap) gap = diff;
       });
-      arcadePlayer.nerve = (arcadePlayer.nerve || 0) + Math.round(Math.max(0, 90 - gap));
+      arcadePlayer.precision = (arcadePlayer.precision || 0)
+        + clamp(gap / Math.max(1, knifeBestGap(arcade.knives)), 0, 1);
       arcade.knives.push({ angleDeg: normalized, playerId: player.id });
       arcadePlayer.stuck += 1;
       arcadePlayer.flash = "good";
@@ -5494,6 +5532,19 @@ function updateCatchfall(room, minigame, arcade, now) {
 // faster each turn so later throwers face a trickier disc.
 // Das Wurffenster je Runde. Es wird enger, damit späte Runden — wenn die Scheibe
 // schon voll ist — auch unter Zeitdruck stehen.
+// Der beste Wurf, der in diesem Augenblick überhaupt möglich wäre: die Mitte
+// des grössten freien Bogens. Von dort aus ist der Abstand zum nächsten Messer
+// genau der halbe Bogen.
+function knifeBestGap(knives) {
+  if (!knives || knives.length === 0) return 180;
+  const angles = knives.map((knife) => ((knife.angleDeg % 360) + 360) % 360).sort((a, b) => a - b);
+  let widest = angles[0] + 360 - angles[angles.length - 1];
+  for (let i = 1; i < angles.length; i += 1) {
+    widest = Math.max(widest, angles[i] - angles[i - 1]);
+  }
+  return Math.max(1, widest / 2);
+}
+
 function knifeTurnMs(round) {
   return Math.max(KNIFE_TURN_MIN_MS, Math.round(KNIFE_TURN_START_MS * Math.pow(KNIFE_TURN_STEP, round)));
 }
@@ -5523,6 +5574,24 @@ function advanceKnifeTurn(room, minigame, arcade, now) {
         if (alive(id)) arcade.players[id].turnDone = false;
       });
       arcade.turnMs = knifeTurnMs(arcade.round);
+      // Wer anfängt, wirft in die leerste Scheibe — das ist der grösste Vorteil
+      // im ganzen Spiel. Bei fester Reihenfolge hatte Spieler 1 in JEDER Runde
+      // im Schnitt 100 Grad Platz und Spieler 3 nur 66; das entschied die Partie
+      // deutlicher als alles, was die Spieler taten.
+      //
+      // Einfaches Durchrotieren reicht nicht: geht die Rundenzahl nicht durch
+      // die Spielerzahl auf (drei Spieler, vier Runden), bleibt ein fester Rest
+      // übrig — gemessen genau bei drei Spielern. Nur den Anfänger zu tauschen
+      // reicht auch nicht, denn der Rest der Runde bleibt dann in alter Ordnung.
+      //
+      // Darum wird die ganze Runde neu sortiert: wer bisher die schlechtesten
+      // Plätze hatte, wirft zuerst. Gleichstände werden gewürfelt — sonst
+      // bevorzugt der Rest über viele Partien hinweg immer denselben Sitz.
+      arcade.turnPos = 0;
+      arcade.order = arcade.order
+        .map((id) => ({ id, sum: arcade.players[id]?.posSum || 0, jitter: Math.random() }))
+        .sort((a, b) => (b.sum - a.sum) || (a.jitter - b.jitter))
+        .map((entry) => entry.id);
       for (let step = 0; step < arcade.order.length; step += 1) {
         const candidate = arcade.order[step];
         if (alive(candidate)) { next = candidate; arcade.turnIndex = step; break; }
@@ -5531,8 +5600,11 @@ function advanceKnifeTurn(room, minigame, arcade, now) {
   }
   if (next) {
     arcade.activeId = next;
+    const entry = arcade.players[next];
+    if (entry) entry.posSum = (entry.posSum || 0) + (arcade.turnPos || 0);
+    arcade.turnPos = (arcade.turnPos || 0) + 1;
     arcade.turnEndsAt = now + arcade.turnMs;
-    arcade.spinSpeed = Math.min(2.4, arcade.spinSpeed + 0.18);
+    arcade.spinSpeed = Math.min(KNIFE_SPIN_MAX, arcade.spinSpeed + KNIFE_SPIN_STEP);
   } else {
     arcade.activeId = null;   // alle Runden geworfen oder niemand mehr übrig
   }
@@ -6000,13 +6072,22 @@ function updateCurling(room, minigame, arcade, dt, now) {
     const entry = arcade.players[player.id];
     if (!entry) return;
     let points = 0;
+    let closeness = 0;
+    const outer = arcade.rings[arcade.rings.length - 1].radius;
     arcade.stones.forEach((stone) => {
       if (stone.playerId !== player.id) return;
       const distance = Math.hypot(stone.x - arcade.house.x, stone.y - arcade.house.y);
       const ring = arcade.rings.find((candidate) => distance <= candidate.radius);
-      if (ring) points += ring.points;
+      if (ring) {
+        points += ring.points;
+        // Feinwertung innerhalb des Rings: ganz am Knopf zählt mehr als am
+        // Innenrand. Ohne das war das Spiel oben gedeckelt.
+        closeness += 1 - distance / outer;
+      }
     });
     entry.score = points;
+    entry.precision = Math.round(
+      (closeness / Math.max(1, CURLING_STONES_PER_PLAYER)) * 900);
     syncArcadeScore(minigame, player, entry);
   });
 }
@@ -6998,18 +7079,13 @@ function arcadeBotStep(room, bot) {
     const wantedSpeed = distance * CURLING_FRICTION;
     const power = clamp((wantedSpeed / 1.7) * (1 + (Math.random() - 0.5) * 2 * powerErr), 0.25, 1);
 
-    // Ein starker Bot legt sich vor einen fremden Stein, der schon gut liegt —
-    // wegrempeln ist hier die halbe Miete.
-    let targetX = arcade.house.x;
-    if (profile.level === "hard") {
-      const rival = (arcade.stones || [])
-        .filter((stone) => stone.playerId !== bot.id)
-        .map((stone) => ({ stone, miss: Math.hypot(stone.x - arcade.house.x, stone.y - arcade.house.y) }))
-        .sort((a, b) => a.miss - b.miss)[0];
-      if (rival && rival.miss < 0.14) targetX = rival.stone.x;
-    }
-
-    const spread = (targetX - startX) + (Math.random() - 0.5) * 2 * aimErr;
+    // Kein Rempeln mehr. Der starke Bot zielte früher auf einen fremden Stein,
+    // der schon gut lag — das klingt nach Curling, ist hier aber ein Verlust:
+    // die Steine sind gleich schwer und prallen mit 0.92 ab, ein Rempler nimmt
+    // also fast immer BEIDE aus dem Haus. Wer ohnehin genau trifft, tauscht
+    // damit einen sicheren eigenen Treffer gegen einen fremden. Gemessen lag
+    // "hard" dadurch zu dritt hinter "normal".
+    const spread = (arcade.house.x - startX) + (Math.random() - 0.5) * 2 * aimErr;
     handleArcadeInput(room, bot, {
       action: "flick",
       dx: clamp(spread * 0.9, -1, 1),

@@ -1172,7 +1172,10 @@ test("messerwurf: only the active thrower may throw; a clash ends their turn", (
   assert.ok(survivor > out, "survivors outrank the eliminated");
 });
 
-test("messerwurf: a tight gap is worth more than a wide one", () => {
+test("messerwurf: der sauberere Wurf zählt mehr, nicht der riskantere", () => {
+  // Das Spiel verlangt, in freien Raum zu werfen. Die Feinwertung muss in
+  // dieselbe Richtung zeigen — vorher belohnte sie die ENGE Lücke, also genau
+  // das Gegenteil, und "normal" und "hard" lagen gemessen gleichauf.
   const one = player({ id: "kn1", name: "KN1", color: "#fff" });
   const two = player({ id: "kn2", name: "KN2", color: "#0ff" });
   const startedAt = Date.now();
@@ -1180,26 +1183,63 @@ test("messerwurf: a tight gap is worth more than a wide one", () => {
   const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
   const room = { currentMinigame: minigame, players: [one, two] };
 
-  // Zwei Messer stehen schon, mit einer Lücke von 60 Grad dazwischen.
-  arcade.knives = [{ angleDeg: 0, playerId: "x" }, { angleDeg: 60, playerId: "x" }];
+  // Zwei Messer stehen schon: eine Lücke von 60 Grad, der grosse Rest 300 Grad.
+  const standing = () => [{ angleDeg: 0, playerId: "x" }, { angleDeg: 60, playerId: "x" }];
   const first = arcade.activeId === one.id ? one : two;
   const second = first === one ? two : one;
 
-  // Mitten in die Lücke: 30 Grad Abstand zu beiden Seiten.
-  arcade.logAngle = (30 * Math.PI) / 180;
+  // Sauber in die Mitte des grossen Bogens: 210 Grad, also das Bestmögliche.
+  arcade.knives = standing();
+  arcade.logAngle = (210 * Math.PI) / 180;
   arcade.players[first.id].lastInputAt = 0;
   handleArcadeInput(room, first, { action: "throw" });
-  const wide = arcade.players[first.id].nerve;
+  const clean = arcade.players[first.id].precision;
 
-  // Knapp am zweiten Messer vorbei: gerade noch erlaubt.
+  // Knapp am zweiten Messer vorbei: gerade noch erlaubt, aber schlampig.
+  arcade.knives = standing();
   arcade.activeId = second.id;
   arcade.logAngle = (83 * Math.PI) / 180;
   arcade.players[second.id].lastInputAt = 0;
   handleArcadeInput(room, second, { action: "throw" });
-  const tight = arcade.players[second.id].nerve;
+  const sloppy = arcade.players[second.id].precision;
 
   assert.equal(arcade.players[second.id].stuck, 1, "a legal throw still sticks");
-  assert.ok(tight > wide, `der engere Wurf zählt mehr (${tight} > ${wide})`);
+  assert.ok(clean > sloppy, `der saubere Wurf zählt mehr (${clean} > ${sloppy})`);
+  assert.ok(clean > 0.98, `der bestmögliche Wurf zählt voll (${clean})`);
+});
+
+test("messerwurf: die Feinwertung ist reihenfolgeneutral", () => {
+  // Die Scheibe füllt sich, der erste Werfer jeder Runde hat strukturell mehr
+  // Platz. Gemessen wird darum der Wurf gegen das, was in diesem Augenblick
+  // möglich war — der perfekte Wurf auf voller Scheibe zählt genauso viel wie
+  // der perfekte Wurf auf leerer.
+  const one = player({ id: "kp1", name: "KP1", color: "#fff" });
+  const two = player({ id: "kp2", name: "KP2", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("messerwurf", [one, two], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
+  const room = { currentMinigame: minigame, players: [one, two] };
+  const first = arcade.activeId === one.id ? one : two;
+  const second = first === one ? two : one;
+
+  // Früh dran: nur ein Messer steht, der grösste Bogen ist fast die ganze Scheibe.
+  arcade.knives = [{ angleDeg: 0, playerId: "x" }];
+  arcade.logAngle = Math.PI;                       // 180 Grad, genau gegenüber
+  arcade.players[first.id].lastInputAt = 0;
+  handleArcadeInput(room, first, { action: "throw" });
+  const early = arcade.players[first.id].precision;
+
+  // Spät dran: die Scheibe ist voll, der beste Bogen viel kleiner.
+  arcade.knives = [0, 40, 80, 120, 160, 200, 260].map((angleDeg) => ({ angleDeg, playerId: "x" }));
+  arcade.activeId = second.id;
+  arcade.logAngle = (310 * Math.PI) / 180;          // Mitte des 260–360-Bogens
+  arcade.players[second.id].lastInputAt = 0;
+  handleArcadeInput(room, second, { action: "throw" });
+  const late = arcade.players[second.id].precision;
+
+  assert.equal(arcade.players[second.id].stuck, 1, "der späte Wurf steckt");
+  assert.ok(Math.abs(early - late) < 0.05,
+    `perfekt ist perfekt, egal wann (früh ${early}, spät ${late})`);
 });
 
 test("messerwurf: the turn timer hands the disc to the next player", () => {
