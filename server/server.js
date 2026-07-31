@@ -105,6 +105,10 @@ const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
 // darum hier oben, wo der Katalog die Länge schon braucht.
 const FEINT_DURATION_MS = 32000;
 const BELT_DURATION_MS = 34000;
+// Spürsinn braucht Zeit zum DENKEN, nicht zum Reagieren — das ist im ganzen
+// Katalog das einzige Spiel, das nachrechnet statt zuckt. 42 s reichen bei
+// gutem Spiel für vier bis fünf Fundstücke und bei Rateglück für zwei.
+const SEEK_DURATION_MS = 42000;
 const GLIDE_DURATION_MS = 34000;
 const SIMON_DURATION_MS = 36000;
 const DIVE_DURATION_MS = 36000;
@@ -140,6 +144,7 @@ const MINIGAMES = [
   { type: "eisstock", title: "Eisstock", duration: 34000, arcadeFamily: "curling" },
   { type: "tiefenrausch", title: "Tiefenrausch", duration: DIVE_DURATION_MS, arcadeFamily: "dive" },
   { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" },
+  { type: "spuersinn", title: "Spürsinn", duration: SEEK_DURATION_MS, arcadeFamily: "seek" },
   { type: "farbenjagd", title: "Farbenjagd", duration: PAINT_DURATION_MS, arcadeFamily: "paint" }
 ];
 
@@ -170,7 +175,8 @@ const ARCADE_CONFIGS = {
   eisstock: { family: "curling", seed: 577 },
   tiefenrausch: { family: "dive", seed: 599 },
   angelduell: { family: "fish", seed: 509 },
-  farbenjagd: { family: "paint", seed: 521 }
+  farbenjagd: { family: "paint", seed: 521 },
+  spuersinn: { family: "seek", seed: 619 }
 };
 
 // Ballonfahrt — halten steigt, loslassen sinkt, und der Kurs kommt in Toren
@@ -459,6 +465,69 @@ const PAINT_TILE_SECOND_POINTS = 4;    // Punkte je gehaltenem Feld und Sekunde
 const PAINT_BOOST_MS = 5000;           // Dauer der breiten Rolle
 const PAINT_PICKUP_EVERY_MS = 4200;
 const PAINT_PICKUP_MAX = 2;
+
+// Spürsinn — im ganzen Katalog das einzige Spiel, das NACHDENKEN verlangt statt
+// zu reagieren. 28 Minispiele messen Reflex, Timing, Steuerung, Rhythmus und
+// Gedächtnis; keines fragt "was folgt daraus?".
+//
+// Ein Fundstück liegt versteckt im Feld. Jeder Tipp auf ein Feld verrät, wie
+// viele Schritte es bis dorthin sind (hoch/runter/links/rechts gezählt, nicht
+// über Eck). Wer die Angaben kombiniert, hat es in drei bis vier Tipps; wer
+// blind sucht, braucht im Schnitt dreizehn. Genau darin liegt das Können.
+//
+// Warum Manhattan und nicht Luftlinie über Eck: die Zahlen sind so von 0 bis 8
+// gestreut statt nur 0 bis 4, jeder Tipp trennt also doppelt so scharf. Und
+// "Schritte" versteht am Tisch jeder sofort, "Abstand" nicht.
+const SEEK_SIZE = 6;                   // 6x6 = 36 Felder
+const SEEK_BASE_POINTS = 150;          // ein Fund mit null Tipps wäre so viel wert
+const SEEK_PROBE_COST = 18;            // jeder Tipp zieht ab …
+const SEEK_MIN_POINTS = 20;            // … aber ein Fund zählt immer etwas
+// Ein Tipp pro 260 ms reicht für zügiges Suchen und verhindert, dass jemand mit
+// einem Wischen über das Raster einfach alle 25 Felder aufdeckt.
+const SEEK_COOLDOWN_MS = 260;
+// Wie lange ein Bot je Tipp braucht. Der entscheidende Punkt des ganzen Spiels
+// steckt in diesen drei Zahlen: NACHDENKEN KOSTET ZEIT.
+//
+// Zuerst tippten alle Stufen gleich schnell, damit nur die Denkleistung den
+// Unterschied macht. Gemessen kam dabei ein Bot heraus, der 35 Fundstücke in
+// 42 Sekunden hebt und 4152 Punkte macht, wo blindes Suchen auf 199 kommt — das
+// Zwanzigfache. Bots füllen im echten Spiel freie Plätze, und gegen so einen
+// hätte kein Mensch je eine Chance gehabt.
+//
+// Der Fehler war nicht die Denkleistung, sondern dass sie umsonst war. Wer alle
+// Angaben im Kopf zusammenrechnet, braucht dafür einen Moment; wer blind tippt,
+// tippt eben schnell. Damit wird aus dem Spiel eine echte Frage — denken oder
+// draufhalten? — statt einer Rechenaufgabe, die der Schnellste gewinnt.
+const SEEK_BOT_INTERVAL = { easy: 400, normal: 700, hard: 1150 };
+
+// Aus der Spieler-Id eine eigene Zahl, damit nicht alle dasselbe Versteck haben.
+function hashSeekSeed(playerId) {
+  let hash = 0;
+  for (let index = 0; index < playerId.length; index += 1) {
+    hash = (hash * 31 + playerId.charCodeAt(index)) % 100003;
+  }
+  return hash;
+}
+
+// Das Versteck der Runde. Aus dem Startwert gerechnet und nicht gewürfelt: so
+// liegt es fest, sobald die Runde beginnt, und ein verlorenes Paket kann es
+// nicht verschieben.
+function seekGemFor(seed, round) {
+  const cell = Math.floor(arcadeNoise(seed + round * 7919) * SEEK_SIZE * SEEK_SIZE);
+  const safe = Math.min(SEEK_SIZE * SEEK_SIZE - 1, Math.max(0, cell));
+  return { x: safe % SEEK_SIZE, y: Math.floor(safe / SEEK_SIZE) };
+}
+
+// Schritte im Raster, nicht Luftlinie: hoch/runter/links/rechts.
+function seekSteps(ax, ay, bx, by) {
+  return Math.abs(ax - bx) + Math.abs(ay - by);
+}
+
+// Was ein Fund noch wert ist. Fällt mit jedem Tipp, aber nie unter den
+// Mindestwert — sonst würde sich Aufgeben lohnen, sobald man einmal danebenlag.
+function seekFindValue(probes) {
+  return Math.max(SEEK_MIN_POINTS, SEEK_BASE_POINTS - probes * SEEK_PROBE_COST);
+}
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
 const RUNNER_LENGTH = 150;
@@ -2443,6 +2512,13 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
     return Math.max(1, 1000000 - total);
   }
+  if (arcade.family === "seek") {
+    // Der Punktestand steckt schon alles: jeder Fund ist umso mehr wert, je
+    // weniger Tipps er gekostet hat. Bei Gleichstand entscheidet die sparsamere
+    // Hand — wer mit weniger Tipps auf dieselbe Zahl kommt, hat besser gedacht.
+    return Math.max(0, Math.round(arcadePlayer.score || 0) * 1000
+      + Math.max(0, 500 - (arcadePlayer.totalProbes || 0)));
+  }
   if (arcade.family === "knife") {
     // Survivors rank above the eliminated; more knives stuck breaks ties, and
     // among equals der sauberere Wurf (näher am bestmöglichen) rangiert höher.
@@ -2593,6 +2669,12 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     const played = arcadePlayer.times || [];
     const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
     return { kind: "sumTime", value: Math.round(total), label: "gesamt" };
+  }
+  if (arcade.family === "seek") {
+    // Eine Zahl, und zwar die, nach der auch sortiert wird. Die Zahl der Funde
+    // allein würde lügen: vier zufällig erstolperte Funde sind weniger wert als
+    // drei erdachte.
+    return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "knife") {
     // Zuerst entscheidet, ob man noch dabei ist — also steht das auch da.
@@ -3745,6 +3827,27 @@ function createArcadeState(type, players, startedAt) {
       entry.lastVerdict = null;
     });
   }
+  if (config.family === "seek") {
+    arcade.size = SEEK_SIZE;
+    arcade.basePoints = SEEK_BASE_POINTS;
+    arcade.probeCost = SEEK_PROBE_COST;
+    arcade.minPoints = SEEK_MIN_POINTS;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      // Jede Person sucht auf ihrem EIGENEN Feld. Ein gemeinsames Feld wäre ein
+      // Rennen, in dem der erste Fund die Arbeit für alle erledigt — und wer
+      // gerade langsamer tippt, bekäme das Ergebnis geschenkt. Gleiche Aufgabe,
+      // getrennte Bretter: dann zählt wirklich, wer besser kombiniert.
+      entry.seekSeed = config.seed + hashSeekSeed(player.id);
+      entry.round = 0;
+      entry.found = 0;
+      entry.probes = [];               // { x, y, steps }
+      entry.totalProbes = 0;
+      entry.bestProbes = null;         // wenigste Tipps für einen Fund
+      entry.lastFind = null;
+      entry.gem = seekGemFor(entry.seekSeed, 0);
+    });
+  }
   if (config.family === "paint") {
     arcade.cols = PAINT_COLS;
     arcade.rows = PAINT_ROWS;
@@ -4187,7 +4290,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -4567,6 +4670,49 @@ function handleArcadeInput(room, player, rawInput) {
     arcadePlayer.flash = "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
+  if (arcade.family === "seek") {
+    if (input.action !== "probe") return { ok: false, error: "Tippe ein Feld an." };
+    const x = Math.floor(inputNumber(input.x));
+    const y = Math.floor(inputNumber(input.y));
+    if (!Number.isInteger(x) || !Number.isInteger(y)
+      || x < 0 || y < 0 || x >= SEEK_SIZE || y >= SEEK_SIZE) {
+      return { ok: false, error: "Dieses Feld gibt es nicht." };
+    }
+    // Ein zweites Mal auf dasselbe Feld ist kein Fehler, sondern ein Verrutscher
+    // — es kostet nichts und verrät auch nichts Neues.
+    if (arcadePlayer.probes.some((probe) => probe.x === x && probe.y === y)) return { ok: true };
+
+    arcadePlayer.hasMoved = true;
+    const steps = seekSteps(x, y, arcadePlayer.gem.x, arcadePlayer.gem.y);
+    arcadePlayer.totalProbes += 1;
+
+    if (steps === 0) {
+      // Gefunden. Gewertet wird, wie WENIGE Tipps es gebraucht hat — die
+      // Fundzahl allein würde blindes Abklappern genauso belohnen wie Denken.
+      const used = arcadePlayer.probes.length + 1;
+      const value = seekFindValue(arcadePlayer.probes.length);
+      arcadePlayer.score += value;
+      arcadePlayer.found += 1;
+      arcadePlayer.successes += 1;
+      if (arcadePlayer.bestProbes === null || used < arcadePlayer.bestProbes) {
+        arcadePlayer.bestProbes = used;
+      }
+      arcadePlayer.lastFind = { x, y, probes: used, value, at: now };
+      arcadePlayer.round += 1;
+      arcadePlayer.probes = [];
+      arcadePlayer.gem = seekGemFor(arcadePlayer.seekSeed, arcadePlayer.round);
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+      syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+      return { ok: true };
+    }
+
+    arcadePlayer.probes.push({ x, y, steps });
+    arcadePlayer.flash = steps <= 2 ? "good" : null;
+    arcadePlayer.lastHitAt = now;
     return { ok: true };
   }
 
@@ -7103,6 +7249,79 @@ function arcadeBotStep(room, bot) {
     handleArcadeInput(room, bot, { action: "nudge", dir: player.botNudgeRight ? wanted : -wanted });
     return;
   }
+  if (arcade.family === "seek") {
+    // Wer mehr denkt, tippt langsamer — siehe SEEK_BOT_INTERVAL. Das sind nicht
+    // zwei Regler, die sich aufheben, sondern die beiden Seiten derselben
+    // Entscheidung: Zeit gegen Sicherheit.
+    const now = Date.now();
+    const profile = botProfile(player);
+    const interval = SEEK_BOT_INTERVAL[profile.level] || SEEK_BOT_INTERVAL.normal;
+    if (now - (player.botProbeAt || 0) < interval) return;
+    player.botProbeAt = now;
+
+    const size = arcade.size;
+    const probed = new Set((player.probes || []).map((probe) => `${probe.x},${probe.y}`));
+
+    // Alle Felder, die zu den mitgegebenen Angaben passen. Ein schon getipptes
+    // Feld kann das Versteck nicht sein — sonst wäre die Runde vorbei.
+    const consistentWith = (clues) => {
+      const out = [];
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          if (probed.has(`${x},${y}`)) continue;
+          if (clues.every((clue) => seekSteps(clue.x, clue.y, x, y) === clue.steps)) out.push({ x, y });
+        }
+      }
+      return out;
+    };
+
+    let pick = null;
+    if (profile.level === "hard") {
+      // Behält ALLE Angaben und kombiniert sie.
+      const candidates = consistentWith(player.probes || []);
+      if (candidates.length <= 2) {
+        pick = candidates[0] || null;
+      } else {
+        // Den Tipp suchen, der die übrigen Kandidaten am gleichmässigsten
+        // aufteilt — dann ist der schlechteste Fall am kleinsten. Das ist
+        // dieselbe Überlegung wie beim Zahlenraten: immer in die Mitte.
+        let bestWorst = Infinity;
+        for (let y = 0; y < size; y += 1) {
+          for (let x = 0; x < size; x += 1) {
+            if (probed.has(`${x},${y}`)) continue;
+            const buckets = new Map();
+            candidates.forEach((candidate) => {
+              const steps = seekSteps(x, y, candidate.x, candidate.y);
+              buckets.set(steps, (buckets.get(steps) || 0) + 1);
+            });
+            const worst = Math.max(...buckets.values());
+            if (worst < bestWorst) { bestWorst = worst; pick = { x, y }; }
+          }
+        }
+      }
+    } else if (profile.level === "normal") {
+      // Behält nur die LETZTE Angabe im Kopf — genau das tut, wer mitdenkt,
+      // aber nicht mitschreibt.
+      const clues = player.probes || [];
+      const last = clues[clues.length - 1];
+      const candidates = consistentWith(last ? [last] : []);
+      pick = candidates[Math.floor(Math.random() * candidates.length)] || null;
+    }
+
+    if (!pick) {
+      // "easy" und jeder Rest: irgendein noch freies Feld.
+      const free = [];
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          if (!probed.has(`${x},${y}`)) free.push({ x, y });
+        }
+      }
+      pick = free[Math.floor(Math.random() * free.length)] || null;
+    }
+    if (pick) handleArcadeInput(room, bot, { action: "probe", x: pick.x, y: pick.y });
+    return;
+  }
+
   if (arcade.family === "curling") {
     if ((player.stonesLeft || 0) <= 0 || Math.random() < 0.82) return;
     const profile = botProfile(player);
@@ -8417,6 +8636,10 @@ module.exports = {
     FIELD_TYPES,
     GATE_COIN_BONUS,
     MINIGAMES,
+    SEEK_SIZE,
+    seekSteps,
+    seekGemFor,
+    seekFindValue,
     ITEM_DEFINITIONS,
     GOLD_DICE_MIN,
     GOLD_DICE_SPAN,

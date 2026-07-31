@@ -240,8 +240,8 @@ test("catalog contains only the 3D challenges", () => {
       "blobklopfe", "bounceArena", "colorEscape", "eisstock", "falschsignal",
       "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "leuchtfolge",
       "lichtwaechter", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
-      "seilspringen", "sortierband", "spurmaler", "sumoschubs", "tiefenrausch", "trampolin",
-      "turmbau", "zuendstoff"
+      "seilspringen", "sortierband", "spuersinn", "spurmaler", "sumoschubs", "tiefenrausch",
+      "trampolin", "turmbau", "zuendstoff"
     ]
   );
 });

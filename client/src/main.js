@@ -22,6 +22,7 @@ import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin92";
 import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin92";
 import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin92";
 import { SortBelt } from "./minigames/SortBelt.js?v=tumblekin92";
+import { SeekGrid } from "./minigames/SeekGrid.js?v=tumblekin92";
 import { LightSequence } from "./minigames/LightSequence.js?v=tumblekin92";
 import { FlashReflex } from "./minigames/FlashReflex.js?v=tumblekin92";
 import { PegBoard } from "./minigames/PegBoard.js?v=tumblekin92";
@@ -239,7 +240,8 @@ function startOrUpdateMinigame(minigame) {
     eisstock: IceStock,
     tiefenrausch: DeepDig,
     angelduell: FishDuel,
-    farbenjagd: ColorHunt
+    farbenjagd: ColorHunt,
+    spuersinn: SeekGrid
   }[minigame.type] || null;
 
   if (!MinigameClass) return;

@@ -17,6 +17,7 @@ export const GESTURES = {
   aim: { icon: "👆🎯", label: "Tippen und stupsen" },
   slide: { icon: "👆➡️", label: "Nach vorne wischen" },
   greed: { icon: "👆⛏️", label: "Graben oder aufhören" },
+  deduce: { icon: "👆🧭", label: "Felder antippen und schliessen" },
   fish: { icon: "👆🎣", label: "Halten und im Schub loslassen" }
 };
 
@@ -48,7 +49,8 @@ export const MINIGAME_CATALOG = [
   { type: "nagelbrett", title: "Nagelbrett", family: "plinko", gesture: "aim", help: "Tippe oben, wo die Kugel fallen soll — die Mitte ist am meisten wert. Während sie fällt, hast du GENAU einen Stups: tippe links oder rechts, um sie noch einmal zu lenken." },
   { type: "eisstock", title: "Eisstock", family: "curling", gesture: "slide", help: "Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine pro Person, und je näher an der Mitte, desto mehr – ganz am Knopf zählt mehr als am Ringrand. Rempeln ist erlaubt, nimmt aber meist beide Steine aus dem Haus: lohnt sich nur, wenn du sowieso hinten liegst." },
   { type: "tiefenrausch", title: "Tiefenrausch", family: "dive", gesture: "greed", help: "Tippen gräbt eine Stufe tiefer und bringt Gold — aber jeder Stollen kann einstürzen, und dann ist alles weg, was noch unten hängt. Das Risiko der nächsten Stufe steht genau im Bild. Wisch nach oben, um deine Beute sicher einzuzahlen." },
-  { type: "farbenjagd", title: "Farbenjagd", family: "paint", gesture: "joystick", help: "Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal." }
+  { type: "farbenjagd", title: "Farbenjagd", family: "paint", gesture: "joystick", help: "Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal." },
+  { type: "spuersinn", title: "Spürsinn", family: "seek", gesture: "deduce", help: "Irgendwo im Feld liegt ein Fundstück. Tippe ein Feld an, und die Zahl darauf sagt, wie viele Schritte es von dort bis zum Versteck sind — hoch, runter, links, rechts gezählt. Zwei Zahlen zusammengenommen grenzen es schon stark ein. Je weniger Tipps ein Fund kostet, desto mehr ist er wert." }
 ];
 
 export const ARCADE_TYPES = new Set(
