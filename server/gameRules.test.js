@@ -3953,3 +3953,30 @@ test("Klänge: jeder gerufene Name ist auch definiert", () => {
   assert.deepEqual([...missing.entries()], [],
     "gerufen, aber nie definiert — diese Stellen sind stumm");
 });
+
+// --- Schlusstabelle und Sieger müssen dieselbe Reihenfolge meinen ----------
+// Der Server kürt nach compareStanding: Sterne zuerst, Münzen nur bei
+// Gleichstand. Die Schlusstabelle im Browser sortierte allein nach Münzen und
+// konnte damit dem Sieger widersprechen, den sie im Banner darüber gerade
+// genannt hatte.
+test("Schlusstabelle: der Browser sortiert wie der Server wertet", async () => {
+  const { sortByStanding } = await import("../client/src/game/GameState.js");
+
+  const field = [
+    { id: "a", name: "A", stars: 0, coins: 90 },
+    { id: "b", name: "B", stars: 3, coins: 12 },
+    { id: "c", name: "C", stars: 1, coins: 70 },
+    { id: "d", name: "D", stars: 3, coins: 40 }
+  ];
+
+  const fromServer = [...field].sort(compareStanding).map((player) => player.id);
+  const fromClient = sortByStanding(field).map((player) => player.id);
+  assert.deepEqual(fromClient, fromServer,
+    "die Tabelle im Browser muss dieselbe Rangfolge zeigen wie die Wertung");
+
+  // Und der konkrete Fall, der vorher schiefging: viele Münzen schlagen keinen
+  // einzigen Stern. B und D haben beide drei Sterne, dann entscheidet das Geld
+  // — D führt, B ist zweiter, und der Millionär ohne Stern bleibt letzter.
+  assert.deepEqual(fromClient, ["d", "b", "c", "a"],
+    "Sterne zuerst, Münzen nur bei Gleichstand");
+});

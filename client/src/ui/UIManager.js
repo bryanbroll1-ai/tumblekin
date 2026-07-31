@@ -1,6 +1,6 @@
-import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin93";
-import { playerStatus } from "../game/Player.js?v=tumblekin93";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin93";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin94";
+import { playerStatus } from "../game/Player.js?v=tumblekin94";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin94";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -718,7 +718,7 @@ export class UIManager {
     const arcadeMode = this.state.mode === "arcade";
     const winners = this.state.players.filter((player) => this.state.winnerIds.includes(player.id));
     this.el.winnerBanner.innerHTML = winners.map((player) => `
-      <div><span class="player-dot" style="background:${player.color}"></span> ${escapeHtml(player.name)} mit ${arcadeMode ? `${player.wins || 0} Siegen` : `${player.coins} Münzen`}</div>
+      <div><span class="player-dot" style="background:${player.color}"></span> ${escapeHtml(player.name)} mit ${arcadeMode ? `${player.wins || 0} Siegen` : `${player.stars || 0} Sternen`}</div>
     `).join("");
     const ordered = arcadeMode
       ? [...this.state.players].sort((a, b) => ((b.wins || 0) - (a.wins || 0)) || (b.coins - a.coins))
@@ -727,7 +727,7 @@ export class UIManager {
       <li class="ranking-card" style="--rank-color:${player.color}">
         <span class="rank-number">${index + 1}</span>
         <span class="player-name">${escapeHtml(player.name)}</span>
-        <span class="player-meta">${arcadeMode ? `🏆 ${player.wins || 0} Siege · ● ${player.coins}` : `● ${player.coins} Münzen`}</span>
+        <span class="player-meta">${arcadeMode ? `🏆 ${player.wins || 0} Siege · ● ${player.coins}` : `★ ${player.stars || 0} · ● ${player.coins}`}</span>
       </li>
     `).join("");
     this.el.restart.disabled = !isHost(this.state, this.myPlayerId);
