@@ -3259,6 +3259,57 @@ body[data-screen="minigame"] .game-menu-button {
   color: var(--muted);
 }
 
+/* --- Tiefenrausch: Risiko und Beute ------------------------------------ */
+/* Die Risikozahl ist die Ansage des Spiels — ohne sie wäre jeder Spatenstich
+   geraten statt entschieden. Sie steht deshalb breit und gut lesbar oben. */
+.dig-risk {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(28, 18, 10, 0.9);
+  color: #ffe9c8;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.dig-chips {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.dig-chip {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #1c120a);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.dig-chip.is-own {
+  background: var(--chip);
+  color: #1c120a;
+}
+
+.kinetic-hud .color-banner.dig-banner,
+.kinetic-hud.dev-mode .color-banner.dig-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
 /* --- Nagelbrett und Eisstock: Punktestände ------------------------------ */
 .stock-left {
   position: absolute;

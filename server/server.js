@@ -104,6 +104,7 @@ const FEINT_DURATION_MS = 32000;
 const BELT_DURATION_MS = 34000;
 const GLIDE_DURATION_MS = 34000;
 const SIMON_DURATION_MS = 36000;
+const DIVE_DURATION_MS = 36000;
 const FISH_DURATION_MS = 34000;
 const PAINT_DURATION_MS = 32000;
 
@@ -134,6 +135,7 @@ const MINIGAMES = [
   { type: "blitzreflex", title: "Blitzreflex", duration: 19000, arcadeFamily: "react" },
   { type: "nagelbrett", title: "Nagelbrett", duration: 28000, arcadeFamily: "plinko" },
   { type: "eisstock", title: "Eisstock", duration: 34000, arcadeFamily: "curling" },
+  { type: "tiefenrausch", title: "Tiefenrausch", duration: DIVE_DURATION_MS, arcadeFamily: "dive" },
   { type: "angelduell", title: "Angelduell", duration: FISH_DURATION_MS, arcadeFamily: "fish" },
   { type: "farbenjagd", title: "Farbenjagd", duration: PAINT_DURATION_MS, arcadeFamily: "paint" }
 ];
@@ -163,6 +165,7 @@ const ARCADE_CONFIGS = {
   blitzreflex: { family: "react", seed: 541 },
   nagelbrett: { family: "plinko", seed: 563 },
   eisstock: { family: "curling", seed: 577 },
+  tiefenrausch: { family: "dive", seed: 599 },
   angelduell: { family: "fish", seed: 509 },
   farbenjagd: { family: "paint", seed: 521 }
 };
@@ -570,6 +573,26 @@ const CANNON_PERIOD_MS = 1300;        // full swing of the power gauge
 const CANNON_ANGLE_PERIOD_MS = 1500;  // full sweep of the angle gauge (5°-85°)
 
 // Blitzfang — wait for green, tap first; a false start costs dearly.
+// Tiefenrausch — tiefer graben bringt mehr, aber jeder Stollen kann einstürzen.
+// Der einzige Archetyp, der der Sammlung noch fehlte: eine Entscheidung, die
+// nur aus Gier und Nerven besteht. Alle anderen Spiele fragen nach Hand oder
+// Auge, dieses nach dem Mut, rechtzeitig aufzuhören.
+//
+// Die Zahlen sind gerechnet, nicht geraten. Beute bis Tiefe n ist
+// 10n + 3n(n+1), der Gewinn der nächsten Stufe 10 + 6(n+1), und das Risiko
+// 0.06 + 0.055n. Damit liegt der Erwartungswert bei Tiefe 4 zuletzt positiv
+// (+6) und bei 5 klar negativ (−7): es GIBT eine richtige Antwort, sie ist
+// lernbar, und sie liegt nicht am Rand.
+const DIVE_STEP_MS = 620;              // eine Stufe tiefer
+const DIVE_SURFACE_MS = 1300;          // Auftauchen samt Einzahlen
+const DIVE_STUN_MS = 1500;             // nach einem Einsturz
+const DIVE_BASE_GAIN = 10;             // Grundwert einer Stufe
+const DIVE_STEP_GAIN = 6;              // Zuschlag je Tiefe
+const DIVE_RISK_BASE = 0.06;
+const DIVE_RISK_STEP = 0.055;
+const DIVE_RISK_MAX = 0.62;
+const DIVE_MAX_DEPTH = 12;             // Sicherheitsnetz gegen endlose Schächte
+
 const SIMON_ROUNDS = 5;
 const REACT_ROUNDS = 3;
 const REACT_WINDOW_MS = 2200;
@@ -2277,6 +2300,9 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   if (arcade.family === "pump") {
     return arcadePlayer.pumps || 0;
   }
+  if (arcade.family === "dive") {
+    return Math.max(0, arcadePlayer.banked || 0);
+  }
   if (arcade.family === "sumo") {
     // Ausgeschiedene ganz unten, dort zählt der spätere Abgang. Oben entscheidet
     // erst die Zahl der Treffer, dann die Abwehr — beides ist genau das, was das
@@ -2519,6 +2545,12 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     // Eine Zahl, und zwar die, nach der auch sortiert wird: wie oft man den
     // Stein zurückgeschlagen hat. Die Treffer entscheiden nur über das Aus.
     return { kind: "points", value: arcadePlayer.blocks || 0, label: "Abgewehrt" };
+  }
+  if (arcade.family === "dive") {
+    // Eine Zahl: das eingezahlte Gold. Was noch im Schacht hängt, zählt bewusst
+    // NICHT — sonst wäre am Rundenende einfach tief zu stehen die beste
+    // Strategie, und das ganze Spiel bestünde daraus, nie einzuzahlen.
+    return { kind: "points", value: arcadePlayer.banked || 0, label: "Gold" };
   }
   if (arcade.family === "glide") {
     // Eine Zahl. Die Tore stecken schon drin, samt Zugabe für die Mitte.
@@ -3714,6 +3746,25 @@ function createArcadeState(type, players, startedAt) {
       entry.eliminated = false;
     });
   }
+  if (config.family === "dive") {
+    arcade.baseGain = DIVE_BASE_GAIN;
+    arcade.stepGain = DIVE_STEP_GAIN;
+    arcade.maxDepth = DIVE_MAX_DEPTH;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.depth = 0;                 // 0 = an der Oberfläche
+      entry.carried = 0;               // Beute, die noch im Schacht hängt
+      entry.banked = 0;                // eingezahlt und sicher
+      entry.dives = 0;
+      entry.collapses = 0;
+      entry.deepest = 0;
+      entry.busyUntil = 0;             // gräbt, taucht auf oder liegt benommen
+      entry.busyKind = null;
+      entry.lastDive = null;
+      entry.nextRisk = diveRiskAt(config.seed, 0, 1);
+      entry.nextGain = diveGain(1);
+    });
+  }
   if (config.family === "glide") {
     // Der Kurs steht von Anfang an fest und gilt für ALLE gleich. Zwei Gründe:
     // niemand bekommt ein leichteres Feld, und der Client kann die nächsten
@@ -4012,7 +4063,7 @@ function handleArcadeInput(room, player, input) {
   if (!arcade || !arcadePlayer) return { ok: false, error: "Arcade-Spiel nicht bereit." };
 
   const now = Date.now();
-  const cooldowns = { steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -4624,6 +4675,60 @@ function handleArcadeInput(room, player, input) {
     return { ok: true };
   }
 
+  if (arcade.family === "dive") {
+    if (now < arcadePlayer.busyUntil) return { ok: true };   // noch unterwegs
+
+    if (input.action === "bank") {
+      // Nichts dabei? Dann gibt es auch nichts einzuzahlen — und vor allem
+      // keinen Weg, die Auftauchzeit als Pause zu missbrauchen.
+      if (arcadePlayer.depth <= 0) return { ok: true };
+      arcadePlayer.banked += arcadePlayer.carried;
+      arcadePlayer.score = arcadePlayer.banked;
+      arcadePlayer.lastDive = { kind: "banked", gold: arcadePlayer.carried, depth: arcadePlayer.depth, at: now };
+      arcadePlayer.carried = 0;
+      arcadePlayer.depth = 0;
+      arcadePlayer.dives += 1;
+      arcadePlayer.busyUntil = now + DIVE_SURFACE_MS;
+      arcadePlayer.busyKind = "surfacing";
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+      arcadePlayer.hasMoved = true;
+      syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+      return { ok: true };
+    }
+    if (input.action !== "dig") return { ok: false, error: "Tippe zum Graben, wisch hoch zum Einzahlen." };
+    if (arcadePlayer.depth >= DIVE_MAX_DEPTH) return { ok: true };
+
+    // Der Einsturz wird GENAU EINMAL je Stufe gewürfelt, im Moment des Grabens.
+    // Pro Tick gewürfelt liefe dieselbe Wahrscheinlichkeit über die Grabzeit
+    // gegen Gewissheit — dieselbe Falle wie anderswo schon mehrfach.
+    const next = arcadePlayer.depth + 1;
+    arcadePlayer.hasMoved = true;
+    if (Math.random() < diveRiskAt(arcade.seed, arcadePlayer.dives, next)) {
+      arcadePlayer.collapses += 1;
+      arcadePlayer.lastDive = { kind: "collapsed", gold: arcadePlayer.carried, depth: arcadePlayer.depth, at: now };
+      arcadePlayer.carried = 0;
+      arcadePlayer.depth = 0;
+      arcadePlayer.dives += 1;
+      arcadePlayer.busyUntil = now + DIVE_STUN_MS;
+      arcadePlayer.busyKind = "collapsed";
+      arcadePlayer.flash = "bad";
+      arcadePlayer.lastHitAt = now;
+      syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+      return { ok: true };
+    }
+
+    arcadePlayer.depth = next;
+    arcadePlayer.deepest = Math.max(arcadePlayer.deepest, next);
+    arcadePlayer.carried += diveGain(next);
+    arcadePlayer.busyUntil = now + DIVE_STEP_MS;
+    arcadePlayer.busyKind = "digging";
+    arcadePlayer.lastDive = { kind: "dug", gold: diveGain(next), depth: next, at: now };
+    arcadePlayer.flash = null;
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
+    return { ok: true };
+  }
+
   if (arcade.family === "glide") {
     if (input.action !== "lift") return { ok: false, error: "Halte den Finger auf dem Bild, um zu steigen." };
     // Der Client meldet nur, OB gerade gehalten wird. Gerechnet wird im Tick —
@@ -5101,6 +5206,22 @@ function updateArcade(room) {
         advanceBeltQueue(arcade, entry, true);
       }
       entry.reachable = entry.beltPos >= BELT_REACH_AT;
+      syncArcadeScore(minigame, player, entry);
+    });
+    return;
+  }
+
+  if (arcade.family === "dive") {
+    // Der Schacht selbst hat keine Physik — hier wird nur die Anzeige für den
+    // nächsten Spatenstich nachgeführt, damit Bild, Bot und Wertung dieselbe
+    // Zahl sehen.
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const next = Math.min(DIVE_MAX_DEPTH, entry.depth + 1);
+      entry.nextRisk = diveRiskAt(arcade.seed, entry.dives, next);
+      entry.nextGain = diveGain(next);
+      entry.busy = now < entry.busyUntil;
       syncArcadeScore(minigame, player, entry);
     });
     return;
@@ -6270,6 +6391,70 @@ function fishScore(entry) {
   return haul + progress - lost;
 }
 
+// Wert der Stufe `depth`. Wächst linear, damit die Beute quadratisch wächst und
+// damit auch das, was ein Einsturz kostet — genau daraus entsteht die Spannung.
+function diveGain(depth) {
+  return DIVE_BASE_GAIN + DIVE_STEP_GAIN * Math.max(1, depth);
+}
+
+// Beute, die bis zu dieser Tiefe im Schacht hängt.
+function diveCarried(depth) {
+  let sum = 0;
+  for (let i = 1; i <= depth; i += 1) sum += diveGain(i);
+  return sum;
+}
+
+// Einsturzrisiko beim Graben AUF diese Stufe — der Mittelwert der Kurve.
+function diveRisk(depth) {
+  return Math.min(DIVE_RISK_MAX, DIVE_RISK_BASE + DIVE_RISK_STEP * Math.max(0, depth - 1));
+}
+
+// Das TATSÄCHLICHE Risiko dieses einen Spatenstichs. Es schwankt um die Kurve
+// herum, steht von Anfang an fest und wird dem Spieler auf den Prozentpunkt
+// genau angezeigt.
+//
+// Ohne diese Schwankung war das Spiel eine einzige Rechenaufgabe, die man
+// einmal löst und danach stur abspult: gemessen lagen alle drei Bot-Stufen
+// innerhalb von 0.3 Plätzen, weil es je Runde nur eine einzige richtige Tiefe
+// gab und die zu treffen keine Leistung ist. Jetzt ist jeder Stich eine eigene
+// Frage — mal ist die vierte Stufe billig, mal ist schon die zweite eine Falle.
+function diveRiskAt(seed, diveIndex, depth) {
+  const base = diveRisk(depth);
+  const roll = arcadeNoise(seed + diveIndex * 613 + depth * 71);
+  const swing = 0.5 + roll;            // 0.5 … 1.5
+  return clamp(base * swing, 0.02, 0.88);
+}
+
+// Der Erwartungswert des nächsten Spatenstichs: Gewinn mal Gegenwahrscheinlichkeit
+// minus alles, was man dabei verlieren kann. Er wird auch dem Spieler angezeigt
+// (als Risiko in Prozent) — geraten wird hier nichts, entschieden schon.
+function diveStepValue(depth) {
+  const risk = diveRisk(depth + 1);
+  return (1 - risk) * diveGain(depth + 1) - risk * diveCarried(depth);
+}
+
+// Die Tiefe, die über die RUNDE das meiste Gold bringt.
+//
+// Der Grenznutzen allein ist die falsche Frage: nach ihm lohnte sich der
+// nächste Stich bis Tiefe 5, aber tief graben kostet auch Zeit, und in derselben
+// Zeit schafft man zwei flache Tauchgänge. Gemessen verlor der Bot, der bis 5
+// ging, gegen den, der bei 3 einzahlte. Gerechnet wird darum Gold pro Sekunde,
+// samt Auftauch- und Benommenheitszeit — und das ist auch die Antwort, zu der
+// ein Mensch nach ein paar Runden von selbst kommt.
+function diveBestDepth() {
+  let best = 1;
+  let bestRate = -Infinity;
+  for (let depth = 1; depth <= DIVE_MAX_DEPTH; depth += 1) {
+    let survival = 1;
+    for (let k = 1; k <= depth; k += 1) survival *= (1 - diveRisk(k));
+    const gold = survival * diveCarried(depth);
+    const seconds = (depth * DIVE_STEP_MS + survival * DIVE_SURFACE_MS + (1 - survival) * DIVE_STUN_MS) / 1000;
+    const rate = gold / seconds;
+    if (rate > bestRate) { bestRate = rate; best = depth; }
+  }
+  return best;
+}
+
 // Lichte Weite eines Tores. Wird über die Runde enger — der Anfang ist zum
 // Lernen da, das Ende zum Schwitzen.
 function glideGateGap(elapsed, durationMs = GLIDE_DURATION_MS) {
@@ -7422,6 +7607,52 @@ function arcadeBotStep(room, bot) {
     }
     return;
   }
+  if (arcade.family === "dive") {
+    const now = Date.now();
+    if (now < player.busyUntil) return;
+    const profile = botProfile(player);
+
+    // Der Bot liest dieselbe Zahl, die auch im Bild steht: das Risiko des
+    // NÄCHSTEN Stichs. Sein Können ist, wie genau er es liest — nicht, ob er
+    // eine auswendig gelernte Tiefe trifft.
+    const risk = player.nextRisk ?? diveRisk(player.depth + 1);
+    const gain = player.nextGain ?? diveGain(player.depth + 1);
+
+    // EINMAL je Stufe würfeln, wie schief er die Zahl sieht. Pro Tick gewürfelt
+    // liefe der Fehler über die Wartezeit gegen null und alle Stufen spielten
+    // gleich.
+    const key = `${player.dives}:${player.depth}`;
+    if (player.botStepKey !== key) {
+      player.botStepKey = key;
+      const blur = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.12 : 0.24;
+      player.botSeenRisk = clamp(risk + (Math.random() - 0.5) * 2 * blur, 0.01, 0.99);
+    }
+    const seen = player.botSeenRisk ?? risk;
+
+    // Gier. Das ist das eigentliche Können in diesem Spiel, und es ist genau
+    // das, was ein schwacher Mensch falsch macht: „noch eine Stufe". Eine reine
+    // Unschärfe auf dem Risiko reichte nicht — gemessen lagen alle drei Stufen
+    // innerhalb von 30 Gold, weil die Entscheidung fast immer weit von der
+    // Kippstelle entfernt liegt und ein bisschen Rauschen sie nie umdreht.
+    const greed = profile.level === "hard" ? 0 : profile.level === "normal" ? 22 : 55;
+
+    // Weitergraben, solange sich der Stich unterm Strich lohnt. Die Zeit steckt
+    // mit drin: tief graben kostet Sekunden, in denen zwei flache Tauchgänge
+    // durchgingen.
+    const value = (1 - seen) * gain - seen * player.carried;
+    const timeBias = player.depth >= diveBestDepth() ? 0.55 : 1;
+    if (player.depth > 0 && value * timeBias + greed <= 0) {
+      handleArcadeInput(room, bot, { action: "bank" });
+      return;
+    }
+    if (player.depth >= DIVE_MAX_DEPTH) {
+      handleArcadeInput(room, bot, { action: "bank" });
+      return;
+    }
+    handleArcadeInput(room, bot, { action: "dig" });
+    return;
+  }
+
   if (arcade.family === "glide") {
     const profile = botProfile(player);
     const elapsed = arcade.elapsed || 0;
@@ -8034,6 +8265,18 @@ module.exports = {
     roomCreateBlockedReason,
     MAX_ROOMS_PER_ADDRESS,
     GLIDE_DURATION_MS,
+    DIVE_DURATION_MS,
+    DIVE_STEP_MS,
+    DIVE_SURFACE_MS,
+    DIVE_STUN_MS,
+    DIVE_MAX_DEPTH,
+    DIVE_RISK_MAX,
+    diveGain,
+    diveCarried,
+    diveRisk,
+    diveRiskAt,
+    diveStepValue,
+    diveBestDepth,
     GLIDE_GRAVITY,
     GLIDE_LIFT,
     GLIDE_VY_MAX,

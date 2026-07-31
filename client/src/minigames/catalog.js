@@ -16,6 +16,7 @@ export const GESTURES = {
   memory: { icon: "👆🧠", label: "Folge nachtippen" },
   aim: { icon: "👆🎯", label: "Tippen und stupsen" },
   slide: { icon: "👆➡️", label: "Nach vorne wischen" },
+  greed: { icon: "👆⛏️", label: "Graben oder aufhören" },
   fish: { icon: "👆🎣", label: "Halten und im Schub loslassen" }
 };
 
@@ -46,6 +47,7 @@ export const MINIGAME_CATALOG = [
   { type: "blitzreflex", title: "Blitzreflex", family: "react", gesture: "react", help: "Drei Läufe an der Startampel. Tippe irgendwo auf den Bildschirm, sobald sie auf Grün springt — aber nicht vorher: ein Fehlstart kostet mehr als jede langsame Reaktion. Die kürzeste Gesamtzeit gewinnt." },
   { type: "nagelbrett", title: "Nagelbrett", family: "plinko", gesture: "aim", help: "Tippe oben, wo die Kugel fallen soll — die Mitte ist am meisten wert. Während sie fällt, hast du GENAU einen Stups: tippe links oder rechts, um sie noch einmal zu lenken." },
   { type: "eisstock", title: "Eisstock", family: "curling", gesture: "slide", help: "Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine pro Person, je näher an der Mitte, desto mehr Punkte. Fremde Steine wegrempeln ist erlaubt." },
+  { type: "tiefenrausch", title: "Tiefenrausch", family: "dive", gesture: "greed", help: "Tippen gräbt eine Stufe tiefer und bringt Gold — aber jeder Stollen kann einstürzen, und dann ist alles weg, was noch unten hängt. Das Risiko der nächsten Stufe steht genau im Bild. Wisch nach oben, um deine Beute sicher einzuzahlen." },
   { type: "farbenjagd", title: "Farbenjagd", family: "paint", gesture: "joystick", help: "Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal." }
 ];
 

@@ -7,7 +7,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin85";
+} from "./VoxelKit.js?v=tumblekin86";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin85";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin85";
+} from "./SceneKit.js?v=tumblekin86";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin86";
 
 // Nervenprobe — all four Kins face the camera behind a timer podium.
 // The clock counts visibly for two seconds, then hides. Everyone slams

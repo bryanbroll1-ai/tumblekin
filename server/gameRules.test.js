@@ -48,6 +48,14 @@ const {
   roomCreateBlockedReason,
   MAX_ROOMS_PER_ADDRESS,
   GLIDE_DURATION_MS,
+  DIVE_DURATION_MS,
+  DIVE_MAX_DEPTH,
+  DIVE_RISK_MAX,
+  diveGain,
+  diveRisk,
+  diveRiskAt,
+  diveStepValue,
+  diveBestDepth,
   GLIDE_VY_MAX,
   GLIDE_GATE_EVERY_MS,
   GLIDE_GATE_MAX_STEP,
@@ -202,7 +210,7 @@ test("catalog contains only the 3D challenges", () => {
       "blobklopfe", "bounceArena", "colorEscape", "eisstock", "falschsignal",
       "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "leuchtfolge",
       "lichtwaechter", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
-      "seilspringen", "sortierband", "spurmaler", "sumoschubs", "trampolin",
+      "seilspringen", "sortierband", "spurmaler", "sumoschubs", "tiefenrausch", "trampolin",
       "turmbau", "zuendstoff"
     ]
   );
@@ -1811,6 +1819,130 @@ test("glide: the result reports one number and it is the one that ranks", () => 
 test("glide: wrong action is refused", () => {
   const { room, me } = glideRoom();
   assert.equal(handleArcadeInput(room, me, { action: "shoot" }).ok, false);
+});
+
+// --- Tiefenrausch ----------------------------------------------------------
+
+function diveRoom() {
+  const players = [{ id: "d1", name: "Gräber", isBot: false }];
+  const startedAt = Date.now();
+  const arcade = createArcadeState("tiefenrausch", players, startedAt);
+  const minigame = { id: 1, type: "tiefenrausch", startedAt, duration: DIVE_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  const send = (input) => {
+    entry.lastInputAt = 0;
+    entry.busyUntil = 0;              // Grab- und Auftauchzeit überspringen
+    return handleArcadeInput(room, me, input);
+  };
+  return { room, me, arcade, entry, minigame, send };
+}
+
+test("dive: digging deeper pays more and risks more", () => {
+  // Beide Kurven müssen steigen, sonst gäbe es gar keine Entscheidung: wäre die
+  // Beute flach, ginge man nie tief, wäre das Risiko flach, immer.
+  for (let depth = 2; depth <= DIVE_MAX_DEPTH; depth += 1) {
+    assert.ok(diveGain(depth) > diveGain(depth - 1), `Stufe ${depth} bringt nicht mehr`);
+    assert.ok(diveRisk(depth) >= diveRisk(depth - 1), `Stufe ${depth} ist nicht riskanter`);
+  }
+  assert.ok(diveRisk(DIVE_MAX_DEPTH) <= DIVE_RISK_MAX);
+});
+
+test("dive: there is a right answer, and it is not at the edge", () => {
+  // Ein Optimum bei 1 oder beim Maximum wäre keine Entscheidung, sondern eine
+  // Regel. Es muss in der Mitte liegen, damit man es überhaupt suchen kann.
+  const best = diveBestDepth();
+  assert.ok(best > 1 && best < DIVE_MAX_DEPTH, `beste Tiefe liegt am Rand: ${best}`);
+  // Und der Grenznutzen muss irgendwo kippen — sonst lohnte sich immer eine
+  // Stufe mehr.
+  let flip = 0;
+  for (let depth = 1; depth < DIVE_MAX_DEPTH; depth += 1) {
+    if (diveStepValue(depth) <= 0) { flip = depth; break; }
+  }
+  assert.ok(flip > 0, "der Erwartungswert kippt nie");
+});
+
+test("dive: the shown risk is what actually decides the dig", () => {
+  // Steht im Bild eine andere Zahl als die, mit der gerechnet wird, ist das
+  // ganze Spiel eine Lüge.
+  const { arcade, entry } = diveRoom();
+  assert.equal(entry.nextRisk, diveRiskAt(arcade.seed, 0, 1));
+  assert.equal(entry.nextGain, diveGain(1));
+  // Und sie schwankt: ohne Schwankung gäbe es je Runde nur eine richtige Tiefe,
+  // und die zu treffen ist keine Leistung.
+  const seen = new Set();
+  for (let depth = 1; depth <= 6; depth += 1) seen.add(diveRiskAt(arcade.seed, 0, depth).toFixed(3));
+  assert.ok(seen.size >= 5, "das Risiko muss je Stufe eine eigene Zahl sein");
+});
+
+test("dive: banking is the only thing that scores", () => {
+  const { entry, send, arcade } = diveRoom();
+  // Nicht einstürzen lassen: das Risiko wird für diesen Test ausgeschaltet.
+  const realRandom = Math.random;
+  Math.random = () => 0.999;
+  send({ action: "dig" });
+  send({ action: "dig" });
+  Math.random = realRandom;
+  assert.equal(entry.depth, 2);
+  assert.ok(entry.carried > 0);
+  assert.equal(entry.banked, 0, "was im Schacht hängt, zählt nicht");
+  assert.equal(arcadeRankingScore(arcade, entry), 0);
+
+  const carried = entry.carried;
+  send({ action: "bank" });
+  assert.equal(entry.banked, carried);
+  assert.equal(entry.carried, 0);
+  assert.equal(entry.depth, 0);
+  assert.equal(arcadeRankingScore(arcade, entry), carried);
+});
+
+test("dive: a collapse costs everything that was still down there", () => {
+  const { entry, send } = diveRoom();
+  const realRandom = Math.random;
+  Math.random = () => 0.999;
+  send({ action: "dig" });
+  send({ action: "dig" });
+  const lost = entry.carried;
+  Math.random = () => 0;              // dieser Stich stürzt ein
+  send({ action: "dig" });
+  Math.random = realRandom;
+  assert.equal(entry.collapses, 1);
+  assert.equal(entry.carried, 0);
+  assert.equal(entry.depth, 0);
+  assert.equal(entry.banked, 0, "ein Einsturz darf nichts retten");
+  assert.equal(entry.lastDive.kind, "collapsed");
+  assert.equal(entry.lastDive.gold, lost);
+});
+
+test("dive: banking at the surface does nothing", () => {
+  // Sonst liesse sich die Auftauchzeit als Pause missbrauchen.
+  const { entry, send } = diveRoom();
+  send({ action: "bank" });
+  assert.equal(entry.dives, 0);
+  assert.equal(entry.busyUntil, 0);
+});
+
+test("dive: you cannot act while you are still busy", () => {
+  const { entry, room, me } = diveRoom();
+  entry.busyUntil = Date.now() + 5000;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "dig" });
+  assert.equal(entry.depth, 0, "während des Grabens geht kein zweiter Stich");
+});
+
+test("dive: the result reports one number and it is the one that ranks", () => {
+  const { arcade, entry } = diveRoom();
+  entry.banked = 320;
+  const detail = arcadeResultDetail(arcade, entry);
+  assert.equal(detail.kind, "points");
+  assert.equal(detail.value, 320);
+  assert.equal(arcadeRankingScore(arcade, entry), 320);
+});
+
+test("dive: wrong action is refused", () => {
+  const { room, me } = diveRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "jump" }).ok, false);
 });
 
 // --- Sumo-Schubs -----------------------------------------------------------
