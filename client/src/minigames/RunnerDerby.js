@@ -8,16 +8,17 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin108";
+} from "./VoxelKit.js?v=tumblekin109";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin108";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin108";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin109";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin109";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -800,6 +801,10 @@ export class RunnerDerby {
     this.updateHud(minigame, state, now);
     // A downward arrow marks your own kin so you never lose yourself.
     syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
+    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
+    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
+    // selbst nicht sieht, spielt blind.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 

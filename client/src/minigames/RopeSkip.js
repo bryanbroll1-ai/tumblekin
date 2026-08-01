@@ -9,16 +9,17 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin108";
+} from "./VoxelKit.js?v=tumblekin109";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin108";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin108";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin109";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin109";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
@@ -359,6 +360,10 @@ export class RopeSkip {
     this.updateHud(minigame, arcade, state, nextHitIn, now);
     // A downward arrow marks your own kin so you never lose yourself.
     syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
+    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
+    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
+    // selbst nicht sieht, spielt blind.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 

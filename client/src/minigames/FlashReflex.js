@@ -8,15 +8,16 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin108";
+} from "./VoxelKit.js?v=tumblekin109";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin108";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin108";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin109";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin109";
 
 // Blitzreflex — drei Läufe, jeder eine Startampel. Rot, Rot, Rot … und dann
 // GRÜN. Wer im richtigen Moment tippt, gewinnt Millisekunden; wer vorher tippt,
@@ -289,6 +290,10 @@ export class FlashReflex {
     this.camera.lookAt(0, 2.0, -0.6);
 
     this.updateHud(minigame, arcade, state, now, own, round, elapsed);
+    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
+    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
+    // selbst nicht sieht, spielt blind.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 

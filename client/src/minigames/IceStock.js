@@ -8,15 +8,16 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin108";
+} from "./VoxelKit.js?v=tumblekin109";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin108";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin108";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin109";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin109";
 
 // Eisstock — drei Steine je Person, gewischt auf ein Ringziel. Länge des Wisches
 // ist Kraft, Richtung ist Richtung. Fremde Steine darf man wegrempeln, und genau
@@ -340,6 +341,10 @@ export class IceStock {
     this.camera.lookAt(0, 0.2, -1.4);
 
     this.updateHud(minigame, arcade, state, now, own);
+    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
+    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
+    // selbst nicht sieht, spielt blind.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 

@@ -8,16 +8,17 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin108";
+} from "./VoxelKit.js?v=tumblekin109";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin108";
-import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin108";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin109";
+import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin109";
 
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the
@@ -343,6 +344,10 @@ export class BalloonPump {
     this.updateHud(minigame, arcade, state, now);
     // A downward arrow marks your own kin so you never lose yourself.
     syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
+    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
+    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
+    // selbst nicht sieht, spielt blind.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 

@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin108";
-import { qualityTier } from "./Quality.js?v=tumblekin108";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin109";
+import { qualityTier } from "./Quality.js?v=tumblekin109";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -127,6 +127,59 @@ export function resizeStage(host, tune, { minWidth = 320, minHeight = 240 } = {}
   tune?.(height > width, host.camera);
   host.camera.updateProjectionMatrix();
   return true;
+}
+
+// Schiebt die Kamera so weit zurück, dass alle Figuren ins Bild passen.
+//
+// Auf einem hochkanten Handy ist der sichtbare Ausschnitt schmal — das
+// Sichtfeld in three.js wird SENKRECHT gemessen, waagerecht bleibt davon nur
+// das Seitenverhältnis übrig, bei 430×700 also gut die Hälfte. Gemessen standen
+// deshalb in sieben Szenen Figuren ausserhalb des Bildes, in allen sieben auch
+// die EIGENE. Wer sich selbst nicht sieht, spielt blind.
+//
+// Von Hand ist das nicht zu treffen: bei Sortierband hat es vier Anläufe
+// gebraucht, und beim nächsten Layoutwechsel stimmt die geratene Zahl wieder
+// nicht. Darum gerechnet.
+//
+// Die Rechnung ist exakt, wenn man NUR entlang der Blickachse zurückgeht: der
+// seitliche Abstand eines Punktes im Kameraraum bleibt dabei gleich, nur die
+// Tiefe wächst. Für jeden Punkt ergibt sich die nötige Tiefe direkt aus
+// |x| ≤ Tiefe · tan(halbes waagerechtes Sichtfeld), analog für y.
+export function fitKinsInView(host, { margin = 1.1, maxPush = 6 } = {}) {
+  const camera = host?.camera;
+  const scene = host?.scene;
+  if (!camera || !scene) return 0;
+
+  const punkte = [];
+  scene.traverse((object) => {
+    if (object.userData?.isKin && object.visible) punkte.push(object.getWorldPosition(new THREE.Vector3()));
+  });
+  if (punkte.length === 0) return 0;
+
+  camera.updateMatrixWorld();
+  const halbSenkrecht = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  const halbWaagerecht = halbSenkrecht * camera.aspect;
+  const blick = camera.getWorldDirection(new THREE.Vector3());
+
+  let schub = 0;
+  punkte.forEach((punkt) => {
+    const relativ = punkt.clone().sub(camera.position);
+    const tiefe = relativ.dot(blick);
+    // Seitlicher und senkrechter Abstand zur Blickachse.
+    const laengs = blick.clone().multiplyScalar(tiefe);
+    const quer = relativ.clone().sub(laengs);
+    const rechts = new THREE.Vector3().crossVectors(blick, camera.up).normalize();
+    const hoch = new THREE.Vector3().crossVectors(rechts, blick).normalize();
+    const x = Math.abs(quer.dot(rechts));
+    const y = Math.abs(quer.dot(hoch));
+    // Nötige Tiefe, damit der Punkt mit Rand hineinpasst.
+    const noetig = Math.max(x * margin / halbWaagerecht, y * margin / halbSenkrecht);
+    schub = Math.max(schub, noetig - tiefe);
+  });
+
+  schub = Math.min(Math.max(0, schub), maxPush);
+  if (schub > 0.01) camera.position.addScaledVector(blick, -schub);
+  return schub;
 }
 
 // Keeps the downward "you" arrow pinned over the controlled player's kin so you

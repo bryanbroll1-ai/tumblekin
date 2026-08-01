@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin108";
+} from "./VoxelKit.js?v=tumblekin109";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin108";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin108";
+} from "./SceneKit.js?v=tumblekin109";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin109";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
