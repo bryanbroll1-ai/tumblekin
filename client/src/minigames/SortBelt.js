@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin109";
+} from "./VoxelKit.js?v=tumblekin110";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin109";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin109";
+} from "./SceneKit.js?v=tumblekin110";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin110";
 
 // Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die
@@ -359,11 +359,11 @@ export class SortBelt {
     kin.add(label);
     // Seitlich neben dem Bandende: er greift sichtbar nach dem vordersten
     // Paket, verdeckt aber nichts, worauf man schauen muss.
-    kin.position.set(-2.5, GROUND_Y, BELT_NEAR_Z + 0.2);
+    kin.position.set(-1.8, GROUND_Y, BELT_NEAR_Z + 0.2);
     kin.rotation.y = 0.5;
     this.scene.add(kin);
     const shadow = createShadowBlob(0.5);
-    shadow.position.set(-2.5, GROUND_Y + 0.02, BELT_NEAR_Z + 0.2);
+    shadow.position.set(-1.8, GROUND_Y + 0.02, BELT_NEAR_Z + 0.2);
     this.scene.add(shadow);
     this.worker = kin;
     this.workerAnimator = new KinAnimator(kin);

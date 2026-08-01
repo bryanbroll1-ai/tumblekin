@@ -25,6 +25,19 @@ const ALL = ["bounceArena","finishRush","colorEscape","nervenprobe","lichtwaecht
   "sortierband","leuchtfolge","blitzreflex","nagelbrett","eisstock","tiefenrausch","angelduell",
   "farbenjagd","spuersinn","augenmass"];
 const liste = GAMES.length ? GAMES : ALL;
+
+// Szenen, in denen die Figur ABSICHTLICH nicht auf dem Boden steht. Ohne diese
+// Liste meldet der Prüfer dort dauerhaft Fehler — und ein Werkzeug, das bei
+// korrekten Szenen Alarm schlägt, wird nach dem dritten Mal nicht mehr gelesen.
+// Die Sichtbarkeitsprüfung gilt trotzdem, die ist überall sinnvoll.
+const FLIEGT = {
+  tiefenrausch: "gräbt sich in den Schacht — unter der Erde zu sein IST das Spiel",
+  ballonfahrt: "hängt am Ballon",
+  trampolin: "springt",
+  kanonenflug: "fliegt aus der Kanone",
+  seilspringen: "springt über das Seil",
+  bounceArena: "schwebt über der Platte"
+};
 const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome","/usr/bin/chromium"].find(existsSync);
 
 const srv = spawn(process.execPath, ["server/server.js"], { cwd: "/home/user/tumblekin",
@@ -130,7 +143,7 @@ for (const game of liste) {
       ? ` · ${befund.draussen.length} ausserhalb des Bildes${befund.eigeneDraussen ? " (DARUNTER DIE EIGENE)" : ""}`
       : "";
     if (befund?.draussen?.length) treffer.push({ game, ...befund });
-    if (befund?.drin?.length) {
+    if (befund?.drin?.length && !FLIEGT[game]) {
       if (!befund.draussen?.length) treffer.push({ game, ...befund });
       const drin = befund.drin.filter((d) => d.art === "drin");
       const oben = befund.drin.filter((d) => d.art === "schwebt");
@@ -141,7 +154,8 @@ for (const game of liste) {
     } else if (befund?.keine) {
       console.log(`· ${game.padEnd(15)} keine Figuren in der Szene`);
     } else {
-      console.log(`${befund?.draussen?.length ? "✗" : "✓"} ${game.padEnd(15)} ${befund?.kins ?? "?"} Figuren stehen sauber auf${sicht}`);
+      const grund = FLIEGT[game] ? ` (Boden nicht geprüft: ${FLIEGT[game]})` : " stehen sauber auf";
+      console.log(`${befund?.draussen?.length ? "✗" : "✓"} ${game.padEnd(15)} ${befund?.kins ?? "?"} Figuren${grund}${sicht}`);
     }
 
     await page.waitForSelector("#screen-result.active", { timeout: 90000 });

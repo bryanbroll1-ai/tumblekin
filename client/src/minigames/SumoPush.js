@@ -9,16 +9,17 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin109";
+} from "./VoxelKit.js?v=tumblekin110";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin109";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin109";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin110";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin110";
 
 // Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
@@ -454,6 +455,9 @@ export class SumoPush {
 
     this.updateHud(minigame, arcade, state, now);
     syncOwnMarker(this, this.kins?.get(controlledId), now);
+    // Auch die Mitspieler gehören ins Bild — sonst weiss man nicht, wie man
+    // gerade dasteht.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 

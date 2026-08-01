@@ -8,16 +8,17 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin109";
+} from "./VoxelKit.js?v=tumblekin110";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin109";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin109";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin110";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin110";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -394,6 +395,9 @@ export class KnifeThrow {
     this.updateHud(minigame, arcade, state, now);
     // A downward arrow marks your own kin so you never lose yourself.
     syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
+    // Auch die Mitspieler gehören ins Bild — sonst weiss man nicht, wie man
+    // gerade dasteht.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 

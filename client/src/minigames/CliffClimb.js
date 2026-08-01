@@ -8,16 +8,17 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin109";
+} from "./VoxelKit.js?v=tumblekin110";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin109";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin109";
+  teardownStage,
+  fitKinsInView
+} from "./SceneKit.js?v=tumblekin110";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin110";
 
 // Bergsteiger — race up the cliff by tapping left / right in alternation.
 // The correct hand pulls you up a rung; the wrong hand slips you back one.
@@ -428,6 +429,9 @@ export class CliffClimb {
     this.updateHud(minigame, arcade, state, now);
     // A downward arrow marks your own kin so you never lose yourself.
     syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
+    // Auch die Mitspieler gehören ins Bild — sonst weiss man nicht, wie man
+    // gerade dasteht.
+    fitKinsInView(this);
     this.renderer.render(this.scene, this.camera);
   }
 
