@@ -1,4 +1,4 @@
-import { minigameMeta } from "../minigames/catalog.js?v=tumblekin102";
+import { minigameMeta } from "../minigames/catalog.js?v=tumblekin103";
 
 // Calm colours for the filler fields; anything that changes your plan pops in a
 // strong candy hue. Each type also gets a distinct icon (see BoardGame.js) so
