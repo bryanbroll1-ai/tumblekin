@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin80";
-import { qualityTier } from "./Quality.js?v=tumblekin80";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin99";
+import { qualityTier } from "./Quality.js?v=tumblekin99";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -51,6 +51,9 @@ export function mountStage(host, {
   host.scene = scene;
 
   host.camera = new THREE.PerspectiveCamera(fov, 1, near, far);
+  // Griff für den Rauchtest, damit er die Bildlast messen kann statt sie zu
+  // schätzen. Kostet nichts und ist im Spiel nicht sichtbar.
+  window.__tumblekinScene = host;
   return { webglCanvas, renderer, scene, camera: host.camera };
 }
 
@@ -130,6 +133,7 @@ export function syncOwnMarker(host, target, now, offset = 0.35) {
 
 // Frees GPU resources and removes the DOM the stage owns. Safe to call twice.
 export function teardownStage(host) {
+  if (window.__tumblekinScene === host) window.__tumblekinScene = null;
   host.bursts?.dispose();
   host.floaters?.dispose();
   if (host.scene) disposeScene(host.scene);

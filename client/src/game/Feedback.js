@@ -90,6 +90,15 @@ export class Feedback {
         tone(480, 980, 0.34, "triangle", 0.018, 0.07)
       ],
       paint: [tone(360, 720, 0.11, "sine", 0.02)],
+      // Kreuzung: zwei aufsteigende Töne, die eine FRAGE stellen, statt eine
+      // Bewegung zu begleiten — hier steht eine Entscheidung an. Der Ruf wurde
+      // an der Kreuzung immer schon abgesetzt, aber nie definiert: der eine
+      // Moment im Spiel, der ausdrücklich einen eigenen Ton haben sollte, war
+      // stumm.
+      select: [
+        tone(430, 560, 0.1, "triangle", 0.026),
+        tone(620, 780, 0.14, "sine", 0.024, 0.09)
+      ],
       lock: [
         tone(390, 360, 0.1, "triangle", 0.024),
         tone(760, 920, 0.2, "sine", 0.032, 0.07)

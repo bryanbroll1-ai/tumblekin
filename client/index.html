@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin80">
+    <link rel="stylesheet" href="/style.css?v=tumblekin99">
   </head>
   <body>
     <main id="app">
@@ -186,6 +186,13 @@
             <div class="turn-actions">
               <button id="roll-dice" class="primary-btn dice-btn" type="button">Würfeln</button>
             </div>
+            <!-- Wegwahl an einer Kreuzung. Liegt bewusst an derselben Stelle wie
+                 der Würfel-Knopf: dort schaut man ohnehin hin, wenn man am Zug
+                 ist. Wird nur eingeblendet, solange die Wahl offen ist. -->
+            <div id="junction-choice" class="junction-choice" hidden>
+              <p class="junction-title" id="junction-title">Welcher Weg?</p>
+              <div class="junction-options" id="junction-options"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -226,6 +233,7 @@
           <div id="result-winner" class="result-winner"></div>
           <div class="result-timer" aria-hidden="true"><span></span></div>
           <ol id="result-list" class="ranking-list"></ol>
+          <button id="result-ready" class="primary-btn result-ready" type="button">Weiter</button>
         </div>
       </section>
 
@@ -242,6 +250,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin80"></script>
+    <script type="module" src="/src/main.js?v=tumblekin99"></script>
   </body>
 </html>

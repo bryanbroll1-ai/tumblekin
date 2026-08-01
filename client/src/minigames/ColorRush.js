@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -8,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -16,8 +17,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
@@ -78,19 +79,11 @@ export class ColorRush {
     `);
     this.createScene();
 
-    this.controls.innerHTML = `
-      <div class="color-dpad">
-        <button type="button" data-step="up" aria-label="Hoch">▲</button>
-        <div class="color-dpad-row">
-          <button type="button" data-step="left" aria-label="Links">◀</button>
-          <button type="button" data-step="right" aria-label="Rechts">▶</button>
-        </div>
-        <button type="button" data-step="down" aria-label="Runter">▼</button>
-      </div>
-    `;
-    this.controls.querySelectorAll("[data-step]").forEach((button) => {
-      button.addEventListener("pointerdown", () => this.sendStep(button.dataset.step));
-    });
+    // Kein Steuerkreuz. Gewischt wird auf dem ganzen Bild, und das ist auch
+    // dort, wo das Feld liegt — ein Kreuz am unteren Rand verlangte, zwischen
+    // Feld und Daumen hin und her zu schauen, während der Boden wegbricht.
+    this.controls.innerHTML = `<p class="trace-hint">In die angesagte Farbe wischen</p>`;
+    this.controls.style.pointerEvents = "none";
     this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
     this.onCanvasPointerUp = (event) => this.resolveSwipe(event);
     this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
@@ -125,6 +118,7 @@ export class ColorRush {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.controls.innerHTML = "";
+    this.controls.style.pointerEvents = "";
     if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
     if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
     teardownStage(this);
@@ -349,7 +343,8 @@ export class ColorRush {
       }
       // Finale: the survivor celebrates on camera before the scoreboard.
       if (!fallen) {
-        animator.set(minigame.finaleAt ? "cheer" : "idle", { base: true });
+        if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
+        else animator.set("idle", { base: true });
         if (minigame.finaleAt && !this.finaleCelebrated) {
           this.finaleCelebrated = true;
           this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffc400"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });

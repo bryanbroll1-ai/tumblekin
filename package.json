@@ -1,7 +1,7 @@
 {
   "name": "tumblekin",
   "version": "1.0.0",
-  "description": "Mobile-first local multiplayer board game with three living 3D worlds and 23 touch-first challenges.",
+  "description": "Mobile-first local multiplayer board game with three living 3D worlds and 28 touch-first challenges.",
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
@@ -9,7 +9,10 @@
     "test": "node --test server/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "board-sim": "node scripts/board-sim.mjs",
-    "icons": "node scripts/icons.mjs"
+    "bot-sim": "node scripts/bot-sim.mjs",
+    "icons": "node scripts/icons.mjs",
+    "fuzz": "node scripts/fuzz.mjs",
+    "session-sim": "node scripts/session-sim.mjs"
   },
   "keywords": [
     "party-game",

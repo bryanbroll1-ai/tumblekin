@@ -1,4 +1,4 @@
-import { minigameMeta } from "../minigames/catalog.js?v=tumblekin80";
+import { minigameMeta } from "../minigames/catalog.js?v=tumblekin99";
 
 // Calm colours for the filler fields; anything that changes your plan pops in a
 // strong candy hue. Each type also gets a distinct icon (see BoardGame.js) so
@@ -47,8 +47,15 @@ export function isMyTurn(state, myPlayerId) {
   return Boolean(state?.status === "board" && state?.phase === "waitingRoll" && state.currentPlayerId === myPlayerId);
 }
 
+// STERNE zuerst, Münzen nur als Gleichstandsregel — genau wie compareStanding
+// auf dem Server, der den Sieger bestimmt.
+//
+// Vorher sortierte diese Liste allein nach Münzen. Damit konnte die
+// Schlusstabelle dem Sieger widersprechen, den sie selbst gerade gekrönt hatte:
+// wer drei Sterne und wenig Geld hatte, stand unter jemandem mit null Sternen
+// und vollen Taschen, während das Siegerbanner darüber den Richtigen nannte.
 export function sortByStanding(players) {
-  return [...players].sort((a, b) => b.coins - a.coins);
+  return [...players].sort((a, b) => ((b.stars || 0) - (a.stars || 0)) || (b.coins - a.coins));
 }
 
 export function joinUrlFor(code, baseUrl = window.location.href) {

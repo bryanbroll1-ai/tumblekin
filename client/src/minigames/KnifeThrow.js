@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -15,14 +16,21 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
 // direction and speeds up each round, so timing gets trickier.
-const LOG_R = 1.5;
+// Kleine Scheibe, mittig im Bild. Vorher füllte sie mit 1.5 fast die Breite;
+// die Lücken zwischen den Messern waren dadurch riesige Flächen statt eines
+// engen Ziels, und das Spiel wirkte grob.
+const LOG_R = 1.02;
+// Nur die SPITZE steckt. Der Angriffspunkt liegt deshalb ein Stück AUSSERHALB
+// des Randes: von dort ragt die Klinge gerade so weit hinein, wie eine Spitze
+// eben eindringt — vorher steckte die ganze Klinge bis zum Griff im Holz.
 const KNIFE_R = LOG_R + 0.02;
+const KNIFE_BITE = 0.14;              // wie tief die Spitze ins Holz geht
 const KIN_Y = 0.62;
 const LOG_Y = 4.0;             // the disc floats a little higher above the throwers
 const LOG_Z = -0.3;
@@ -257,7 +265,9 @@ export class KnifeThrow {
       const knife = buildKnife(owner?.color);
       // Stick into the bottom rim of the wheel, blade pointing up into it, like
       // the mobile knife game — the knife then rides around as the log spins.
-      knife.position.set(0, -(KNIFE_R - 0.05), 0.42);
+      // Ansatz am Rand, Klinge zeigt nach innen — nur KNIFE_BITE tief. Der Griff
+      // bleibt damit sichtbar draussen, so wie ein steckendes Messer aussieht.
+      knife.position.set(0, -(KNIFE_R + 0.36 - KNIFE_BITE), 0.42);
       holder.add(knife);
       holder.visible = false;   // revealed once the flying knife arrives
       this.knifeGroup.add(holder);
@@ -361,8 +371,8 @@ export class KnifeThrow {
         }
       }
 
-      if (minigame.finaleAt && !out) {
-        animator.set("cheer", { base: true });
+      if (minigame.finaleAt) {
+        applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
       } else {
         animator.set(out ? "sad" : "idle", { base: true });
       }

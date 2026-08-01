@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -15,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Nervenprobe — all four Kins face the camera behind a timer podium.
 // The clock counts visibly for two seconds, then hides. Everyone slams
@@ -465,7 +466,10 @@ export class Nervenprobe {
           .map((candidate) => arcade.players[candidate.id]?.deviationMs)
           .filter((value) => value !== null && value !== undefined));
         const isWinner = stopped && entry.deviationMs === best;
-        animator.set(isWinner ? "cheer" : (stopped ? "idle" : "sad"), { base: true });
+        // Jeder Platz reagiert eigen, nicht nur "Sieger ja/nein". Wer gar nicht
+        // gedrückt hat, bleibt zusätzlich betreten stehen.
+        if (stopped) applyFinaleMood(animator, arcade.places?.[player.id], players.length);
+        else animator.set("sad", { base: true });
         if (isWinner && !kin.userData.confettiDone) {
           kin.userData.confettiDone = true;
           this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), [player.color, "#ffc400", "#ffffff"], { count: 22, speed: 2.6, up: 2.8, size: 0.09, life: 0.9, drag: 1.2 });

@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -15,13 +16,19 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
 // dodge hurdles and grab boost pads. Camera chases the controlled kin.
 const LANE_WIDTH = 1.15;
+// Grösse der wiederverwendeten Kulissen-Vorräte. Am Bild gerechnet: die Kamera
+// sieht bei diesem Blickwinkel gut 14 Streckeneinheiten voraus, also reichen
+// zwölf Striche und je zwölf Objekte pro Seite mit deutlichem Puffer.
+const RUNG_POOL = 12;
+const PROP_POOL = 24;
+const PROP_SPACING = 2.6;
 const SEGMENT = 0.62; // world units per track meter
 const FLOOR_Y = 0;
 const KIN_Y = 0.34;
@@ -64,6 +71,7 @@ export class RunnerDerby {
     this.scenery = [];
     this.streaks = [];
     this.spectators = [];
+    this.spectatorParts = [];
     this.shotMeshes = new Map();
     this.lastFrameAt = performance.now();
     this.lastStumbles = new Map();
@@ -88,19 +96,19 @@ export class RunnerDerby {
     `);
     this.createScene();
 
+    // Gewischt wird auf der Szene — Bahnknöpfe braucht es dafür nicht, sie
+    // verdoppelten nur die Geste und nahmen Platz weg. Der Wurf bleibt ein
+    // Knopf: er hat keine Richtung und ist eine eigene Entscheidung.
+    // Kein Knopf mehr. Wischen wechselt die Bahn, TIPPEN wirft — beides auf dem
+    // ganzen Bild, beides dort, wo der Daumen ohnehin liegt. Der Wurfknopf sass
+    // am unteren Rand und verlangte, den Blick von der Strecke zu nehmen, genau
+    // in dem Moment, in dem man jemanden treffen will.
     this.controls.innerHTML = `
       <div class="runner-lane-controls">
-        <button type="button" data-lane="-1" aria-label="Nach links">◀</button>
-        <button type="button" class="runner-throw" data-throw aria-label="Wurfgeschoss werfen" hidden>💥</button>
-        <button type="button" data-lane="1" aria-label="Nach rechts">▶</button>
+        <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen zum Bahnwechsel ▶</p>
       </div>
     `;
-    this.controls.querySelectorAll("[data-lane]").forEach((button) => {
-      button.addEventListener("pointerdown", () => this.sendLane(Number(button.dataset.lane)));
-    });
-    this.throwButton = this.controls.querySelector("[data-throw]");
-    this.throwButton.addEventListener("pointerdown", () => this.sendThrow());
-    this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
+    this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY, at: performance.now() }; };
     this.onCanvasPointerUp = (event) => this.resolveSwipe(event);
     this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
     this.webglCanvas.addEventListener("pointerup", this.onCanvasPointerUp);
@@ -110,7 +118,15 @@ export class RunnerDerby {
   resolveSwipe(event) {
     if (!this.swipe) return;
     const dx = event.clientX - this.swipe.x;
+    const dy = event.clientY - this.swipe.y;
+    const held = performance.now() - this.swipe.at;
     this.swipe = null;
+    // Kurzer Kontakt ohne Weg ist ein Tipp und damit ein Wurf; alles mit Weg
+    // nach links oder rechts ist ein Bahnwechsel.
+    if (Math.hypot(dx, dy) < 24) {
+      if (held < 400) this.sendThrow();
+      return;
+    }
     if (Math.abs(dx) < 24) return;
     this.sendLane(dx > 0 ? 1 : -1);
   }
@@ -233,19 +249,27 @@ export class RunnerDerby {
       fan.position.set(side * (LANE_WIDTH * 2.55 + frac(i * 3.3) * 0.5), KIN_Y * 0.8, 6 + i * (trackZ / 9));
       fan.rotation.y = -side * Math.PI / 2;
       this.scene.add(fan);
+      // Auch die Zuschauer wandern mit: sie stehen fest an der Strecke, und
+      // acht Figuren zu je einem Dutzend Körpern sind der letzte grosse Posten.
+      this.spectatorParts.push({ object: fan, z: fan.position.z });
       const fanAnimator = new KinAnimator(fan);
       fanAnimator.groundY = KIN_Y * 0.8;
       fanAnimator.set("cheer", { base: true });
       this.spectators.push(fanAnimator);
     }
-    // Rung markers every few meters for a sense of speed.
-    for (let z = 4; z < arcade.trackLength; z += 4) {
+    // Fahrbahnstriche. NUR so viele, wie ins Bild passen — sie wandern mit
+    // (siehe recycleScenery). Vorher lag über die ganzen 150 Streckeneinheiten
+    // ein Strich alle vier Meter, also 37 Meshes, von denen man nie mehr als
+    // acht gleichzeitig sah.
+    this.rungs = [];
+    for (let i = 0; i < RUNG_POOL; i += 1) {
       const rung = new THREE.Mesh(
         new THREE.BoxGeometry(LANE_WIDTH * 3, 0.02, 0.12),
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.25 })
       );
-      rung.position.set(0, FLOOR_Y + 0.01, z * SEGMENT);
+      rung.position.set(0, FLOOR_Y + 0.01, (4 + i * 4) * SEGMENT);
       this.scene.add(rung);
+      this.rungs.push(rung);
     }
 
     // Finish line.
@@ -263,7 +287,14 @@ export class RunnerDerby {
     });
 
     // Obstacles from the shared course.
-    arcade.rows.forEach((row) => {
+    //
+    // Alles bekommt zusätzlich einen Eintrag in `courseParts`: weit entfernte
+    // Hindernisse werden im Bild ausgeblendet. three.js überspringt unsichtbare
+    // Objekte beim Zeichnen, das spart also echte Zeichenaufrufe — und man sieht
+    // ohnehin nie mehr als ein paar Meter Strecke.
+    this.courseParts = [];
+    const partOf = (object, z) => { this.courseParts.push({ object, z }); return object; };
+    arcade.rows.forEach((row, rowIndex) => {
       const z = row.position * SEGMENT;
       if (row.kind === "boost") {
         const pad = new THREE.Mesh(
@@ -271,13 +302,13 @@ export class RunnerDerby {
           new THREE.MeshLambertMaterial({ color: "#ffe36b", emissive: "#c98f1e", emissiveIntensity: 0.5 })
         );
         pad.position.set(laneX(row.lane), FLOOR_Y + 0.05, z);
-        this.scene.add(pad);
+        this.scene.add(partOf(pad, z));
         const arrow = new THREE.Mesh(
           new THREE.BoxGeometry(0.16, 0.04, 0.5),
           new THREE.MeshBasicMaterial({ color: "#ffffff" })
         );
         arrow.position.set(laneX(row.lane), FLOOR_Y + 0.1, z);
-        this.scene.add(arrow);
+        this.scene.add(partOf(arrow, z));
         this.boosts.push(pad);
       } else if (row.kind === "item") {
         // Floating pickup orb: grab it, then hurl it at the runner ahead.
@@ -296,20 +327,20 @@ export class RunnerDerby {
         spikes2.rotation.y = Math.PI / 2;
         orb.add(spikes2);
         orb.position.set(laneX(row.lane), FLOOR_Y + 0.55, z);
-        orb.userData = { baseY: FLOOR_Y + 0.55, phase: z };
-        this.scene.add(orb);
+        orb.userData = { baseY: FLOOR_Y + 0.55, phase: z, rowIndex, taken: 0 };
+        this.scene.add(partOf(orb, z));
         this.itemPads.push(orb);
       } else if (row.kind === "cone") {
-        this.scene.add(this.makeHurdle(laneX(row.lane), z, "#ef6673"));
+        this.scene.add(partOf(this.makeHurdle(laneX(row.lane), z, "#ef6673"), z));
       } else if (row.kind === "log") {
         [0, 1, 2].filter((lane) => lane !== row.freeLane).forEach((lane) => {
-          this.scene.add(this.makeHurdle(laneX(lane), z, "#8a5a34"));
+          this.scene.add(partOf(this.makeHurdle(laneX(lane), z, "#8a5a34"), z));
         });
       } else if (row.kind === "slider") {
         // A pane of glass that shatters on contact (and the server slows you).
         const mesh = this.makeGlassPanel(laneX(row.baseLane), z);
         mesh.userData = { baseLane: row.baseLane, phase: row.phase, z, shattered: false };
-        this.scene.add(mesh);
+        this.scene.add(partOf(mesh, z));
         this.sliders.push(mesh);
       }
     });
@@ -322,18 +353,27 @@ export class RunnerDerby {
 
     // Side scenery whipping past sells the speed — blocky trees, bushes, rocks
     // marching down both edges of the track, with a gentle idle sway.
+    // Auch die Randbepflanzung ist ein POOL, kein ausgelegter Wald.
+    //
+    // Vorher stand über die ganzen 150 Streckeneinheiten alle 2.6 Meter auf
+    // jeder Seite ein Objekt — rund 113 Gruppen mit je zwei bis drei Meshes.
+    // Gemessen kam Zielgerade damit auf 527 Zeichenaufrufe und 832 Objekte, das
+    // Fünf- bis Zehnfache jeder anderen Szene, und man sah davon nie mehr als
+    // ein Zwanzigstel gleichzeitig. Auf einem Mittelklasse-Handy ist das der
+    // Unterschied zwischen 60 und 25 Bildern — bei einem Rennen merkt man das
+    // sofort.
     const edge = LANE_WIDTH * 2.4;
-    for (let z = 3; z < arcade.trackLength; z += 2.6) {
-      [-1, 1].forEach((side) => {
-        const seed = z * 7.3 + (side + 1);
-        const jitter = (frac(seed) - 0.5) * 0.9;
-        const prop = this.makeSideProp(seed);
-        prop.position.set(side * (edge + frac(seed * 1.7) * 1.6) + jitter, 0, z * SEGMENT + jitter);
-        prop.userData.phase = seed;
-        prop.userData.baseX = prop.position.x;
-        this.scene.add(prop);
-        this.scenery.push(prop);
-      });
+    for (let i = 0; i < PROP_POOL; i += 1) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const z = 3 + Math.floor(i / 2) * PROP_SPACING;
+      const seed = z * 7.3 + (side + 1);
+      const jitter = (frac(seed) - 0.5) * 0.9;
+      const prop = this.makeSideProp(seed);
+      prop.position.set(side * (edge + frac(seed * 1.7) * 1.6) + jitter, 0, z * SEGMENT + jitter);
+      prop.userData.phase = seed;
+      prop.userData.baseX = prop.position.x;
+      this.scene.add(prop);
+      this.scenery.push(prop);
     }
 
     // Foreground speed streaks that rush toward the camera and recycle.
@@ -350,6 +390,23 @@ export class RunnerDerby {
     this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
+  }
+
+  // Setzt Striche und Bepflanzung, die hinter dem Läufer liegen, um ein ganzes
+  // Band nach vorne. Dieselbe Mechanik wie an der Kletterwand: die Strecke wirkt
+  // endlos, ohne endlos gebaut zu sein.
+  recycleScenery(focusZ) {
+    const behind = focusZ - 6 * SEGMENT;
+    const rungBand = RUNG_POOL * 4 * SEGMENT;
+    this.rungs?.forEach((rung) => {
+      while (rung.position.z < behind) rung.position.z += rungBand;
+      while (rung.position.z > behind + rungBand) rung.position.z -= rungBand;
+    });
+    const propBand = (PROP_POOL / 2) * PROP_SPACING * SEGMENT;
+    this.scenery.forEach((prop) => {
+      while (prop.position.z < behind) prop.position.z += propBand;
+      while (prop.position.z > behind + propBand) prop.position.z -= propBand;
+    });
   }
 
   makeSideProp(seed) {
@@ -503,8 +560,21 @@ export class RunnerDerby {
     this.boosts.forEach((pad) => {
       pad.material.emissiveIntensity = 0.4 + Math.abs(Math.sin(now / 240)) * 0.4;
     });
-    // Pickup orbs bob and spin invitingly.
+    // Kisten schweben und drehen sich einladend — und verschwinden, sobald man
+    // sie eingesammelt hat. Vorher blieben sie stehen, und man sah dem Brett
+    // nicht an, ob der Griff gesessen hatte.
+    const takenRows = new Set(arcade.players[controlledId]?.takenRows || []);
     this.itemPads.forEach((orb) => {
+      if (takenRows.has(orb.userData.rowIndex)) {
+        // Einsaugen: schrumpfen und aufsteigen, dann ausblenden.
+        orb.userData.taken = Math.min(1, orb.userData.taken + dt * 4);
+        const t = orb.userData.taken;
+        orb.scale.setScalar(Math.max(0.001, 1 - t));
+        orb.position.y = orb.userData.baseY + t * 0.9;
+        orb.rotation.y += dt * 14;
+        orb.visible = t < 1;
+        return;
+      }
       orb.position.y = orb.userData.baseY + Math.sin(now / 420 + orb.userData.phase) * 0.09;
       orb.rotation.y = now / 500 + orb.userData.phase;
     });
@@ -526,6 +596,13 @@ export class RunnerDerby {
       const prevZ = kin.position.z;
       kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.25, dt));
       kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, frameLerp(0.4, dt));
+
+      // Am Ende reagiert jeder Platz eigen. Vorher lief hier auch nach dem
+      // Abpfiff einfach jeder weiter — das war die einzige Szene ganz ohne
+      // Schlussreaktion.
+      if (minigame.finaleAt) {
+        applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
+      }
 
       // Shatter any glass pane this runner passes through.
       this.sliders.forEach((pane) => {
@@ -653,18 +730,25 @@ export class RunnerDerby {
       this.shotMeshes.delete(id);
     });
 
-    // Own pickup state drives the throw button + a little grab celebration.
+    // Eine aufgesammelte Stachelkugel wird gefeiert UND in der Hinweiszeile
+    // angesagt — ohne Knopf muss der Hinweis sagen, dass jetzt getippt werden
+    // kann, sonst weiss man nicht, dass man etwas hat.
     const own = arcade.players[controlledId];
-    if (this.throwButton) {
-      const showThrow = Boolean(own?.hasItem && !own?.finishedAt);
-      this.throwButton.hidden = !showThrow;
-      if (own?.hasItem && !this.lastHasItem) {
-        const ownKin = this.kins.get(controlledId);
-        if (ownKin) this.bursts.spawn(ownKin.position.clone(), ["#ff8b2e", "#ffd15c"], { count: 10, speed: 1.8, up: 2, size: 0.08, life: 0.6 });
-        this.feedback?.sound("coin");
-        this.feedback?.vibrate(14);
-      }
-      this.lastHasItem = Boolean(own?.hasItem);
+    const hasItem = Boolean(own?.hasItem && !own?.finishedAt);
+    if (hasItem && !this.lastHasItem) {
+      const ownKin = this.kins.get(controlledId);
+      if (ownKin) this.bursts.spawn(ownKin.position.clone(), ["#ff8b2e", "#ffd15c"], { count: 10, speed: 1.8, up: 2, size: 0.08, life: 0.6 });
+      this.feedback?.sound("coin");
+      this.feedback?.vibrate(14);
+    }
+    this.lastHasItem = hasItem;
+    const hint = this.controls?.querySelector("[data-swipe-hint]");
+    if (hint && hasItem !== this.hintShowsItem) {
+      this.hintShowsItem = hasItem;
+      hint.textContent = hasItem
+        ? "💥 Tippen zum Werfen · ◀ Wischen ▶"
+        : "◀ Wischen zum Bahnwechsel ▶";
+      hint.classList.toggle("has-item", hasItem);
     }
 
     this.bursts.update(dt);
@@ -678,6 +762,16 @@ export class RunnerDerby {
 
     const focusZ = controlledKin ? controlledKin.position.z : 0;
     const focusX = controlledKin ? controlledKin.position.x : 0;
+    this.recycleScenery(focusZ);
+    // Hindernisse ausserhalb des Sichtfensters ausblenden. Bei diesem
+    // Blickwinkel sieht man gut 22 Streckeneinheiten voraus und drei zurück;
+    // alles andere kostet nur Zeichenaufrufe.
+    const cull = (part, back, front) => {
+      const ahead = part.z - focusZ;
+      part.object.visible = ahead > back && ahead < front;
+    };
+    this.courseParts?.forEach((part) => cull(part, -4 * SEGMENT, 24 * SEGMENT));
+    this.spectatorParts?.forEach((part) => cull(part, -6 * SEGMENT, 26 * SEGMENT));
 
     // Speed streaks rush toward the camera, then recycle ahead of the runner.
     this.streaks.forEach((streak) => {

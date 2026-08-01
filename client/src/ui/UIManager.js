@@ -1,6 +1,6 @@
-import { boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin80";
-import { playerStatus } from "../game/Player.js?v=tumblekin80";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin80";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin99";
+import { playerStatus } from "../game/Player.js?v=tumblekin99";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin99";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -121,6 +121,9 @@ export class UIManager {
       boardMessage: document.getElementById("board-message"),
       diceLabel: document.getElementById("dice-label"),
       rollDice: document.getElementById("roll-dice"),
+      junctionChoice: document.getElementById("junction-choice"),
+      junctionTitle: document.getElementById("junction-title"),
+      junctionOptions: document.getElementById("junction-options"),
       minigameReason: document.getElementById("minigame-reason"),
       intro: document.getElementById("minigame-intro"),
       introReason: document.getElementById("intro-reason"),
@@ -134,6 +137,7 @@ export class UIManager {
       resultReason: document.getElementById("result-reason"),
       resultWinner: document.getElementById("result-winner"),
       resultList: document.getElementById("result-list"),
+      resultReady: document.getElementById("result-ready"),
       winnerBanner: document.getElementById("winner-banner"),
       finalList: document.getElementById("final-list"),
       restart: document.getElementById("restart-game"),
@@ -196,7 +200,16 @@ export class UIManager {
     this.el.addTestPlayers.addEventListener("click", () => this.safeAction(() => this.handlers.addTestPlayers()));
     this.el.enableDevMode.addEventListener("click", () => this.safeAction(() => this.handlers.enableDevMode()));
     this.el.rollDice.addEventListener("click", () => this.safeAction(() => this.handlers.rollDice()));
+    this.el.junctionOptions.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-route]");
+      if (!button) return;
+      this.safeAction(() => this.handlers.chooseRoute(Number(button.dataset.route)));
+    });
     this.el.restart.addEventListener("click", () => this.safeAction(() => this.handlers.restartGame()));
+    this.el.resultReady?.addEventListener("click", () => {
+      this.feedback?.sound("tap");
+      this.safeAction(() => this.handlers.readyForNext());
+    });
     this.el.copyLink.addEventListener("click", () => this.safeAction(() => this.copyJoinLink()));
     this.el.modeOptions?.querySelectorAll("[data-mode]").forEach((button) => {
       button.addEventListener("click", () => this.safeAction(() => this.handlers.selectMode(button.dataset.mode)));
@@ -398,6 +411,48 @@ export class UIManager {
     }
   }
 
+  // Die Wegwahl an einer Kreuzung. Sie zeigt, was auf jedem Weg liegt und wie
+  // viele Felder er spart — die Entscheidung soll man treffen können, ohne das
+  // Brett vorher auswendig gelernt zu haben.
+  renderJunction(state, selectedPlayerId) {
+    const pending = state.pendingJunction;
+    const box = this.el.junctionChoice;
+    if (!box) return;
+    if (!pending || state.phase !== "junction") {
+      box.hidden = true;
+      this.lastJunctionAt = null;
+      return;
+    }
+    const mine = pending.playerId === selectedPlayerId || pending.playerId === this.myPlayerId;
+    const chooser = state.players.find((player) => player.id === pending.playerId);
+    box.hidden = false;
+    this.el.junctionTitle.textContent = mine
+      ? `Welcher Weg? Noch ${pending.remaining} ${pending.remaining === 1 ? "Schritt" : "Schritte"}`
+      : `${shortName(chooser?.name || "Jemand")} wählt den Weg …`;
+
+    const key = `${pending.playerId}:${pending.at}`;
+    if (this.lastJunctionAt === key && box.dataset.mine === String(mine)) return;
+    this.lastJunctionAt = key;
+    box.dataset.mine = String(mine);
+
+    this.el.junctionOptions.innerHTML = (pending.options || []).map((option) => {
+      // Auf dem Zweig sieht man vorher, was kommt. Das ist der ganze Reiz: ein
+      // kurzer Weg, dessen Preis offen daliegt.
+      const preview = option.fields.length
+        ? option.fields.map((type) => FIELD_LEGEND[type]?.icon || "•").join(" ")
+        : "◻ ◻ ◻";
+      const saves = option.saves > 0
+        ? `<span class="junction-saves">−${option.saves} ${option.saves === 1 ? "Feld" : "Felder"}</span>`
+        : `<span class="junction-saves calm">der lange Weg</span>`;
+      return `<button type="button" data-route="${option.route}" ${mine ? "" : "disabled"}>
+        <span class="junction-label">${escapeHtml(option.label)}</span>
+        <span class="junction-preview">${preview}</span>
+        <span class="junction-hint">${escapeHtml(option.hint)}</span>
+        ${saves}
+      </button>`;
+    }).join("");
+  }
+
   renderBoard() {
     this.syncControlledPlayer();
     const state = this.state;
@@ -423,6 +478,7 @@ export class UIManager {
           : (current?.diceValue ? `Letzter Wurf: ${current.diceValue}` : "Würfel bereit"));
     this.el.rollDice.disabled = !myTurn || current?.connected === false;
     this.el.rollDice.textContent = myTurn ? "Würfeln" : (current?.connected === false ? "Offline" : (current?.isBot ? "Bot würfelt ..." : "Warten"));
+    this.renderJunction(state, selectedPlayerId);
     this.el.scoreStrip.innerHTML = state.players.map((player, index) => `
       <div class="score-chip ${player.id === current?.id ? "current" : ""} ${player.connected === false ? "offline" : ""}"
         style="--chip-color:${player.color}"
@@ -625,6 +681,19 @@ export class UIManager {
       `;
     }).join("");
 
+    // Der Weiter-Knopf: er beschleunigt nur, er überspringt nichts. Erst wenn
+    // ALLE bereit sind, geht es weiter — sonst könnte ein Ungeduldiger den
+    // anderen die Tafel wegnehmen, bevor sie sie gelesen haben.
+    const ready = (this.state.readyForNext || []).length;
+    const needed = this.state.readyNeeded || 0;
+    if (this.el.resultReady) {
+      const mine = (this.state.readyForNext || []).includes(this.myPlayerId);
+      this.el.resultReady.disabled = mine;
+      this.el.resultReady.textContent = needed > 1
+        ? (mine ? `Warte auf die anderen (${ready}/${needed})` : `Weiter (${ready}/${needed})`)
+        : "Weiter";
+    }
+
     if (isNewResult && ranking.length) {
       this.shownResultId = result.id;
       this.clearResultTimers();
@@ -649,7 +718,7 @@ export class UIManager {
     const arcadeMode = this.state.mode === "arcade";
     const winners = this.state.players.filter((player) => this.state.winnerIds.includes(player.id));
     this.el.winnerBanner.innerHTML = winners.map((player) => `
-      <div><span class="player-dot" style="background:${player.color}"></span> ${escapeHtml(player.name)} mit ${arcadeMode ? `${player.wins || 0} Siegen` : `${player.coins} Münzen`}</div>
+      <div><span class="player-dot" style="background:${player.color}"></span> ${escapeHtml(player.name)} mit ${arcadeMode ? `${player.wins || 0} Siegen` : `${player.stars || 0} Sternen`}</div>
     `).join("");
     const ordered = arcadeMode
       ? [...this.state.players].sort((a, b) => ((b.wins || 0) - (a.wins || 0)) || (b.coins - a.coins))
@@ -658,7 +727,7 @@ export class UIManager {
       <li class="ranking-card" style="--rank-color:${player.color}">
         <span class="rank-number">${index + 1}</span>
         <span class="player-name">${escapeHtml(player.name)}</span>
-        <span class="player-meta">${arcadeMode ? `🏆 ${player.wins || 0} Siege · ● ${player.coins}` : `● ${player.coins} Münzen`}</span>
+        <span class="player-meta">${arcadeMode ? `🏆 ${player.wins || 0} Siege · ● ${player.coins}` : `★ ${player.stars || 0} · ● ${player.coins}`}</span>
       </li>
     `).join("");
     this.el.restart.disabled = !isHost(this.state, this.myPlayerId);
@@ -784,62 +853,44 @@ function formatScore(value) {
 function formatResultMetric(entry) {
   const detail = entry?.detail;
   if (!detail) return `${formatScore(entry?.score)} Punkte`;
+
+  // EINE Zahl je Spiel, und zwar die, nach der auch sortiert wird.
+  //
+  // Vorher standen hier bis zu fünf Angaben nebeneinander — Punkte, Bestzeit,
+  // Fehlgriffe, Prozent, Stückzahlen. Das las niemand, und schlimmer: die
+  // auffälligste Zahl war nicht immer die, die über die Platzierung entschied.
+  // Beim Angelduell zeigte die Liste zuletzt die STÜCKZAHL, während nach
+  // Punkten sortiert wurde: jemand mit weniger, aber grösseren Fischen stand
+  // vorne und die Anzeige behauptete das Gegenteil.
   if (detail.kind === "time") return `${formatMilliseconds(detail.value)} Zielzeit`;
   if (detail.kind === "progress") return `${detail.value}/${detail.total} ${detail.label}`;
-  if (detail.kind === "territory") return countNoun(detail.value, detail.label);
-  if (detail.kind === "survival") {
-    const knockoutText = detail.knockouts ? ` · ${detail.knockouts} K.O.` : "";
-    return detail.alive ? `Bis zuletzt auf der Platte${knockoutText}` : `${formatMilliseconds(detail.value)} überlebt${knockoutText}`;
-  }
-  if (detail.kind === "knockouts") {
-    const survived = detail.survivedMs ? ` · ${formatMilliseconds(detail.survivedMs)} auf der Platte` : "";
-    return `${countNoun(detail.value, "Rauswürfe")}${survived}`;
-  }
-  if (detail.kind === "strikes") return `${countNoun(detail.value, "Treffer")} · ${countNoun(detail.passes, "Pässe")}`;
-  if (detail.kind === "hits" || detail.kind === "lines") return countNoun(detail.value, detail.label);
-  if (detail.kind === "fit") return `${detail.value}/${detail.total} ${detail.label}`;
-  if (detail.kind === "coins") return `${countNoun(detail.value, "Münzen")}${detail.mistakes ? ` · ${countNoun(detail.mistakes, "Treffer")}` : ""}`;
-  if (detail.kind === "catches") return `${countNoun(detail.value, detail.label)}${detail.mistakes ? ` · ${countNoun(detail.mistakes, "Stürme")}` : ""}`;
   if (detail.kind === "zoneTime") return `${formatMilliseconds(detail.value)} ${detail.label}`;
-  if (detail.kind === "correct" || detail.kind === "targets") {
-    return `${countNoun(detail.value, detail.label)}${detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehler")}` : ""}`;
+  // Näher dran ist besser — deshalb steht hier der Abstand, nicht ein
+  // Punktestand um 99 900, der mit dem Spiel nichts zu tun hat.
+  if (detail.kind === "deviation") {
+    return detail.value === null || detail.value === undefined
+      ? "Nicht gedrückt"
+      : `${formatMilliseconds(detail.value)} ${detail.label}`;
   }
-  if (detail.kind === "precision") return `${detail.value} ${detail.label}`;
-  if (detail.kind === "points") return `${detail.value} ${detail.label}`;
-  if (detail.kind === "reaction") {
-    // Punkte sind die Wertung; die beste Reaktionszeit und die Fehlgriffe
-    // erzählen daneben, WIE die Punkte zustande kamen.
-    const best = detail.bestMs === null || detail.bestMs === undefined ? "" : ` · ${formatMilliseconds(detail.bestMs)} schnellste`;
-    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Fehlgriffe")}` : "";
-    return `${detail.value} ${detail.label}${best}${slips}`;
+  if (detail.kind === "sumTime") return `${formatMilliseconds(detail.value)} ${detail.label}`;
+  // Bei „wer hält am längsten durch" sagt die Zahl der Aktionen nichts: wer oft
+  // weitergibt, kann trotzdem als Erster fliegen. Also der Ausgang selbst.
+  if (detail.kind === "standing") {
+    return detail.survived ? "Überlebt" : `Raus nach ${formatMilliseconds(detail.value)}`;
   }
-  if (detail.kind === "paintTiles") {
-    // Gewertet wird die Fläche über die ZEIT. Der Stand am Ende und die selbst
-    // erobierten Felder erzählen daneben, wie es dazu kam.
-    const held = ` · ${countNoun(detail.owned, "Felder")} am Ende`;
-    const took = detail.claimed ? ` · ${countNoun(detail.claimed, "erobert")}` : "";
-    return `${detail.value} ${detail.label}${held}${took}`;
+  if (detail.kind === "survival") {
+    return detail.alive ? "Bis zuletzt auf der Platte" : `${formatMilliseconds(detail.value)} überlebt`;
   }
-  if (detail.kind === "catch") {
-    // Punkte entscheiden; die Fische und der angefangene zeigen, woher sie
-    // kommen, die Risse, was sie gekostet haben.
-    const started = detail.progress ? ` + ${detail.progress}%` : "";
-    const snaps = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Risse")}` : "";
-    return `${detail.value} ${detail.label} · ${countNoun(detail.landed, "Fische")}${started}${snaps}`;
-  }
-  if (detail.kind === "plateTime") {
-    // Punkte entscheiden; Tellersekunden zeigen, wie viel gleichzeitig lief,
-    // und die gefallenen Teller, was es gekostet hat.
-    const drops = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Teller verloren")}` : "";
-    return `${detail.value} ${detail.label} · ${detail.seconds}s Tellerzeit${drops}`;
-  }
-  if (detail.kind === "laps") {
-    // Punkte entscheiden; Runden und der angefangene Rest machen sichtbar,
-    // woher sie kommen — und Abrutscher, was sie gekostet haben.
-    const rest = detail.progress ? ` + ${detail.progress}%` : "";
-    const slips = detail.mistakes ? ` · ${countNoun(detail.mistakes, "Abrutscher")}` : "";
-    return `${detail.value} ${detail.label} · ${countNoun(detail.laps, "Runden")}${rest}${slips}`;
-  }
+  if (detail.kind === "knockouts") return countNoun(detail.value, "Rauswürfe");
+  // Beim Messerwurf entscheidet zuerst, ob man noch dabei ist. Eine reine
+  // Trefferzahl behauptete sonst das Gegenteil der Rangfolge: ein
+  // Ausgeschiedener mit fünf Treffern liegt hinter einem Überlebenden mit zwei.
+  if (detail.kind === "knifeOut") return `Raus · ${countNoun(detail.value, detail.label)}`;
+  if (detail.kind === "strikes") return countNoun(detail.value, "Treffer");
+  if (detail.kind === "fit") return `${detail.value}/${detail.total} ${detail.label}`;
+  // Alles Übrige ist eine gezählte Grösse mit eigener Beschriftung.
+  if (detail.value !== undefined && detail.label) return countNoun(detail.value, detail.label);
+  if (detail.value !== undefined) return formatScore(detail.value);
   return `${formatScore(entry?.score)} Punkte`;
 }
 
@@ -855,14 +906,23 @@ const SINGULAR_NOUNS = {
   "Rauswürfe": "Rauswurf",
   "Fehlgriffe": "Fehlgriff",
   "Abrutscher": "Abrutscher",
-  "Teller verloren": "Teller verloren",
   "Fische": "Fisch",
-  "Risse": "Riss",
-  "übermalt": "übermalt",
-  "erobert": "erobert",
-  "Felder am Ende": "Feld am Ende",
   "Runden": "Runde",
-  "Punkte": "Punkt"
+  "Punkte": "Punkt",
+  "Treffer": "Treffer",
+  "Meter": "Meter",
+  "Wellen": "Welle",
+  "Pumps": "Pump",
+  "Etagen": "Etage",
+  "Sprossen": "Sprosse",
+  "Pakete": "Paket",
+  "Höhe": "Höhe",
+  "Abgewehrt": "Abgewehrt",
+  "Richtig": "Richtig",
+  "Präzision": "Präzision",
+  "Ring-Punkte": "Ring-Punkt",
+  "Auf dem Fass": "Auf dem Fass",
+  "Im Ziel": "Im Ziel"
 };
 
 function countNoun(value, plural) {

@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -15,27 +16,26 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
 
-// Falschsignal — alle starren auf EINEN Signalmast. Nur ein Signal ist echt,
-// und die Fälschungen sind absichtlich nah dran:
+// Falschsignal — alle starren auf EINEN Signalmast. Aus der Mitte der Linse
+// wächst ein Ring nach aussen. Nur ein Ring, der die MARKE am Rand erreicht,
+// ist echt; die anderen bleiben unterwegs stehen und verlöschen.
 //
-//   go      runder grüner Kreis, der stehen bleibt   → tippen
-//   colour  runder Kreis, aber giftgelb-grün         → falsche Farbe
-//   shape   richtiges Grün, aber eckig               → falsche Form
-//   flicker richtig rund UND grün, aber nur 130 ms   → Antäuscher
+// Der Kniff: echt und falsch starten mit exakt derselben Geschwindigkeit und
+// laufen erst nach und nach auseinander. Man sammelt Sicherheit über die Zeit —
+// und bezahlt sie mit Punkten, denn je kleiner der Ring beim Tippen, desto mehr
+// bringt der Treffer. Früh tippen ist geraten, spät tippen ist sicher und
+// billig. Genau diese Zange ist das Spiel.
 //
-// Der Antäuscher ist der Kern des Spiels: er sieht bis zur Millisekunde echt
-// aus. Wer sofort drückt, tappt hinein; wer kurz abwartet, erkennt ihn — und
-// zahlt dafür mit Punkten, weil schnelle Reaktionen mehr wert sind. Genau diese
-// Zange macht das Spiel spannend.
+// Vorher war es ein Nachschlagespiel: grüner Kreis = echt, gelbgrün oder eckig
+// = falsch. Man erkannte es oder eben nicht, und dazwischen lag nichts.
+//
 // Alle Maße sind am ECHTEN Canvas gerechnet, nicht geschätzt: auf einem heutigen
 // Handy ist das Spielfeld bildschirmfüllend, also 430×932 → Seitenverhältnis
-// 0.46. Ein erster Aufbau mit naher Kamera schnitt den äussersten Kin ab, weil
-// ich mit 0.75 gerechnet hatte. Bei dieser Kamera liegen die äusseren Kins bei
-// x≈±0.73 NDC (bis herunter zu 0.42 noch im Bild) und die Lampe füllt
-// y≈0.15…0.56 — sie ist gross genug, um sie im Augenwinkel zu erkennen.
+// 0.46. Bei dieser Kamera liegen die äusseren Kins bei x≈±0.73 NDC und die
+// Lampe füllt y≈0.15…0.56 — gross genug, um sie im Augenwinkel zu lesen.
 const LAMP_Y = 4.4;
 const LAMP_Z = -2.0;
 const LAMP_R = 1.35;
@@ -47,18 +47,12 @@ const KIN_Z = 2.4;
 const PANEL_W = 4.0;
 const PANEL_H = 3.1;
 
-const LAMP_COLORS = {
-  idle: "#28313f",
-  go: "#4dff7a",
-  colour: "#d8ff3a",        // fast Grün — auf einen Blick verwechselbar
-  shape: "#4dff7a",         // richtiges Grün, falsche Form
-  flicker: "#4dff7a"        // richtig, nur zu kurz
-};
+const RING_COLOR = "#4dff7a";     // wachsender Ring
+const RING_DEAD = "#ff6b7f";      // ein Ring, der stehengeblieben ist
+const MARK_COLOR = "#ffe36b";     // die Marke am Rand
 
 const REACT_LABELS = {
-  colour: "FALSCHE FARBE",
-  shape: "FALSCHE FORM",
-  flicker: "ANGETÄUSCHT!",
+  fake: "STEHENGEBLIEBEN!",
   early: "ZU FRÜH!"
 };
 
@@ -98,7 +92,7 @@ export class FalseSignal {
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="signal-legend" data-signal-legend>
         <span class="signal-chip signal-chip-real"></span>
-        <span>Nur der runde grüne Kreis, der <strong>bleibt</strong></span>
+        <span>Tippe, wenn der Ring die Marke <strong>schafft</strong></span>
       </div>
       <div class="color-banner" data-signal-banner hidden></div>
     `);
@@ -261,35 +255,54 @@ export class FalseSignal {
       this.scene.add(dot);
     });
 
-    // Rund UND eckig liegen übereinander; je Signal ist genau eine Form
-    // sichtbar. So kann die Form täuschen, ohne dass die Lampe springt.
+    // Die dunkle Linse, in der der Ring wächst.
     // toneMapped: false ist hier entscheidend — mit ACES-Tonemapping wurde aus
     // dem Signalgrün ein blasses Mint, das man nicht als "LOS" gelesen hat.
-    this.lampRound = new THREE.Mesh(
-      new THREE.CircleGeometry(LAMP_R, 32),
-      new THREE.MeshBasicMaterial({ color: LAMP_COLORS.idle, toneMapped: false })
+    this.lens = new THREE.Mesh(
+      new THREE.CircleGeometry(LAMP_R, 36),
+      new THREE.MeshBasicMaterial({ color: "#141b25", toneMapped: false })
     );
-    this.lampRound.position.set(0, LAMP_Y, LAMP_Z + 0.08);
-    this.scene.add(this.lampRound);
+    this.lens.position.set(0, LAMP_Y, LAMP_Z + 0.08);
+    this.scene.add(this.lens);
 
-    this.lampSquare = new THREE.Mesh(
-      new THREE.PlaneGeometry(LAMP_R * 1.62, LAMP_R * 1.62),
-      new THREE.MeshBasicMaterial({ color: LAMP_COLORS.idle, toneMapped: false })
+    // DIE MARKE. Erreicht der Ring sie, war er echt. Sie steht immer da, damit
+    // man beim Wachsen die ganze Zeit sieht, wie weit es noch ist — ohne sie
+    // wüsste man nie, ob ein Ring gerade langsamer wird oder gleich ankommt.
+    this.mark = new THREE.Mesh(
+      new THREE.RingGeometry(LAMP_R * 0.93, LAMP_R * 0.99, 40),
+      new THREE.MeshBasicMaterial({ color: MARK_COLOR, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false })
     );
-    this.lampSquare.position.set(0, LAMP_Y, LAMP_Z + 0.08);
-    this.lampSquare.visible = false;
-    this.scene.add(this.lampSquare);
+    this.mark.position.set(0, LAMP_Y, LAMP_Z + 0.10);
+    this.scene.add(this.mark);
+
+    // Der wachsende Ring selbst. Ein Ring statt einer Scheibe, damit die Marke
+    // dahinter sichtbar bleibt und der Abstand zu ihr ablesbar ist.
+    this.ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.78, 1, 40),
+      new THREE.MeshBasicMaterial({ color: RING_COLOR, transparent: true, opacity: 0, depthWrite: false, toneMapped: false })
+    );
+    this.ring.position.set(0, LAMP_Y, LAMP_Z + 0.12);
+    this.scene.add(this.ring);
+
+    // Ein Kern in der Mitte, der mit dem Ring heller wird — die Linse soll
+    // leuchten, nicht nur einen Strich zeigen.
+    this.core = new THREE.Mesh(
+      new THREE.CircleGeometry(LAMP_R * 0.2, 20),
+      new THREE.MeshBasicMaterial({ color: RING_COLOR, transparent: true, opacity: 0, depthWrite: false, toneMapped: false })
+    );
+    this.core.position.set(0, LAMP_Y, LAMP_Z + 0.11);
+    this.scene.add(this.core);
 
     // Der Schein wirft die Signalfarbe in die Szene — man sieht es auch im
     // Augenwinkel, statt nur die Lampe anzustarren.
-    this.glow = new THREE.PointLight(LAMP_COLORS.go, 0, 16);
+    this.glow = new THREE.PointLight(RING_COLOR, 0, 16);
     this.glow.position.set(0, LAMP_Y, LAMP_Z + 1.6);
     this.scene.add(this.glow);
 
     this.halo = new THREE.Mesh(
       new THREE.RingGeometry(LAMP_R * 1.05, LAMP_R * 1.55, 34),
       new THREE.MeshBasicMaterial({
-        color: LAMP_COLORS.go, transparent: true, opacity: 0, depthWrite: false, toneMapped: false
+        color: RING_COLOR, transparent: true, opacity: 0, depthWrite: false, toneMapped: false
       })
     );
     this.halo.position.set(0, LAMP_Y, LAMP_Z + 0.06);
@@ -357,7 +370,7 @@ export class FalseSignal {
     const elapsed = Math.max(0, now - minigame.startedAt);
 
     const signal = this.activeSignal(arcade, elapsed);
-    this.paintLamp(signal, dt);
+    this.paintLamp(signal, dt, elapsed, arcade);
 
     state.players.forEach((player, index) => {
       const entry = arcade.players[player.id];
@@ -375,7 +388,7 @@ export class FalseSignal {
       }
 
       const locked = (entry.lockUntil || 0) > now;
-      if (minigame.finaleAt) animator.set("cheer", { base: true });
+      if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
       else if (locked) animator.set("sad", { base: true });
       else animator.set("idle", { base: true });
       animator.update(now);
@@ -406,31 +419,66 @@ export class FalseSignal {
     this.renderer.render(this.scene, this.camera);
   }
 
-  paintLamp(signal, dt) {
-    const kind = signal ? signal.kind : "idle";
-    const color = LAMP_COLORS[kind] || LAMP_COLORS.idle;
-    // Eckig nur bei der Formfälschung — sonst rund.
-    this.lampSquare.visible = kind === "shape";
-    this.lampRound.visible = kind !== "shape";
-    const lamp = kind === "shape" ? this.lampSquare : this.lampRound;
-    lamp.material.color.set(color);
+  // Der Radius des Rings. Muss EXAKT dieselbe Kurve sein wie auf dem Server —
+  // hier hängt die ganze Wertung dran: wer bei kleinem Ring tippt, bekommt mehr.
+  // Für kleine Zeiten gilt tanh(x) ≈ x, deshalb starten echt und falsch mit
+  // derselben Geschwindigkeit und laufen erst nach und nach auseinander.
+  ringRadius(signal, since, growMs) {
+    const t = Math.max(0, since);
+    if (signal.real) return Math.min(1, t / growMs);
+    return signal.limit * Math.tanh(t / (growMs * signal.limit));
+  }
+
+  paintLamp(signal, dt, elapsed, arcade) {
+    const growMs = arcade?.growMs || 950;
+    const since = signal ? elapsed - signal.at : 0;
+    const radius = signal ? this.ringRadius(signal, since, growMs) : 0;
+    // Ein Ring, der stehengeblieben ist, färbt sich rot — aber erst, wenn er
+    // wirklich steht. Vorher darf nichts verraten, was er ist.
+    const stalled = Boolean(signal) && !signal.real && since > growMs * signal.limit * 1.2;
+    const done = Boolean(signal) && signal.real && radius >= 1;
 
     if (signal && signal.index !== this.lastSignalIndex) {
       this.lastSignalIndex = signal.index;
       this.lampPulse = 1;
-      // Der Antäuscher darf sich nicht ankündigen: gleicher Klang wie ein
-      // echtes Signal. Nur die Dauer verrät ihn.
-      this.feedback?.sound(kind === "colour" || kind === "shape" ? "plink" : "pop");
+      // Der Startklang ist für echt und falsch derselbe. Alles andere wäre ein
+      // Verrat, und dann gäbe es nichts mehr zu entscheiden.
+      this.feedback?.sound("pop");
+      this.stallSeen = false;
+    }
+    if (stalled && !this.stallSeen) {
+      this.stallSeen = true;
+      this.feedback?.sound("clack");
     }
     this.lampPulse = Math.max(0, this.lampPulse - dt * 3.2);
-    const lit = signal ? 1 : 0;
-    const scale = 1 + this.lampPulse * 0.18;
-    lamp.scale.setScalar(scale);
+
+    const color = stalled ? RING_DEAD : RING_COLOR;
+    const scale = Math.max(0.02, radius * LAMP_R);
+    this.ring.visible = Boolean(signal);
+    this.ring.scale.setScalar(scale);
+    this.ring.material.color.set(color);
+    // Ausblenden, wenn ein falscher Ring verlischt — genau daran erkennt man
+    // im Nachhinein, dass man richtig gewartet hat.
+    const fade = stalled
+      ? Math.max(0, 1 - (since - growMs * signal.limit * 1.2) / 420)
+      : 1;
+    this.ring.material.opacity = signal ? 0.95 * fade : 0;
+
+    this.core.visible = Boolean(signal);
+    this.core.material.color.set(color);
+    this.core.material.opacity = signal ? (0.25 + radius * 0.5) * fade : 0;
+    this.core.scale.setScalar(1 + this.lampPulse * 0.4);
+
+    // Die Marke pulsiert, sobald ein Ring sie erreicht hat.
+    this.mark.material.opacity = done ? 0.9 : 0.5;
+    this.mark.material.color.set(done ? RING_COLOR : MARK_COLOR);
+    this.mark.scale.setScalar(done ? 1 + Math.sin(elapsed / 70) * 0.04 : 1);
 
     this.glow.color.set(color);
-    this.glow.intensity += ((lit ? 14 : 0) - this.glow.intensity) * 0.4;
+    const wanted = signal ? (4 + radius * 12) * fade : 0;
+    this.glow.intensity += (wanted - this.glow.intensity) * 0.4;
     this.halo.material.color.set(color);
-    this.halo.material.opacity += ((lit ? 0.5 : 0) - this.halo.material.opacity) * 0.3;
+    this.halo.material.opacity += ((done ? 0.6 : 0) - this.halo.material.opacity) * 0.3;
     this.halo.scale.setScalar(1 + this.lampPulse * 0.3);
   }
 
@@ -444,12 +492,14 @@ export class FalseSignal {
       this.bursts.spawn(at, [lane.color, "#4dff7a", "#ffffff"], {
         count: 14, speed: 2.0, up: 2.2, size: 0.07, life: 0.6, drag: 1.8
       });
-      const fast = react.reactionMs !== null && react.reactionMs < 260;
-      this.floaters.pop(at, fast ? `BLITZ! +${react.points}` : `+${react.points}`, {
-        color: "#4dff7a", size: fast ? 0.4 : 0.34, life: 0.8
+      // "Mutig" heisst hier: bei kleinem Ring getippt, also mit wenig Wissen.
+      // Genau das ist die Leistung, und genau danach zahlt das Spiel.
+      const bold = (react.radius ?? 1) < 0.45;
+      this.floaters.pop(at, bold ? `MUTIG! +${react.points}` : `+${react.points}`, {
+        color: "#4dff7a", size: bold ? 0.4 : 0.34, life: 0.8
       });
       if (own) {
-        this.feedback?.sound(fast ? "perfect" : "pop");
+        this.feedback?.sound(bold ? "perfect" : "pop");
         this.feedback?.vibrate([8, 10, 14]);
       }
       return;
@@ -490,7 +540,10 @@ export class FalseSignal {
       banner.style.color = "#42101a";
     } else if ((own?.hits || 0) >= 3 && (own?.falseStarts || 0) === 0) {
       banner.hidden = false;
-      banner.textContent = `${own.hits}× sauber — kein Fehlgriff!`;
+      // Der Mut ist die eigentliche Leistung — der kleinste Ring, bei dem ein
+      // Treffer sass. Deshalb steht er hier und nicht die Zahl der Treffer.
+      const bold = Math.round((own.boldest ?? 1) * 100);
+      banner.textContent = `${own.hits}× sauber · mutigster Griff bei ${bold}%`;
       banner.style.background = "#ffd15c";
       banner.style.color = "#4a3400";
     } else {

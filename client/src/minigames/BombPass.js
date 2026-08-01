@@ -3,12 +3,13 @@ import {
   CubeBurst,
   FloatingText,
   KinAnimator,
+  applyFinaleMood,
   createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -16,8 +17,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Zündstoff — hot-potato with a blocky bomb. The fuse length is secret:
 // tap to pass the bomb on before it blows. Whoever holds it when it pops
@@ -352,9 +353,11 @@ export class BombPass {
 
       setKinOpacity(kin, 1);
       if (minigame.finaleAt) {
-        animator.set("cheer", { base: true });
-        survivorKin = kin;
-        survivorPlayer = player;
+        const pose = applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
+        if (pose.cheer) {
+          survivorKin = kin;
+          survivorPlayer = player;
+        }
       } else if (isHolder) {
         // Panicky shuffle while holding the ticking bomb.
         animator.set("run", { base: true });

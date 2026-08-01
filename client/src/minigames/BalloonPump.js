@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
@@ -7,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -15,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin99";
 
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the
@@ -306,8 +307,10 @@ export class BalloonPump {
             this.bursts.spawn(new THREE.Vector3(station.x + (Math.random() - 0.5), 3.4, -0.2), [player.color, "#ffd15c", "#ffffff"], { count: 2, speed: 0.6, up: 0.2, size: 0.07, life: 1.2 });
           }
         } else {
-          // Losing balloons deflate and sputter away.
-          animator.set("sad", { base: true });
+          // Die anderen Ballons machen schlapp — aber nicht alle gleich: Platz 2
+          // nimmt es gefasst, Platz 4 knickt ein. Vorher waren alle drei
+          // gleichermassen traurig.
+          applyFinaleMood(animator, arcade.places?.[player.id], players.length);
           if (!station.deflated) {
             station.deflated = true;
             station.deflateFrom = size;

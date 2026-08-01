@@ -1,20 +1,21 @@
 import * as THREE from "/vendor/three/three.module.js";
 import {
+  applyFinaleMood,
   CubeBurst,
   FloatingText,
   KinAnimator,
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Spurmaler — eine geschwungene Spur läuft von unten nach oben. Der eigene Kin
 // reitet als Pinsel darauf und malt sie aus, solange der Finger im Toleranzband
@@ -63,6 +64,20 @@ function pathX(seed, lap, t) {
   const raw = Math.sin(t * Math.PI * bows + phase) * swing
     + Math.sin(t * Math.PI * (bows * 2 + 1) + phase * 1.7) * detail;
   return clamp(0.5 + raw, 0.5 - (swing + detail), 0.5 + (swing + detail));
+}
+
+// Ebenfalls Zeichen für Zeichen wie auf dem Server: die Bandbreite ist an
+// Engstellen kleiner, und dort MUSS das Bild schmaler werden — sonst reisst der
+// Strich an einer Stelle ab, an der die Spur noch breit aussieht.
+const NARROW_MIN = 0.42;
+function widthAt(seed, lap, t) {
+  const s = seed + lap * 97;
+  const knots = 2 + Math.floor(noise(s + 61) * 2);
+  const phase = noise(s + 71) * Math.PI * 2;
+  const wave = (Math.cos(t * Math.PI * 2 * knots + phase) + 1) / 2;
+  const edge = Math.min(1, Math.min(t, 1 - t) / 0.12);
+  const narrow = NARROW_MIN + (1 - NARROW_MIN) * wave;
+  return narrow + (1 - narrow) * (1 - edge);
 }
 
 const boardX = (nx) => (nx - 0.5) * BOARD_W;
@@ -199,6 +214,7 @@ export class TracePainter {
     this.scene.add(frame);
 
     this.buildRibbons();
+    this.buildGems();
     this.buildRail();
 
     [[-4.6, 6.4, -8, 3], [4.4, 7.2, -9, 8]].forEach(([x, y, z, seed]) => {
@@ -240,10 +256,11 @@ export class TracePainter {
       }));
       mesh.position.z = z;
       this.scene.add(mesh);
-      return { mesh, geometry, halfWidth };
+      return { mesh, geometry, halfWidth, scaleWidth: false };
     };
 
     this.band = make(TOLERANCE, 0.02, { opacity: 0.55 });
+    this.band.scaleWidth = true;
     this.trail = make(0.032, 0.05, { opacity: 1 });
   }
 
@@ -254,8 +271,12 @@ export class TracePainter {
       for (let i = 0; i <= SEGMENTS; i += 1) {
         const t = i / SEGMENTS;
         const px = pathX(seed, lap, t);
-        pos.setXYZ(i * 2, boardX(px - ribbon.halfWidth), boardY(t), 0);
-        pos.setXYZ(i * 2 + 1, boardX(px + ribbon.halfWidth), boardY(t), 0);
+        // Nur das Toleranzband verengt sich; der gemalte Strich behält seine
+        // Breite, sonst sähe die fertige Spur an den Engstellen aus wie ein
+        // Fehler statt wie eine Engstelle.
+        const half = ribbon.scaleWidth ? ribbon.halfWidth * widthAt(seed, lap, t) : ribbon.halfWidth;
+        pos.setXYZ(i * 2, boardX(px - half), boardY(t), 0);
+        pos.setXYZ(i * 2 + 1, boardX(px + half), boardY(t), 0);
       }
       pos.needsUpdate = true;
       ribbon.geometry.computeBoundingSphere();
@@ -288,6 +309,53 @@ export class TracePainter {
     }
     this.band.geometry.attributes.color.needsUpdate = true;
     this.trail.geometry.attributes.color.needsUpdate = true;
+  }
+
+  // Die Kristalle. Sie werden EINMAL gebaut und je Runde umgesetzt — neue
+  // Meshes pro Runde wären auf dem Handy der teuerste Teil der Szene.
+  buildGems() {
+    this.gems = [];
+    for (let i = 0; i < 8; i += 1) {
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.11),
+        new THREE.MeshBasicMaterial({ color: "#ffe36b", toneMapped: false })
+      );
+      gem.visible = false;
+      gem.position.z = 0.09;
+      this.scene.add(gem);
+      // Ein Ring darum, damit man ihn auch dann sieht, wenn er farblich im Band
+      // liegt — und damit klar ist, dass er eingesammelt werden will.
+      const halo = new THREE.Mesh(
+        new THREE.RingGeometry(0.14, 0.19, 18),
+        new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false })
+      );
+      halo.position.z = 0.07;
+      halo.visible = false;
+      this.scene.add(halo);
+      this.gems.push({ gem, halo });
+    }
+  }
+
+  // Setzt die Kristalle der aktuellen Runde und blendet eingesammelte aus.
+  syncGems(own, now) {
+    if (!this.gems) return;
+    const list = own.gems || [];
+    this.gems.forEach((visual, i) => {
+      const data = list[i];
+      const taken = data ? Boolean(own.gemsTaken?.[data.index]) : true;
+      const show = Boolean(data) && !taken;
+      visual.gem.visible = show;
+      visual.halo.visible = show;
+      if (!show) return;
+      const x = boardX(data.x);
+      const y = boardY(data.t);
+      visual.gem.position.set(x, y, 0.09);
+      visual.halo.position.set(x, y, 0.07);
+      visual.gem.rotation.y = now / 420 + i;
+      visual.gem.rotation.z = Math.sin(now / 600 + i) * 0.3;
+      const pulse = 1 + Math.sin(now / 260 + i) * 0.12;
+      visual.halo.scale.setScalar(pulse);
+    });
   }
 
   // Rivalen laufen auf einer Leiste am Rand mit. Sie auf die Tafel zu setzen
@@ -355,6 +423,11 @@ export class TracePainter {
       if (own.lap !== this.drawnLap) this.layoutRibbons(arcade.seed, own.lap);
       this.paintRibbons(own.progress || 0, this.ownColor);
       this.moveBrush(own, arcade, now, dt);
+      if (minigame.finaleAt) {
+        applyFinaleMood(this.brushAnimator, arcade.places?.[controlledId], state.players.length);
+        this.brushAnimator.update(now);
+      }
+      this.syncGems(own, now);
       this.reactToEvents(own, now);
     }
 
@@ -417,6 +490,15 @@ export class TracePainter {
       this.feedback?.sound("error");
       this.feedback?.vibrate(20);
       this.shake = Math.max(this.shake, 0.4);
+    }
+    if (own.lastGemAt && own.lastGemAt !== this.lastGemAt) {
+      this.lastGemAt = own.lastGemAt;
+      const gem = own.lastGem;
+      const at = new THREE.Vector3(boardX(gem?.x ?? 0.5), boardY(gem?.t ?? 0.5), 0.3);
+      this.bursts.spawn(at, ["#ffe36b", "#ffffff"], { count: 10, speed: 1.6, up: 1.2, size: 0.055, life: 0.5, drag: 2.0 });
+      this.floaters.pop(at, "+70", { color: "#ffe36b", size: 0.3, life: 0.6 });
+      this.feedback?.sound("coin");
+      this.feedback?.vibrate(8);
     }
     if (own.lastLapAt && own.lastLapAt !== this.lastLapAt) {
       this.lastLapAt = own.lastLapAt;

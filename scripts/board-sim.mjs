@@ -31,7 +31,7 @@ async function freePort() {
 }
 
 const runs = Math.max(1, Math.min(10, Number(process.argv[2]) || 1));
-const totals = { stars: 0, starMoves: 0, bought: 0, itemsUsed: 0, errors: 0, effects: new Set() };
+const totals = { stars: 0, starMoves: 0, bought: 0, itemsUsed: 0, errors: 0, rolls: 0, junctions: 0, unfinished: 0, effects: new Set(), winners: [] };
 
 for (let run = 1; run <= runs; run += 1) {
   console.log(`\n=== Partie ${run}/${runs} ===`);
@@ -45,6 +45,11 @@ if (runs > 1) {
   console.log(`Items benutzt: ${totals.itemsUsed}`);
   console.log(`Feldtypen je erlebt: ${[...totals.effects].sort().join(", ")}`);
   console.log(`Serverfehler: ${totals.errors}`);
+  console.log(`Würfe insgesamt: ${totals.rolls} · Kreuzungen: ${totals.junctions}`);
+  console.log(`Partien ohne sauberes Ende: ${totals.unfinished}`);
+  if (totals.unfinished > 0) {
+    console.log("\nWARNUNG: Nicht jede Partie lief bis zum Ende — die Zahlen darüber sind unvollständig.");
+  }
   if (totals.bought === 0) {
     console.log("\nWARNUNG: In keiner Partie wurde ein Stern gekauft — das Kernziel läuft leer.");
     process.exit(1);
@@ -98,10 +103,32 @@ async function playOne() {
   await sleep(500);
   console.log(`Raum ${code}, Startstern auf Feld ${state?.starIndex} (Podeste ${JSON.stringify(state?.board?.starPads)})`);
 
+  // An einer Kreuzung wartet der Server auf eine Antwort. Ohne sie steht die
+  // Partie — genau daran blieb dieser Simulator nach zwei Würfen hängen und
+  // meldete trotzdem „fertig". Ein Simulator, der stillschweigend abbricht, ist
+  // schlimmer als keiner: er behauptet, alles sei in Ordnung.
+  const routeStats = { asked: 0, main: 0, branch: 0 };
+  async function answerJunction() {
+    const pending = state?.pendingJunction;
+    if (!pending) return false;
+    routeStats.asked += 1;
+    // Abwechselnd Hauptweg und Abzweig, damit beide Wege wirklich befahren
+    // werden — sonst prüft der Lauf nur die Hälfte des Bretts.
+    const route = routeStats.asked % 2 === 0 ? 1 : 0;
+    const picked = Math.min(route, (pending.options?.length || 1) - 1);
+    if (picked === 0) routeStats.main += 1; else routeStats.branch += 1;
+    await req("chooseRoute", { code, route: picked });
+    await sleep(250);
+    return true;
+  }
+
   async function waitForRoll(timeoutMs = 90000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (state?.status === "end") return "end";
+      if (state?.status === "board" && state?.phase === "junction") {
+        if (await answerJunction()) continue;
+      }
       if (state?.status === "board" && state?.phase === "waitingRoll") return "ready";
       await sleep(250);
     }
@@ -110,9 +137,11 @@ async function playOne() {
 
   let rolls = 0;
   let itemsUsed = 0;
+  let stopReason = "hardStop";
   const hardStop = Date.now() + 8 * 60 * 1000;
   while (Date.now() < hardStop) {
-    if ((await waitForRoll()) !== "ready") break;
+    const ready = await waitForRoll();
+    if (ready !== "ready") { stopReason = ready; break; }
     const current = state.players.find((p) => p.id === state.currentPlayerId);
     if (!current) break;
     if ((current.items || []).length && !current.pendingItem) {
@@ -127,14 +156,26 @@ async function playOne() {
 
   await sleep(800);
   const players = state?.players || [];
-  console.log(`Würfe ${rolls}, Items benutzt ${itemsUsed}, Sterne gekauft ${seen.bought}`);
+  console.log(`Würfe ${rolls} (Ende: ${stopReason}), Items benutzt ${itemsUsed}, Sterne gekauft ${seen.bought}`);
+  console.log(`Kreuzungen ${routeStats.asked} (Hauptweg ${routeStats.main}, Abzweig ${routeStats.branch})`);
+  // Eine Partie, die nicht bis zum Ende läuft, sagt über die Balance nichts —
+  // sie sagt nur, dass der Simulator hängengeblieben ist.
+  if (stopReason !== "end") totals.unfinished += 1;
+  totals.rolls += rolls;
+  totals.junctions += routeStats.asked;
   console.log(`Stern stand auf: ${[...seen.starIndexes].join(", ")}`);
   console.log(`Erlebt: ${[...seen.effects].sort().join(", ")}`);
   players.forEach((p) => console.log(`  ${p.name.padEnd(9)} ★${p.stars ?? 0}  ●${p.coins}  Siege ${p.wins}`));
   (state?.bonusStars || []).forEach((b) => console.log(`  Bonus: ${b.name} +${b.stars} (${b.label})`));
 
   const errors = (serverLog.match(/Unerwarteter Fehler/g) || []).length;
-  if (errors) console.log(`Serverfehler: ${errors}`);
+  if (errors) {
+    console.log(`Serverfehler: ${errors}`);
+    // Die Meldungen ausgeben, nicht nur zählen. Eine Zahl ohne Text sagt nur,
+    // dass etwas kaputt ist — nicht was.
+    const lines = serverLog.split("\n").filter((line) => /Unerwarteter Fehler|at .*server\.js/.test(line));
+    [...new Set(lines)].slice(0, 12).forEach((line) => console.log(`    ${line.trim().slice(0, 160)}`));
+  }
 
   totals.bought += seen.bought;
   totals.starMoves += Math.max(0, seen.starIndexes.size - 1);

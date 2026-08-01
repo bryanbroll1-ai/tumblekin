@@ -3,12 +3,13 @@ import {
   CubeBurst,
   FloatingText,
   KinAnimator,
+  applyFinaleMood,
   createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin80";
+} from "./VoxelKit.js?v=tumblekin99";
 import {
   mountStage,
   mountHud,
@@ -16,8 +17,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin80";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin80";
+} from "./SceneKit.js?v=tumblekin99";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
@@ -347,8 +348,10 @@ export class BarrelRoll {
       // Face sideways in run direction while counter-running.
       const holding = now - (entry.lastRunAt || 0) <= 260;
       if (minigame.finaleAt) {
-        animator.set("cheer", { base: true });
-        if (!this.finaleDone) {
+        // Reaktion nach Platzierung statt Jubel für alle: der Server schickt die
+        // Plätze mit, sobald das Finale beginnt.
+        const pose = applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
+        if (pose.cheer && !this.finaleDone) {
           this.finaleDone = true;
           this.bursts.spawn(kin.position.clone(), [player.color, "#ffd15c", "#ffffff"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });
           this.bursts.ring(kin.position.clone().setY(0.08), "#ffd15c", { radius: 2, life: 0.65, opacity: 0.6 });
