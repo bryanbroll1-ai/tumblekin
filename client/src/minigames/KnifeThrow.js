@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin99";
+} from "./VoxelKit.js?v=tumblekin100";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin99";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
+} from "./SceneKit.js?v=tumblekin100";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin100";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -412,7 +412,10 @@ export class KnifeThrow {
     const banner = this.hud.querySelector("[data-knife-banner]");
     // Runde und Leben gehören sichtbar dazu: es wird mehrfach geworfen, und ein
     // Fehlwurf ist nicht sofort das Aus. Ohne die Anzeige wäre beides Rätselraten.
-    const roundLabel = arcade.rounds ? ` · Runde ${Math.min(arcade.rounds, (arcade.round || 0) + 1)}/${arcade.rounds}` : "";
+    // Keine Rundenzahl mehr — gespielt wird, bis nur noch einer steht. Was
+    // zählt, ist also, wie viele noch dabei sind.
+    const übrig = Object.values(arcade.players || {}).filter((entry) => !entry.eliminated).length;
+    const roundLabel = übrig > 1 ? ` · noch ${übrig} dabei` : "";
     if (banner) {
       banner.hidden = false;
       if (own?.eliminated) {

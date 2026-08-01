@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin99";
+} from "./VoxelKit.js?v=tumblekin100";
 import {
   mountStage,
   mountHud,
@@ -16,9 +16,9 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin99";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin99";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin99";
+} from "./SceneKit.js?v=tumblekin100";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin100";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin100";
 
 // Farbenjagd — EINE geteilte Fläche für alle. Jeder Kin färbt das Feld, auf dem
 // er steht, in seine Farbe, auch wenn dort schon eine fremde liegt. Damit ist es
@@ -38,6 +38,10 @@ import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin99";
 // vorne 77 px breit. Die Kamera bleibt geneigt, damit die Figuren Volumen haben.
 const TILE = 0.54;
 const KIN_SCALE = 0.55;
+// Die Kacheln sind 0.06 hoch und liegen bei y=0.01, eingefärbte bei y=0.04 —
+// ihre Oberkante also bei 0.07. Ohne eigene Höhe standen die Kins auf y=0 und
+// steckten damit BIS ZU DEN KNÖCHELN IN der Platte statt darauf.
+const KIN_Y = 0.07;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -193,6 +197,7 @@ export class ColorHunt {
     if (this.kins.has(player.id)) return this.kins.get(player.id);
     const kin = createVoxelKin(player.color, index);
     kin.scale.setScalar(KIN_SCALE);
+    kin.position.y = KIN_Y;
     const label = createNameLabel(player.name.slice(0, 6), player.color);
     label.position.y = 0.85;
     kin.add(label);
@@ -247,7 +252,7 @@ export class ColorHunt {
       }
       animator.update(now);
 
-      kin.userData.shadow.position.set(kin.position.x, 0.06, kin.position.z);
+      kin.userData.shadow.position.set(kin.position.x, KIN_Y + 0.01, kin.position.z);
       kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.7;
 
       // Rempler: kurzer Funkenschlag, damit man merkt, dass man geschoben wurde.

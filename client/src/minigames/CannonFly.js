@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin99";
+} from "./VoxelKit.js?v=tumblekin100";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin99";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
+} from "./SceneKit.js?v=tumblekin100";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin100";
 
 // Kanonenflug — one perfectly timed tap fires your Kin out of the cannon.
 // The power gauge swings up and down; tap at the peak to fly the farthest.

@@ -3,15 +3,15 @@ import {
   CubeBurst,
   FloatingText,
   createCloud
-} from "./VoxelKit.js?v=tumblekin99";
+} from "./VoxelKit.js?v=tumblekin100";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin99";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin99";
+} from "./SceneKit.js?v=tumblekin100";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin100";
 
 // Nagelbrett — tippe oben, wo die Kugel starten soll; sie fällt durch die Nägel
 // in eines von sieben Fächern. Die Mitte ist am meisten wert.
@@ -135,7 +135,7 @@ export class PegBoard {
 
     const board = new THREE.Mesh(
       new THREE.BoxGeometry(BOARD_W + 0.5, BOARD_H + 0.6, 0.3),
-      new THREE.MeshLambertMaterial({ color: "#3c4a5c" })
+      new THREE.MeshLambertMaterial({ color: "#2b3648" })
     );
     board.position.set(0, 0.4, -0.4);
     board.receiveShadow = true;
@@ -143,22 +143,33 @@ export class PegBoard {
 
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(BOARD_W + 0.9, BOARD_H + 1.0, 0.24),
-      new THREE.MeshLambertMaterial({ color: "#8a6a45" })
+      new THREE.MeshLambertMaterial({ color: "#9a7748" })
     );
     frame.position.set(0, 0.4, -0.58);
     this.scene.add(frame);
 
     // Die Nägel. Sie stehen exakt dort, wo der Server sie rechnet — sonst
     // prallt die Kugel im Bild woanders ab als in der Wertung.
-    const pegGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.22, 8);
-    const pegMat = new THREE.MeshLambertMaterial({ color: "#e6edf5" });
+    // Nägel mit rundem Kopf statt flacher Scheiben: sie fangen das Licht, und
+    // dadurch sieht man auf dem Handybild überhaupt, dass sie aus dem Brett
+    // herausstehen. Geometrien und Material werden geteilt — bei 40 Nägeln
+    // wären eigene sonst reine Verschwendung.
+    const pegGeo = new THREE.CylinderGeometry(0.075, 0.085, 0.24, 8);
+    const headGeo = new THREE.SphereGeometry(0.1, 10, 8);
+    const pegMat = new THREE.MeshLambertMaterial({ color: "#f2e2b8", emissive: "#4a3a12" });
     (arcade.pegs || []).forEach((peg) => {
-      const mesh = new THREE.Mesh(pegGeo, pegMat);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.set(this.worldX(peg.x), this.worldY(peg.y, floorY), -0.15);
-      mesh.castShadow = true;
-      this.scene.add(mesh);
-      this.pegMeshes.push({ mesh, flash: 0, base: new THREE.Color("#e6edf5") });
+      const group = new THREE.Group();
+      group.position.set(this.worldX(peg.x), this.worldY(peg.y, floorY), -0.15);
+      const shaft = new THREE.Mesh(pegGeo, pegMat);
+      shaft.rotation.x = Math.PI / 2;
+      shaft.castShadow = true;
+      group.add(shaft);
+      const head = new THREE.Mesh(headGeo, pegMat);
+      head.position.z = 0.12;
+      head.scale.z = 0.55;
+      group.add(head);
+      this.scene.add(group);
+      this.pegMeshes.push({ mesh: head, group, flash: 0, base: new THREE.Color("#f2e2b8") });
     });
 
     // Die Fächer. Ihre Farbe sagt den Wert — je heller, desto mehr wert.
@@ -181,6 +192,19 @@ export class PegBoard {
       );
       wall.position.set(x - slotWidth / 2, y + 0.3, -0.1);
       this.scene.add(wall);
+
+      // Ein Leuchtstreifen auf dem wertvollsten Fach. Die Farbabstufung allein
+      // beantwortet die Frage "wo will ich hin?" auf einem kleinen Bild zu
+      // langsam — und genau diese Frage stellt das Spiel in jeder Sekunde.
+      const bestPoints = Math.max(...slots);
+      if (points === bestPoints) {
+        const glow = new THREE.Mesh(
+          new THREE.BoxGeometry(slotWidth * 0.9, 0.06, 0.42),
+          new THREE.MeshBasicMaterial({ color: "#fff3b0", transparent: true, opacity: 0.9, toneMapped: false })
+        );
+        glow.position.set(x, y + 0.28, -0.08);
+        this.scene.add(glow);
+      }
 
       this.slotMeshes.push({ cup, points, index, flash: 0, base: new THREE.Color(SLOT_COLORS[index % SLOT_COLORS.length]) });
     });
@@ -251,6 +275,18 @@ export class PegBoard {
       visual.ring.material.opacity = isOwn ? (ball.nudged ? 0.35 : 0.9) : 0;
       visual.ring.scale.setScalar(isOwn && !ball.nudged ? 1 + Math.sin(now / 160) * 0.12 : 1);
       visual.mesh.rotation.z -= dt * 6;
+
+      // Kugeln stossen sich jetzt gegenseitig weg. Ohne Rückmeldung sieht das
+      // aus wie ein Ruckler; mit Funken und Klack ist es der Moment, in dem man
+      // merkt, dass da noch drei andere mitspielen.
+      if (ball.bumpedAt && ball.bumpedAt !== visual.lastBump) {
+        visual.lastBump = ball.bumpedAt;
+        this.bursts.spawn(visual.group.position.clone(), [colourOf(ball.playerId), "#ffffff"], {
+          count: Math.round(7 * fxScale()), speed: 1.5, up: 0.5, size: 0.05, life: 0.4, drag: 2.4
+        });
+        this.shake = Math.min(1, this.shake + (isOwn ? 0.5 : 0.22));
+        if (isOwn) { this.feedback?.sound("clack"); this.feedback?.vibrate(10); }
+      }
     });
     this.ballMeshes.forEach((visual, id) => {
       if (alive.has(id)) return;
@@ -278,7 +314,12 @@ export class PegBoard {
   syncFlashes(dt) {
     this.pegMeshes.forEach((peg) => {
       peg.flash = Math.max(0, peg.flash - dt * 3);
-      peg.mesh.material.color.copy(peg.base);
+      // Über die GRÖSSE, nicht über die Farbe: alle Nägel teilen sich ein
+      // Material (bei vierzig Stück ist das richtig so), und eine Farbe darauf
+      // zu setzen hätte immer alle gleichzeitig aufleuchten lassen. Das Blinken
+      // war deshalb noch nie zu sehen.
+      const puls = 1 + peg.flash * 0.45;
+      peg.group.scale.setScalar(puls);
     });
     this.slotMeshes.forEach((slot) => {
       slot.flash = Math.max(0, slot.flash - dt * 2);

@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin99";
+} from "./VoxelKit.js?v=tumblekin100";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin99";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin99";
+} from "./SceneKit.js?v=tumblekin100";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin100";
 
 // Zündstoff — hot-potato with a blocky bomb. The fuse length is secret:
 // tap to pass the bomb on before it blows. Whoever holds it when it pops

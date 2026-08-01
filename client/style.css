@@ -3566,3 +3566,42 @@ body[data-screen="minigame"] .game-menu-button {
   color: rgba(255, 255, 255, 0.6);
   font-variant-numeric: tabular-nums;
 }
+
+/* Eisstock: Kraftanzeige beim Ziehen. Liegt über der Bahn, damit der Blick
+   nicht vom Stein weg muss — man zielt und dosiert in einer Bewegung. */
+.stock-power {
+  position: absolute;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(70vw, 320px);
+  height: 26px;
+  padding: 0 10px;
+  transform: translateX(-50%);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  background: rgba(18, 40, 56, 0.72);
+}
+
+.stock-power span {
+  display: block;
+  height: 12px;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7fe06f, #ffd15c, #ff5d73);
+  transition: width 60ms linear;
+}
+
+.stock-power b {
+  flex: none;
+  min-width: 3.2em;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stock-power[hidden] { display: none; }

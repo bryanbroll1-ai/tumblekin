@@ -139,7 +139,7 @@ const MINIGAMES = [
   { type: "blobklopfe", title: "Blob-Klopfe", duration: 25000, arcadeFamily: "whack" },
   { type: "seilspringen", title: "Seilspringen", duration: 35000, arcadeFamily: "wave" },
   { type: "kanonenflug", title: "Kanonenflug", duration: 16000, arcadeFamily: "cannon" },
-  { type: "messerwurf", title: "Messerwurf", duration: 60000, arcadeFamily: "knife" },
+  { type: "messerwurf", title: "Messerwurf", duration: 45000, arcadeFamily: "knife" },
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
   { type: "ballonfahrt", title: "Ballonfahrt", duration: GLIDE_DURATION_MS, arcadeFamily: "glide" },
@@ -523,8 +523,11 @@ const SEEK_BOT_INTERVAL = { easy: 400, normal: 700, hard: 1150 };
 // man notfalls noch mit; bei fünfundvierzig bis fünfundneunzig geht das in
 // anderthalb Sekunden nicht mehr, und genau dort trennt sich das Feld.
 const ESTIMATE_BANDS = [[8, 20], [16, 36], [28, 58], [45, 95]];
-const ESTIMATE_POINTS = 200;           // volle Punkte für einen genauen Treffer
-const ESTIMATE_BULLSEYE = 60;          // Zugabe, wenn die Zahl exakt stimmt
+// Volle Punkte für einen genauen Treffer. Vorher 200 plus 60 Zugabe, macht über
+// vier Durchgänge bis zu 1040 — gemessen an einer halben Minute Spielzeit war
+// das deutlich zu viel und liess die Runde wichtiger wirken, als sie ist.
+const ESTIMATE_POINTS = 60;
+const ESTIMATE_BULLSEYE = 20;          // Zugabe, wenn die Zahl exakt stimmt
 // Wie schnell die Punkte mit dem Fehler fallen, gemessen an der Breite der
 // Spanne. Bei einem Drittel daneben ist nichts mehr zu holen — geraten in der
 // Mitte bringt gerade noch ein Viertel der Punkte, und das soll es auch.
@@ -771,6 +774,8 @@ const PLINKO_GRAVITY = 1.35;
 // überdeckte. Der Stups macht daraus ein Spiel: die Kugel läuft schief, man
 // sieht es kommen, und man hat GENAU einen Eingriff.
 const PLINKO_NUDGE = 0.85;            // seitlicher Schub beim Stups
+const PLINKO_BALL_R = 0.028;          // Kugelradius im Brettmass (wie am Nagel)
+const PLINKO_BALL_REST = 0.86;        // wie sehr zwei Kugeln voneinander abprallen
 const PLINKO_FLOOR_Y = 1.3;
 const CURLING_SHEET_Y = 1.3;
 const CURLING_RINGS = [
@@ -2623,8 +2628,11 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     // among equals der sauberere Wurf (näher am bestmöglichen) rangiert höher.
     // Die Feinwertung ist auf 0..500 normiert und bleibt damit immer unter
     // einem einzigen Treffer (1000) — sie ordnet Gleichstände, sie kippt nichts.
+    // Auf den DURCHSCHNITT je Wurf normiert, nicht auf eine Rundenzahl — die
+    // gibt es nicht mehr, seit gespielt wird, bis alle draussen sind.
+    const würfe = (arcadePlayer.stuck || 0) + (arcadePlayer.clashes || 0);
     const precision = Math.round(
-      ((arcadePlayer.precision || 0) / Math.max(1, arcade.rounds || 1)) * 500);
+      ((arcadePlayer.precision || 0) / Math.max(1, würfe)) * 500);
     return Math.max(0, (arcadePlayer.eliminated ? 0 : 5000000)
       + (arcadePlayer.stuck || 0) * 1000
       + precision
@@ -3826,7 +3834,6 @@ function createArcadeState(type, players, startedAt) {
     arcade.activeId = arcade.order[0] || null;
     arcade.turnPos = 1;                  // der Erste steht schon auf Position 0
     arcade.round = 0;
-    arcade.rounds = knifeRoundsFor(players.length);
     arcade.turnMs = knifeTurnMs(0);
     arcade.turnEndsAt = startedAt + arcade.turnMs;
     arcade.spinSpeed = KNIFE_SPIN_START;
@@ -5897,8 +5904,15 @@ function advanceKnifeTurn(room, minigame, arcade, now) {
   }
   if (!next) {
     // Runde vorbei: alle, die noch dabei sind, dürfen erneut werfen.
+    //
+    // KEIN Rundenlimit. Es geht so lange, bis nur noch einer steht — und das
+    // kommt von allein: die Scheibe fasst rund sechzehn Messer, jede Runde
+    // legen alle eines nach, und irgendwann ist die grösste freie Lücke kleiner
+    // als der Mindestabstand. Ab da wirft sich jeder selbst raus, und genau das
+    // ist der Schluss, den das Spiel haben soll.
     arcade.round += 1;
-    if (arcade.round < arcade.rounds) {
+    const stillIn = arcade.order.filter((id) => alive(id));
+    if (stillIn.length > 1) {
       arcade.order.forEach((id) => {
         if (alive(id)) arcade.players[id].turnDone = false;
       });
@@ -6243,8 +6257,18 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = room.players.every((player) => arcade.players[player.id]?.launchedAt);
   } else if (arcade.family === "react") {
     done = room.players.every((player) => (arcade.players[player.id]?.times?.length || 0) >= REACT_ROUNDS);
+  } else if (arcade.family === "curling") {
+    // Alle Steine geworfen UND alles liegt still. Vorher lief die Uhr danach
+    // noch weiter, und die Runde stand oft zehn Sekunden lang auf einem Bild,
+    // in dem sich nichts mehr bewegt — das ist die längste Wartezeit im ganzen
+    // Spiel gewesen, und sie hat nichts entschieden.
+    const alleGeworfen = room.players.every((player) => (arcade.players[player.id]?.stonesLeft || 0) <= 0);
+    const allesLiegt = (arcade.stones || []).every((stone) =>
+      Math.hypot(stone.vx || 0, stone.vy || 0) < 0.02);
+    done = alleGeworfen && allesLiegt;
   } else if (arcade.family === "knife") {
-    // Alle Runden geworfen — oder es ist niemand mehr übrig.
+    // Es ist niemand mehr übrig — gespielt wird, bis sich alle rausgeworfen
+    // haben.
     done = arcade.activeId === null;
   } else if (arcade.family === "stack") {
     done = room.players.every((player) => {
@@ -6314,6 +6338,44 @@ function updatePlinko(room, minigame, arcade, dt, now) {
       }
     });
   });
+
+  // Kugel gegen Kugel. Alle vier fallen gleichzeitig, und ohne das durchdringen
+  // sie sich lautlos — was auf dem Bild aussieht wie ein Fehler und die einzige
+  // Stelle verschenkt, an der die Mitspieler einander überhaupt begegnen.
+  // Gleiche Masse, also tauschen beide einfach den Anteil ihrer Geschwindigkeit
+  // entlang der Verbindungslinie.
+  for (let a = 0; a < arcade.balls.length; a += 1) {
+    for (let b = a + 1; b < arcade.balls.length; b += 1) {
+      const one = arcade.balls[a];
+      const two = arcade.balls[b];
+      const dx = two.x - one.x;
+      const dy = two.y - one.y;
+      const distance = Math.hypot(dx, dy);
+      const minDistance = PLINKO_BALL_R * 2;
+      if (distance >= minDistance || distance === 0) continue;
+
+      const nx = dx / distance;
+      const ny = dy / distance;
+      // Erst auseinanderschieben, damit sie nicht ineinander kleben.
+      const overlap = (minDistance - distance) / 2;
+      one.x -= nx * overlap;
+      one.y -= ny * overlap;
+      two.x += nx * overlap;
+      two.y += ny * overlap;
+
+      const relative = (two.vx - one.vx) * nx + (two.vy - one.vy) * ny;
+      if (relative >= 0) continue;              // fliegen schon auseinander
+      const impulse = -(1 + PLINKO_BALL_REST) * relative / 2;
+      one.vx -= impulse * nx;
+      one.vy -= impulse * ny;
+      two.vx += impulse * nx;
+      two.vy += impulse * ny;
+
+      one.bumpedAt = now;
+      two.bumpedAt = now;
+      arcade.clacks = (arcade.clacks || 0) + 1;
+    }
+  }
 
   const landed = arcade.balls.filter((ball) => ball.y >= arcade.floorY - 0.03);
   landed.forEach((ball) => {

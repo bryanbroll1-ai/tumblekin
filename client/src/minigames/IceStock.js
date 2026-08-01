@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin99";
+} from "./VoxelKit.js?v=tumblekin100";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin99";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin99";
+} from "./SceneKit.js?v=tumblekin100";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin100";
 
 // Eisstock — drei Steine je Person, gewischt auf ein Ringziel. Länge des Wisches
 // ist Kraft, Richtung ist Richtung. Fremde Steine darf man wegrempeln, und genau
@@ -59,7 +59,11 @@ export class IceStock {
   // Logikraum (x 0…1 quer, y 0…sheetY längs) auf Weltkoordinaten. Eine einzige
   // Umrechnung, damit gezeichnete und gerechnete Position nie auseinanderlaufen.
   worldX(x) { return (x - 0.5) * SHEET_W; }
-  worldZ(y, sheetY) { return SHEET_LEN / 2 - (y / sheetY) * SHEET_LEN; }
+  // Die Abwurflinie liegt VORNE, das Haus hinten — man wirft also von sich weg,
+  // die Bahn hinunter. Vorher war es andersherum: die Steine starteten am
+  // fernen Ende und rollten auf die Kamera zu, man warf sich also selbst
+  // entgegen. Das liest sich falsch und man schätzt die Weite schlechter ein.
+  worldZ(y, sheetY) { return -SHEET_LEN / 2 + (y / sheetY) * SHEET_LEN; }
 
   start(minigame) {
     this.minigame = minigame;
@@ -71,6 +75,7 @@ export class IceStock {
       <div class="stock-left" data-stock-left>3 Steine</div>
       <div class="stock-chips" data-stock-chips></div>
       <div class="color-banner stock-banner" data-stock-banner hidden></div>
+      <div class="stock-power" data-stock-power hidden><span data-stock-power-fill></span><b data-stock-power-text>0%</b></div>
     `);
     this.createScene();
 
@@ -89,6 +94,10 @@ export class IceStock {
       if (!this.drag) return;
       this.drag.cx = event.clientX;
       this.drag.cy = event.clientY;
+      // Die Kraft steht schon WÄHREND des Ziehens da. Ohne sie wirft man blind
+      // und lernt aus einem misslungenen Stein nichts — man weiss ja nicht, ob
+      // er zu kurz war oder man zu zaghaft gewischt hat.
+      this.showPower(event);
     };
     this.onUp = (event) => {
       if (!this.drag) return;
@@ -99,6 +108,7 @@ export class IceStock {
       // im Wesentlichen längs.
       const dy = (event.clientY - this.drag.y) / Math.max(1, rect.height);
       this.drag = null;
+      this.hidePower();
       const power = Math.hypot(dx, dy);
       if (power < 0.05) return;
       // Kraft aus der Wischlänge, gedeckelt. 55 % der Bildhöhe sind volle Kraft
@@ -108,7 +118,7 @@ export class IceStock {
       this.feedback?.vibrate(12);
       this.sendInput({ action: "flick", dx: clamp(dx * scale * 2.2, -1, 1), dy: clamp(dy * scale * 2.2, -1, 0.1) }).catch(() => {});
     };
-    this.onCancel = () => { this.drag = null; };
+    this.onCancel = () => { this.drag = null; this.hidePower(); };
 
     this.webglCanvas.addEventListener("pointerdown", this.onDown);
     this.webglCanvas.addEventListener("pointermove", this.onMove);
@@ -246,6 +256,27 @@ export class IceStock {
     const visual = { group, body, handle };
     this.stoneMeshes.set(stone.id, visual);
     return visual;
+  }
+
+  // Wie stark der Wurf gerade würde — dieselbe Rechnung wie beim Loslassen,
+  // damit die Anzeige nicht etwas anderes verspricht als der Stein tut.
+  showPower(event) {
+    const bar = this.hud?.querySelector("[data-stock-power]");
+    if (!bar || !this.drag) return;
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const dx = (event.clientX - this.drag.x) / Math.max(1, rect.width);
+    const dy = (event.clientY - this.drag.y) / Math.max(1, rect.height);
+    const anteil = Math.min(1, Math.hypot(dx, dy) / 0.55);
+    bar.hidden = false;
+    const fill = bar.querySelector("[data-stock-power-fill]");
+    const text = bar.querySelector("[data-stock-power-text]");
+    if (fill) fill.style.width = `${Math.round(anteil * 100)}%`;
+    if (text) text.textContent = `${Math.round(anteil * 100)}%`;
+  }
+
+  hidePower() {
+    const bar = this.hud?.querySelector("[data-stock-power]");
+    if (bar) bar.hidden = true;
   }
 
   loop = () => {

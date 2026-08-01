@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin99";
+} from "./VoxelKit.js?v=tumblekin100";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin99";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin99";
+} from "./SceneKit.js?v=tumblekin100";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin100";
 
 // Blitzreflex — drei Läufe, jeder eine Startampel. Rot, Rot, Rot … und dann
 // GRÜN. Wer im richtigen Moment tippt, gewinnt Millisekunden; wer vorher tippt,
