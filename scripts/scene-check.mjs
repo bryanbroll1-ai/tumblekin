@@ -68,8 +68,18 @@ for (const game of liste) {
       kins.forEach((kin, index) => {
         const box = new THREE.Box3().setFromObject(kin);
         if (!Number.isFinite(box.min.y)) return;
-        const füsse = box.min.y;
-        const mitte = new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y + 3, (box.min.z + box.max.z) / 2);
+        // NICHT die Unterkante der Hülle nehmen. Das Modell reicht 0.309 unter
+        // seinen eigenen Nullpunkt (gemessen), und damit meldete der Prüfer
+        // JEDE korrekt stehende Figur als "im Boden" — 26 von 30 Szenen, alles
+        // Fehlalarm.
+        //
+        // Richtig ist der Standpunkt selbst: die Szenen setzen kin.position.y
+        // auf die Höhe, auf der die Figur stehen soll, und geben dieselbe Zahl
+        // dem Animator als groundY. Genau die gehört mit dem Boden verglichen.
+        const stand = new THREE.Vector3();
+        kin.getWorldPosition(stand);
+        const füsse = stand.y;
+        const mitte = new THREE.Vector3(stand.x, box.max.y + 3, stand.z);
         raycaster.set(mitte, down);
         // Alles ausser der Figur selbst: sonst trifft der Strahl ihren eigenen Kopf.
         const kandidaten = [];
