@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -195,7 +196,7 @@ export class FlashReflex {
     label.position.y = 0.66;
     kin.add(label);
     const x = (index - (count - 1) / 2) * LANE_GAP;
-    kin.position.set(x, 0, KIN_Z);
+    kin.position.set(x, standOn(0), KIN_Z);
     this.scene.add(kin);
     const shadow = createShadowBlob(0.44);
     shadow.position.set(x, 0.06, KIN_Z);
@@ -203,7 +204,7 @@ export class FlashReflex {
     kin.userData.laneX = x;
     this.kins.set(player.id, kin);
     const animator = new KinAnimator(kin);
-    animator.groundY = 0;
+    animator.groundY = standOn(0);
     this.animators.set(player.id, animator);
     return kin;
   }

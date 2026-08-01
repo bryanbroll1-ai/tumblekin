@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -325,13 +326,13 @@ export class FalseSignal {
     this.scene.add(shadow);
     kin.userData.label = label;
     kin.userData.shadow = shadow;
-    kin.position.set(x, 0, KIN_Z);
+    kin.position.set(x, standOn(0), KIN_Z);
     // Alle schauen zum Mast, nicht in die Kamera.
     kin.rotation.y = Math.PI;
     this.scene.add(kin);
 
     const animator = new KinAnimator(kin);
-    animator.groundY = 0;
+    animator.groundY = standOn(0);
     this.kins.set(player.id, kin);
     this.animators.set(player.id, animator);
 

@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -32,7 +33,8 @@ const LOG_R = 1.02;
 // eben eindringt — vorher steckte die ganze Klinge bis zum Griff im Holz.
 const KNIFE_R = LOG_R + 0.02;
 const KNIFE_BITE = 0.14;              // wie tief die Spitze ins Holz geht
-const KIN_Y = 0.62;
+const GROUND_Y = 0;                 // Oberkante der Wiese
+const KIN_Y = standOn(GROUND_Y);
 const LOG_Y = 4.0;             // the disc floats a little higher above the throwers
 const LOG_Z = -0.3;
 const SPOTS = [-2.4, -0.8, 0.8, 2.4];

@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -24,7 +25,8 @@ import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin111";
 // their red button at the target time; at the end all times are revealed
 // and the closest guess wins.
 const PODIUM_GAP = 1.55;
-const KIN_Y = 1.32;
+const RISER_TOP_Y = 0.88;           // Oberkante des Podeststufe (0.57 + 0.62/2)
+const KIN_Y = standOn(RISER_TOP_Y);
 
 function formatSeconds(ms) {
   return `${(ms / 1000).toFixed(2)}s`;

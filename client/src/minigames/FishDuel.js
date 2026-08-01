@@ -6,7 +6,8 @@ import {
   KinAnimator,
   createCloud,
   createNameLabel,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -36,6 +37,7 @@ import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin111";
 const FISH_FAR_Z = -19;
 const FISH_NEAR_Z = -4.4;
 const ANGLER_Z = -1.5;
+const PIER_TOP_Y = 0.33;              // Oberkante des Stegs (0.16 + 0.34/2)
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -149,7 +151,7 @@ export class FishDuel {
       new THREE.BoxGeometry(3.2, 0.34, 2.8),
       new THREE.MeshLambertMaterial({ color: "#a5794f" })
     );
-    pier.position.set(0, 0.16, -0.7);
+    pier.position.set(0, PIER_TOP_Y - 0.17, -0.7);
     pier.receiveShadow = true;
     pier.castShadow = true;
     this.scene.add(pier);
@@ -188,11 +190,11 @@ export class FishDuel {
     const label = createNameLabel("du", this.ownColor);
     label.position.y = 0.7;
     kin.add(label);
-    kin.position.set(0, 0.33, ANGLER_Z);
+    kin.position.set(0, standOn(PIER_TOP_Y), ANGLER_Z);
     this.scene.add(kin);
     this.angler = kin;
     this.anglerAnimator = new KinAnimator(kin);
-    this.anglerAnimator.groundY = 0.33;
+    this.anglerAnimator.groundY = standOn(PIER_TOP_Y);
     this.anglerZ = ANGLER_Z;
 
     // Die Rute sitzt am Kin, damit sie seine Bewegung mitmacht.

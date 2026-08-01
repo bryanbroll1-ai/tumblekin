@@ -47,6 +47,15 @@ const FLIEGT = {
 const NUR_EIGENE = {
   bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild"
 };
+// Szenen, in denen EINZELNE Figuren mitten in der Runde den Boden verlassen —
+// beim Sumo fliegt, wer hinausgeschubst wird. Die ganze Szene deshalb von der
+// Bodenprüfung auszunehmen wäre zu grob: die drei, die noch im Ring stehen,
+// sollen weiter geprüft werden. Ignoriert wird nur, wer WEIT weg ist; ein
+// falsch gesetzter Fuss liegt um Zehntel daneben, ein Flug um Meter.
+const FLIEGT_EINZELN = {
+  sumoschubs: "wer rausgeschubst wird, fliegt"
+};
+const FLUG_AB = 1.0;
 const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome","/usr/bin/chromium"].find(existsSync);
 
 const srv = spawn(process.execPath, ["server/server.js"], { cwd: "/home/user/tumblekin",
@@ -84,44 +93,109 @@ for (const game of liste) {
       host.scene.traverse((o) => { if (o.userData?.isKin) kins.push(o); });
       if (kins.length === 0) return { keine: true };
 
+      // Über eine ganze Bewegungsschleife messen und den TIEFSTEN Stand nehmen.
+      //
+      // Ein Standbild reicht nicht: die Jubelanimation hüpft bis zu 0.34 hoch,
+      // und wer im falschen Moment misst, hält jubelnde Zuschauer für falsch
+      // gesetzt. Der tiefste Punkt einer Schleife ist dagegen genau der Moment,
+      // in dem die Füsse aufsetzen — und der gehört auf den Boden, egal welche
+      // Animation gerade läuft. Ein Hüpfer dauert knapp eine Sekunde; 1.3 s
+      // decken auch die langsameren.
+      const tiefsteSohle = new Map();
+      const sohleJetzt = (kin) => {
+        let s = Infinity;
+        (kin.userData.feet || []).forEach((foot) => {
+          const fb = new THREE.Box3().setFromObject(foot);
+          if (Number.isFinite(fb.min.y)) s = Math.min(s, fb.min.y);
+        });
+        if (!Number.isFinite(s)) {
+          const b = new THREE.Box3().setFromObject(kin);
+          s = b.min.y;
+        }
+        return s;
+      };
+      const bis = performance.now() + 1300;
+      while (performance.now() < bis) {
+        await new Promise((r) => requestAnimationFrame(r));
+        kins.forEach((kin, index) => {
+          const s = sohleJetzt(kin);
+          if (Number.isFinite(s)) tiefsteSohle.set(index, Math.min(tiefsteSohle.get(index) ?? Infinity, s));
+        });
+      }
+
       const raycaster = new THREE.Raycaster();
       const down = new THREE.Vector3(0, -1, 0);
       const aus = [];
       kins.forEach((kin, index) => {
         const box = new THREE.Box3().setFromObject(kin);
         if (!Number.isFinite(box.min.y)) return;
-        // NICHT die Unterkante der Hülle nehmen. Das Modell reicht 0.309 unter
-        // seinen eigenen Nullpunkt (gemessen), und damit meldete der Prüfer
-        // JEDE korrekt stehende Figur als "im Boden" — 26 von 30 Szenen, alles
-        // Fehlalarm.
+        // Gemessen wird die SOHLE, also die Unterkante der Fussmeshes.
         //
-        // Richtig ist der Standpunkt selbst: die Szenen setzen kin.position.y
-        // auf die Höhe, auf der die Figur stehen soll, und geben dieselbe Zahl
-        // dem Animator als groundY. Genau die gehört mit dem Boden verglichen.
+        // Zwei falsche Messgrössen lagen schon hier:
+        //  * die Unterkante der ganzen Hülle — die schliesst Mütze und
+        //    ausgestreckte Arme ein und hängt an der Pose;
+        //  * der Nullpunkt der Figur — der liegt in der Körpermitte, rund 0.3
+        //    ÜBER der Sohle. Damit hiess "Nullpunkt genau auf dem Boden"
+        //    sauber, obwohl die Figur bis zu den Knöcheln im Boden steckte,
+        //    und "0.3 darüber" schwebend, obwohl sie richtig stand. Der Prüfer
+        //    hatte damit genau die Szenen gelobt, über die sich der Bericht
+        //    beschwerte.
+        //
+        // Die Sohle ist die einzige Grösse, die beides überlebt: sie ist der
+        // Punkt, der den Boden berühren soll.
         const stand = new THREE.Vector3();
         kin.getWorldPosition(stand);
-        const füsse = stand.y;
-        const mitte = new THREE.Vector3(stand.x, box.max.y + 3, stand.z);
+        const füsse = tiefsteSohle.get(index);
+        if (!Number.isFinite(füsse)) return;
+        // Der Strahl startet auf KNIEHÖHE, nicht über dem Kopf.
+        //
+        // Von oben findet er alles: den Trichterrand über dem Arbeiter, den
+        // Torbogen über den Läufern, den Buzzer vor dem Kandidaten. Welche der
+        // getroffenen Flächen der Boden ist, lässt sich aus der Höhe allein
+        // nicht entscheiden — die Ergebnisse wackelten von Lauf zu Lauf, je
+        // nachdem, wo eine bewegte Requisite gerade stand.
+        //
+        // Knapp über der Sohle steht dagegen nichts als der Boden. 0.45 reicht
+        // nach unten für jedes Versacken, das man überhaupt sehen würde.
+        const mitte = new THREE.Vector3(stand.x, füsse + 0.45, stand.z);
         raycaster.set(mitte, down);
-        // Alles ausser der Figur selbst: sonst trifft der Strahl ihren eigenen Kopf.
+        // Als Boden zählt nur, worauf man auch stehen kann: keine Figuren
+        // (auch keine ANDEREN — bei Zielsprint stehen die vier Läufer beim
+        // Start so dicht, dass der Strahl im Rumpf des Nachbarn landete) und
+        // keine Schattenflecken, die als hauchdünne Platte knapp über dem
+        // Boden liegen und ihn damit verdecken.
         const kandidaten = [];
         host.scene.traverse((o) => {
-          if (!o.isMesh || !o.visible) return;
+          if (!o.isMesh || !o.visible || o.userData?.isShadow) return;
           let p = o;
-          while (p) { if (p === kin) return; p = p.parent; }
+          while (p) {
+            if (p === kin || p.userData?.isKin || p.userData?.isShadow) return;
+            p = p.parent;
+          }
           kandidaten.push(o);
         });
-        const hits = raycaster.intersectObjects(kandidaten, false);
-        const boden = hits.find((h) => h.point.y <= box.max.y + 0.01);
+        const boden = raycaster.intersectObjects(kandidaten, false)[0];
         if (!boden) return;
         // Beide Richtungen zählen. Im Boden STECKEN sieht kaputt aus, darüber
         // SCHWEBEN aber genauso — und der zweite Fall ist der leisere: beim
         // Sortierband stand der Arbeiter einen halben Meter über dem Boden, und
         // in einem Standbild fällt das kaum auf.
+        // Die Toleranz muss den Taumler überleben: der senkt die Figur
+        // ABSICHTLICH 0.05 unter ihre Standhöhe und kippt sie dabei nach vorn,
+        // zusammen rund 0.09. Da über die ganze Schleife der TIEFSTE Stand
+        // zählt, schlägt der bei jeder Szene durch, in der jemand stolpert
+        // (Fassrolle, Lichtwächter). 0.12 lässt ihn durch und fängt weiterhin
+        // alles, worum es geht — die echten Fehler lagen zwischen 0.12 und 0.62.
+        //
+        // Und sie MUSS mit der Figur mitwachsen: der Riese beim Lichtwächter
+        // ist 3.4-mal so gross, sein Taumler senkt ihn also auch 3.4-mal so
+        // tief. Mit fester Toleranz stand er dauerhaft auf der Fehlerliste,
+        // obwohl er richtig gesetzt war.
+        const toleranz = 0.12 * Math.max(1, kin.scale.y || 1);
         const abstand = boden.point.y - füsse;
-        if (abstand > 0.02) {
+        if (abstand > toleranz) {
           aus.push({ index, art: "drin", mass: Number(abstand.toFixed(3)) });
-        } else if (abstand < -0.06) {
+        } else if (abstand < -toleranz) {
           aus.push({ index, art: "schwebt", mass: Number((-abstand).toFixed(3)) });
         }
       });
@@ -131,6 +205,13 @@ for (const game of liste) {
       const cam = host.camera;
       const draussen = [];
       let eigeneDraussen = false;
+      // Die eigene Figur beim NAMEN nehmen. Vorher galt schlicht die erste
+      // gefundene als die eigene — und die Reihenfolge kommt aus dem Szenen-
+      // baum, nicht aus der Spielerliste. Bei Zielsprint werden acht jubelnde
+      // Zuschauer VOR den Läufern gebaut; der Prüfer meldete darum einen
+      // Zuschauer am Streckenrand als "die eigene Figur ist nicht im Bild".
+      const eigene = host.kins?.get?.(host.getControlledPlayerId?.()) || null;
+      const spielerKins = host.kins instanceof Map ? new Set(host.kins.values()) : null;
       if (cam) {
         cam.updateMatrixWorld();
         kins.forEach((kin, index) => {
@@ -138,16 +219,25 @@ for (const game of liste) {
           const mitte = box.getCenter(new THREE.Vector3());
           const p = mitte.clone().project(cam);
           const sichtbar = p.z < 1 && p.x > -0.94 && p.x < 0.94 && p.y > -0.94 && p.y < 0.94;
-          if (!sichtbar) {
+          // Nur SPIELERFIGUREN zählen. Die jubelnden Zuschauer bei Zielsprint
+          // stehen über 127 Einheiten Strecke verteilt — dass die meisten
+          // ausserhalb des Bildes sind, ist der Sinn der Sache und keine
+          // Meldung wert.
+          if (!sichtbar && (!spielerKins || spielerKins.has(kin))) {
             draussen.push({ index, x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)) });
-            // Viele Szenen stellen genau eine Figur hin — dann ist das die eigene.
-            if (kins.length === 1 || index === 0) eigeneDraussen = true;
+            // Ohne benannte eigene Figur bleibt die alte Faustregel: viele
+            // Szenen stellen genau eine hin, dann ist das die eigene.
+            if (eigene ? kin === eigene : (kins.length === 1 || index === 0)) eigeneDraussen = true;
           }
         });
       }
       return { kins: kins.length, drin: aus, draussen, eigeneDraussen };
     });
 
+    // Fliegende Einzelfiguren aussortieren, bevor irgendetwas gezählt wird.
+    if (befund?.drin?.length && FLIEGT_EINZELN[game]) {
+      befund.drin = befund.drin.filter((d) => d.mass < FLUG_AB);
+    }
     // In den Nur-eigene-Szenen zählt allein, ob die EIGENE Figur im Bild ist.
     const sichtFehler = Boolean(befund?.draussen?.length)
       && (!NUR_EIGENE[game] || befund.eigeneDraussen);

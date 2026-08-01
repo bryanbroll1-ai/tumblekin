@@ -8,6 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
+  standOn,
   setKinOpacity
 } from "./VoxelKit.js?v=tumblekin111";
 import {
@@ -25,8 +26,12 @@ import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin111";
 // different colour falls into the void along with anyone still on it.
 const TILE = 1.06;
 const GRID = 6;
-const TILE_TOP = 0.32;
-const KIN_Y = TILE_TOP + 0.34;
+// HÖHE einer Kachel, nicht ihre Oberkante — die liegt bei TILE_H / 2, weil
+// die Kacheln um y=0 zentriert sind. Der alte Name TILE_TOP las sich wie die
+// Oberkante und stellte die Figuren einen viertel Meter über die Kachel.
+const TILE_H = 0.32;
+const TILE_TOP_Y = TILE_H / 2;
+const KIN_Y = standOn(TILE_TOP_Y);
 const COLORS = ["#ff2e6a", "#12aaff", "#ffc400", "#33cf4d"];
 const COLOR_NAMES = ["Pink", "Blau", "Gelb", "Grün"];
 
@@ -161,7 +166,7 @@ export class ColorRush {
     for (let gy = 0; gy < GRID; gy += 1) {
       for (let gx = 0; gx < GRID; gx += 1) {
         const tile = new THREE.Mesh(
-          new THREE.BoxGeometry(TILE - 0.08, TILE_TOP, TILE - 0.08),
+          new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08),
           new THREE.MeshLambertMaterial({ color: COLORS[0] })
         );
         tile.position.set(tileX(gx), 0, tileZ(gy));
@@ -270,7 +275,7 @@ export class ColorRush {
         targetY = -3.4 * phase.t;
         opacity = Math.max(0, 1 - phase.t * 1.4);
         if (droppedNow) {
-          this.bursts.spawn(new THREE.Vector3(tileX(gx), TILE_TOP, tileZ(gy)), [COLORS[color], "#ffffff"], { count: 3, speed: 1.6, up: 1.4, size: 0.09, life: 0.6 });
+          this.bursts.spawn(new THREE.Vector3(tileX(gx), TILE_TOP_Y, tileZ(gy)), [COLORS[color], "#ffffff"], { count: 3, speed: 1.6, up: 1.4, size: 0.09, life: 0.6 });
         }
       } else if (phase.name === "rest" && !isTarget) {
         targetY = -3.4 * (1 - phase.t);
@@ -355,7 +360,7 @@ export class ColorRush {
       }
       animator.update(now);
 
-      kin.userData.shadow.position.set(kin.position.x, TILE_TOP / 2 + 0.02, kin.position.z);
+      kin.userData.shadow.position.set(kin.position.x, TILE_TOP_Y + 0.02, kin.position.z);
       kin.userData.shadow.material.opacity = fallen ? 0 : 0.26;
       kin.userData.label.material.opacity = fallen ? 0 : (player.id === controlledId ? 1 : 0.8);
       if (player.id === controlledId) controlledKin = kin;

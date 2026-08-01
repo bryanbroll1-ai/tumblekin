@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -259,14 +260,14 @@ export class LightSequence {
     const label = createNameLabel("du", me?.color || "#ff5d73");
     label.position.y = 0.72;
     kin.add(label);
-    kin.position.set(0, 0, 2.9);
+    kin.position.set(0, standOn(0), 2.9);
     this.scene.add(kin);
     const shadow = createShadowBlob(0.45);
     shadow.position.set(0, 0.06, 2.9);
     this.scene.add(shadow);
     this.watcher = kin;
     this.watcherAnimator = new KinAnimator(kin);
-    this.watcherAnimator.groundY = 0;
+    this.watcherAnimator.groundY = standOn(0);
   }
 
   loop = () => {

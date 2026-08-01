@@ -8,6 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
+  standOn,
   setKinOpacity
 } from "./VoxelKit.js?v=tumblekin111";
 import {
@@ -25,7 +26,8 @@ import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin111";
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
 // Auszeit. Rollt der Stein über deine Kante, kassierst du einen Treffer.
 const RING_WORLD = 2.6;        // Weltradius des Rings (Server rechnet 0..1)
-const KIN_Y = 0.62;
+const MAT_TOP_Y = 0.09;             // Oberkante der Ringmatte
+const KIN_Y = standOn(MAT_TOP_Y);
 const STONE_R = 0.44;
 
 export class SumoPush {

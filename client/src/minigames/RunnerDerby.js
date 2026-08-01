@@ -7,7 +7,9 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  KIN_SOLE,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -31,8 +33,15 @@ const RUNG_POOL = 12;
 const PROP_POOL = 24;
 const PROP_SPACING = 2.6;
 const SEGMENT = 0.62; // world units per track meter
-const FLOOR_Y = 0;
-const KIN_Y = 0.34;
+const FLOOR_Y = 0;                  // Oberkante der Laufbahn
+const KIN_Y = standOn(FLOOR_Y);
+// Die Zuschauer sind kleiner — und weil der Sohlenabstand mitskaliert,
+// muss auch er mit dem Massstab multipliziert werden.
+const FAN_SCALE = 0.8;
+// Die Zuschauer stehen NEBEN der Bahn auf der Wiese, nicht auf dem
+// Seitenstreifen: sie sitzen bei |x| ≈ 3.1, der Streifen endet bei 1.9.
+const MEADOW_TOP_Y = FLOOR_Y - 0.31 + 0.25;
+const FAN_Y = MEADOW_TOP_Y + KIN_SOLE * FAN_SCALE;
 
 // The chase camera looks toward +z, which mirrors the x axis on screen.
 // Mapping lane 0→right … lane 2→left keeps the on-screen direction matching
@@ -246,15 +255,15 @@ export class RunnerDerby {
     for (let i = 0; i < 8; i += 1) {
       const side = i % 2 === 0 ? -1 : 1;
       const fan = createVoxelKin(crowdColors[i % crowdColors.length], i);
-      fan.scale.setScalar(0.8);
-      fan.position.set(side * (LANE_WIDTH * 2.55 + frac(i * 3.3) * 0.5), KIN_Y * 0.8, 6 + i * (trackZ / 9));
+      fan.scale.setScalar(FAN_SCALE);
+      fan.position.set(side * (LANE_WIDTH * 2.55 + frac(i * 3.3) * 0.5), FAN_Y, 6 + i * (trackZ / 9));
       fan.rotation.y = -side * Math.PI / 2;
       this.scene.add(fan);
       // Auch die Zuschauer wandern mit: sie stehen fest an der Strecke, und
       // acht Figuren zu je einem Dutzend Körpern sind der letzte grosse Posten.
       this.spectatorParts.push({ object: fan, z: fan.position.z });
       const fanAnimator = new KinAnimator(fan);
-      fanAnimator.groundY = KIN_Y * 0.8;
+      fanAnimator.groundY = FAN_Y;
       fanAnimator.set("cheer", { base: true });
       this.spectators.push(fanAnimator);
     }
@@ -590,9 +599,13 @@ export class RunnerDerby {
       const animator = this.animators.get(player.id);
       // Per-player stagger in x and z so runners never sit inside each other,
       // even when sharing a lane at the same distance.
+      //
+      // 0.17 war zu wenig: ein Rumpf ist 0.42 breit, also standen vier Läufer
+      // auf derselben Bahn buchstäblich ineinander. Bei 0.34 reihen sie sich
+      // nebeneinander auf und bleiben trotzdem in der Bahn (1.15 breit).
       const spread = (index - (state.players.length - 1) / 2);
-      const targetX = laneX(entry.lane) + spread * 0.17;
-      const targetZ = entry.progress * SEGMENT + spread * 0.22;
+      const targetX = laneX(entry.lane) + spread * 0.34;
+      const targetZ = entry.progress * SEGMENT + spread * 0.34;
       const prevX = kin.position.x;
       const prevZ = kin.position.z;
       kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.25, dt));

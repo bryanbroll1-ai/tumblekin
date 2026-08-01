@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -359,7 +360,7 @@ export class SortBelt {
     kin.add(label);
     // Seitlich neben dem Bandende: er greift sichtbar nach dem vordersten
     // Paket, verdeckt aber nichts, worauf man schauen muss.
-    kin.position.set(-1.8, GROUND_Y, BELT_NEAR_Z + 0.2);
+    kin.position.set(-1.8, standOn(GROUND_Y), BELT_NEAR_Z + 0.2);
     kin.rotation.y = 0.5;
     this.scene.add(kin);
     const shadow = createShadowBlob(0.5);
@@ -367,7 +368,7 @@ export class SortBelt {
     this.scene.add(shadow);
     this.worker = kin;
     this.workerAnimator = new KinAnimator(kin);
-    this.workerAnimator.groundY = GROUND_Y;
+    this.workerAnimator.groundY = standOn(GROUND_Y);
   }
 
   loop = () => {

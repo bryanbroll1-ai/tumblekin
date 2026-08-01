@@ -3,6 +3,19 @@ import { fxScale } from "./Quality.js?v=tumblekin111";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 
+// Der Nullpunkt einer Figur liegt in ihrer KÖRPERMITTE, nicht unter den Füssen:
+// der Rumpf sitzt auf y=0, die Fusssohle rund 0.3 darunter. Wer eine Figur auf
+// einen Boden stellt, muss diesen Betrag dazurechnen — sonst steckt sie bis zu
+// den Knöcheln darin.
+//
+// Genau das war in einem Dutzend Szenen der Fall, weil "kin.position.y = Boden"
+// wie die offensichtlich richtige Zeile aussieht. Es ist die falsche. Richtig
+// ist standOn(bodenHöhe), und dieselbe Zahl gehört an animator.groundY.
+export const KIN_SOLE = 0.3;
+export function standOn(groundY) {
+  return groundY + KIN_SOLE;
+}
+
 export function createVoxelKin(color, variant = 0) {
   const group = new THREE.Group();
   const body = new THREE.Group();
@@ -288,6 +301,9 @@ export function createShadowBlob(size = 0.55) {
     new THREE.MeshBasicMaterial({ color: "#0a2430", transparent: true, opacity: 0.26, depthWrite: false })
   );
   mesh.renderOrder = 1;
+  // Ein Schattenfleck ist ein Aufkleber, kein Boden. Ohne die Markierung hält
+  // ihn der Bodenprüfer für die Fläche, auf der die Figur steht.
+  mesh.userData.isShadow = true;
   return mesh;
 }
 

@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -224,14 +225,14 @@ export class IceStock {
     const label = createNameLabel("du", me?.color || "#ff5d73");
     label.position.y = 0.72;
     kin.add(label);
-    kin.position.set(x, 0, z);
+    kin.position.set(x, standOn(0), z);
     this.scene.add(kin);
     const shadow = createShadowBlob(0.45);
     shadow.position.set(x, 0.08, z);
     this.scene.add(shadow);
     this.thrower = kin;
     this.throwerAnimator = new KinAnimator(kin);
-    this.throwerAnimator.groundY = 0;
+    this.throwerAnimator.groundY = standOn(0);
   }
 
   ensureStone(stone, colour) {

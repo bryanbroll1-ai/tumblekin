@@ -7,7 +7,9 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  KIN_SOLE,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -25,7 +27,10 @@ import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin111";
 const LANE_GAP = 1.5;
 const START_Z = 5.2;
 const TRACK_LEN = 19;
-const KIN_Y = 0.62;
+const LAWN_TOP_Y = 0;               // Oberkante der Wiese neben der Bahn
+const GUARD_SCALE = 3.4;
+const TRACK_TOP_Y = 0.05;           // Oberkante der Laufbahn
+const KIN_Y = standOn(TRACK_TOP_Y);
 const RUN_PING_MS = 90;
 
 export class RedLightGate {
@@ -183,12 +188,16 @@ export class RedLightGate {
     beam.position.set(0, 3.4, gateZ);
     this.scene.add(beam);
 
+    // Der Riese stand einen ganzen Meter über der Wiese. Der Sohlenabstand
+    // skaliert mit der Figur mit — bei Faktor 3.4 sind das gut ein Meter, und
+    // genau um den lag er daneben.
     this.guard = createVoxelKin("#7a4ddb", 3);
-    this.guard.scale.setScalar(3.4);
-    this.guard.position.set(0, 2.1, gateZ - 2.2);
+    this.guard.scale.setScalar(GUARD_SCALE);
+    const guardY = LAWN_TOP_Y + KIN_SOLE * GUARD_SCALE;
+    this.guard.position.set(0, guardY, gateZ - 2.2);
     this.scene.add(this.guard);
     this.guardAnimator = new KinAnimator(this.guard);
-    this.guardAnimator.groundY = 2.1;
+    this.guardAnimator.groundY = guardY;
 
     // The big signal lamp above the guard.
     this.lampMat = new THREE.MeshLambertMaterial({ color: "#2ee86a", emissive: new THREE.Color("#2ee86a"), emissiveIntensity: 0.9 });

@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  standOn
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -296,7 +297,7 @@ export class SeekGrid {
     label.position.y = 0.72;
     kin.add(label);
     const edge = (SIZE * STEP) / 2 + 1.0;
-    kin.position.set(0, 0, edge);
+    kin.position.set(0, standOn(0), edge);
     this.scene.add(kin);
     const shadow = createShadowBlob(0.42);
     shadow.position.set(0, 0.06, edge);
@@ -304,7 +305,7 @@ export class SeekGrid {
     this.searcher = kin;
     this.searcherCheerUntil = 0;
     this.searcherAnimator = new KinAnimator(kin);
-    this.searcherAnimator.groundY = 0;
+    this.searcherAnimator.groundY = standOn(0);
   }
 
   loop = () => {

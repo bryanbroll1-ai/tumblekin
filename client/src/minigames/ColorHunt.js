@@ -7,7 +7,8 @@ import {
   createCloud,
   createNameLabel,
   createShadowBlob,
-  createVoxelKin
+  createVoxelKin,
+  KIN_SOLE
 } from "./VoxelKit.js?v=tumblekin111";
 import {
   mountStage,
@@ -41,7 +42,12 @@ const KIN_SCALE = 0.55;
 // Die Kacheln sind 0.06 hoch und liegen bei y=0.01, eingefärbte bei y=0.04 —
 // ihre Oberkante also bei 0.07. Ohne eigene Höhe standen die Kins auf y=0 und
 // steckten damit BIS ZU DEN KNÖCHELN IN der Platte statt darauf.
-const KIN_Y = 0.07;
+const TILE_TOP_Y = 0.07;            // Oberkante eines eingefärbten Feldes
+// Die Figur steht AUF dem Feld, nicht darin — und weil sie verkleinert ist,
+// schrumpft der Sohlenabstand mit. standOn() rechnet mit voller Grösse und
+// hätte sie um denselben Betrag zu hoch gesetzt, um den sie vorher zu tief
+// stand.
+const KIN_Y = TILE_TOP_Y + KIN_SOLE * KIN_SCALE;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -252,7 +258,7 @@ export class ColorHunt {
       }
       animator.update(now);
 
-      kin.userData.shadow.position.set(kin.position.x, KIN_Y + 0.01, kin.position.z);
+      kin.userData.shadow.position.set(kin.position.x, TILE_TOP_Y + 0.01, kin.position.z);
       kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.7;
 
       // Rempler: kurzer Funkenschlag, damit man merkt, dass man geschoben wurde.
