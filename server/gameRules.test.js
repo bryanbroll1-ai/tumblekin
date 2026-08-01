@@ -4013,3 +4013,34 @@ test("Spürsinn: das Versteck verlässt den Server nicht", () => {
   assert.ok(Array.isArray(parsed.players[one.id].probes), "die eigenen Tipps kommen an");
   assert.equal(parsed.size, SEEK_SIZE, "die Feldgrösse kommt an");
 });
+
+// --- Die README darf dem Katalog nicht davonlaufen ------------------------
+// Die Liste im README wurde von Hand gepflegt und ist zweimal abgedriftet: sie
+// führte zuletzt zwei längst gelöschte Minispiele und kannte drei neue nicht.
+// Wer sie liest, glaubt sie — das ist die erste Seite des Projekts.
+test("README: jedes Minispiel aus dem Katalog steht drin, und keines zu viel", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { MINIGAME_CATALOG } = await import("../client/src/minigames/catalog.js");
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+
+  const fehlend = MINIGAME_CATALOG
+    .map((game) => game.title)
+    .filter((title) => !readme.includes(`**${title}:**`));
+  assert.deepEqual(fehlend, [], "Minispiele ohne Eintrag in der README");
+
+  // Und andersherum: ein Eintrag, den es nicht mehr gibt. Die Liste steht
+  // zwischen der Überschrift "## 30 Challenges" und "## Sandbox".
+  const start = readme.indexOf("## 30 Challenges");
+  const ende = readme.indexOf("## Sandbox");
+  assert.ok(start > 0 && ende > start, "Challenge-Abschnitt nicht gefunden");
+  const titel = [...readme.slice(start, ende).matchAll(/^- \*\*(.+?):\*\*/gm)].map((m) => m[1]);
+  const bekannt = new Set(MINIGAME_CATALOG.map((game) => game.title));
+  assert.deepEqual(titel.filter((t) => !bekannt.has(t)), [],
+    "README nennt Minispiele, die es nicht mehr gibt");
+  assert.equal(titel.length, MINIGAME_CATALOG.length, "Anzahl stimmt nicht");
+
+  // Die Überschrift trägt die Zahl — auch die läuft sonst davon.
+  assert.ok(readme.includes(`## ${MINIGAME_CATALOG.length} Challenges`),
+    `Überschrift muss "## ${MINIGAME_CATALOG.length} Challenges" lauten`);
+});

@@ -37,7 +37,7 @@ ohne weiteres Zutun aus.
    der Form `https://tumblekin-xxxx.onrender.com`. Die im Browser öffnen und
    spielen.
 
-Alle 23 Minispiele liegen auf `main`, du musst am Branch also nichts drehen.
+Alle 30 Minispiele liegen auf `main`, du musst am Branch also nichts drehen.
 
 Zum Gratis-Tarif: der Dienst schläft bei Inaktivität ein und braucht beim
 nächsten Aufruf etwa eine Minute zum Aufwachen. Beim ersten Laden also Geduld.

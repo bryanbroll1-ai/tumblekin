@@ -1,6 +1,6 @@
 # Tumblekin
 
-Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 23 touch-optimierten Challenges gegeneinander an.
+Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 30 touch-optimierten Challenges gegeneinander an.
 
 ## Start
 
@@ -37,7 +37,7 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 - **Runa, die Wurzelwanderin:** Wurzelpfade auf dem Rücken einer lebenden Waldhüterin mit Herzbaum und Pilzmarkt.
 - **Kesselwinds Wolkenküche:** Eine ansteigende Dampfspirale zwischen Kochinseln, einem lebendigen Kessel und hüpfenden Wolkenköchen.
 - **Gezeitenwerk Nautilus:** Ein Rundweg über Zahnräder, Turbine, Leuchtturm und eine winzige Wartungscrew.
-- Jedes Brett besitzt 32 Felder in vier Themenzonen und läuft als eine klare Schleife — keine Abzweigungen, damit der Weg auf dem Handy immer lesbar bleibt.
+- Jedes Brett besitzt 32 Felder in vier Themenzonen und läuft als eine klare Schleife. Zwei Stellen je Brett bieten eine echte Wahl: dort fragt das Spiel, ob du den Hauptweg nimmst oder die Abkürzung — sonst bestimmte der Würfel alles und du nichts.
 - Eine Kamera-State-Machine inszeniert Übersicht, Zugbeginn, Würfel, Laufweg, Landung, Ereignis und Rückkehr.
 - Jeder Feldtyp hat eine eigene Pastellfarbe und ein eingelassenes Symbol; die genaue Wirkung erscheint bei der Landung.
 - **Sterne gewinnen das Spiel, Münzen kaufen sie.** Ein Stern kostet 20 Münzen und steht immer auf genau einem von vier Sternenpodesten — landest oder läufst du darüber, ist er deiner, und er springt weiter.
@@ -47,72 +47,100 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 - Am Ende gibt es Bonus-Sterne für die meisten Münzen und die meisten Challenge-Siege — niemand ist vor dem letzten Wurf ausgeschieden.
 - Nach fünf Runden gewinnen die meisten Sterne; Münzen entscheiden nur Gleichstände.
 
-## 23 Challenges
+## 30 Challenges
 
-Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden und setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks und Klacks über Web Audio). Jede läuft als eigene Three.js-Szene mit den gemeinsamen Voxel-Figuren.
+Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden und
+setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks und Klacks über
+Web Audio). Jede läuft als eigene Three.js-Szene mit den gemeinsamen Voxel-Figuren.
 
-`client/src/minigames/catalog.js` ist die maßgebliche Liste — Titel, Geste und Kurzhilfe stammen von dort.
+Diese Liste stammt Wort für Wort aus `client/src/minigames/catalog.js` — dieselbe
+Kurzhilfe, die im Spiel auf der Startkarte steht. Sie von Hand nachzuführen ging
+zweimal schief: hier standen zuletzt zwei längst gelöschte Minispiele, und drei
+neue fehlten. Ein Test hält jetzt fest, dass jeder Katalogeintrag auch hier auftaucht.
 
-### Stick
+### 🕹️ Stick ziehen
 
 - **Bumper Bloom:** Drängen, rammen, auf der Platte bleiben.
-- **Farbenjagd:** Eine geteilte Fläche für alle. Färbe Felder in deiner Farbe — ein fremdes Feld musst du erst abtragen und dann beanspruchen, es kostet also doppelt. Gewertet wird die Fläche über die **Zeit**, nicht der Stand am Ende. Rempeln ist erlaubt, und die breite Rolle färbt fünf Felder auf einmal.
+- **Farbenjagd:** Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal.
 
-### Wischen
+### 👆↔️ Links/Rechts wischen
 
-- **Zielgerade:** Hürden ausweichen, Boosts sammeln, Stachelkugeln nach vorn werfen.
-- **Farbflucht:** Auf der angesagten Farbe stehen, bevor der Boden wegbricht.
-- **Münzregen:** Spur wechseln, goldene Münzen fangen, schwarzen Bomben ausweichen.
+- **Zielgerade:** Wisch nach links oder rechts, um die Bahn zu wechseln. Weich den Hürden aus, sammle Boosts — und wenn du eine Stachelkugel hast, tippe, um sie auf die Läufer vor dir zu werfen.
+- **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang die goldenen Münzen und weich den schwarzen Bomben aus.
 
-### Tippen
+### 👆✳️ In jede Richtung wischen
 
-- **Nervenprobe:** Die Uhr versteckt sich nach zwei Sekunden — so nah wie möglich an der Zielzeit stoppen.
-- **Zündstoff:** Zündzeit merken und die Bombe rechtzeitig weitergeben.
-- **Blob-Klopfe:** Blobs treffen, bevor sie abtauchen — die stacheligen auslassen.
-- **Seilspringen:** Im richtigen Moment über das immer schnellere Riesenseil springen.
-- **Messerwurf:** Ins drehende Scheibenholz treffen, ohne ein fremdes Messer zu erwischen.
-- **Turmbau:** Den gleitenden Block im richtigen Moment stapeln.
+- **Farbflucht:** Wisch in die Richtung, in der die angesagte Farbe liegt, und steh darauf, bevor der Boden wegbricht.
 
-### Schnell tippen
+### 👆 Tippen
 
-- **Pump-Panik:** Jeder Tap pumpt den Ballon größer — der dickste gewinnt.
-- **Kanonenflug:** Erst die Kraft stoppen, dann den Winkel; volle Power bei 45° fliegt am weitesten.
-- **Bergsteiger:** Abwechselnd links und rechts tippen und die Wand hochklettern.
+- **Nervenprobe:** Die Uhr versteckt sich nach 2 Sekunden. Drück den Knopf so nah wie möglich an der Zielzeit.
+- **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus.
+- **Blob-Klopfe:** Blobs poppen aus den Löchern – tipp ihr Feld, bevor sie abtauchen. Finger weg von den stacheligen!
+- **Seilspringen:** Das Riesenseil wird immer schneller. Spring im richtigen Moment – einmal gestolpert und du bist raus.
+- **Messerwurf:** Reihum je ein Wurf in den drehenden Stamm. Wirf dahin, wo am meisten Platz ist – wer knapp neben ein fremdes Messer setzt, hat Glück gehabt, nicht gut gezielt. Zweimal dagegen und du bist raus. Der Stamm wird jede Runde schneller.
+- **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
 
-### Ziehen und loslassen
+### 👆⏺️ Knopf gedrückt halten
 
-- **Schleuderschuss:** Zug zurückziehen lädt Kraft, die Richtung bestimmt den Winkel. Eine Landevorschau zeigt live, wo der Stein aufkommt — und die Scheibe weicht nach jedem Schuss zurück.
+- **Lichtwächter:** Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!
+- **Fassrolle:** Das Riesenfass rollt immer schneller. Halte ◀ oder ▶ und lauf dagegen an – wer abrutscht, platscht ins Wasser.
+- **Ballonfahrt:** Halte den Finger auf dem Bild, dann steigt dein Ballon — loslassen lässt ihn sinken. Flieg durch die Tore, mittig durch bringt mehr, und Boden oder Decke schalten den Brenner kurz ab.
 
-### Im Takt
+### 👆👆 Schnell tippen
 
-- **Trampolin:** Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie — und der Takt wird immer schneller.
+- **Pump-Panik:** Tippe so schnell du kannst! Jeder Tap pumpt deinen Ballon größer – der dickste Ballon gewinnt.
+- **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Abschusswinkel. Volle Power bei 45° fliegt am weitesten!
+- **Bergsteiger:** Tippe abwechselnd auf die linke und die rechte Bildhälfte — jede Seite ist eine Hand. Die falsche Seite kostet den Griff. Wer am höchsten kommt, gewinnt.
 
-### Blitzschnell tippen
+### 👆💪 Halten und loslassen
 
-- **Falschsignal:** Nur der runde grüne Kreis, der *bleibt*, ist echt. Falsche Farbe, falsche Form und der kurz aufblitzende Antäuscher kosten Punkte — schnell reagieren bringt mehr, zu schnell bringt Minus.
+- **Sumo-Schubs:** Halten lädt deinen Schlag auf — halten kostet nichts, es ist deine Deckung. Loslassen schlägt den Stein aber NUR, wenn er schon in deinem Viertel ist; daneben holst du ins Leere aus und stehst kurz ungedeckt da. Am meisten Wucht hat ein Konter gegen den heranrollenden Stein.
 
-### Finger auf der Spur führen
+### 👆🎵 Im Takt tippen
 
-- **Spurmaler:** Zieh den Finger auf der geschwungenen Spur nach oben und mal sie aus. Verlässt du das Toleranzband, reisst der Strich ab und du setzt an der Bruchstelle neu an. Jede geschaffte Runde bringt eine neue Kurve — saubere Runden zählen extra.
+- **Trampolin:** Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller!
 
-### Teller antippen
+### 👆⚡ Blitzschnell tippen
 
-- **Tellerdreher:** Halte immer mehr Teller gleichzeitig am Drehen. Du hast nur **eine Hand**: jeder Griff kostet Vorrat, und ein Teller, der schon rund läuft, verschluckt ihn. Dauertippen bringt darum nichts — es geht ums Verteilen. Wer rot wackelt, braucht dich zuerst.
+- **Falschsignal:** Aus der Linse wächst ein Ring nach aussen. Nur wer die Marke am Rand erreicht, ist echt — die anderen bleiben unterwegs stehen. Je kleiner der Ring beim Tippen, desto mehr Punkte: früh tippen ist geraten, spät tippen ist sicher und billig.
+- **Blitzreflex:** Drei Läufe an der Startampel. Tippe irgendwo auf den Bildschirm, sobald sie auf Grün springt — aber nicht vorher: ein Fehlstart kostet mehr als jede langsame Reaktion. Die kürzeste Gesamtzeit gewinnt.
 
-### Halten und im Schub loslassen
+### 👆〰️ Finger auf der Spur führen
 
-- **Angelduell:** Halten holt den Fisch ein und spannt die Schnur. Wenn er zieht, steigt die Spannung mehr als doppelt so schnell — dann loslassen, sonst reisst sie und der Fisch ist weg. Loslassen kostet aber Weg, also lohnt es, kurze Schübe auszureizen.
+- **Spurmaler:** Zieh den Finger auf der Spur nach oben und mal sie aus. Das Band wird zwischendurch eng — dort zählt jeder Millimeter. Die Kristalle liegen am Bandrand: wer sie mitnimmt, muss nicht nur drinbleiben, sondern zielen. Verlässt du das Band, reisst der Strich ab.
 
-### Halten und loslassen
+### 👆↔️ Ins Fach wischen
 
-- **Sumo-Schubs:** Halten lädt den Stoss auf, Loslassen schubst den Stein weg — aber zu lange geladen heisst ausrutschen. Rollt der Stein über deine Kante, kassierst du einen Treffer; drei Treffer und du bist raus.
+- **Sortierband:** Wisch jedes Paket in die Rutsche mit seiner Farbe — links, unten oder rechts. Die Rutschen tauschen zwischendurch die Farben, also nicht auswendig lernen, sondern hinschauen. Eine Serie ohne Fehler bringt Zusatzpunkte.
 
-### Halten
+### 👆🎣 Halten und im Schub loslassen
 
-- **Lichtwächter:** Laufen, solange der Knopf gehalten wird — sofort stoppen, wenn der Wächter sich umdreht.
-- **Fassrolle:** Gegen das immer schnellere Riesenfass anlaufen, ohne abzurutschen.
+- **Angelduell:** Halten holt den Fisch ein und spannt die Schnur. Wenn er zieht, steigt die Spannung viel schneller — dann loslassen, sonst reisst sie. Vier Arten beissen: die Sprotte kommt leicht und bringt wenig, der Wels bringt fünfmal so viel und zieht so hart, dass ein Moment Unachtsamkeit die Schnur kostet.
 
-Die Spiellogik und Wertung sind serverautoritativ. Sounds entstehen ohne Audiodateien über Web Audio; unterstützte Smartphones erhalten zusätzlich begrenztes Feedback über `navigator.vibrate`.
+### 👆🧠 Folge nachtippen
+
+- **Leuchtfolge:** Vier Pilze stehen bereit. Eine Folge leuchtet auf — tippe sie danach in derselben Reihenfolge nach. Sie fängt bei zwei an und wird jede Runde einen länger. Ein Fehler beendet nur die laufende Runde, die nächste zählt wieder.
+
+### 👆🎯 Tippen und stupsen
+
+- **Nagelbrett:** Tippe oben, wo die Kugel fallen soll — die Mitte ist am meisten wert. Während sie fällt, hast du GENAU einen Stups: tippe links oder rechts, um sie noch einmal zu lenken.
+
+### 👆➡️ Nach vorne wischen
+
+- **Eisstock:** Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine pro Person, und je näher an der Mitte, desto mehr – ganz am Knopf zählt mehr als am Ringrand. Rempeln ist erlaubt, nimmt aber meist beide Steine aus dem Haus: lohnt sich nur, wenn du sowieso hinten liegst.
+
+### 👆⛏️ Graben oder aufhören
+
+- **Tiefenrausch:** Tippen gräbt eine Stufe tiefer und bringt Gold — aber jeder Stollen kann einstürzen, und dann ist alles weg, was noch unten hängt. Das Risiko der nächsten Stufe steht genau im Bild. Wisch nach oben, um deine Beute sicher einzuzahlen.
+
+### 👆🧭 Felder antippen und schliessen
+
+- **Spürsinn:** Irgendwo im Feld liegt ein Fundstück. Tippe ein Feld an, und die Zahl darauf sagt, wie viele Schritte es von dort bis zum Versteck sind — hoch, runter, links, rechts gezählt. Zwei Zahlen zusammengenommen grenzen es schon stark ein. Je weniger Tipps ein Fund kostet, desto mehr ist er wert.
+
+### 👆📏 Regler auf die Schätzung ziehen
+
+- **Augenmaß:** Ein Schwarm Glühkäfer blitzt anderthalb Sekunden auf — dann sind sie weg und du schätzt, wie viele es waren. Zieh den Regler auf deine Zahl. Vier Durchgänge, und der Schwarm wird jedes Mal grösser: zählen klappt am Anfang noch, später nicht mehr. Je näher an der echten Zahl, desto mehr Punkte.
 
 ## Sandbox
 
@@ -122,7 +150,7 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 ## Dev-Testmodus
 
-Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 23 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
+Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 30 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
 
 ## Lokal testen
 
@@ -135,7 +163,7 @@ npm test
 Rauchtest im echten Browser — startet den Server auf einem freien Port, öffnet jedes Minispiel, spielt ein paar Sekunden und meldet Render- und Konsolenfehler:
 
 ```bash
-npm run smoke                # alle 23 Minispiele
+npm run smoke                # alle 30 Minispiele
 npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 ```
@@ -180,7 +208,7 @@ Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
 
 - Express liefert PWA, Three.js und Clientmodule aus.
 - Socket.io synchronisiert Raum, Board, Challenge-Inputs, Resultate und Reconnects.
-- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und alle 23 Challenges.
+- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und alle 30 Challenges.
 - Service Worker, Manifest und App-Icon erlauben die Installation auf dem Homescreen.
 
 Gemeinsame Bausteine der Minispiele:

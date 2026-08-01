@@ -10,7 +10,7 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    # Standardzweig. Die 23 Minispiele liegen inzwischen auf `main`, ein Pin auf
+    # Standardzweig. Die 30 Minispiele liegen inzwischen auf `main`, ein Pin auf
     # einen Arbeitszweig wäre hier nur eine Stolperfalle: neue Arbeit auf `main`
     # würde dann nicht mehr ausgeliefert.
     branch: main
