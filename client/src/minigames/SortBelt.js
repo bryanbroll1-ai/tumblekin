@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin104";
+} from "./VoxelKit.js?v=tumblekin108";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin104";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin104";
+} from "./SceneKit.js?v=tumblekin108";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin108";
 
 // Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die
@@ -30,7 +30,11 @@ const BELT_LENGTH = 13.0;      // Weltlänge des Bandes
 const BELT_WIDTH = 2.4;
 const BELT_FAR_Z = -9.4;       // wo ein Paket auf das Band kommt (Bandanteil 0)
 const BELT_NEAR_Z = 3.0;       // Kante, an der es runterfällt (Bandanteil 1)
-const CHUTE_X = 2.35;          // seitlicher Abstand der äusseren Rutschen
+// Seitlicher Abstand der äusseren Rutschen. 2.35 war zu breit: im Hochformat
+// ist der sichtbare Ausschnitt schmal, und die beiden äusseren Trichter lagen
+// ausserhalb. Man sah nur den mittleren — bei einem Spiel, in dem man die FARBE
+// der drei Rutschen vergleichen muss, ist das kein Schönheitsfehler.
+const CHUTE_X = 1.45;
 // Die drei Höhen, an denen sich in dieser Szene alles ausrichtet. Sie standen
 // vorher verstreut als nackte Zahlen im Code, und genau deshalb passte nichts
 // zusammen: die Trichteröffnung lag bei 1.30, die Bandoberfläche bei 0.32 —
@@ -212,8 +216,11 @@ export class SortBelt {
     this.buildWorker();
     this.buildParcels();
     this.resizeRenderer();
-    this.camera.position.set(0, 4.3, 8.4);
-    this.camera.lookAt(0, 0.9, -1.6);
+    // Der Blick gehört auf das BANDENDE mit den drei Trichtern, nicht auf die
+    // leere Bandmitte. Die Rutschenfarbe ist die einzige Information, nach der
+    // man hier handelt — war sie unten angeschnitten, spielte man blind.
+    this.camera.position.set(0, 5.0, 10.4);
+    this.camera.lookAt(0, 0.1, 1.6);
   }
 
   buildBelt() {
@@ -266,7 +273,7 @@ export class SortBelt {
     const spots = [-CHUTE_X, 0, CHUTE_X];
     spots.forEach((x, index) => {
       const group = new THREE.Group();
-      group.position.set(x, 0, BELT_NEAR_Z + 0.5);
+      group.position.set(x, 0, BELT_NEAR_Z + 0.85);
       this.scene.add(group);
 
       // Der Trichter steht auf dem Boden und endet knapp unter der Bandkante —
@@ -274,7 +281,7 @@ export class SortBelt {
       // werden.
       const chuteHeight = CHUTE_MOUTH_Y - GROUND_Y;
       const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.92, 0.52, chuteHeight, 6, 1, true),
+        new THREE.CylinderGeometry(0.62, 0.36, chuteHeight, 6, 1, true),
         new THREE.MeshLambertMaterial({ color: COLOURS[index], side: THREE.DoubleSide })
       );
       body.position.y = GROUND_Y + chuteHeight / 2;
@@ -282,7 +289,7 @@ export class SortBelt {
       group.add(body);
 
       const lip = new THREE.Mesh(
-        new THREE.TorusGeometry(0.92, 0.09, 6, 18),
+        new THREE.TorusGeometry(0.62, 0.07, 6, 18),
         new THREE.MeshLambertMaterial({ color: "#ffffff" })
       );
       lip.rotation.x = Math.PI / 2;
@@ -292,15 +299,15 @@ export class SortBelt {
       // Ein Leuchtring, der beim Treffer aufblitzt und beim angekündigten
       // Farbtausch pulsiert.
       const glow = new THREE.Mesh(
-        new THREE.TorusGeometry(1.14, 0.07, 6, 22),
+        new THREE.TorusGeometry(0.78, 0.06, 6, 22),
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, depthWrite: false, toneMapped: false })
       );
       glow.rotation.x = Math.PI / 2;
       glow.position.y = CHUTE_MOUTH_Y;
       group.add(glow);
 
-      const shadow = createShadowBlob(0.8);
-      shadow.position.set(x, GROUND_Y + 0.02, BELT_NEAR_Z + 0.5);
+      const shadow = createShadowBlob(0.58);
+      shadow.position.set(x, GROUND_Y + 0.02, BELT_NEAR_Z + 0.85);
       this.scene.add(shadow);
 
       this.chutes.push({
@@ -352,11 +359,11 @@ export class SortBelt {
     kin.add(label);
     // Seitlich neben dem Bandende: er greift sichtbar nach dem vordersten
     // Paket, verdeckt aber nichts, worauf man schauen muss.
-    kin.position.set(-2.9, GROUND_Y, BELT_NEAR_Z - 1.5);
+    kin.position.set(-2.5, GROUND_Y, BELT_NEAR_Z + 0.2);
     kin.rotation.y = 0.5;
     this.scene.add(kin);
     const shadow = createShadowBlob(0.5);
-    shadow.position.set(-2.9, GROUND_Y + 0.02, BELT_NEAR_Z - 1.5);
+    shadow.position.set(-2.5, GROUND_Y + 0.02, BELT_NEAR_Z + 0.2);
     this.scene.add(shadow);
     this.worker = kin;
     this.workerAnimator = new KinAnimator(kin);
@@ -397,9 +404,9 @@ export class SortBelt {
     this.shake *= frameDecay(0.88, dt);
     const shakeX = Math.sin(now / 12) * this.shake * 0.2 * shakeScale();
     this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
-    this.camera.position.y = this.baseCamY || 4.3;
-    this.camera.position.z = this.baseCamZ || 8.4;
-    this.camera.lookAt(0, 0.9, -1.6);
+    this.camera.position.y = this.baseCamY || 5.0;
+    this.camera.position.z = this.baseCamZ || 10.4;
+    this.camera.lookAt(0, 0.1, 1.6);
 
     this.updateHud(minigame, arcade, state, now, own);
     this.renderer.render(this.scene, this.camera);
@@ -662,8 +669,15 @@ export class SortBelt {
       // Im Hochformat höher und näher: dann liegen die drei Rutschen im unteren
       // Drittel des Bildes, genau dort, wo der Daumen ohnehin ist, und das Band
       // füllt die Höhe darüber.
-      this.baseCamY = portrait ? 4.3 : 3.8;
-      this.baseCamZ = portrait ? 8.4 : 9.6;
+      //
+      // Diese Zahlen gehören zu denen im Aufbau und in der Zeichenschleife —
+      // die Schleife setzt die Kamera in JEDEM Bild neu, eine Änderung an nur
+      // einer der drei Stellen ist also wirkungslos.
+      // Gerechnet, nicht geraten: die sichtbare Halbbreite ist rund
+      // Abstand · 0.255 (fov 58, hochkantes Seitenverhältnis). Für die drei
+      // Trichter braucht es ±2.1, also gut acht Einheiten Abstand.
+      this.baseCamY = portrait ? 5.0 : 4.2;
+      this.baseCamZ = portrait ? 10.4 : 9.6;
       camera.fov = portrait ? 58 : 46;
     });
   }

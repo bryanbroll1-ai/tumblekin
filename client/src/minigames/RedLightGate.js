@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin104";
+} from "./VoxelKit.js?v=tumblekin108";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin104";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin104";
+} from "./SceneKit.js?v=tumblekin108";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin108";
 
 // Lichtwächter — hold the button to sprint towards the gate while the
 // giant guard looks away. When the light flips to red he whirls around:
