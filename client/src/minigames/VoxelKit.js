@@ -1,10 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale } from "./Quality.js?v=tumblekin101";
+import { fxScale } from "./Quality.js?v=tumblekin102";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 
 export function createVoxelKin(color, variant = 0) {
   const group = new THREE.Group();
+  // Markierung, damit Werkzeuge die Figuren in einer fertigen Szene wiederfinden
+  // können. Genutzt von scripts/ground-check.mjs, das misst, ob eine Figur im
+  // Boden steckt statt darauf zu stehen — von Hand ist das über 30 Szenen
+  // hinweg nicht zuverlässig zu prüfen.
+  group.userData.isKin = true;
   const body = new THREE.Group();
   const accent = new THREE.MeshLambertMaterial({ color, transparent: true });
   const accentLight = new THREE.MeshLambertMaterial({

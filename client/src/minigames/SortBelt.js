@@ -8,15 +8,15 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin101";
+} from "./VoxelKit.js?v=tumblekin102";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin101";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin101";
+} from "./SceneKit.js?v=tumblekin102";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin102";
 
 // Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die
@@ -31,6 +31,14 @@ const BELT_WIDTH = 2.4;
 const BELT_FAR_Z = -9.4;       // wo ein Paket auf das Band kommt (Bandanteil 0)
 const BELT_NEAR_Z = 3.0;       // Kante, an der es runterfällt (Bandanteil 1)
 const CHUTE_X = 2.35;          // seitlicher Abstand der äusseren Rutschen
+// Die drei Höhen, an denen sich in dieser Szene alles ausrichtet. Sie standen
+// vorher verstreut als nackte Zahlen im Code, und genau deshalb passte nichts
+// zusammen: die Trichteröffnung lag bei 1.30, die Bandoberfläche bei 0.32 —
+// die Kübel schwebten also einen Meter ÜBER dem Band, und ein Paket hätte
+// bergauf fliegen müssen, um hineinzufallen. Stattdessen flog es durch.
+const GROUND_Y = -0.5;         // Oberkante des Bodens
+const BELT_TOP_Y = 0.32;       // Oberkante des Bandes
+const CHUTE_MOUTH_Y = 0.30;    // Trichterrand, knapp UNTER der Bandkante
 const COLOURS = ["#ff5d73", "#3fc5e8", "#ffd15c"];
 const COLOUR_DARK = ["#8e2233", "#12586b", "#8a6410"];
 const COLOUR_NAMES = ["Rot", "Blau", "Gelb"];
@@ -261,11 +269,15 @@ export class SortBelt {
       group.position.set(x, 0, BELT_NEAR_Z + 0.5);
       this.scene.add(group);
 
+      // Der Trichter steht auf dem Boden und endet knapp unter der Bandkante —
+      // das Paket kippt also über den Rand hinein, statt hinaufgeworfen zu
+      // werden.
+      const chuteHeight = CHUTE_MOUTH_Y - GROUND_Y;
       const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.92, 0.52, 1.15, 6, 1, true),
+        new THREE.CylinderGeometry(0.92, 0.52, chuteHeight, 6, 1, true),
         new THREE.MeshLambertMaterial({ color: COLOURS[index], side: THREE.DoubleSide })
       );
-      body.position.y = 0.72;
+      body.position.y = GROUND_Y + chuteHeight / 2;
       body.castShadow = true;
       group.add(body);
 
@@ -274,15 +286,8 @@ export class SortBelt {
         new THREE.MeshLambertMaterial({ color: "#ffffff" })
       );
       lip.rotation.x = Math.PI / 2;
-      lip.position.y = 1.3;
+      lip.position.y = CHUTE_MOUTH_Y;
       group.add(lip);
-
-      const post = new THREE.Mesh(
-        new THREE.BoxGeometry(0.18, 0.6, 0.18),
-        new THREE.MeshLambertMaterial({ color: "#6c5540" })
-      );
-      post.position.y = 0.1;
-      group.add(post);
 
       // Ein Leuchtring, der beim Treffer aufblitzt und beim angekündigten
       // Farbtausch pulsiert.
@@ -291,11 +296,11 @@ export class SortBelt {
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, depthWrite: false, toneMapped: false })
       );
       glow.rotation.x = Math.PI / 2;
-      glow.position.y = 1.3;
+      glow.position.y = CHUTE_MOUTH_Y;
       group.add(glow);
 
       const shadow = createShadowBlob(0.8);
-      shadow.position.set(x, 0.02, BELT_NEAR_Z + 0.5);
+      shadow.position.set(x, GROUND_Y + 0.02, BELT_NEAR_Z + 0.5);
       this.scene.add(shadow);
 
       this.chutes.push({
@@ -347,15 +352,15 @@ export class SortBelt {
     kin.add(label);
     // Seitlich neben dem Bandende: er greift sichtbar nach dem vordersten
     // Paket, verdeckt aber nichts, worauf man schauen muss.
-    kin.position.set(-2.9, 0, BELT_NEAR_Z - 1.5);
+    kin.position.set(-2.9, GROUND_Y, BELT_NEAR_Z - 1.5);
     kin.rotation.y = 0.5;
     this.scene.add(kin);
     const shadow = createShadowBlob(0.5);
-    shadow.position.set(-2.9, 0.02, BELT_NEAR_Z - 1.5);
+    shadow.position.set(-2.9, GROUND_Y + 0.02, BELT_NEAR_Z - 1.5);
     this.scene.add(shadow);
     this.worker = kin;
     this.workerAnimator = new KinAnimator(kin);
-    this.workerAnimator.groundY = 0;
+    this.workerAnimator.groundY = GROUND_Y;
   }
 
   loop = () => {
@@ -512,13 +517,13 @@ export class SortBelt {
       new THREE.BoxGeometry(0.62, 0.62, 0.62),
       new THREE.MeshLambertMaterial({ color: COLOURS[colour] || COLOURS[0] })
     );
-    proxy.position.set(0, 0.7, beltZ(0.55));
+    proxy.position.set(0, BELT_TOP_Y + 0.31, beltZ(0.55));
     this.scene.add(proxy);
     const target = this.chutes[chuteIndex]?.group.position || new THREE.Vector3(0, 0, BELT_NEAR_Z);
     this.flying.push({
       mesh: proxy,
       from: proxy.position.clone(),
-      to: new THREE.Vector3(target.x, good ? 1.25 : 0.4, target.z),
+      to: new THREE.Vector3(target.x, good ? CHUTE_MOUTH_Y - 0.3 : BELT_TOP_Y + 0.25, target.z),
       // Ein Fehlgriff prallt ab statt hineinzufallen: der Unterschied muss auch
       // ohne Text erkennbar sein.
       good,
