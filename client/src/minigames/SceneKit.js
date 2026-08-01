@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin100";
-import { qualityTier } from "./Quality.js?v=tumblekin100";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin101";
+import { qualityTier } from "./Quality.js?v=tumblekin101";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -74,10 +74,12 @@ export function addStageLights(scene, {
   shadow = {},
   hemiIntensity = 2.3,
   sunIntensity = 3.0,
-  shadowMapSize = 1024,
+  shadowMapSize = 1536,
   skyColor = 0xe8f6ff,
   groundColor = 0x7ab890,
-  sunColor = 0xfff2cf
+  sunColor = 0xfff2cf,
+  fillColor = 0xbcd8ff,
+  fillIntensity = 0.85
 } = {}) {
   scene.add(new THREE.HemisphereLight(skyColor, groundColor, hemiIntensity));
   const sun = new THREE.DirectionalLight(sunColor, sunIntensity);
@@ -91,6 +93,19 @@ export function addStageLights(scene, {
   sun.shadow.camera.top = shadow.top ?? 8;
   sun.shadow.camera.bottom = shadow.bottom ?? -8;
   scene.add(sun);
+
+  // Aufhelllicht von der Gegenseite, schwach und kühl. Mit nur einer Sonne
+  // plus Himmelslicht kippt jede abgewandte Fläche ins Flache — bei
+  // Voxelfiguren heisst das, dass zwei von drei sichtbaren Würfelseiten
+  // dieselbe Farbe haben und die Form verschwindet. Das Gegenlicht trennt sie
+  // wieder, ohne die Schattenrichtung anzutasten.
+  //
+  // Bewusst OHNE Schattenwurf: ein zweiter Schattendurchlauf ist auf dem Handy
+  // das Teuerste, was man für so wenig Wirkung kaufen kann.
+  const fill = new THREE.DirectionalLight(fillColor, fillIntensity);
+  fill.position.set(-sunPosition[0], Math.max(2, sunPosition[1] * 0.45), -sunPosition[2]);
+  scene.add(fill);
+
   return sun;
 }
 

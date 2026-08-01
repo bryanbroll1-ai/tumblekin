@@ -12,7 +12,8 @@
     "bot-sim": "node scripts/bot-sim.mjs",
     "icons": "node scripts/icons.mjs",
     "fuzz": "node scripts/fuzz.mjs",
-    "session-sim": "node scripts/session-sim.mjs"
+    "session-sim": "node scripts/session-sim.mjs",
+    "gallery": "node scripts/gallery.mjs"
   },
   "keywords": [
     "party-game",
