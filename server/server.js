@@ -727,11 +727,54 @@ const STACK_BOT_LOOKAHEAD_MS = 150;
 // die eigene Reaktionszeit einrechnet, zielt der Bot deshalb etwas früher.
 const BOT_TICK_LEAD_MS = 75;
 
-// Bergsteiger — alternate left/right taps to climb; wrong side slips you.
+// Bergsteiger — die Griffe zeigen, welche Hand dran ist; die falsche rutscht ab.
 // Auch hier kein Gipfel mehr, an dem alles endet: geklettert wird auf Zeit, und
 // gewertet wird, wie weit man kommt. Bleibt als Obergrenze stehen, damit die
 // Wand nicht endlos gebaut werden muss.
 const CLIMB_HEIGHT = 400;
+// So viele Sprossen hat die Griffolge, bevor sie sich wiederholt. Genau so viele
+// Griffe hängen im Client je Bahn an der Wand und wandern beim Steigen oben
+// wieder an — die Zahl muss darum auf beiden Seiten dieselbe sein, sonst zeigt
+// die Wand eine andere Folge, als der Server verlangt.
+const CLIMB_PATTERN_LEN = 40;
+// Abstand zwischen zwei Doppelsprossen, in normalen Sprossen.
+const CLIMB_REPEAT_MIN = 3;
+const CLIMB_REPEAT_SPAN = 3;           // also 3 bis 5
+
+// Stures Hand-über-Hand kann man blind trommeln: nach dem ersten Griff steht
+// jeder weitere fest, und das Spiel war nur noch ein Tippgeschwindigkeitstest.
+// Alle paar Sprossen liegt der nächste Griff darum auf DERSELBEN Seite. Die
+// Folge ist für alle gleich (sie kommt aus dem Seed) und hängt sichtbar an der
+// Wand — wer hinschaut, klettert schneller als wer hämmert.
+//
+// Die Doppelsprossen werden ABGEZÄHLT, nicht gewürfelt. arcadeNoise ist für
+// fortlaufende Seeds keine Zufallsfolge, sondern eine gleichmässige Drehung:
+// gewürfelt kam erst zwanzigmal sauberes Wechseln und dann ein Klumpen aus
+// Doppelsprossen. Ein Zähler verteilt sie gleichmässig und garantiert
+// nebenbei, dass nie DREI Griffe auf derselben Seite liegen — das ist auf der
+// Wand nicht mehr lesbar.
+function buildClimbSides(seed) {
+  const sides = [];
+  let side = arcadeNoise(seed + 1) > 0.5 ? 1 : -1;
+  let until = 1 + Math.floor(arcadeNoise(seed + 3) * CLIMB_REPEAT_SPAN);
+  for (let index = 0; index < CLIMB_PATTERN_LEN; index += 1) {
+    sides.push(side);
+    if (until > 0) {
+      side = -side;
+      until -= 1;
+    } else {
+      until = CLIMB_REPEAT_MIN + Math.floor(arcadeNoise(seed + 11 + index * 7) * CLIMB_REPEAT_SPAN);
+    }
+  }
+  return sides;
+}
+
+// Welche Hand von dieser Sprosse aus greifen muss.
+function climbSideFor(arcade, rung) {
+  const sides = arcade.sides;
+  if (!Array.isArray(sides) || sides.length === 0) return 1;
+  return sides[((rung % sides.length) + sides.length) % sides.length];
+}
 
 // Blob-Klopfe — whack the blobs that pop out of the 3x3 holes.
 const WHACK_CELLS = 9;
@@ -4135,10 +4178,11 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "climb") {
     arcade.height = CLIMB_HEIGHT;
+    arcade.sides = buildClimbSides(config.seed);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.rung = 0;                    // rungs climbed
-      entry.nextSide = arcadeNoise(config.seed + 1) > 0.5 ? 1 : -1;
+      entry.nextSide = climbSideFor(arcade, 0);
       entry.slips = 0;
       entry.finishedAt = null;
       entry.finishMs = null;
@@ -5170,7 +5214,6 @@ function handleArcadeInput(room, player, rawInput) {
     const side = input.side === -1 || input.side === "-1" ? -1 : 1;
     if (side === arcadePlayer.nextSide) {
       arcadePlayer.rung += 1;
-      arcadePlayer.nextSide = -arcadePlayer.nextSide;
       arcadePlayer.flash = "good";
       arcadePlayer.lastHitAt = now;
       if (arcadePlayer.rung >= arcade.height) {
@@ -5185,6 +5228,10 @@ function handleArcadeInput(room, player, rawInput) {
       arcadePlayer.flash = "bad";
       arcadePlayer.lastHitAt = now;
     }
+    // Die verlangte Hand kommt IMMER aus der Griffolge, nie aus dem blossen
+    // Umdrehen der letzten. Sonst zeigte die Wand eine Seite und der Server
+    // erwartete die andere, sobald einmal abgerutscht wurde.
+    arcadePlayer.nextSide = climbSideFor(arcade, arcadePlayer.rung);
     arcadePlayer.hasMoved = true;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
@@ -8381,9 +8428,16 @@ function arcadeBotStep(room, bot) {
     if (player.finishedAt) return;
     const profile = botProfile(player);
     const chance = profile.level === "hard" ? 0.85 : profile.level === "normal" ? 0.62 : 0.42;
-    if (Math.random() < chance) {
-      // Bots almost always alternate correctly; rare fumble on the wrong side.
-      const side = Math.random() < profile.mistake * 0.25 ? -player.nextSide : player.nextSide;
+    // Doppelsprossen kosten auch den Bot. Sie sind der Grund, warum ein Mensch
+    // hinschauen muss statt zu trommeln — hätte der Bot sie umsonst, wäre die
+    // Regel eine Bremse, die nur für Spieler gilt.
+    const doubled = player.rung >= 1
+      && climbSideFor(arcade, player.rung) === climbSideFor(arcade, player.rung - 1);
+    if (Math.random() < (doubled ? chance * 0.55 : chance)) {
+      // Bots almost always follow the wall; the doubled holds are where they
+      // fumble, exactly like a player who tapped ahead out of habit.
+      const fumble = profile.mistake * (doubled ? 0.9 : 0.25);
+      const side = Math.random() < fumble ? -player.nextSide : player.nextSide;
       handleArcadeInput(room, bot, { action: "grab", side });
     }
     return;

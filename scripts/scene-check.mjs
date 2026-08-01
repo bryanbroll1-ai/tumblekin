@@ -38,6 +38,15 @@ const FLIEGT = {
   seilspringen: "springt über das Seil",
   bounceArena: "schwebt über der Platte"
 };
+// Szenen, in denen ABSICHTLICH nur die eigene Figur im Bild ist. Nicht überall
+// lassen sich alle vier zeigen: beim Bergsteiger liegen nach zehn Sekunden
+// zwanzig Welteinheiten zwischen dem Ersten und dem Letzten, und die Kamera so
+// weit zurückzuziehen hiesse, die eigene Figur auf ein paar Pixel zu schrumpfen.
+// Dort steht der Stand der anderen stattdessen in der Höhenleiste am Bildrand.
+// Die Prüfung auf die EIGENE Figur gilt weiterhin — das ist die harte Grenze.
+const NUR_EIGENE = {
+  bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild"
+};
 const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome","/usr/bin/chromium"].find(existsSync);
 
 const srv = spawn(process.execPath, ["server/server.js"], { cwd: "/home/user/tumblekin",
@@ -139,12 +148,16 @@ for (const game of liste) {
       return { kins: kins.length, drin: aus, draussen, eigeneDraussen };
     });
 
+    // In den Nur-eigene-Szenen zählt allein, ob die EIGENE Figur im Bild ist.
+    const sichtFehler = Boolean(befund?.draussen?.length)
+      && (!NUR_EIGENE[game] || befund.eigeneDraussen);
     const sicht = befund?.draussen?.length
       ? ` · ${befund.draussen.length} ausserhalb des Bildes${befund.eigeneDraussen ? " (DARUNTER DIE EIGENE)" : ""}`
+        + (NUR_EIGENE[game] && !befund.eigeneDraussen ? ` — so gewollt: ${NUR_EIGENE[game]}` : "")
       : "";
-    if (befund?.draussen?.length) treffer.push({ game, ...befund });
+    if (sichtFehler) treffer.push({ game, ...befund });
     if (befund?.drin?.length && !FLIEGT[game]) {
-      if (!befund.draussen?.length) treffer.push({ game, ...befund });
+      if (!sichtFehler) treffer.push({ game, ...befund });
       const drin = befund.drin.filter((d) => d.art === "drin");
       const oben = befund.drin.filter((d) => d.art === "schwebt");
       const teile = [];
@@ -155,7 +168,7 @@ for (const game of liste) {
       console.log(`· ${game.padEnd(15)} keine Figuren in der Szene`);
     } else {
       const grund = FLIEGT[game] ? ` (Boden nicht geprüft: ${FLIEGT[game]})` : " stehen sauber auf";
-      console.log(`${befund?.draussen?.length ? "✗" : "✓"} ${game.padEnd(15)} ${befund?.kins ?? "?"} Figuren${grund}${sicht}`);
+      console.log(`${sichtFehler ? "✗" : "✓"} ${game.padEnd(15)} ${befund?.kins ?? "?"} Figuren${grund}${sicht}`);
     }
 
     await page.waitForSelector("#screen-result.active", { timeout: 90000 });

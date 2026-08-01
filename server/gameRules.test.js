@@ -1285,29 +1285,53 @@ test("turmbau: an aligned drop stacks, a miss topples the tower", () => {
   assert.ok(arcadeRankingScore(arcade, { height: 6, perfects: 2 }) > arcadeRankingScore(arcade, { height: 5, perfects: 9 }));
 });
 
-test("bergsteiger: alternating hands climb, a wrong hand slips", () => {
+test("bergsteiger: die Griffolge sagt die Hand an, die falsche rutscht ab", () => {
   const climber = player({ id: "ca", name: "CA", color: "#fff" });
   const startedAt = Date.now();
   const arcade = createArcadeState("bergsteiger", [climber], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 26000, finishing: false };
   const room = { currentMinigame: minigame, players: [climber] };
   const entry = arcade.players[climber.id];
+  const sides = arcade.sides;
 
-  const first = entry.nextSide;
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, climber, { action: "grab", side: first });
-  assert.equal(entry.rung, 1, "the right hand climbs one rung");
-  assert.equal(entry.nextSide, -first, "the next hand alternates");
+  assert.equal(sides.length, 40, "die Folge ist so lang wie das Griffband im Client");
+  assert.equal(entry.nextSide, sides[0], "die erste Hand steht in der Folge");
 
-  // Repeat the same hand → wrong side → slip.
   entry.lastInputAt = 0;
-  handleArcadeInput(room, climber, { action: "grab", side: first });
-  assert.equal(entry.rung, 0, "the wrong hand slips back down");
+  handleArcadeInput(room, climber, { action: "grab", side: sides[0] });
+  assert.equal(entry.rung, 1, "der richtige Griff bringt eine Sprosse");
+  assert.equal(entry.nextSide, sides[1], "die nächste Hand kommt aus der Folge, nicht aus blossem Umdrehen");
+
+  // Falsche Hand → Abrutscher.
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, climber, { action: "grab", side: -sides[1] });
+  assert.equal(entry.rung, 0, "die falsche Hand rutscht eine Sprosse ab");
   assert.equal(entry.slips, 1);
+  assert.equal(entry.nextSide, sides[0], "nach dem Abrutschen gilt wieder der Griff der tieferen Sprosse");
 
   const higher = arcadeRankingScore(arcade, { rung: 12, finishedAt: null });
   const lower = arcadeRankingScore(arcade, { rung: 4, finishedAt: null });
   assert.ok(higher > lower, "climbing higher ranks better");
+});
+
+// Wer blind Hand über Hand trommelt, soll nicht durchkommen — aber die Wand
+// muss lesbar bleiben. Beides steckt in der Form der Griffolge.
+test("bergsteiger: Doppelsprossen sind eingestreut, aber nie drei am Stück", () => {
+  const climber = player({ id: "cb", name: "CB", color: "#fff" });
+  const sides = createArcadeState("bergsteiger", [climber], Date.now()).sides;
+  const doppel = sides.filter((side, index) => index > 0 && side === sides[index - 1]).length;
+  assert.ok(doppel >= 4, `zu wenige Doppelsprossen (${doppel}) — reines Wechseln`);
+  assert.ok(doppel <= sides.length / 3, `zu viele Doppelsprossen (${doppel})`);
+
+  // Auch über den Umlauf hinweg: das Griffband wiederholt sich, und an der
+  // Nahtstelle darf keine dritte Sprosse auf derselben Seite entstehen.
+  const zweimal = [...sides, ...sides];
+  let lauf = 1;
+  zweimal.forEach((side, index) => {
+    if (index === 0) return;
+    lauf = side === zweimal[index - 1] ? lauf + 1 : 1;
+    assert.ok(lauf <= 2, `drei Griffe auf derselben Seite bei Sprosse ${index}`);
+  });
 });
 
 

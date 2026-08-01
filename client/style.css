@@ -3216,6 +3216,46 @@ body[data-screen="minigame"] .game-menu-button {
   text-align: center;
 }
 
+/* --- Bergsteiger: Höhenleiter am Bildrand ------------------------------ */
+/* Die Kamera bleibt an der eigenen Figur — nach zehn Sekunden liegen zwanzig
+   Welteinheiten zwischen dem Ersten und dem Letzten, und alle vier ins Bild zu
+   holen hiesse, die eigene auf ein paar Pixel zu schrumpfen. Wer wie hoch ist,
+   steht deshalb hier: eine Leiste am Rand, ein Punkt je Spieler. */
+.climb-ladder {
+  position: absolute;
+  top: 22%;
+  right: 10px;
+  bottom: 16%;
+  width: 14px;
+  border-radius: 999px;
+  background: rgba(11, 20, 25, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.kinetic-hud.dev-mode .climb-ladder {
+  top: 34%;
+}
+
+.climb-ladder i {
+  position: absolute;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  transform: translate(-50%, 50%);
+  transition: bottom 140ms linear;
+}
+
+/* Die eigene ist grösser und hat einen vollen weissen Ring — sie muss man im
+   Augenwinkel finden, ohne hinzusehen. */
+.climb-ladder i.is-own {
+  width: 18px;
+  height: 18px;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+
 /* --- Sortierband: Serie und Punktestände ------------------------------- */
 /* Die Serie ist der Grund, warum ein einzelner Fehlgriff wehtut — sie muss
    sichtbar sein, sonst fühlt sich der Abzug willkürlich an. */
