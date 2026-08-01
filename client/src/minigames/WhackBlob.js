@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin103";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin103";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin103";
+import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin104";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin104";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin104";
 
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.

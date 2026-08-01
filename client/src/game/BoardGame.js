@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin103";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin103";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin103";
-import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin103";
-import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin103";
+import { drawDiceFace } from "./Dice.js?v=tumblekin104";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin104";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin104";
+import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin104";
+import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin104";
 
 const EVENT_FIELDS = new Set(["challenge", "gate", "star", "coin", "item", "luck", "trap"]);
 const CAMERA_DAMPING = 6.5;
@@ -784,9 +784,12 @@ export class BoardGame {
         }
         token.userData.accentMaterials.forEach((material) => material.color.set(player.color));
         if (this.animatingPlayers.has(player.id)) return;
-        // Shrink more when a field is crowded so tokens never intersect.
+        // Bei Gedränge deutlich kleiner. Die Kachel ist nur 0.5 Einheiten breit;
+        // mit 0.5 Massstab und ±0.13 Versatz standen vier Figuren praktisch
+        // aufeinander — auf dem Startfeld, wo IMMER alle vier stehen, war das
+        // das Erste, was man vom Brett sah.
         const crowd = playersOnField.length;
-        const scale = crowd >= 3 ? 0.5 : (crowd === 2 ? 0.6 : 0.84);
+        const scale = crowd >= 3 ? 0.38 : (crowd === 2 ? 0.52 : 0.84);
         token.scale.setScalar(scale);
         token.position.copy(this.tokenPosition(position, index, playersOnField.length, scale));
         token.userData.restY = token.position.y;
@@ -824,12 +827,17 @@ export class BoardGame {
 
   tokenPosition(fieldIndex, offsetIndex = 0, total = 1, scale = 0.84) {
     const base = this.fieldPositions[fieldIndex] || new THREE.Vector3();
-    // 2x2 grid keeps every (shrunken) token fully on the tile surface.
+    // Der Versatz richtet sich nach der ECHTEN Kachelbreite statt nach festen
+    // Zahlen — sonst passt er nicht mehr, sobald ein Brett andere Kacheln
+    // bekommt, und niemand denkt daran, hier nachzuziehen.
+    const tileSize = this.fieldMeshes[fieldIndex]?.geometry?.parameters?.width || 0.5;
+    const spread = tileSize * 0.3;
+    // 2x2-Raster, damit jede (verkleinerte) Figur ganz auf der Kachel steht.
     const offsets = total <= 1
       ? [[0, 0]]
       : total === 2
-        ? [[-0.14, 0], [0.14, 0]]
-        : [[-0.13, -0.13], [0.13, -0.13], [-0.13, 0.13], [0.13, 0.13]];
+        ? [[-spread, 0], [spread, 0]]
+        : [[-spread, -spread], [spread, -spread], [-spread, spread], [spread, spread]];
     const [dx, dz] = offsets[Math.min(offsetIndex, offsets.length - 1)];
     const tileTop = this.fieldMeshes[fieldIndex]?.userData.topY || 0.34;
     return new THREE.Vector3(

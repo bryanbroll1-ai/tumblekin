@@ -3,15 +3,15 @@ import {
   CubeBurst,
   FloatingText,
   createCloud
-} from "./VoxelKit.js?v=tumblekin103";
+} from "./VoxelKit.js?v=tumblekin104";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin103";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin103";
+} from "./SceneKit.js?v=tumblekin104";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin104";
 
 // Nagelbrett — tippe oben, wo die Kugel starten soll; sie fällt durch die Nägel
 // in eines von sieben Fächern. Die Mitte ist am meisten wert.

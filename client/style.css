@@ -1,3 +1,15 @@
+/* Das hidden-Attribut muss IMMER gewinnen.
+   Ohne diese Regel schlägt jedes `display` aus einer Klasse das eingebaute
+   `display: none` von [hidden] — das Element bleibt sichtbar, obwohl der Code
+   es versteckt hat. Genau das war beim Brett zu sehen: "WELCHER WEG?" stand
+   dauerhaft unter dem Würfelknopf, obwohl gar keine Kreuzung anstand.
+   Zehn Stellen hatten die Regel schon von Hand nachgezogen, vier waren
+   vergessen (Kreuzungsblock, Itemleiste, Sternanzeige, Szenenwechsel). Einmal
+   global ist die richtige Antwort darauf. */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   color-scheme: light;
   --ink: #2b3440;

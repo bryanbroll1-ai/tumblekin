@@ -14,7 +14,7 @@
     "fuzz": "node scripts/fuzz.mjs",
     "session-sim": "node scripts/session-sim.mjs",
     "gallery": "node scripts/_gallery.mjs",
-    "ground-check": "node scripts/ground-check.mjs"
+    "scene-check": "node scripts/scene-check.mjs"
   },
   "keywords": [
     "party-game",

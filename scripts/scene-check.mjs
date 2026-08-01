@@ -1,6 +1,6 @@
-// Steckt eine Figur im Boden?
+// Steht jede Figur sauber auf dem Boden — und ist sie überhaupt im Bild?
 //
-//   npm run ground-check
+//   npm run scene-check
 //
 // Der Fehler ist über 30 Szenen von Hand nicht zuverlässig zu finden: jede
 // Szene setzt ihre Figuren auf eine eigene Höhe, und ob die zum Boden DARUNTER
@@ -9,6 +9,11 @@
 // Gemessen wird darum direkt in der laufenden Szene: von jeder Figur aus ein
 // Strahl senkrecht nach unten, und dann verglichen, wo ihre Füsse sind und wo
 // die Oberfläche darunter liegt. Liegt die Oberfläche höher, steckt sie drin.
+//
+// Dieselbe Fahrt prüft gleich mit, ob die Figuren im BILD sind. Auf einem
+// hochkanten Handy ist der sichtbare Ausschnitt schmal, und eine Figur am Rand
+// verschwindet leicht. Wenn schon nicht alle hineinpassen, muss wenigstens die
+// EIGENE sichtbar sein — sonst spielt man blind.
 import { chromium } from "playwright";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -88,21 +93,45 @@ for (const game of liste) {
           aus.push({ index, art: "schwebt", mass: Number((-abstand).toFixed(3)) });
         }
       });
-      return { kins: kins.length, drin: aus };
+      // Und jetzt: wer ist im Bild? Jede Figur in den Bildschirmraum werfen und
+      // schauen, ob sie im sichtbaren Rechteck landet. Ein kleiner Rand zählt
+      // schon als draussen — halb angeschnitten reicht zum Spielen nicht.
+      const cam = host.camera;
+      const draussen = [];
+      let eigeneDraussen = false;
+      if (cam) {
+        cam.updateMatrixWorld();
+        kins.forEach((kin, index) => {
+          const box = new THREE.Box3().setFromObject(kin);
+          const mitte = box.getCenter(new THREE.Vector3());
+          const p = mitte.clone().project(cam);
+          const sichtbar = p.z < 1 && p.x > -0.94 && p.x < 0.94 && p.y > -0.94 && p.y < 0.94;
+          if (!sichtbar) {
+            draussen.push({ index, x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)) });
+            // Viele Szenen stellen genau eine Figur hin — dann ist das die eigene.
+            if (kins.length === 1 || index === 0) eigeneDraussen = true;
+          }
+        });
+      }
+      return { kins: kins.length, drin: aus, draussen, eigeneDraussen };
     });
 
+    const sicht = befund?.draussen?.length
+      ? ` · ${befund.draussen.length} ausserhalb des Bildes${befund.eigeneDraussen ? " (DARUNTER DIE EIGENE)" : ""}`
+      : "";
+    if (befund?.draussen?.length) treffer.push({ game, ...befund });
     if (befund?.drin?.length) {
-      treffer.push({ game, ...befund });
+      if (!befund.draussen?.length) treffer.push({ game, ...befund });
       const drin = befund.drin.filter((d) => d.art === "drin");
       const oben = befund.drin.filter((d) => d.art === "schwebt");
       const teile = [];
       if (drin.length) teile.push(`${drin.length} im Boden (bis ${Math.max(...drin.map((d) => d.mass))})`);
       if (oben.length) teile.push(`${oben.length} schwebend (bis ${Math.max(...oben.map((d) => d.mass))})`);
-      console.log(`✗ ${game.padEnd(15)} von ${befund.kins}: ${teile.join(", ")}`);
+      console.log(`✗ ${game.padEnd(15)} von ${befund.kins}: ${teile.join(", ")}${sicht}`);
     } else if (befund?.keine) {
       console.log(`· ${game.padEnd(15)} keine Figuren in der Szene`);
     } else {
-      console.log(`✓ ${game.padEnd(15)} ${befund?.kins ?? "?"} Figuren stehen sauber auf`);
+      console.log(`${befund?.draussen?.length ? "✗" : "✓"} ${game.padEnd(15)} ${befund?.kins ?? "?"} Figuren stehen sauber auf${sicht}`);
     }
 
     await page.waitForSelector("#screen-result.active", { timeout: 90000 });
@@ -117,5 +146,8 @@ for (const game of liste) {
 
 await browser.close();
 srv.kill();
-console.log(`\n${treffer.length} Szene(n), in denen Figuren nicht sauber auf dem Boden stehen.`);
+const blind = treffer.filter((t) => t.eigeneDraussen);
+console.log(`\n${treffer.length} Szene(n) mit Befund.` + (blind.length
+  ? ` In ${blind.length} ist die EIGENE Figur nicht im Bild: ${blind.map((t) => t.game).join(", ")}`
+  : ""));
 process.exit(treffer.length ? 1 : 0);
