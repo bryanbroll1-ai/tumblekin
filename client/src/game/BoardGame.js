@@ -1,12 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin111";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin111";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin111";
-import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin111";
-import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin111";
+import { drawDiceFace } from "./Dice.js?v=tumblekin112";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin112";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin112";
+import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin112";
+import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin112";
 
 const EVENT_FIELDS = new Set(["challenge", "gate", "star", "coin", "item", "luck", "trap"]);
 const CAMERA_DAMPING = 6.5;
+// Blickwinkel über der Brettebene für die Übersicht im Hochformat, in Grad.
+// Die Brettthemen kommen mit rund 67° — fast senkrecht von oben.
+const BOARD_TILT_PORTRAIT = 48;
 
 export class BoardGame {
   constructor(container, feedback = null) {
@@ -28,6 +31,9 @@ export class BoardGame {
     this.lastFrameAt = performance.now();
     this.viewportRatio = 1;
     this.active = false;
+    // Griff für die Messwerkzeuge, genau wie window.__tumblekinScene bei den
+    // Minispielen. Kostet nichts und ist im Spiel nicht sichtbar.
+    window.__tumblekinBoard = this;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -555,11 +561,32 @@ export class BoardGame {
       fov: portrait ? 53 : 39
     };
 
-    if (this.cameraMode === "overview" || this.cameraMode === "return") {
+    // Übersicht, Rückkehr UND der Wartezustand zeigen jetzt dasselbe: das ganze
+    // Brett.
+    //
+    // Der Wartezustand hing vorher an derselben Nahaufnahme wie die Verfolgung.
+    // Genau dann schaut man aber auf das Brett, um zu entscheiden — und sah
+    // gemessen 13 von 36 Feldern, mit der eigenen Figur am linken Bildrand.
+    // Nah dran gehört die Kamera beim Würfeln, beim Laufen und beim Landen;
+    // dort bleibt sie es auch.
+    if (this.cameraMode === "overview" || this.cameraMode === "return" || this.cameraMode === "turn") {
       pose.position.fromArray(portrait ? cameraConfig.overviewPortrait : cameraConfig.overviewLandscape);
       pose.target.fromArray(cameraConfig.target || [0, 0.5, 0]);
-      if (portrait) pose.target.y -= 0.85;
       pose.fov = portrait ? cameraConfig.overviewFovPortrait : cameraConfig.overviewFovLandscape;
+      if (portrait) {
+        // Flacher schauen. Die Bretter sind breit und flach; aus 67° von oben
+        // wird auf einem hochkanten Handy ein schmales Band in der Bildmitte,
+        // mit Himmel darüber und darunter. Die BREITE ist der Engpass, die Höhe
+        // steht ungenutzt herum — ein flacherer Winkel dreht die Tiefe des
+        // Bretts in genau diese Höhe hinein. Nebenbei sieht man den Feldern
+        // wieder die Seiten an statt einer Landkarte von oben.
+        const richtung = pose.position.clone().sub(pose.target);
+        const waagerecht = Math.hypot(richtung.x, richtung.z) || 1;
+        richtung.y = waagerecht * Math.tan(THREE.MathUtils.degToRad(BOARD_TILT_PORTRAIT));
+        pose.position.copy(pose.target).add(richtung);
+      }
+      // Rückt Kamera und Ziel so, dass alle Felder im freien Streifen liegen.
+      this.fitBoard(pose, { portrait });
     } else if (this.cameraMode === "dice") {
       pose.target.copy(this.diceMesh.position).add(new THREE.Vector3(0, -0.08, 0));
       pose.position.copy(pose.target).add(portrait ? new THREE.Vector3(0.3, 4.6, 3.7) : new THREE.Vector3(2.5, 3.1, 3.7));
@@ -894,6 +921,88 @@ export class BoardGame {
       token.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
       token.userData.stepPhase = t * Math.PI * 2;
     }
+  }
+
+  // Wieviel der Leinwand ist überhaupt frei? Oben liegt die Kopfzeile darüber,
+  // unten die Würfelleiste — auf einem hochkanten Handy zusammen fast 40 % der
+  // Höhe. Das Brett in die MITTE der Leinwand zu legen heisst deshalb, es zur
+  // Hälfte unter die Leiste zu schieben. Gemessen wird am echten Layout, damit
+  // die Zahl auch nach der nächsten Änderung an der Leiste noch stimmt.
+  freieBahn(portrait = true) {
+    const rect = this.container.getBoundingClientRect?.();
+    if (!rect?.height) return { oben: 0, unten: 0 };
+    const screen = this.container.closest?.(".board-screen");
+    const hud = screen?.querySelector(".game-hud")?.getBoundingClientRect();
+    const leiste = screen?.querySelector(".board-bottom")?.getBoundingClientRect();
+    const oben = hud ? Math.max(0, (hud.bottom - rect.top) / rect.height) : 0;
+    const unten = leiste ? Math.max(0, (rect.bottom - leiste.top) / rect.height) : 0;
+    // Im Querformat stapelt sich dieselbe Leiste auf einer knapp halb so hohen
+    // Fläche und belegt rund die Hälfte davon. Das Brett vollständig darüber zu
+    // quetschen macht es zur Briefmarke, es ganz darunter durchlaufen zu lassen
+    // versteckt es. Ein Drittel ist der Kompromiss: gross genug zum Lesen, und
+    // nur der untere Rand liegt hinter der Leiste. Ein Handy im Querformat ist
+    // für diesen Aufbau schlicht zu flach — hochkant ist die gedachte Haltung.
+    return {
+      oben: Math.min(0.4, oben),
+      unten: Math.min(portrait ? 0.45 : 0.3, unten)
+    };
+  }
+
+  // Schiebt die Kamera so weit zurück und kippt das Ziel so weit, dass ALLE
+  // Felder in dem Streifen liegen, der nicht von Kopfzeile und Würfelleiste
+  // verdeckt ist.
+  //
+  // Von Hand war das nicht zu treffen: gemessen lagen im Wartemodus 23 von 36
+  // Feldern ausserhalb des Bildes, und die eigene Figur klebte am linken Rand.
+  // Die Zahlen dafür standen als geratene Kameraabstände in drei Brettthemen —
+  // beim nächsten Layoutwechsel wären sie wieder falsch gewesen. Also gerechnet,
+  // genau wie bei fitKinsInView für die Minispiele.
+  fitBoard(pose, { rand = 0.94, pad = 0.5, portrait = true } = {}) {
+    const punkte = this.fieldPositions;
+    if (!punkte?.length) return;
+    const blick = pose.target.clone().sub(pose.position).normalize();
+    if (!Number.isFinite(blick.x)) return;
+    const rechts = new THREE.Vector3().crossVectors(blick, this.camera.up).normalize();
+    const oben = new THREE.Vector3().crossVectors(rechts, blick).normalize();
+    const bahn = this.freieBahn(portrait);
+
+    // Sichtbarer Streifen in Bildkoordinaten (-1 unten, +1 oben).
+    const untenNdc = -1 + bahn.unten * 2;
+    const obenNdc = 1 - bahn.oben * 2;
+    const mitteNdc = (obenNdc + untenNdc) / 2;
+    const halbNdc = Math.max(0.2, (obenNdc - untenNdc) / 2) * rand;
+
+    const halbV = Math.tan(THREE.MathUtils.degToRad(pose.fov) / 2);
+    const halbH = halbV * this.camera.aspect * rand;
+
+    // Erst zurückgehen, bis alles hineinpasst. Entlang der Blickachse bleibt der
+    // seitliche Abstand jedes Punktes gleich, nur die Tiefe wächst — damit folgt
+    // die nötige Tiefe direkt aus |quer| ≤ Tiefe · tan(halbes Sichtfeld).
+    let schub = 0;
+    punkte.forEach((punkt) => {
+      const relativ = punkt.clone().sub(pose.position);
+      const tiefe = relativ.dot(blick);
+      const quer = relativ.clone().sub(blick.clone().multiplyScalar(tiefe));
+      // Ein Feld ist kein Punkt: es ist eine Kachel, auf der bis zu vier Figuren
+      // nebeneinander stehen, und am Start steht ausserdem ein Torbogen. Ohne
+      // diesen Zuschlag passt die Rechnung und das Bild trotzdem nicht — am
+      // linken Rand war die eigene Figur angeschnitten, obwohl "alle Felder im
+      // Bild" gemeldet wurde.
+      const x = Math.abs(quer.dot(rechts)) + pad;
+      const y = Math.abs(quer.dot(oben)) + pad;
+      schub = Math.max(schub, x / halbH - tiefe, y / (halbV * halbNdc) - tiefe);
+    });
+    if (schub > 0) pose.position.addScaledVector(blick, -schub);
+
+    // Dann das Ziel so weit senken, dass die Brettmitte in der MITTE des freien
+    // Streifens landet statt in der Mitte der Leinwand.
+    const mitte = new THREE.Vector3();
+    punkte.forEach((punkt) => mitte.add(punkt));
+    mitte.multiplyScalar(1 / punkte.length);
+    const relativ = mitte.clone().sub(pose.position);
+    const tiefe = Math.max(0.1, relativ.dot(blick));
+    pose.target.copy(pose.position).addScaledVector(blick, tiefe);
+    pose.target.addScaledVector(oben, -(mitteNdc * halbV * tiefe));
   }
 
   resize() {

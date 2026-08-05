@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin111">
+    <link rel="stylesheet" href="/style.css?v=tumblekin112">
   </head>
   <body>
     <main id="app">
@@ -170,12 +170,16 @@
           </div>
         </div>
 
-        <div id="board-canvas-wrap" class="board-canvas-wrap" aria-label="3D-Spielbrett">
-          <div id="star-tracker" class="star-tracker" role="status" aria-live="polite" hidden></div>
-        </div>
+        <div id="board-canvas-wrap" class="board-canvas-wrap" aria-label="3D-Spielbrett"></div>
 
         <div class="board-bottom">
           <div id="board-dev-controller" class="dev-controller" hidden></div>
+          <!-- Der Sternzähler stand als schwebende Pille oben in der Mitte und
+               schob sich dort in die "Am Zug"-Anzeige. Drei Dinge passen auf
+               einem hochkanten Handy nicht in denselben Streifen. Er gehört
+               ohnehin hierher: er sagt, wohin man will, und das liest man dort,
+               wo man auch würfelt. -->
+          <div id="star-tracker" class="star-tracker" role="status" aria-live="polite" hidden></div>
           <div id="score-strip" class="score-strip"></div>
           <div id="item-bar" class="item-bar" role="group" aria-label="Deine Items" hidden></div>
           <div class="panel turn-panel">
@@ -250,6 +254,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin111"></script>
+    <script type="module" src="/src/main.js?v=tumblekin112"></script>
   </body>
 </html>

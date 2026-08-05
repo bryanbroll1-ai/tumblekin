@@ -1,6 +1,6 @@
-import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin111";
-import { playerStatus } from "../game/Player.js?v=tumblekin111";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin111";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin112";
+import { playerStatus } from "../game/Player.js?v=tumblekin112";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin112";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -653,8 +653,11 @@ export class UIManager {
     const winnerNames = winners.map((entry) => escapeHtml(entry.name)).join(" & ");
     const tie = winners.length > 1;
 
-    // Placements are revealed from last place up to the winner.
-    const revealStep = 0.55;
+    // Placements are revealed from last place up to the winner. 0.55 s je Platz
+    // machten bei vier Spielern zweieinhalb Sekunden bis zur Pointe — auf einem
+    // Handy, auf dem man sowieso schon auf das Ergebnis gewartet hat, ist das zu
+    // lang.
+    const revealStep = 0.4;
     const winnerDelay = ranking.length * revealStep + 0.25;
     this.el.resultWinner.hidden = !winner;
     this.el.resultWinner.style.setProperty("--winner-color", winner?.color || "#ffe25c");

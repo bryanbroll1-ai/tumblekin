@@ -1221,11 +1221,38 @@ body[data-screen="minigame"] .game-menu-button {
 .board-screen .game-hud {
   flex: 0 0 auto;
   margin-bottom: 0;
+  align-items: start;
 }
 
 .round-lockup {
   display: grid;
   gap: 4px;
+}
+
+/* Auf dem Brett steht die Rundenanzeige direkt auf der 3D-Szene. Als weisse
+   Schrift mit Schattenwurf war sie über hellen Feldern kaum zu lesen — und ein
+   Schriftgrad von 2.5rem frass ein Drittel des oberen Streifens für zwei
+   Ziffern. Sie bekommt dieselbe dunkle Fassung wie die "Am Zug"-Anzeige
+   gegenüber; damit steht der Streifen symmetrisch und ist auf jedem Brett
+   lesbar. */
+.board-screen .round-lockup {
+  gap: 2px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-left: 5px solid var(--yellow);
+  border-radius: var(--radius);
+  background: rgba(19, 20, 27, 0.94);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+}
+
+.board-screen .round-lockup .eyebrow {
+  margin: 0;
+  max-width: 148px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .round-lockup h2 {
@@ -1237,9 +1264,18 @@ body[data-screen="minigame"] .game-menu-button {
   text-shadow: 0 2px 0 rgba(31, 90, 110, 0.4), 0 6px 16px rgba(31, 90, 110, 0.3);
 }
 
+.board-screen .round-lockup h2 {
+  font-size: 1.5rem;
+  text-shadow: none;
+}
+
 .round-lockup h2 small {
   color: rgba(255, 255, 255, 0.85);
   font-size: 0.46em;
+}
+
+.board-screen .round-lockup h2 small {
+  font-size: 0.62em;
 }
 
 .turn-pill {
@@ -1359,22 +1395,21 @@ body[data-screen="minigame"] .game-menu-button {
 }
 
 /* --- Star tracker: the board's north star, literally -------------------- */
+/* Sitzt jetzt in der unteren Leiste statt als schwebende Pille oben in der
+   Mitte — dort überlappte er auf jedem hochkanten Handy die "Am Zug"-Anzeige.
+   Als Leiste über den Punkteständen steht er da, wo der Blick beim Würfeln
+   ohnehin ist, und braucht keinen Platz mehr im Bild. */
 .star-tracker {
-  position: absolute;
-  z-index: 12;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 7px 14px 7px 10px;
-  border-radius: 999px;
+  padding: 7px 12px 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
   background: rgba(21, 33, 38, 0.84);
   box-shadow: var(--shadow);
   color: #ffffff;
   pointer-events: none;
-  max-width: calc(100% - 24px);
 }
 
 .star-tracker-icon {
@@ -2433,7 +2468,6 @@ body[data-screen="minigame"] .game-menu-button {
   100% { transform: translateX(105%); }
 }
 
-.result-winner,
 .winner-banner {
   animation: result-pop 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -2754,9 +2788,39 @@ body[data-screen="minigame"] .game-menu-button {
   100% { transform: translateY(0) scale(1); opacity: 1; }
 }
 
+/* Der Siegerkasten wird zuletzt enthüllt — die Plätze zählen von hinten nach
+   vorn hoch, und er ist die Pointe. Bisher war er dabei schlicht durchsichtig
+   geschaltet: über der Liste klaffte zwei Sekunden lang ein zweihundert Pixel
+   hohes Loch, und das war das Erste, was man vom Ergebnis sah.
+   Jetzt steht der Kasten von Anfang an da — neutral und leer, als reservierter
+   Platz — und färbt sich zur Siegerfarbe, während der Text hineinfährt. Kein
+   Loch, und trotzdem nichts verraten. */
 .result-winner {
-  animation-fill-mode: both !important;
+  animation: winner-reveal 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both !important;
   animation-delay: var(--reveal-delay, 0s) !important;
+}
+
+@keyframes winner-reveal {
+  0% { background: rgba(23, 33, 38, 0.3); transform: scale(1); }
+  55% { background: var(--winner-color, var(--yellow)); transform: scale(1.05); }
+  100% { background: var(--winner-color, var(--yellow)); transform: scale(1); }
+}
+
+/* Der Inhalt kommt erst mit der Enthüllung — sonst stünde der Name schon im
+   leeren Kasten und die ganze Auflösung wäre verschenkt. */
+.result-winner > * {
+  animation: winner-text 260ms ease-out both;
+  animation-delay: var(--reveal-delay, 0s);
+}
+
+@keyframes winner-text {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result-winner,
+  .result-winner > * { animation-duration: 1ms; }
 }
 
 .tie-badge {
