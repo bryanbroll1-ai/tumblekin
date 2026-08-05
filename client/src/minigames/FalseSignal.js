@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin112";
+} from "./VoxelKit.js?v=tumblekin113";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin112";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin112";
+} from "./SceneKit.js?v=tumblekin113";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
 
 // Falschsignal — alle starren auf EINEN Signalmast. Aus der Mitte der Linse
 // wächst ein Ring nach aussen. Nur ein Ring, der die MARKE am Rand erreicht,

@@ -9,6 +9,8 @@ const {
   MINIGAMES,
   SEEK_SIZE,
   publicArcade,
+  updatePlinko,
+  PLINKO_BALL_R,
   GOLD_DICE_MIN,
   GOLD_DICE_SPAN,
   applyFieldEffect,
@@ -1334,6 +1336,46 @@ test("bergsteiger: Doppelsprossen sind eingestreut, aber nie drei am Stück", ()
   });
 });
 
+
+// Eine Kugel, die nicht ankommt, ist eine verlorene Runde — und niemand sieht,
+// warum. Die äussersten Nägel standen so nah an der Wand, dass dazwischen
+// weniger Platz war, als eine Kugel breit ist: wer aussen ansetzte, dessen
+// Kugel verkeilte sich und klackerte die ganze Runde lang auf der Stelle.
+test("nagelbrett: jede Kugel kommt unten an, egal wo sie eingeworfen wird", () => {
+  const werfer = player({ id: "pl", name: "PL", color: "#fff" });
+  const haenger = [];
+  let laengste = 0;
+  for (let schritt = 0; schritt <= 40; schritt += 1) {
+    const x = schritt / 40;
+    const spieler = [player({ id: "pl", name: "PL", color: "#fff" })];
+    const arcade = createArcadeState("nagelbrett", spieler, Date.now());
+    const minigame = { arcade, scores: {}, startedAt: Date.now(), duration: 28000, finishing: false };
+    const room = { currentMinigame: minigame, players: spieler };
+    arcade.players.pl.lastInputAt = 0;
+    handleArcadeInput(room, spieler[0], { action: "drop", x });
+    let ms = 0;
+    while (ms < 20000 && arcade.balls.length > 0) {
+      ms += 90;
+      updatePlinko(room, minigame, arcade, 0.09, Date.now() + ms);
+    }
+    if (arcade.balls.length > 0) haenger.push(x.toFixed(3));
+    laengste = Math.max(laengste, ms);
+  }
+  assert.deepEqual(haenger, [], `Kugeln blieben hängen bei x = ${haenger.join(", ")}`);
+  assert.ok(laengste < 12000, `längster Fall ${laengste} ms — das frisst die halbe Runde`);
+  assert.ok(werfer);
+});
+
+// Der Abstand ist das Eigentliche: zwischen Wand und äusserstem Nagel muss eine
+// ganze Kugel Platz haben, sonst hilft auch der Notfall-Schubs nur noch beim
+// Aufräumen.
+test("nagelbrett: zwischen Wand und äusserstem Nagel passt eine Kugel", () => {
+  const arcade = createArcadeState("nagelbrett", [player({ id: "q", name: "Q", color: "#fff" })], Date.now());
+  const links = Math.min(...arcade.pegs.map((peg) => peg.x - peg.r));
+  const rechts = Math.max(...arcade.pegs.map((peg) => peg.x + peg.r));
+  assert.ok(links >= PLINKO_BALL_R * 2, `links nur ${links.toFixed(3)} frei, nötig ${(PLINKO_BALL_R * 2).toFixed(3)}`);
+  assert.ok(1 - rechts >= PLINKO_BALL_R * 2, `rechts nur ${(1 - rechts).toFixed(3)} frei`);
+});
 
 // --- Board economy: stars, items and risk fields ---------------------------
 

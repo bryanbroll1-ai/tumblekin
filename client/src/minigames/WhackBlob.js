@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin112";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin112";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin112";
+import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin113";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin113";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
 
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.
@@ -119,20 +119,44 @@ export class WhackBlob {
     this.cellPlane.rotation.x = -Math.PI / 2;
     this.cellPlane.position.y = 0.34;
     this.scene.add(this.cellPlane);
+    // Echte Erdlöcher statt schwarzer Quadrate.
+    //
+    // Vorher lag über jeder Zelle eine dunkle Platte — und zwar OBERHALB der
+    // Grasnarbe. Damit sah das Feld aus wie neun aufgemalte Kacheln, aus denen
+    // dann unvermittelt ein Blob wuchs. Ein Loch braucht drei Dinge: einen
+    // Rand, der herausschaut, eine Wand, die nach innen führt, und einen
+    // Grund, der dunkel genug ist, dass man nicht hineinsieht.
+    const GRAS_Y = 0.3;                  // Oberkante des Hügels
+    const schachtMat = new THREE.MeshLambertMaterial({ color: "#4a3826" });
+    const grundMat = new THREE.MeshLambertMaterial({ color: "#241a10" });
+    const randMat = new THREE.MeshLambertMaterial({ color: "#8a6a45" });
     for (let cell = 0; cell < 9; cell += 1) {
       const pos = this.cellPos(cell);
-      const hole = new THREE.Mesh(
-        new THREE.BoxGeometry(0.85, 0.1, 0.85),
-        new THREE.MeshLambertMaterial({ color: "#2f2418" })
-      );
-      hole.position.set(pos.x, 0.32, pos.z);
-      this.scene.add(hole);
-      const rim = new THREE.Mesh(
-        new THREE.BoxGeometry(1.02, 0.08, 1.02),
-        new THREE.MeshLambertMaterial({ color: "#6bbf5e" })
-      );
-      rim.position.set(pos.x, 0.3, pos.z);
-      this.scene.add(rim);
+      // Aufgeworfene Erde rundherum — der Teil, den man von oben zuerst sieht.
+      const rand = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.08, 6, 16), randMat);
+      rand.rotation.x = Math.PI / 2;
+      rand.position.set(pos.x, GRAS_Y + 0.03, pos.z);
+      rand.receiveShadow = true;
+      this.scene.add(rand);
+      // Der dunkle Grund liegt ÜBER der Grasnarbe, nicht darunter.
+      //
+      // Naheliegend wäre ein echter Schacht: Wand nach unten, Boden tief drin.
+      // Nur ist der Hügel ein massiver Quader — seine Deckfläche verdeckt alles
+      // darunter, und im Bild blieben neun Ringe mit Gras darin. Ein Loch von
+      // schräg oben ist ohnehin fast nur seine Öffnung: eine dunkle Scheibe
+      // knapp über dem Gras, gefasst von aufgeworfener Erde, liest sich als
+      // Loch — und der Blob steigt weiterhin von unten durch den Hügel herauf
+      // und erscheint genau dort.
+      const grund = new THREE.Mesh(new THREE.CircleGeometry(0.42, 16), grundMat);
+      grund.rotation.x = -Math.PI / 2;
+      grund.position.set(pos.x, GRAS_Y + 0.02, pos.z);
+      this.scene.add(grund);
+      // Ein zweiter, kleinerer Ring gibt der Öffnung Tiefe, ohne dass ein
+      // einziges Dreieck mehr im Boden verschwindet.
+      const tiefe = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), schachtMat);
+      tiefe.rotation.x = -Math.PI / 2;
+      tiefe.position.set(pos.x, GRAS_Y + 0.025, pos.z - 0.06);
+      this.scene.add(tiefe);
     }
 
     // A picket fence and flowers frame the field so it doesn't float in

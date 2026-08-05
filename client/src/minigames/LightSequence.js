@@ -9,15 +9,15 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin112";
+} from "./VoxelKit.js?v=tumblekin113";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin112";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin112";
+} from "./SceneKit.js?v=tumblekin113";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin113";
 
 // Leuchtfolge — vier Pilze leuchten der Reihe nach auf, danach tippt man sie in
 // derselben Reihenfolge nach. Jede Runde ist die Folge einen Pilz länger.
@@ -27,7 +27,13 @@ import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumbl
 // geleuchtet hat — ein Knopfstreifen wäre ein zweiter Ort für den Blick, und
 // genau in dem Moment reisst die Erinnerung ab.
 const COLOURS = ["#ff5d73", "#3fc5e8", "#ffd15c", "#71d97b"];
-const COLOURS_DARK = ["#6d2230", "#164a5b", "#6b5417", "#2c5c33"];
+// Der RUHENDE Zustand, nicht der Ausgeschaltete. Vorher lagen die vier Kappen
+// bei rund einem Drittel Helligkeit — auf dem Bild waren daraus Weinrot,
+// Petrol, Oliv und Dunkelgrün geworden, und Oliv und Dunkelgrün liessen sich
+// kaum auseinanderhalten. Die Farbe IST hier die ganze Regel: man muss sie
+// auch ungeleuchtet auf einen Blick unterscheiden können. Jetzt sind es
+// gedämpfte, aber satte Fassungen derselben vier Töne.
+const COLOURS_DARK = ["#c9455a", "#2e93b0", "#cca43f", "#4fa85c"];
 const SPOTS = [
   { x: -1.15, z: -0.35 },
   { x: 1.15, z: -0.35 },
@@ -450,8 +456,11 @@ export class LightSequence {
     resizeStage(this, (portrait, camera) => {
       // Im Hochformat höher und näher, damit alle vier Pilze im oberen Zweidrittel
       // liegen — beim Nachtippen greift der Daumen von unten.
-      this.baseCamY = portrait ? 5.0 : 4.4;
-      this.baseCamZ = portrait ? 5.6 : 6.2;
+      // Weiter zurück im Hochformat: die beiden äusseren Pilze standen bei
+      // x = ±1.15 mit 0.58 Kappenradius, macht 1.73 halbe Breite — sichtbar
+      // waren gemessen nur 1.55, also war von beiden ein Stück abgeschnitten.
+      this.baseCamY = portrait ? 5.4 : 4.4;
+      this.baseCamZ = portrait ? 6.6 : 6.2;
       camera.fov = portrait ? 58 : 48;
     });
   }

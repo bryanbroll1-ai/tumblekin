@@ -3441,11 +3441,12 @@ body[data-screen="minigame"] .game-menu-button {
   color: #10201a;
 }
 
-/* Der Warnruf gehört über den Knopf, nicht über den Fisch. */
+/* Der Warnruf gehört über den Knopf, nicht über den Fisch — und mit Abstand:
+   bei 96px lag er dem Einholen-Knopf gemessen sechs Pixel auf der Oberkante. */
 .kinetic-hud .color-banner.fish-banner,
 .kinetic-hud.dev-mode .color-banner.fish-banner {
   top: auto;
-  bottom: calc(96px + env(safe-area-inset-bottom));
+  bottom: calc(116px + env(safe-area-inset-bottom));
 }
 
 /* --- Farbenjagd: Flächenanteile ----------------------------------------- */

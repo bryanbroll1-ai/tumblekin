@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin112";
+} from "./VoxelKit.js?v=tumblekin113";
 import {
   mountStage,
   mountHud,
@@ -18,15 +18,15 @@ import {
   syncOwnMarker,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin112";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin112";
+} from "./SceneKit.js?v=tumblekin113";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
 // each hitAt; tap to be mid-air. Trip once and you are out.
 const KIN_Y = 0.36;   // feet rest on the sand pit instead of floating above it
 const ROPE_R = 3.1;
-const SPOTS = [-2.1, -0.7, 0.7, 2.1];
+const SPOTS = [-1.7, -0.57, 0.57, 1.7];
 const JUMP_HEIGHT = 1.3;
 
 export class RopeSkip {
@@ -132,7 +132,7 @@ export class RopeSkip {
 
     // The two rope swingers stand at the sides.
     this.swingers = [];
-    [[-3.6, "#ff8b2e", 4], [3.6, "#2ec4b6", 5]].forEach(([x, color, variant]) => {
+    [[-2.9, "#ff8b2e", 4], [2.9, "#2ec4b6", 5]].forEach(([x, color, variant]) => {
       const swinger = createVoxelKin(color, variant);
       swinger.position.set(x, KIN_Y, 0);
       swinger.rotation.y = x < 0 ? Math.PI / 2 : -Math.PI / 2;
@@ -168,8 +168,8 @@ export class RopeSkip {
     this.floaters = new FloatingText(this.scene);
     this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
     this.resizeRenderer();
-    this.camera.position.set(0, 3.4, 8.6);
-    this.camera.lookAt(0, 1.2, 0);
+    this.camera.position.set(0, 2.6, 8.2);
+    this.camera.lookAt(0, 1.3, 0);
   }
 
   ensureKin(player, index = 0) {
@@ -244,7 +244,7 @@ export class RopeSkip {
     const swingRadius = this.rope.position.y - groundClear; // hand height to floor
     this.ropeSegments.forEach((seg, i) => {
       const t = i / (this.ropeSegments.length - 1);
-      const x = -3.4 + t * 6.8;
+      const x = -2.75 + t * 5.5;
       const sag = Math.sin(t * Math.PI);
       // Local y is relative to the rope group at hand height; clamp the world
       // height so the rope stays on or above the sand.
@@ -353,9 +353,9 @@ export class RopeSkip {
 
     this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 16) * this.shake * 0.24 * shakeScale();
-    const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.4, this.baseCamZ || 8.6);
+    const desired = new THREE.Vector3(shakeX, this.baseCamY || 2.6, this.baseCamZ || 8.2);
     this.camera.position.lerp(desired, frameLerp(0.1, dt));
-    this.camera.lookAt(0, 1.2, 0);
+    this.camera.lookAt(0, 1.3, 0);
 
     this.updateHud(minigame, arcade, state, nextHitIn, now);
     // A downward arrow marks your own kin so you never lose yourself.
@@ -396,8 +396,12 @@ export class RopeSkip {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      this.baseCamY = portrait ? 3.7 : 3.4;
-      this.baseCamZ = portrait ? 10.4 : 8.6;
+      // Näher heran und tiefer. Die Szene ist ein waagrechter Streifen: Seil,
+      // zwei Schwinger, vier Springer — und die stand als sechzig Pixel hohes
+      // Band mitten in einem sonst leeren Bild. Sie füllt die Höhe nie ganz,
+      // aber sie darf wenigstens gross genug sein, dass man die Sprünge sieht.
+      this.baseCamY = portrait ? 2.6 : 3.4;
+      this.baseCamZ = portrait ? 8.2 : 8.6;
       camera.fov = portrait ? 54 : 48;
     });
   }

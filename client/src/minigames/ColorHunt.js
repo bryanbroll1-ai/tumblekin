@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   KIN_SOLE
-} from "./VoxelKit.js?v=tumblekin112";
+} from "./VoxelKit.js?v=tumblekin113";
 import {
   mountStage,
   mountHud,
@@ -17,9 +17,9 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin112";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin112";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin112";
+} from "./SceneKit.js?v=tumblekin113";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin113";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin113";
 
 // Farbenjagd — EINE geteilte Fläche für alle. Jeder Kin färbt das Feld, auf dem
 // er steht, in seine Farbe, auch wenn dort schon eine fremde liegt. Damit ist es

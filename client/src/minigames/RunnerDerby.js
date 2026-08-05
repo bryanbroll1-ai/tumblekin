@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   KIN_SOLE,
   standOn
-} from "./VoxelKit.js?v=tumblekin112";
+} from "./VoxelKit.js?v=tumblekin113";
 import {
   mountStage,
   mountHud,
@@ -19,8 +19,8 @@ import {
   syncOwnMarker,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin112";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin112";
+} from "./SceneKit.js?v=tumblekin113";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to

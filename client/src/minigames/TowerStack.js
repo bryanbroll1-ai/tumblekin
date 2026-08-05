@@ -6,15 +6,21 @@ import {
   createNameLabel,
   createOwnMarker,
   updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin112";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin112";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin112";
+} from "./VoxelKit.js?v=tumblekin113";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin113";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
 // total miss topples the tower. Tallest tower wins.
-const COL_GAP = 1.85;
-const BLOCK_H = 0.32;
+// Vier Türme nebeneinander sind auf einem hochkanten Handy das Breiteste, was
+// die Szene hat — und die Breite entscheidet, wie weit die Kamera weg muss.
+// Bei 1.85 Abstand stand der äusserste Turm gemessen ausserhalb des Bildes.
+const COL_GAP = 1.62;
+// Höhere Klötze. Bei 0.32 war ein Turm aus zehn Steinen drei Einheiten hoch,
+// während die Kamera vierzehn Einheiten Höhe zeigte: das Bild war zur Hälfte
+// Himmel und zur Hälfte Wiese, und dazwischen lagen drei flache Bretter.
+const BLOCK_H = 0.46;
 const BASE_Y = 0.2;
 const WORLD_W = 1.35;      // world width of a full-width (=1) block
 const SLIDE_W = 1.15;      // world half-range of the sliding block
@@ -97,8 +103,11 @@ export class TowerStack {
   createScene() {
     addStageLights(this.scene, { sunPosition: [-4, 12, 6], shadow: { top: 12, bottom: -6 } });
 
+    // Gross genug, dass ihr Rand nie ins Bild kommt. Bei 22×12 sah man aus der
+    // tieferen Kameralage unter der Wiese hindurch in den Himmel — ein blaues
+    // Band quer unter dem Boden.
     const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(22, 0.5, 12),
+      new THREE.BoxGeometry(44, 0.5, 40),
       new THREE.MeshLambertMaterial({ color: "#7fce6f" })
     );
     ground.position.y = -0.25;
@@ -116,8 +125,8 @@ export class TowerStack {
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureTower(player, index, players.length));
     this.resizeRenderer();
-    this.camera.position.set(0, this.baseCamY || 2.6, this.baseCamZ || 8);
-    this.camera.lookAt(0, 1.3, 0);
+    this.camera.position.set(0, this.baseCamY || 3.2, this.baseCamZ || 13.1);
+    this.camera.lookAt(0, BASE_Y + 0.5, 0);
   }
 
   columnX(index, count) {
@@ -131,15 +140,24 @@ export class TowerStack {
     const group = new THREE.Group();
     group.position.x = x;
     this.scene.add(group);
-    // Foundation plinth — solid for every tower.
+    // Sockel je Turm. Er war 0.2 BREITER als der Spaltabstand — damit stiessen
+    // die vier Sockel aneinander und das Bild zeigte statt vier Türmen eine
+    // durchgehende Bank. Jetzt bleibt sichtbar Luft dazwischen, und die
+    // Spielerfarbe als Streifen sagt sofort, welcher Turm wem gehört.
     const base = new THREE.Mesh(
-      new THREE.BoxGeometry(WORLD_W + 0.2, 0.4, 1.1),
+      new THREE.BoxGeometry(WORLD_W, 0.4, 1.1),
       new THREE.MeshLambertMaterial({ color: "#8a5a2c" })
     );
     base.position.y = 0;
     base.receiveShadow = true;
     base.castShadow = true;
     group.add(base);
+    const streifen = new THREE.Mesh(
+      new THREE.BoxGeometry(WORLD_W + 0.06, 0.1, 1.16),
+      new THREE.MeshLambertMaterial({ color: player.color })
+    );
+    streifen.position.y = 0.2;
+    group.add(streifen);
     const label = createNameLabel(player.name.slice(0, 7), player.color);
     label.position.set(0, -0.5, 0.7);
     label.material.opacity = isOwn ? 1 : 0.8;
@@ -287,12 +305,15 @@ export class TowerStack {
     // jump when a block lands).
     this.shake *= frameDecay(0.9, dt);
     this.smoothTop = THREE.MathUtils.lerp(this.smoothTop ?? topHeight, topHeight, Math.min(1, dt * 4));
-    const focusY = 1.3 + this.smoothTop * BLOCK_H * 0.5;
+    // Der Blick liegt auf der Turmspitze, nicht darüber. Vorher waren es feste
+    // 1.3 Einheiten — bei einem Turm aus zwei Steinen also gut einen halben
+    // Meter über allem, was gerade passierte.
+    const focusY = BASE_Y + 0.5 + this.smoothTop * BLOCK_H * 0.55;
     // Bias slightly toward the own tower so it's never cut off, while all four
     // stay in frame.
-    const ownX = (this.towers.get(controlledId)?.x || 0) * 0.3;
+    const ownX = (this.towers.get(controlledId)?.x || 0) * 0.18;
     const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
-    const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 2.6) + this.smoothTop * BLOCK_H * 0.45, this.baseCamZ || 8);
+    const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 3.2) + this.smoothTop * BLOCK_H * 0.55, this.baseCamZ || 13.1);
     this.camera.position.lerp(desired, frameLerp(0.12, dt));
     this.camera.lookAt(ownX, focusY, 0);
 
@@ -339,8 +360,13 @@ export class TowerStack {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      this.baseCamY = portrait ? 2.7 : 2.6;
-      this.baseCamZ = portrait ? 10.5 : 8.5;
+      // Abstand gerechnet, nicht geschätzt: vier Säulen im Abstand COL_GAP plus
+      // eine halbe Klotzbreite sind 3.11 Einheiten halbe Breite. Sichtbar sind
+      // bei 58° und diesem Seitenverhältnis 0.2554 Einheiten je Einheit
+      // Abstand — macht mit 8 % Rand 13.1. Bei 10.5 stand der äusserste Turm
+      // ausserhalb des Bildes, und das war er auch.
+      this.baseCamY = portrait ? 3.2 : 2.6;
+      this.baseCamZ = portrait ? 13.1 : 8.5;
       camera.fov = portrait ? 58 : 48;
     });
   }

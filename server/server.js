@@ -818,6 +818,30 @@ const PLINKO_GRAVITY = 1.35;
 // sieht es kommen, und man hat GENAU einen Eingriff.
 const PLINKO_NUDGE = 0.85;            // seitlicher Schub beim Stups
 const PLINKO_BALL_R = 0.028;          // Kugelradius im Brettmass (wie am Nagel)
+const PLINKO_PEG_R = 0.024;
+// Wo die äussersten Nägel stehen. Sie standen bei 0.083 bzw. 0.917 — und
+// zwischen Nagel und Wand blieben damit 0.024 Platz für eine Kugel, die 0.028
+// braucht. Sie passte also NICHT hindurch: wer aussen ansetzte, dessen Kugel
+// verkeilte sich zwischen Wandbegrenzung und Nagel, wurde von beiden
+// abwechselnd zurückgeschoben und hing dort. Gemessen 243 Nagelstösse und neun
+// Sekunden ohne einen Millimeter Fortschritt — die Kugel kam nie unten an und
+// brachte null Punkte, bei 28 Sekunden Rundenzeit.
+//
+// Jetzt bleibt aussen wie innen eine ganze Kugelbreite Luft.
+const PLINKO_PEG_LEFT = 0.11;
+const PLINKO_PEG_RIGHT = 0.89;
+// Hängt eine Kugel trotzdem fest, bekommt sie nach dieser Zeit einen Schubs
+// nach unten. Physik gegen Physik lässt sich nie ganz ausschliessen, und eine
+// Kugel, die nicht ankommt, ist eine verlorene Runde.
+const PLINKO_STALL_MS = 700;          // Zeitfenster, in dem Fortschritt zählt
+// So weit muss die Kugel in diesem Fenster fallen. Eine normale Kugel schafft
+// 0.17 — der Wert liegt deutlich darunter und deutlich über dem Kriechen einer
+// verkeilten.
+const PLINKO_STALL_MIN = 0.09;
+const PLINKO_STALL_KICK = 0.7;
+// Harte Notbremse. Eine Kugel, die sechzig Nägel angeschlagen hat, hüpft nicht
+// mehr — sie klemmt. Auf dem Handy hört man dabei jeden Anschlag als Klicken.
+const PLINKO_MAX_PLINKS = 60;
 const PLINKO_BALL_REST = 0.86;        // wie sehr zwei Kugeln voneinander abprallen
 const PLINKO_FLOOR_Y = 1.3;
 const CURLING_SHEET_Y = 1.3;
@@ -3672,13 +3696,17 @@ function createArcadeState(type, players, startedAt) {
     // Logical space is 1 wide and PLINKO_FLOOR_Y tall so client pixels can
     // use one uniform scale on both axes (collisions look exact on screen).
     arcade.pegs = [];
+    const span = PLINKO_PEG_RIGHT - PLINKO_PEG_LEFT;
     for (let row = 0; row < 5; row += 1) {
-      const count = row % 2 === 0 ? 6 : 5;
+      const gerade = row % 2 === 0;
+      const count = gerade ? 6 : 5;
       for (let index = 0; index < count; index += 1) {
+        // Gerade Reihen sitzen auf den Rasterpunkten, ungerade genau dazwischen.
+        const t = gerade ? index / 5 : (index + 0.5) / 5;
         arcade.pegs.push({
-          x: (index + (row % 2 === 0 ? 0.5 : 1)) / 6,
+          x: PLINKO_PEG_LEFT + t * span,
           y: 0.32 + row * 0.19,
-          r: 0.024
+          r: PLINKO_PEG_R
         });
       }
     }
@@ -6371,6 +6399,13 @@ function updatePlinko(room, minigame, arcade, dt, now) {
       ball.x = peg.x + nx * minDistance;
       ball.y = peg.y + ny * minDistance;
       const dot = ball.vx * nx + ball.vy * ny;
+      // Notbremse: eine Kugel mit sechzig Anschlägen klemmt, sie hüpft nicht.
+      // Ab hier fällt sie geradeaus durch, statt weiter zu klackern.
+      if (ball.plinks > PLINKO_MAX_PLINKS) {
+        ball.vx = 0;
+        ball.vy = Math.max(ball.vy, PLINKO_STALL_KICK);
+        return;
+      }
       if (dot < 0) {
         ball.vx -= 2 * dot * nx;
         ball.vy -= 2 * dot * ny;
@@ -6423,6 +6458,29 @@ function updatePlinko(room, minigame, arcade, dt, now) {
       arcade.clacks = (arcade.clacks || 0) + 1;
     }
   }
+
+  // Eine Kugel MUSS unten ankommen. Verkeilt sie sich trotz des Abstands
+  // zwischen Nagel und Wand irgendwo, bekommt sie nach kurzer Zeit einen
+  // Schubs. Ohne das kostet ein einziger unglücklicher Winkel die ganze Runde,
+  // und niemand sieht, warum.
+  arcade.balls.forEach((ball) => {
+    if (ball.markeAt === undefined) {
+      ball.markeY = ball.y;
+      ball.markeAt = now;
+      return;
+    }
+    if (now - ball.markeAt < PLINKO_STALL_MS) return;
+    // Gemessen wird der FORTSCHRITT über ein Zeitfenster, nicht "hat sich seit
+    // dem letzten Tiefpunkt etwas getan". Die verkeilte Kugel kroch pro Sekunde
+    // ein paar Tausendstel nach unten — genug, um jede Schwelle immer wieder
+    // zurückzusetzen, und trotzdem stand sie neun Sekunden lang praktisch.
+    if (ball.y - ball.markeY < PLINKO_STALL_MIN) {
+      ball.vy = Math.max(ball.vy, PLINKO_STALL_KICK);
+      ball.vx *= 0.3;
+    }
+    ball.markeY = ball.y;
+    ball.markeAt = now;
+  });
 
   const landed = arcade.balls.filter((ball) => ball.y >= arcade.floorY - 0.03);
   landed.forEach((ball) => {
@@ -8982,6 +9040,9 @@ if (require.main === module) {
 
 module.exports = {
   testRules: {
+    updatePlinko,
+    PLINKO_BALL_R,
+    PLINKO_MAX_PLINKS,
     BOARD_DEFINITIONS,
     FIELD_TYPES,
     GATE_COIN_BONUS,
