@@ -13,7 +13,8 @@
     "icons": "node scripts/icons.mjs",
     "fuzz": "node scripts/fuzz.mjs",
     "session-sim": "node scripts/session-sim.mjs",
-    "scene-check": "node scripts/scene-check.mjs"
+    "scene-check": "node scripts/scene-check.mjs",
+    "board-check": "node scripts/board-check.mjs"
   },
   "keywords": [
     "party-game",

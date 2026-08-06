@@ -208,12 +208,12 @@ export class BoardGame {
     else if (bad) reactionType = "stumble";
     if (token) token.userData.reaction = { type: reactionType, startedAt: performance.now() };
     this.createLandingBurst(landing.to, landing.fieldType, Boolean(landing.gateEffects?.some((gate) => gate.coins > 0)));
-    this.celebrateFieldEffect(landing, effect);
+    this.celebrateFieldEffect(landing, effect, stern);
   }
 
   // Pop-up text and confetti tuned to what actually happened, so the board
   // reads at a glance instead of only through the message bar.
-  celebrateFieldEffect(landing, effect) {
+  celebrateFieldEffect(landing, effect, stern = null) {
     const spot = this.fieldPositions[landing.to];
     if (!spot || !this.floaters) return;
     const at = new THREE.Vector3(spot.x, spot.y + 0.75, spot.z);
@@ -224,8 +224,13 @@ export class BoardGame {
       this.bursts?.ring(new THREE.Vector3(spot.x, spot.y + 0.12, spot.z), "#ffe36b", { radius: 2.4, life: 0.8, opacity: 0.7, y: spot.y + 0.12 });
       return;
     }
-    if (effect.type === "star" && effect.starAffordable === false) {
-      this.floaters.pop(at, "Zu teuer!", { color: "#ff9aa8", size: 0.34, life: 1.1 });
+    // Knapp vorbei zählt auch — und zwar in BEIDEN Fällen: wer auf dem Podest
+    // landet und nicht zahlen kann, und wer im Vorbeigehen nicht genug hat.
+    // Der zweite Fall steht wieder in starPass und wurde hier nie gelesen.
+    if ((effect.type === "star" && effect.starAffordable === false)
+      || landing.starPass?.affordable === false) {
+      const preis = landing.starPass?.price ?? effect.starPrice;
+      this.floaters.pop(at, preis ? `Zu teuer — ${preis}` : "Zu teuer!", { color: "#ff9aa8", size: 0.34, life: 1.2 });
       return;
     }
     if (effect.item) {
