@@ -12,10 +12,10 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin115";
-import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin115";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin115";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin115";
+} from "./VoxelKit.js?v=tumblekin116";
+import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin116";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin116";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;

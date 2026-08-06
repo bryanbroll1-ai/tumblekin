@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin115";
+} from "./VoxelKit.js?v=tumblekin116";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   resizeStage,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin115";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin115";
+} from "./SceneKit.js?v=tumblekin116";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin116";
 
 // Eisstock — drei Steine je Person, gewischt auf ein Ringziel. Länge des Wisches
 // ist Kraft, Richtung ist Richtung. Fremde Steine darf man wegrempeln, und genau
@@ -206,20 +206,54 @@ export class IceStock {
       this.scene.add(cloud);
     });
 
+    // Winterkulisse hinter der Bahn. Vorher waren Bahn, Schnee und Himmel drei
+    // Abstufungen von Weissgrau — das Bild hatte weder Farbe noch Horizont.
+    const tannenStamm = new THREE.MeshLambertMaterial({ color: "#6b4a2c" });
+    const tannenGruen = new THREE.MeshLambertMaterial({ color: "#2f6f42" });
+    const schneeMat = new THREE.MeshLambertMaterial({ color: "#f4f9ff" });
+    for (let i = 0; i < 16; i += 1) {
+      const seite = i % 2 === 0 ? -1 : 1;
+      const bx = seite * (SHEET_W / 2 + 1.4 + ((i * 1.7) % 6));
+      const bz = -SHEET_LEN / 2 - 1 - ((i * 2.3) % 12);
+      const hoehe = 1.5 + ((i * 0.7) % 1.4);
+      const stamm = new THREE.Mesh(new THREE.BoxGeometry(0.22, hoehe * 0.5, 0.22), tannenStamm);
+      stamm.position.set(bx, hoehe * 0.25, bz);
+      this.scene.add(stamm);
+      const krone = new THREE.Mesh(new THREE.ConeGeometry(hoehe * 0.42, hoehe * 1.1, 6), tannenGruen);
+      krone.position.set(bx, hoehe * 0.5 + hoehe * 0.5, bz);
+      this.scene.add(krone);
+      const haube = new THREE.Mesh(new THREE.ConeGeometry(hoehe * 0.26, hoehe * 0.4, 6), schneeMat);
+      haube.position.set(bx, hoehe * 1.15, bz);
+      this.scene.add(haube);
+    }
+    // Weiche Schneehügel als Horizont.
+    for (let i = 0; i < 7; i += 1) {
+      const huegel = new THREE.Mesh(new THREE.SphereGeometry(2.2 + (i % 3) * 1.3, 10, 6), schneeMat);
+      huegel.position.set(-11 + i * 3.7, -1.4, -SHEET_LEN / 2 - 9 - (i % 2) * 3);
+      huegel.scale.y = 0.5;
+      this.scene.add(huegel);
+    }
+
     this.bursts = new CubeBurst(this.scene);
     this.floaters = new FloatingText(this.scene);
     this.buildThrower(sheetY);
     this.resizeRenderer();
-    this.camera.position.set(0, 3.4, 7.4);
-    this.camera.lookAt(0, 0.2, -1.4);
+    this.camera.position.set(0, 4.1, 8.8);
+    // Blick etwas tiefer: dadurch rutscht die ganze Szene im Bild nach OBEN,
+    // und der Werfer am unteren Rand kommt hinter der Bedienleiste hervor.
+    this.camera.lookAt(0, -0.55, -1.4);
   }
 
   buildThrower(sheetY) {
     const state = this.getState();
     const me = state?.players?.find((player) => player.id === this.getControlledPlayerId()) || state?.players?.[0];
     const entry = this.minigame.arcade.players[me?.id];
-    const x = this.worldX(entry?.startX ?? 0.5);
-    const z = this.worldZ(sheetY, sheetY) + 0.9;
+    // Der Werfer steht dicht vor der Kamera — dort ist der sichtbare Ausschnitt
+    // knapp einen Meter breit, die Bahn aber gut vier. Ungebremst übernommen
+    // stand die eigene Figur je nach Startposition halb ausserhalb des Bildes.
+    // Sie zeigt die Richtung, den genauen Punkt zeigt die Ziellinie.
+    const x = Math.max(-0.75, Math.min(0.75, this.worldX(entry?.startX ?? 0.5) * 0.5));
+    const z = this.worldZ(sheetY, sheetY) + 0.35;
     const kin = createVoxelKin(me?.color || "#ff5d73", 0);
     kin.scale.setScalar(0.85);
     const label = createNameLabel("du", me?.color || "#ff5d73");
@@ -339,7 +373,9 @@ export class IceStock {
     this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
     this.camera.position.y = this.baseCamY || 3.4;
     this.camera.position.z = this.baseCamZ || 7.4;
-    this.camera.lookAt(0, 0.2, -1.4);
+    // Blick etwas tiefer: dadurch rutscht die ganze Szene im Bild nach OBEN,
+    // und der Werfer am unteren Rand kommt hinter der Bedienleiste hervor.
+    this.camera.lookAt(0, -0.55, -1.4);
 
     this.updateHud(minigame, arcade, state, now, own);
     // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
@@ -400,8 +436,10 @@ export class IceStock {
     resizeStage(this, (portrait, camera) => {
       // Flach über die Bahn: die Entfernung zum Haus ist die ganze Aufgabe, und
       // von oben gesehen wäre sie nicht mehr ablesbar.
-      this.baseCamY = portrait ? 3.4 : 3.0;
-      this.baseCamZ = portrait ? 7.4 : 8.6;
+      // Weiter zurück: der Werfer stand anderthalb Einheiten vor der Kamera und
+      // wurde von der Bedienleiste angeschnitten.
+      this.baseCamY = portrait ? 4.1 : 3.0;
+      this.baseCamZ = portrait ? 8.8 : 8.6;
       camera.fov = portrait ? 54 : 44;
     });
   }

@@ -7,7 +7,7 @@ import {
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin115";
+} from "./VoxelKit.js?v=tumblekin116";
 import {
   mountStage,
   mountHud,
@@ -15,8 +15,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin115";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin115";
+} from "./SceneKit.js?v=tumblekin116";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
 
 // Bergsteiger — die Wand zeigt, welche Hand als Nächstes greifen muss. Der
 // richtige Griff zieht eine Sprosse hoch, der falsche rutscht eine ab.

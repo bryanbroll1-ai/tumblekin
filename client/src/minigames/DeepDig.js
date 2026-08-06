@@ -5,16 +5,17 @@ import {
   KinAnimator,
   applyFinaleMood,
   createNameLabel,
-  createVoxelKin
-} from "./VoxelKit.js?v=tumblekin115";
+  createVoxelKin,
+  createCloud
+} from "./VoxelKit.js?v=tumblekin116";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin115";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin115";
+} from "./SceneKit.js?v=tumblekin116";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin116";
 
 // Tiefenrausch — tippen gräbt eine Stufe tiefer, hochwischen zahlt die Beute
 // ein. Tiefer bringt mehr, aber jeder Stollen kann einstürzen, und dann ist
@@ -138,7 +139,44 @@ export class DeepDig {
       new THREE.MeshLambertMaterial({ color: "#7bbf5e" })
     );
     surface.position.set(0, 0.2, -0.6);
+    surface.receiveShadow = true;
     this.scene.add(surface);
+
+    // ÜBER der Grasnarbe ist Himmel, nicht Erde.
+    //
+    // Der Hintergrund der Szene ist dunkelbraun — richtig, sobald man im
+    // Schacht steckt. Zu Beginn steht die Figur aber noch oben, und über der
+    // grünen Narbe lag eine grosse braune Fläche mit nichts darin. Das sah
+    // nicht nach "kurz vor dem ersten Spatenstich" aus, sondern nach einer
+    // Szene, die nicht fertig gebaut wurde. Eine Himmelswand dahinter, ein
+    // paar Wolken davor — und der grüne Streifen ist plötzlich ein Horizont.
+    const himmel = new THREE.Mesh(
+      new THREE.PlaneGeometry(46, 30),
+      new THREE.MeshBasicMaterial({ color: "#9adcf2", fog: false })
+    );
+    himmel.position.set(0, 15.4, -3.2);
+    this.scene.add(himmel);
+    // Tief gesetzt: der sichtbare Ausschnitt ist hier nur gut fünf Einheiten
+    // hoch, alles darüber sieht man nie.
+    [[-2.3, 1.5, -2.6, 4], [2.2, 2.1, -2.8, 7], [-0.6, 2.6, -3, 2]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      cloud.scale.setScalar(0.7);
+      this.scene.add(cloud);
+    });
+    // Grasbüschel auf der Narbe, damit sie kein flacher Balken bleibt.
+    const halmMat = new THREE.MeshLambertMaterial({ color: "#5aa94e" });
+    for (let i = 0; i < 22; i += 1) {
+      const halm = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 4), halmMat);
+      const seite = i % 2 === 0 ? -1 : 1;
+      halm.position.set(
+        seite * (SHAFT_W / 2 + 0.25 + ((i * 0.37) % 1.4)),
+        0.5,
+        -0.6 + ((i * 0.61) % 2.2) - 1.1
+      );
+      halm.rotation.y = i * 0.9;
+      this.scene.add(halm);
+    }
 
     const cart = new THREE.Mesh(
       new THREE.BoxGeometry(0.9, 0.5, 0.7),

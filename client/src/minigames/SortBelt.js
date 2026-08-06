@@ -9,15 +9,15 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin115";
+} from "./VoxelKit.js?v=tumblekin116";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin115";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin115";
+} from "./SceneKit.js?v=tumblekin116";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
 
 // Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die
@@ -220,6 +220,36 @@ export class SortBelt {
     // Der Blick gehört auf das BANDENDE mit den drei Trichtern, nicht auf die
     // leere Bandmitte. Die Rutschenfarbe ist die einzige Information, nach der
     // man hier handelt — war sie unten angeschnitten, spielte man blind.
+    // Eine Halle statt einer Fläche im Nichts. Das Band endete hinten mit einer
+    // harten Kante gegen den Himmel, und der Boden war ein grosser leerer
+    // sandfarbener Wisch — die untere Bildhälfte enthielt gar nichts.
+    const wandMat = new THREE.MeshLambertMaterial({ color: "#c9b48d" });
+    const rueckwand = new THREE.Mesh(new THREE.BoxGeometry(26, 7, 0.6), wandMat);
+    rueckwand.position.set(0, GROUND_Y + 3.5, BELT_FAR_Z - 2.4);
+    rueckwand.receiveShadow = true;
+    this.scene.add(rueckwand);
+    // Der Schacht, aus dem die Pakete kommen.
+    const schacht = new THREE.Mesh(
+      new THREE.BoxGeometry(BELT_WIDTH + 0.9, 1.5, 1.2),
+      new THREE.MeshLambertMaterial({ color: "#8d99a8" })
+    );
+    schacht.position.set(0, GROUND_Y + 1.7, BELT_FAR_Z - 1.5);
+    schacht.castShadow = true;
+    this.scene.add(schacht);
+    // Bodenmarkierungen: sie geben dem Hallenboden Struktur und zeigen beim
+    // Wischen, dass man sich seitlich bewegt.
+    const markeMat = new THREE.MeshLambertMaterial({ color: "#d8c49b" });
+    for (let i = 0; i < 9; i += 1) {
+      const marke = new THREE.Mesh(new THREE.BoxGeometry(22, 0.02, 0.3), markeMat);
+      marke.position.set(0, GROUND_Y + 0.01, BELT_NEAR_Z + 1.6 - i * 1.9);
+      this.scene.add(marke);
+    }
+    [-1, 1].forEach((seite) => {
+      const streifen = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 16), markeMat);
+      streifen.position.set(seite * 4.6, GROUND_Y + 0.012, BELT_NEAR_Z - 6);
+      this.scene.add(streifen);
+    });
+
     this.camera.position.set(0, 5.0, 10.4);
     this.camera.lookAt(0, 0.1, 1.6);
   }
@@ -360,11 +390,17 @@ export class SortBelt {
     kin.add(label);
     // Seitlich neben dem Bandende: er greift sichtbar nach dem vordersten
     // Paket, verdeckt aber nichts, worauf man schauen muss.
-    kin.position.set(-1.8, standOn(GROUND_Y), BELT_NEAR_Z + 0.2);
+    // NEBEN das Band, auf halber Länge. Bei x=-1.8 direkt an der Bandkante
+    // stand der Arbeiter am linken Bildrand, und rückte man ihn nach innen,
+    // verschwand er hinter den Rutschen — die stehen näher an der Kamera als
+    // er. Weiter hinten am Band ist der sichtbare Ausschnitt breiter, dort
+    // passt er hin, ohne etwas zu verdecken.
+    kin.position.set(-2.05, standOn(GROUND_Y), 0.6);
+    kin.rotation.y = Math.PI / 2;
     kin.rotation.y = 0.5;
     this.scene.add(kin);
     const shadow = createShadowBlob(0.5);
-    shadow.position.set(-1.8, GROUND_Y + 0.02, BELT_NEAR_Z + 0.2);
+    shadow.position.set(-2.05, GROUND_Y + 0.02, 0.6);
     this.scene.add(shadow);
     this.worker = kin;
     this.workerAnimator = new KinAnimator(kin);
