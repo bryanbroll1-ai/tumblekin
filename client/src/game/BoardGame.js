@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin118";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin118";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin118";
-import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin118";
-import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin118";
+import { drawDiceFace } from "./Dice.js?v=tumblekin119";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin119";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin119";
+import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin119";
+import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin119";
 
 const EVENT_FIELDS = new Set(["challenge", "gate", "star", "coin", "item", "luck", "trap"]);
 const CAMERA_DAMPING = 6.5;
@@ -192,9 +192,16 @@ export class BoardGame {
     });
     const token = this.tokens.get(landing.playerId);
     const effect = landing.fieldEffect || {};
+    // Der Sternkauf steht in einem EIGENEN Feld der Meldung, nicht in der
+    // Feldwirkung: man kauft ihn im VORBEIGEHEN, die Feldwirkung gehört zum
+    // Feld, auf dem man stehenbleibt. Hier wurde nur die Feldwirkung gelesen —
+    // effect.starGained war damit nie wahr, und die ganze Sternfeier unten,
+    // Konfetti samt Ausruf, hat nie ein einziges Mal ausgelöst. Der beste
+    // Moment des Spiels lief völlig unbemerkt ab.
+    const stern = landing.starPass?.starGained ? landing.starPass : null;
     // A star buy or a gamble win is worth a celebration; a trap or a lost bet
     // gets the sad slump. Everything else keeps the soft landing.
-    const good = effect.starGained || effect.gamble === "win" || (effect.coins || 0) >= 6;
+    const good = Boolean(stern) || effect.gamble === "win" || (effect.coins || 0) >= 6;
     const bad = effect.gamble === "loss" || (effect.coins || 0) < 0;
     let reactionType = "land";
     if (landing.fieldType === "challenge" || good) reactionType = "cheer";
@@ -211,7 +218,7 @@ export class BoardGame {
     if (!spot || !this.floaters) return;
     const at = new THREE.Vector3(spot.x, spot.y + 0.75, spot.z);
 
-    if (effect.starGained) {
+    if (stern) {
       this.floaters.pop(at, "⭐ STERN!", { color: "#ffe36b", size: 0.5, life: 1.5, rise: 1.2 });
       this.bursts?.spawn(at, ["#ffe36b", "#ffb400", "#ffffff"], { count: 30, speed: 2.6, up: 3, size: 0.09, life: 1.1, drag: 1.1 });
       this.bursts?.ring(new THREE.Vector3(spot.x, spot.y + 0.12, spot.z), "#ffe36b", { radius: 2.4, life: 0.8, opacity: 0.7, y: spot.y + 0.12 });

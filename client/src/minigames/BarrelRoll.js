@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin118";
+} from "./VoxelKit.js?v=tumblekin119";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin118";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin118";
+} from "./SceneKit.js?v=tumblekin119";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin119";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
@@ -112,6 +112,13 @@ export class BarrelRoll {
     if (own?.fallenAt || this.holdDir === 0) {
       this.setHold(0);
       return;
+    }
+    // Trippelschritte auf dem Fass. Balancieren war lautlos — dabei ist das
+    // Rudern mit den Füssen genau das, was man dabei tut.
+    const jetzt = performance.now();
+    if (jetzt - (this.letzterSchritt || 0) > 130) {
+      this.letzterSchritt = jetzt;
+      this.feedback?.sound("step", { pan: this.holdDir * 0.35 });
     }
     this.sendInput({ action: "run", dir: this.holdDir }).catch(() => {});
   }

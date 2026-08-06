@@ -7,15 +7,15 @@ import {
   createNameLabel,
   createVoxelKin,
   createCloud
-} from "./VoxelKit.js?v=tumblekin118";
+} from "./VoxelKit.js?v=tumblekin119";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin118";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin118";
+} from "./SceneKit.js?v=tumblekin119";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin119";
 
 // Tiefenrausch — tippen gräbt eine Stufe tiefer, hochwischen zahlt die Beute
 // ein. Tiefer bringt mehr, aber jeder Stollen kann einstürzen, und dann ist
@@ -315,6 +315,11 @@ export class DeepDig {
     if (event.kind === "dug") {
       this.bursts.spawn(at, ["#ffd15c", "#a9763f"], { count: 6 * fxScale(), speed: 1.2, up: 0.9, size: 0.05, life: 0.4, drag: 2.4 });
       this.floaters.pop(at, `+${event.gold}`, { color: "#ffe36b", size: 0.28, life: 0.5 });
+      // Der Spatenstich. Er ist die einzige Handlung dieses Spiels und war
+      // lautlos — es gab nur ein kurzes Rütteln. Ein Spiel, in dem man dreissig
+      // Sekunden lang tippt und dabei nichts hört, fühlt sich an wie ein
+      // Bildschirm, der nicht antwortet.
+      this.feedback?.sound("drop");
       this.feedback?.vibrate(6);
     } else if (event.kind === "banked") {
       this.bursts.spawn(at, ["#ffd15c", "#ffffff"], { count: 18 * fxScale(), speed: 2.2, up: 2.4, size: 0.08, life: 0.8, drag: 1.5 });

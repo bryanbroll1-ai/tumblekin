@@ -6,9 +6,9 @@ import {
   createNameLabel,
   createOwnMarker,
   updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin118";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin118";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin118";
+} from "./VoxelKit.js?v=tumblekin119";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin119";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin119";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a

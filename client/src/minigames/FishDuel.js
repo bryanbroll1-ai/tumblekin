@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin118";
+} from "./VoxelKit.js?v=tumblekin119";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   teardownStage,
   dressWater
-} from "./SceneKit.js?v=tumblekin118";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin118";
+} from "./SceneKit.js?v=tumblekin119";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin119";
 
 // Angelduell — der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
 // baut Spannung auf, Loslassen lässt sie sinken, kostet aber Weg. In seinen
@@ -301,6 +301,18 @@ export class FishDuel {
     if (this.holding && !minigame.finaleAt && frameNow - this.lastPingAt > 70) {
       this.lastPingAt = frameNow;
       this.sendInput({ action: "reel" }).catch(() => {});
+    }
+    // Die Rolle ratscht. Einholen war lautlos — bei einem Spiel, in dem man
+    // sekundenlang nichts anderes tut als halten, ist das die Hälfte des
+    // Gefühls. Der Takt hängt an der Spannung: je straffer die Schnur, desto
+    // schneller und drängender das Ratschen.
+    if (this.holding && !minigame.finaleAt) {
+      const spannung = Math.min(1, Math.max(0, own?.tension ?? 0));
+      const takt = 190 - spannung * 110;
+      if (frameNow - (this.letztesRatschen || 0) > takt) {
+        this.letztesRatschen = frameNow;
+        this.feedback?.sound("clack");
+      }
     }
 
     if (own) {

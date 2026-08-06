@@ -7,15 +7,15 @@ import {
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin118";
+} from "./VoxelKit.js?v=tumblekin119";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin118";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin118";
+} from "./SceneKit.js?v=tumblekin119";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin119";
 
 // Spurmaler — eine geschwungene Spur läuft von unten nach oben. Der eigene Kin
 // reitet als Pinsel darauf und malt sie aus, solange der Finger im Toleranzband
@@ -170,6 +170,14 @@ export class TracePainter {
     if (!this.raycaster.ray.intersectPlane(this.boardPlane, hit)) return;
     const x = clamp(hit.x / BOARD_W + 0.5, 0, 1);
     const y = clamp(hit.y / BOARD_H, 0, 1);
+    // Der Strich macht ein Geräusch. Bisher war Malen völlig lautlos — obwohl
+    // es in der Klangwerkstatt seit je einen "paint" gibt, den nie jemand
+    // gerufen hat. Getaktet, sonst prasselt es bei jeder Fingerbewegung.
+    const jetzt = performance.now();
+    if (jetzt - (this.letzterStrich || 0) > 110) {
+      this.letzterStrich = jetzt;
+      this.feedback?.sound("paint", { pan: (x - 0.5) * 0.6 });
+    }
     this.sendInput({ action: "trace", x, y }).catch(() => {});
   }
 

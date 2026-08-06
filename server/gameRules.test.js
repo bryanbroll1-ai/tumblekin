@@ -1408,6 +1408,31 @@ test("Klänge: jeder gerufene Name existiert auch", () => {
   assert.deepEqual(stumm, [], `stumme Klänge: ${stumm.map((n) => `${n} (${gerufen.get(n).join(", ")})`).join("; ")}`);
 });
 
+// Der Sternkauf steht in einem EIGENEN Feld der Landemeldung, nicht in der
+// Feldwirkung — weil man den Stern im VORBEIGEHEN kauft und die Feldwirkung zum
+// Feld gehört, auf dem man stehenbleibt. Der Client las lange nur die
+// Feldwirkung; damit war starGained dort nie wahr, die Sternfeier loeste nie
+// aus, und weil der Kauf Muenzen kostet, spielte er den Fehlerklang. Dieser
+// Test haelt fest, WO die Nachricht steht.
+test("Stern: der Kauf steht in starPass, nicht in der Feldwirkung", () => {
+  const brett = getBoard("mossback");
+  const stern = brett.starPads[1];
+  const kaeufer = boardPlayer({ coins: STAR_PRICE + 5 });
+  const room = boardRoom({ starIndex: stern, players: [kaeufer] });
+  // Weg fuehrt UEBER das Sternfeld hinweg und endet dahinter.
+  const pfad = [stern - 2, stern - 1, stern, stern + 1, stern + 2];
+  const ergebnis = resolveStarPurchase(kaeufer, pfad, room);
+  assert.ok(ergebnis, "kein Ergebnis — der Stern lag nicht auf dem Weg");
+  assert.equal(ergebnis.starGained, true, "starGained fehlt in starPass");
+  assert.equal(kaeufer.stars, 1);
+  assert.ok(ergebnis.coins < 0, "der Kauf kostet Münzen — genau deshalb darf er nicht wie ein Verlust klingen");
+
+  // Und die Feldwirkung des Zielfelds weiss davon NICHTS. Wer nur sie liest,
+  // sieht den Stern nie.
+  const wirkung = applyFieldEffect(kaeufer, "normal", room);
+  assert.notEqual(wirkung.starGained, true);
+});
+
 // --- Board economy: stars, items and risk fields ---------------------------
 
 function boardPlayer(overrides = {}) {

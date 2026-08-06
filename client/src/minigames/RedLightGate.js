@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   KIN_SOLE,
   standOn
-} from "./VoxelKit.js?v=tumblekin118";
+} from "./VoxelKit.js?v=tumblekin119";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin118";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin118";
+} from "./SceneKit.js?v=tumblekin119";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin119";
 
 // Lichtwächter — hold the button to sprint towards the gate while the
 // giant guard looks away. When the light flips to red he whirls around:
@@ -112,6 +112,14 @@ export class RedLightGate {
     if (own?.finishedAt) {
       this.setHolding(false);
       return;
+    }
+    // Schritte. Laufen war lautlos, obwohl es die einzige Handlung des Spiels
+    // ist — und gerade hier zählt das Gefühl, weil man beim Halten und Loslassen
+    // nichts sieht ausser der eigenen Figur.
+    const jetzt = performance.now();
+    if (jetzt - (this.letzterSchritt || 0) > 150) {
+      this.letzterSchritt = jetzt;
+      this.feedback?.sound("step");
     }
     this.sendInput({ action: "run" }).catch(() => {});
   }
