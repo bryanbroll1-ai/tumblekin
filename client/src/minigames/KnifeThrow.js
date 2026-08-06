@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin113";
+} from "./VoxelKit.js?v=tumblekin114";
 import {
   mountStage,
   mountHud,
@@ -17,9 +17,10 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage,
-  fitKinsInView
-} from "./SceneKit.js?v=tumblekin113";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
+  fitKinsInView,
+  dressMeadow
+} from "./SceneKit.js?v=tumblekin114";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin114";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -158,6 +159,9 @@ export class KnifeThrow {
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     this.scene.add(meadow);
+    // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
+    // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
+    dressMeadow(this.scene, { seed: 13, keepOut: { x: 4.2, z: 4.6 }, spread: { x: 17, z: 15 } });
     // Two tall support posts holding the disc up above the throwers.
     [-2.1, 2.1].forEach((x) => {
       const post = new THREE.Mesh(
@@ -230,7 +234,10 @@ export class KnifeThrow {
     if (playerId === centreId) return 0;
     const players = this.getState()?.players || [];
     const others = players.filter((p) => p.id !== centreId).map((p) => p.id);
-    const flanks = [-2.4, 2.4, -1.3, 1.3];
+    // Gerechnet: die Werfer stehen bei z = 2.4, die Kamera bei 8.9 — macht rund
+    // 7 Einheiten Abstand, und sichtbar sind davon 1.64 nach jeder Seite. Bei
+    // ±2.4 stand der äussere Werfer samt Namensschild ausserhalb des Bildes.
+    const flanks = [-1.35, 1.35, -0.72, 0.72];
     const slot = others.indexOf(playerId);
     return flanks[(slot >= 0 ? slot : index) % flanks.length];
   }

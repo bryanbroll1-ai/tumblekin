@@ -9,16 +9,17 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin113";
+} from "./VoxelKit.js?v=tumblekin114";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin113";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
+  teardownStage,
+  dressMeadow
+} from "./SceneKit.js?v=tumblekin114";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin114";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -116,6 +117,9 @@ export class CoinRain {
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     this.scene.add(meadow);
+    // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
+    // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
+    dressMeadow(this.scene, { seed: 9, keepOut: { x: 4.2, z: 4.0 }, spread: { x: 17, z: 15 } });
     for (let lane = 0; lane < 3; lane += 1) {
       const strip = new THREE.Mesh(
         new THREE.BoxGeometry(LANE_WIDTH - 0.12, 0.3, 2.8),
@@ -218,7 +222,7 @@ export class CoinRain {
     this.scene.add(shadow);
     kin.userData.label = label;
     kin.userData.shadow = shadow;
-    kin.userData.stagger = (index - 1.5) * 0.3;
+    kin.userData.stagger = (index - 1.5) * 0.42;
     kin.position.set(this.laneX(1), KIN_Y, 1 + kin.userData.stagger);
     this.scene.add(kin);
     const animator = new KinAnimator(kin);
@@ -278,7 +282,12 @@ export class CoinRain {
       if (!entry) return;
       const kin = this.ensureKin(player, index);
       const animator = this.animators.get(player.id);
-      const targetX = this.laneX(entry.lane) + (index - (state.players.length - 1) / 2) * 0.26;
+      // Versatz je Spieler, damit sich vier Figuren in derselben Bahn nicht
+      // ineinander stellen. 0.26 war zu wenig: ein Rumpf ist 0.42 breit, und
+      // im Bild stand ein Klumpen aus vier Figuren mit einem Stapel Namen
+      // darüber. Ein halber Rumpf Abstand reiht sie auf, ohne dass sie die
+      // Bahn verlassen.
+      const targetX = this.laneX(entry.lane) + (index - (state.players.length - 1) / 2) * 0.44;
       const moving = Math.abs(kin.position.x - targetX) > 0.05;
       kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.3, dt));
 

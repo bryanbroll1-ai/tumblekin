@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin113";
-import { qualityTier } from "./Quality.js?v=tumblekin113";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin114";
+import { qualityTier } from "./Quality.js?v=tumblekin114";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -215,4 +215,197 @@ export function teardownStage(host) {
   host.renderer = null;
   host.ownMarker = null;
   if (host.canvas) host.canvas.hidden = false;
+}
+
+// --- Kulisse: eine Wiese anziehen ---------------------------------------
+//
+// Zehn Szenen stehen auf derselben Fläche in derselben Farbe, und in fast allen
+// war die untere Bildhälfte ein leerer grüner Wisch. Das ist kein Kamerafehler
+// — die Handlung ist nun einmal ein waagrechter Streifen, und ein hochkantes
+// Handy hat darüber und darunter Platz übrig. Was fehlt, ist Kulisse.
+//
+// Sie muss allerdings fast nichts kosten. Darum InstancedMesh: alle Grasbüschel
+// zusammen sind EIN Zeichenaufruf, alle Blumen einer, alle Steine einer, der
+// ganze Baumkranz zwei. Fünf Aufrufe für eine ganze Landschaft — zum Vergleich
+// liegt eine Szene sonst bei zwanzig bis hundertfünfzig.
+//
+// Gestreut wird deterministisch aus dem Seed: dieselbe Szene sieht bei jedem
+// Start gleich aus, sonst wäre kein Bildvergleich möglich.
+function streuer(seed) {
+  let zustand = (seed * 1103515245 + 12345) >>> 0;
+  return () => {
+    zustand = (zustand * 1664525 + 1013904223) >>> 0;
+    return zustand / 4294967296;
+  };
+}
+
+export function dressMeadow(scene, {
+  groundY = 0,
+  seed = 7,
+  // Freizuhaltendes Rechteck um die Bildmitte — dort wird gespielt.
+  keepOut = { x: 4.5, z: 3.2 },
+  // Bis hierhin wird gestreut.
+  spread = { x: 17, z: 15 },
+  // Flecken im Boden. Sie sind das Wirksamste an der ganzen Kulisse: eine
+  // gleichmässig grüne Fläche bleibt ein Wisch, egal wie viele Büschel man
+  // darauf stellt — verstreute Einzelteile bräuchten Tausende, um als Textur
+  // zu lesen. Ein Dutzend grosse, flache Flecken in benachbarten Grüntönen
+  // erledigt dasselbe mit zwei Zeichenaufrufen. Derselbe Griff, der die
+  // Kletterwand von einer Platte in geschichteten Fels verwandelt hat.
+  patches = 26,
+  patchColors = ["#74c465", "#8ad97a"],
+  tufts = 240,
+  flowers = 46,
+  stones = 22,
+  trees = 30,
+  treeRing = { x: 15.5, z: 13.5 },
+  // Vor dieser Tiefe stehen KEINE Bäume. Die Kamera schaut aus dem positiven z
+  // heran; ein Baum, der neben ihr landet, füllt als dunkler Keil das halbe
+  // Bild. Büschel und Steine dürfen dort bleiben, die sind klein genug.
+  frontCut = 5,
+  grassColor = "#6cb95c",
+  flowerColors = ["#ffd15c", "#ff8fb1", "#ffffff", "#b98cff"],
+  trunkColor = "#7a5330",
+  crownColor = "#3f8f45"
+} = {}) {
+  const zufall = streuer(seed);
+  const hilfs = new THREE.Object3D();
+  const gestreut = [];
+
+  // Einen Punkt ausserhalb des Spielfelds finden. Nach zwanzig Fehlversuchen
+  // wird der letzte genommen — lieber ein Büschel zu nah als eine Endlosschleife.
+  const punkt = () => {
+    for (let versuch = 0; versuch < 20; versuch += 1) {
+      const x = (zufall() * 2 - 1) * spread.x;
+      // Nach VORN gewichtet. Gleichmässig gestreut landet der grösste Teil
+      // hinten in der Tiefe, wo perspektivisch ohnehin alles zusammenrückt —
+      // und der leere Fleck, um den es geht, liegt vorn unten im Bild.
+      const z = -spread.z + 2 * spread.z * Math.pow(zufall(), 0.6);
+      if (Math.abs(x) > keepOut.x || Math.abs(z) > keepOut.z) return { x, z };
+    }
+    return { x: spread.x, z: spread.z };
+  };
+
+  const setzen = (geometry, material, anzahl, aufbau) => {
+    if (anzahl <= 0) return null;
+    const mesh = new THREE.InstancedMesh(geometry, material, anzahl);
+    for (let i = 0; i < anzahl; i += 1) {
+      aufbau(hilfs, i);
+      hilfs.updateMatrix();
+      mesh.setMatrixAt(i, hilfs.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+    gestreut.push(mesh);
+    return mesh;
+  };
+
+  // Erst die Flecken, damit alles andere darüber liegt.
+  patchColors.forEach((farbe, fi) => {
+    setzen(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshLambertMaterial({ color: farbe }),
+      Math.ceil(patches / patchColors.length),
+      (o) => {
+        const x = (zufall() * 2 - 1) * spread.x;
+        const z = -spread.z + 2 * spread.z * Math.pow(zufall(), 0.6);
+        const breite = 2.5 + zufall() * 6.5;
+        o.position.set(x, groundY + 0.008 + fi * 0.004, z);
+        o.scale.set(breite, breite * (0.5 + zufall() * 0.7), 1);
+        o.rotation.set(-Math.PI / 2, 0, zufall() * Math.PI);
+      }
+    );
+  });
+
+  // Grasbüschel — klein und zahlreich. In der ersten Fassung waren sie 0.36
+  // hoch und bis 1.6 skaliert; neben einem Klotz von 0.46 sah das nicht nach
+  // Gras aus, sondern nach einem Wald von Nadelbäumchen auf dem Rasen.
+  setzen(
+    new THREE.ConeGeometry(0.07, 0.2, 4),
+    new THREE.MeshLambertMaterial({ color: grassColor }),
+    tufts,
+    (o) => {
+      const p = punkt();
+      const s = 0.6 + zufall() * 0.6;
+      o.position.set(p.x, groundY + 0.1 * s, p.z);
+      o.scale.set(s, s, s);
+      o.rotation.set(0, zufall() * Math.PI, (zufall() - 0.5) * 0.2);
+    }
+  );
+
+  // Blumen: vier Farben in einem Zeichenaufruf gehen nicht, also bekommt jede
+  // Farbe ihren eigenen — vier winzige Aufrufe für den Farbtupfer, der eine
+  // Wiese erst nach Wiese aussehen lässt.
+  flowerColors.forEach((farbe, fi) => {
+    setzen(
+      new THREE.BoxGeometry(0.11, 0.11, 0.11),
+      new THREE.MeshLambertMaterial({ color: farbe }),
+      Math.ceil(flowers / flowerColors.length),
+      (o) => {
+        const p = punkt();
+        o.position.set(p.x, groundY + 0.16 + (fi % 2) * 0.03, p.z);
+        o.scale.setScalar(0.8 + zufall() * 0.5);
+        o.rotation.set(0, zufall() * Math.PI, 0);
+      }
+    );
+  });
+
+  // Steine geben dem Grün etwas, woran sich das Auge festhält.
+  setzen(
+    new THREE.BoxGeometry(0.18, 0.12, 0.16),
+    new THREE.MeshLambertMaterial({ color: "#9aa79b" }),
+    stones,
+    (o) => {
+      const p = punkt();
+      const s = 0.5 + zufall() * 0.7;
+      o.position.set(p.x, groundY + 0.05 * s, p.z);
+      o.scale.set(s, s * 0.8, s);
+      o.rotation.set(0, zufall() * Math.PI, 0);
+    }
+  );
+
+  // Baumreihe am Rand. Sie ist das Wichtigste an der ganzen Kulisse: ohne sie
+  // stösst die Wiese als harte Kante gegen den Himmel, mit ihr hat das Bild
+  // einen Horizont.
+  const baumPunkt = (i) => {
+    const winkel = (i / trees) * Math.PI * 2 + zufall() * 0.12;
+    const streu = 0.85 + zufall() * 0.4;
+    const x = Math.cos(winkel) * treeRing.x * streu;
+    let z = Math.sin(winkel) * treeRing.z * streu;
+    // Alles, was vor der Grenze landen würde, wird nach hinten gespiegelt —
+    // so bleibt der Kranz gleich dicht, ohne dass ein Baum in die Kamera wächst.
+    if (z > frontCut) z = frontCut - (z - frontCut) - 2;
+    return { x, z };
+  };
+  const baumHoehe = [];
+  // Kleiner als in der ersten Fassung: bei 1.5 bis 3.1 zogen die Bäume den
+  // Blick vom Spiel weg, statt es zu rahmen.
+  for (let i = 0; i < trees; i += 1) baumHoehe.push(1.1 + zufall() * 1.0);
+  const baumOrt = [];
+  for (let i = 0; i < trees; i += 1) baumOrt.push(baumPunkt(i));
+
+  setzen(
+    new THREE.BoxGeometry(0.26, 1, 0.26),
+    new THREE.MeshLambertMaterial({ color: trunkColor }),
+    trees,
+    (o, i) => {
+      o.position.set(baumOrt[i].x, groundY + baumHoehe[i] * 0.3, baumOrt[i].z);
+      o.scale.set(1, baumHoehe[i] * 0.6, 1);
+      o.rotation.set(0, 0, 0);
+    }
+  );
+  setzen(
+    new THREE.ConeGeometry(0.95, 1.9, 6),
+    new THREE.MeshLambertMaterial({ color: crownColor }),
+    trees,
+    (o, i) => {
+      const h = baumHoehe[i];
+      o.position.set(baumOrt[i].x, groundY + h * 0.6 + h * 0.42, baumOrt[i].z);
+      o.scale.setScalar(h * 0.62);
+      o.rotation.set(0, i * 0.7, 0);
+    }
+  );
+
+  return gestreut;
 }

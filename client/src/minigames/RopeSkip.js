@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin113";
+} from "./VoxelKit.js?v=tumblekin114";
 import {
   mountStage,
   mountHud,
@@ -17,9 +17,10 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage,
-  fitKinsInView
-} from "./SceneKit.js?v=tumblekin113";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
+  fitKinsInView,
+  dressMeadow
+} from "./SceneKit.js?v=tumblekin114";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin114";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
@@ -122,6 +123,9 @@ export class RopeSkip {
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     this.scene.add(meadow);
+    // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
+    // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
+    dressMeadow(this.scene, { seed: 11, keepOut: { x: 4.8, z: 3.0 }, spread: { x: 17, z: 15 } });
     const pit = new THREE.Mesh(
       new THREE.BoxGeometry(7.6, 0.34, 2.6),
       new THREE.MeshLambertMaterial({ color: "#ffe6a3" })
@@ -289,7 +293,15 @@ export class RopeSkip {
         animator.trigger("fall");
         this.bursts.spawn(kin.position.clone(), ["#e0334f", player.color, "#ffffff"], { count: 14, speed: 2.4, up: 2, size: 0.09, life: 0.8, drag: 1.4 });
         this.bursts.ring(kin.position.clone().setY(0.08), "#e0334f", { radius: 1.6, life: 0.55 });
-        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "GESTOLPERT!", { color: "#ff6b7f", size: 0.4 });
+        // Kurz und gestaffelt. "GESTOLPERT!" ist breiter als der Abstand
+        // zwischen zwei Springern — stolpern zwei gleichzeitig, schoben sich
+        // die Schriftzüge ineinander und ergaben "GESTOLGESTOLPERT!". Der
+        // Ausruf steht jetzt je Bahn eine Stufe höher und ist kurz genug.
+        this.floaters.pop(
+          kin.position.clone().add(new THREE.Vector3(0, 1.1 + (index % 4) * 0.42, 0)),
+          "RAUS!",
+          { color: "#ff6b7f", size: 0.42 }
+        );
         if (player.id === controlledId) {
           this.shake = Math.max(this.shake, 0.9);
           this.feedback?.sound("error");

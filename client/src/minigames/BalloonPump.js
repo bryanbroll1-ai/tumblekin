@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin113";
+} from "./VoxelKit.js?v=tumblekin114";
 import {
   mountStage,
   mountHud,
@@ -16,9 +16,10 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage,
-  fitKinsInView
-} from "./SceneKit.js?v=tumblekin113";
-import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin113";
+  fitKinsInView,
+  dressMeadow
+} from "./SceneKit.js?v=tumblekin114";
+import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin114";
 
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the
@@ -117,6 +118,9 @@ export class BalloonPump {
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     this.scene.add(meadow);
+    // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
+    // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
+    dressMeadow(this.scene, { seed: 6, keepOut: { x: 4.6, z: 3.4 }, spread: { x: 17, z: 15 } });
     const deck = new THREE.Mesh(
       new THREE.BoxGeometry(9.4, 0.3, 4.4),
       new THREE.MeshLambertMaterial({ color: "#c98d4e" })

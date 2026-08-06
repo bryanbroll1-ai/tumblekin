@@ -6,9 +6,9 @@ import {
   createNameLabel,
   createOwnMarker,
   updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin113";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage } from "./SceneKit.js?v=tumblekin113";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
+} from "./VoxelKit.js?v=tumblekin114";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin114";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin114";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -113,6 +113,11 @@ export class TowerStack {
     ground.position.y = -0.25;
     ground.receiveShadow = true;
     this.scene.add(ground);
+
+    // Kulisse statt leerer Wiese: Büschel, Blumen, Steine und ein Baumkranz,
+    // der dem Bild einen Horizont gibt. Freigehalten wird der Streifen mit den
+    // vier Türmen.
+    dressMeadow(this.scene, { seed: 14, keepOut: { x: 4.2, z: 2.6 }, spread: { x: 16, z: 14 } });
 
     [[-7, 5.4, -4, 5], [7, 6, -3, 6]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);

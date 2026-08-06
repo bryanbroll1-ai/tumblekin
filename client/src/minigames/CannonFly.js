@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin113";
+} from "./VoxelKit.js?v=tumblekin114";
 import {
   mountStage,
   mountHud,
@@ -16,9 +16,10 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage,
-  fitKinsInView
-} from "./SceneKit.js?v=tumblekin113";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin113";
+  fitKinsInView,
+  dressMeadow
+} from "./SceneKit.js?v=tumblekin114";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin114";
 
 // Kanonenflug — one perfectly timed tap fires your Kin out of the cannon.
 // The power gauge swings up and down; tap at the peak to fly the farthest.
@@ -111,6 +112,18 @@ export class CannonFly {
     meadow.position.set(0, -0.25, -12);
     meadow.receiveShadow = true;
     this.scene.add(meadow);
+    // Kulisse nur SEITLICH: die Flugbahn läuft geradeaus nach hinten, und ein
+    // Baum darin würde mitten im wichtigsten Teil des Bildes stehen. Mit einem
+    // breiten freien Streifen säumen die Bäume die Bahn, statt sie zuzustellen.
+    dressMeadow(this.scene, {
+      seed: 12,
+      keepOut: { x: 6.5, z: 30 },
+      spread: { x: 19, z: 28 },
+      treeRing: { x: 16, z: 26 },
+      frontCut: 4,
+      trees: 34,
+      patches: 30
+    });
     for (let m = 20; m <= 100; m += 20) {
       const stripe = new THREE.Mesh(
         new THREE.BoxGeometry(9, 0.06, 0.22),

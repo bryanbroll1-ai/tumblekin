@@ -2012,7 +2012,12 @@ body[data-screen="minigame"] .game-menu-button {
   font-weight: 1000;
   letter-spacing: 0.02em;
   text-align: center;
-  white-space: nowrap;
+  /* Lange Ansagen dürfen umbrechen. Mit nowrap wurde "Dev 2 wirft … 2s · noch
+     4 dabei" am rechten Rand abgeschnitten — der Satz endete mitten im Wort,
+     und die Zahl, um die es ging, stand nicht mehr im Bild. Kurze Ansagen
+     bleiben ohnehin einzeilig. */
+  white-space: normal;
+  text-wrap: balance;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
   animation: banner-pop 260ms ease-out;
 }
