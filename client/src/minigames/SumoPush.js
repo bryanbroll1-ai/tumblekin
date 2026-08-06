@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   standOn,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin114";
+} from "./VoxelKit.js?v=tumblekin115";
 import {
   mountStage,
   mountHud,
@@ -19,8 +19,8 @@ import {
   syncOwnMarker,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin114";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin114";
+} from "./SceneKit.js?v=tumblekin115";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin115";
 
 // Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine

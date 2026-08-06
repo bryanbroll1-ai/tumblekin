@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin114";
+} from "./VoxelKit.js?v=tumblekin115";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin114";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin114";
+} from "./SceneKit.js?v=tumblekin115";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin115";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
@@ -149,14 +149,30 @@ export class BarrelRoll {
     water.receiveShadow = true;
     this.scene.add(water);
     this.waterMesh = water;
-    // Banks left and right.
+    // Ufer links und rechts. Deutlich TIEFER als vorher: bei 30 Einheiten Länge
+    // lag ihre Stirnseite im Bild und das Ufer sah aus wie eine grüne Platte,
+    // die im Fluss schwimmt.
     [[-13, "#7fce6f"], [13, "#7fce6f"]].forEach(([x, color]) => {
       const bank = new THREE.Mesh(
-        new THREE.BoxGeometry(14, 1.6, 30),
+        new THREE.BoxGeometry(14, 1.6, 90),
         new THREE.MeshLambertMaterial({ color })
       );
       bank.position.set(x, WATER_Y + 0.3, 0);
+      bank.receiveShadow = true;
       this.scene.add(bank);
+    });
+    // Bewuchs auf beiden Ufern — der Fluss selbst bleibt frei.
+    dressMeadow(this.scene, {
+      seed: 21,
+      groundY: WATER_Y + 1.1,
+      keepOut: { x: 6.4, z: 0 },
+      spread: { x: 19, z: 26 },
+      treeRing: { x: 15, z: 22 },
+      frontCut: 7,
+      trees: 26,
+      patches: 22,
+      tufts: 150,
+      stones: 14
     });
 
     // The giant barrel: horizontal cylinder with wood stripes, seen from
@@ -240,12 +256,14 @@ export class BarrelRoll {
     this.resizeRenderer();
     // Three-quarter view: raised and offset sideways so all four runners on
     // the barrel stay visible instead of hiding behind each other.
-    this.camera.position.set(this.baseCamX || 3.4, this.baseCamY || 5, this.baseCamZ || 8.2);
-    this.camera.lookAt(0, 1.9, 0);
+    this.camera.position.set(this.baseCamX || 6.0, this.baseCamY || 8.0, this.baseCamZ || 7.4);
+    this.camera.lookAt(0, 2.1, 0);
   }
 
   laneZ(index) {
-    return (index - 1.5) * 0.8;
+    // Weiter auseinander: das Fass ist 3.4 lang, vier Figuren im Abstand 0.95
+    // füllen es genau und stehen sich nicht mehr auf den Füssen.
+    return (index - 1.5) * 0.95;
   }
 
   ensureKin(player, index = 0) {
@@ -378,7 +396,7 @@ export class BarrelRoll {
     this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 16) * this.shake * 0.24 * shakeScale();
     const shakeY = Math.cos(now / 13) * this.shake * 0.18;
-    const desired = new THREE.Vector3((this.baseCamX || 3.4) + shakeX, (this.baseCamY || 5) + shakeY, this.baseCamZ || 8.2);
+    const desired = new THREE.Vector3((this.baseCamX || 6.0) + shakeX, (this.baseCamY || 8.0) + shakeY, this.baseCamZ || 7.4);
     this.camera.position.lerp(desired, frameLerp(0.1, dt));
     this.camera.lookAt(0, 1.9, 0);
 
@@ -412,9 +430,17 @@ export class BarrelRoll {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      this.baseCamX = portrait ? 3.6 : 3.4;
-      this.baseCamY = portrait ? 5.2 : 5;
-      this.baseCamZ = portrait ? 9.4 : 8.2;
+      // Dreiviertelblick von schräg oben statt fast frontal auf den Deckel.
+      //
+      // Die Kamera stand bei x 3.6 / z 9.4, also 21° neben der Fassachse: im
+      // Bild war das ein riesiger brauner Deckel, und die vier Figuren standen
+      // hintereinander auf der Blickachse und schoben sich mitsamt ihren
+      // Namensschildern übereinander. Beides hängt am selben Winkel — die
+      // Balance kippt in x und braucht Blick von vorn, die Reihe steht in z und
+      // braucht Blick von der Seite. Schräg von oben bekommt man beides.
+      this.baseCamX = portrait ? 6.0 : 4.6;
+      this.baseCamY = portrait ? 8.0 : 6.2;
+      this.baseCamZ = portrait ? 7.4 : 7.0;
       camera.fov = portrait ? 54 : 48;
     });
   }

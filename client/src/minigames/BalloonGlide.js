@@ -7,15 +7,15 @@ import {
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin114";
+} from "./VoxelKit.js?v=tumblekin115";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin114";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin114";
+} from "./SceneKit.js?v=tumblekin115";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin115";
 
 // Ballonfahrt — halten steigt, loslassen sinkt, und der Kurs kommt in Toren auf
 // einen zu. Alle vier fliegen denselben Kurs gleichzeitig und nebeneinander:

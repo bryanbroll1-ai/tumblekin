@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin114";
-import { qualityTier } from "./Quality.js?v=tumblekin114";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin115";
+import { qualityTier } from "./Quality.js?v=tumblekin115";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -408,4 +408,157 @@ export function dressMeadow(scene, {
   );
 
   return gestreut;
+}
+
+// Dasselbe für Wasser. Beim Angelduell schaut man auf eine Fläche, auf der
+// ausser einer Schnur nichts ist: kein Ufer, kein Horizont, nichts, woran sich
+// die Entfernung des Fisches ablesen liesse. Eine Wasserfläche ohne Bezug ist
+// noch leerer als eine Wiese ohne Bezug, weil sie nicht einmal Halme hat.
+//
+// Gebaut wird deshalb ein Ufer im Hintergrund, Schilf am Rand, Seerosen auf der
+// Fläche und Tiefenbänder — dasselbe Mittel wie bei der Kletterwand: grosse
+// flache Flächen in benachbarten Tönen, die aus einem Wisch eine Fläche mit
+// Struktur machen.
+export function dressWater(scene, {
+  waterY = 0,
+  seed = 3,
+  // Wie weit reicht das Wasser nach hinten — dort liegt das Ufer.
+  farZ = -34,
+  nearZ = 2,
+  width = 30,
+  // Freizuhaltender Streifen in der Mitte: dort schwimmt der Fisch.
+  laneHalf = 3.2,
+  bands = 7,
+  bandColors = ["#2f9bc9", "#37a4d1"],
+  pads = 26,
+  reeds = 60,
+  shoreColor = "#7fc46a",
+  shoreSand = "#e8d9a8",
+  trees = 26
+} = {}) {
+  const zufall = (() => {
+    let zustand = (seed * 1103515245 + 12345) >>> 0;
+    return () => {
+      zustand = (zustand * 1664525 + 1013904223) >>> 0;
+      return zustand / 4294967296;
+    };
+  })();
+  const hilfs = new THREE.Object3D();
+  const teile = [];
+  const setzen = (geometry, material, anzahl, aufbau) => {
+    if (anzahl <= 0) return;
+    const mesh = new THREE.InstancedMesh(geometry, material, anzahl);
+    for (let i = 0; i < anzahl; i += 1) {
+      aufbau(hilfs, i);
+      hilfs.updateMatrix();
+      mesh.setMatrixAt(i, hilfs.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+    teile.push(mesh);
+  };
+
+  // Tiefenbänder quer zur Blickrichtung. Sie sind der einzige Anhaltspunkt
+  // dafür, WIE WEIT der Fisch draussen ist — vorher lagen sie bei 8 % Deckkraft
+  // und waren praktisch unsichtbar.
+  bandColors.forEach((farbe, fi) => {
+    setzen(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshLambertMaterial({ color: farbe }),
+      Math.ceil(bands / bandColors.length),
+      (o, i) => {
+        // Unregelmässig gesetzt und nur eine Nuance vom Wasser entfernt. Gleich
+        // breit und gleich weit auseinander sahen die Bänder aus wie Streifen
+        // auf einer Flagge, nicht wie Tiefe.
+        const t = (i * bandColors.length + fi + zufall() * 0.7) / bands;
+        const z = nearZ + (farZ - nearZ) * Math.min(1, t);
+        o.position.set(0, waterY + 0.01 + fi * 0.004, z);
+        o.scale.set(width, 1.2 + zufall() * 3.4, 1);
+        o.rotation.set(-Math.PI / 2, 0, 0);
+      }
+    );
+  });
+
+  // Ufer hinten: erst Sand, dann Wiese, dann Bäume. Ohne das trifft das Wasser
+  // als harte Kante auf den Himmel.
+  const sand = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 18, 0.3, 3),
+    new THREE.MeshLambertMaterial({ color: shoreSand })
+  );
+  sand.position.set(0, waterY - 0.02, farZ - 1);
+  scene.add(sand);
+  teile.push(sand);
+  const wiese = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 26, 0.5, 22),
+    new THREE.MeshLambertMaterial({ color: shoreColor })
+  );
+  wiese.position.set(0, waterY + 0.02, farZ - 13);
+  wiese.receiveShadow = true;
+  scene.add(wiese);
+  teile.push(wiese);
+
+  const baumHoehe = [];
+  const baumOrt = [];
+  for (let i = 0; i < trees; i += 1) {
+    baumHoehe.push(1.4 + zufall() * 1.5);
+    baumOrt.push({
+      x: (zufall() * 2 - 1) * (width * 0.5 + 11),
+      z: farZ - 3 - zufall() * 16
+    });
+  }
+  setzen(
+    new THREE.BoxGeometry(0.26, 1, 0.26),
+    new THREE.MeshLambertMaterial({ color: "#7a5330" }),
+    trees,
+    (o, i) => {
+      o.position.set(baumOrt[i].x, waterY + 0.25 + baumHoehe[i] * 0.3, baumOrt[i].z);
+      o.scale.set(1, baumHoehe[i] * 0.6, 1);
+      o.rotation.set(0, 0, 0);
+    }
+  );
+  setzen(
+    new THREE.ConeGeometry(0.95, 1.9, 6),
+    new THREE.MeshLambertMaterial({ color: "#3f8f45" }),
+    trees,
+    (o, i) => {
+      const h = baumHoehe[i];
+      o.position.set(baumOrt[i].x, waterY + 0.25 + h * 0.6 + h * 0.42, baumOrt[i].z);
+      o.scale.setScalar(h * 0.62);
+      o.rotation.set(0, i * 0.7, 0);
+    }
+  );
+
+  // Schilf an den Seiten — es rahmt die Bahn, ohne sie zuzustellen.
+  setzen(
+    new THREE.BoxGeometry(0.06, 0.9, 0.06),
+    new THREE.MeshLambertMaterial({ color: "#4f9b4a" }),
+    reeds,
+    (o) => {
+      const seite = zufall() < 0.5 ? -1 : 1;
+      const x = seite * (laneHalf + 0.6 + zufall() * (width * 0.5 - laneHalf - 1));
+      const z = nearZ + (farZ - nearZ) * zufall();
+      const h = 0.7 + zufall() * 0.9;
+      o.position.set(x, waterY + h * 0.45, z);
+      o.scale.set(1, h, 1);
+      o.rotation.set((zufall() - 0.5) * 0.25, zufall() * Math.PI, (zufall() - 0.5) * 0.25);
+    }
+  );
+
+  // Seerosen: flache Scheiben, die die Fläche gliedern und Grösse zeigen.
+  setzen(
+    new THREE.CircleGeometry(0.42, 10),
+    new THREE.MeshLambertMaterial({ color: "#4aa356" }),
+    pads,
+    (o) => {
+      const seite = zufall() < 0.5 ? -1 : 1;
+      const x = seite * (laneHalf + 0.3 + zufall() * (width * 0.5 - laneHalf));
+      const z = nearZ + (farZ - nearZ) * zufall();
+      o.position.set(x, waterY + 0.03, z);
+      o.scale.setScalar(0.7 + zufall() * 0.8);
+      o.rotation.set(-Math.PI / 2, 0, zufall() * Math.PI);
+    }
+  );
+
+  return teile;
 }

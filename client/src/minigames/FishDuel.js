@@ -8,15 +8,16 @@ import {
   createNameLabel,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin114";
+} from "./VoxelKit.js?v=tumblekin115";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin114";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin114";
+  teardownStage,
+  dressWater
+} from "./SceneKit.js?v=tumblekin115";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin115";
 
 // Angelduell — der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
 // baut Spannung auf, Loslassen lässt sie sinken, kostet aber Weg. In seinen
@@ -34,8 +35,16 @@ import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin114";
 // die Figur knapp 1.0 hoch ist und nicht 1.5, wie ich zuerst gerechnet hatte.
 // Bei z=-1.5 stehen die Fuesse auf ~700 px, also klar ueber dem Banner (ab
 // ~790). Der Fisch kommt entsprechend weiter hinten an.
-const FISH_FAR_Z = -19;
-const FISH_NEAR_Z = -4.4;
+// Die Kampfstrecke ist ZUSAMMENGERÜCKT. Vorher lag der Fisch am Anfang neunzehn
+// Einheiten draussen, also gut dreiundzwanzig von der Kamera: von einem Fisch
+// der Länge 1.15 blieben ein paar Pixel, und dazwischen lagen vierhundert Pixel
+// leeres Wasser mit einer Schnur darin. Der Gegner des Spiels war unsichtbar.
+//
+// Die Regel rechnet ohnehin mit einem Anteil zwischen 0 und 1 — wie viele
+// Welteinheiten das sind, ist ihr gleich. Also so viele, dass man den Fisch die
+// ganze Zeit sieht. Das Wasser dahinter bleibt als Kulisse stehen.
+const FISH_FAR_Z = -11;
+const FISH_NEAR_Z = -3.4;
 const ANGLER_Z = -1.5;
 const PIER_TOP_Y = 0.33;              // Oberkante des Stegs (0.16 + 0.34/2)
 
@@ -136,16 +145,18 @@ export class FishDuel {
     water.receiveShadow = true;
     this.scene.add(water);
 
-    // Bänder auf dem Wasser geben dem Blick Tiefe — ohne sie ist die Fläche
-    // gleichförmig blau und man sieht die Entfernung des Fisches nicht.
-    for (let i = 0; i < 7; i += 1) {
-      const band = new THREE.Mesh(
-        new THREE.BoxGeometry(30, 0.02, 0.5),
-        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.08, depthWrite: false })
-      );
-      band.position.set(0, 0.02, -2.5 - i * 3.4);
-      this.scene.add(band);
-    }
+    // Ufer, Schilf, Seerosen und Tiefenbänder. Vorher lagen hier sieben weisse
+    // Streifen bei 8 % Deckkraft — gemeint als Tiefenanzeige, im Bild praktisch
+    // unsichtbar. Man schaute auf eine leere blaue Fläche und konnte nicht
+    // sehen, wie weit der Fisch draussen war, obwohl genau das die Regel ist.
+    dressWater(this.scene, {
+      seed: 27,
+      waterY: 0,
+      farZ: FISH_FAR_Z - 5,
+      nearZ: 1,
+      width: 30,
+      laneHalf: 2.6
+    });
 
     const pier = new THREE.Mesh(
       new THREE.BoxGeometry(3.2, 0.34, 2.8),
@@ -178,8 +189,8 @@ export class FishDuel {
     this.bursts = new CubeBurst(this.scene);
     this.floaters = new FloatingText(this.scene);
     this.resizeRenderer();
-    this.camera.position.set(0, 5.5, 4.0);
-    this.camera.lookAt(0, 0.4, -6.0);
+    this.camera.position.set(0, 4.3, 3.2);
+    this.camera.lookAt(0, 0.4, -4.6);
   }
 
   buildAngler() {
@@ -222,11 +233,15 @@ export class FishDuel {
     );
     tail.position.z = 0.72;
     fish.add(tail);
+    // Die Rückenflosse ist HELL und schneidet durch die Oberfläche. Sie ist das
+    // Einzige, was man von einem Fisch im Wasser auf zwanzig Einheiten
+    // Entfernung überhaupt sieht — vorher war sie so dunkel wie das Wasser, und
+    // damit war der Gegner des ganzen Spiels unsichtbar.
     const fin = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.28, 0.44),
-      new THREE.MeshLambertMaterial({ color: "#1b3245" })
+      new THREE.BoxGeometry(0.1, 0.4, 0.44),
+      new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#c98f1e", emissiveIntensity: 0.35 })
     );
-    fin.position.y = 0.24;
+    fin.position.y = 0.3;
     fish.add(fin);
     // Ein Auge. Ohne war der Fisch ein Klotz und man sah nicht, wo vorne ist.
     const eye = new THREE.Mesh(
@@ -235,7 +250,7 @@ export class FishDuel {
     );
     eye.position.set(0.27, 0.08, -0.42);
     fish.add(eye);
-    fish.position.set(0, 0.06, FISH_FAR_Z);
+    fish.position.set(0, 0.12, FISH_FAR_Z);
     this.scene.add(fish);
     this.fish = fish;
     this.tail = tail;
@@ -243,9 +258,12 @@ export class FishDuel {
     this.shownSpecies = null;
 
     // Kielwasser: zeigt, dass der Fisch zieht, auch wenn er weit weg klein ist.
+    // Kräftigeres Kielwasser: bei 0.3 Deckkraft und 0.85 Radius war es auf
+    // zwanzig Einheiten ein Pünktchen. Es ist die Fahne des Fisches — daran
+    // liest man ab, wo er ist und dass er zieht.
     const wake = new THREE.Mesh(
-      new THREE.RingGeometry(0.45, 0.85, 20),
-      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.3, depthWrite: false })
+      new THREE.RingGeometry(0.5, 1.35, 22),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55, depthWrite: false })
     );
     wake.rotation.x = -Math.PI / 2;
     wake.position.y = 0.05;
@@ -296,9 +314,9 @@ export class FishDuel {
     this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 12) * this.shake * 0.2 * shakeScale();
     this.camera.position.x += (shakeX - this.camera.position.x) * 0.4;
-    this.camera.position.y = this.baseCamY || 5.5;
-    this.camera.position.z = this.baseCamZ || 4.0;
-    this.camera.lookAt(0, 0.4, -6.0);
+    this.camera.position.y = this.baseCamY || 4.3;
+    this.camera.position.z = this.baseCamZ || 3.2;
+    this.camera.lookAt(0, 0.4, -4.6);
 
     this.updateHud(minigame, arcade, state, now, own);
     this.renderer.render(this.scene, this.camera);
@@ -447,8 +465,9 @@ export class FishDuel {
     resizeStage(this, (portrait, camera) => {
       // Hohe Kamera, flacher Blick: so wird die Entfernung des Fisches auf die
       // Bildhöhe abgebildet (0.32 → -0.53 NDC statt 0.10 → -0.38).
-      this.baseCamY = portrait ? 5.5 : 5.0;
-      this.baseCamZ = portrait ? 4.0 : 4.6;
+      // Tiefer und näher, damit die zusammengerückte Strecke das Bild füllt.
+      this.baseCamY = portrait ? 4.3 : 5.0;
+      this.baseCamZ = portrait ? 3.2 : 4.6;
       camera.fov = portrait ? 60 : 46;
     });
   }
