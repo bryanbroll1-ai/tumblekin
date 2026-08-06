@@ -8,15 +8,15 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin117";
+} from "./VoxelKit.js?v=tumblekin118";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin117";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin117";
+} from "./SceneKit.js?v=tumblekin118";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin118";
 
 // Augenmaß — ein Schwarm Glühkäfer blitzt anderthalb Sekunden auf, danach
 // schätzt man, wie viele es waren.
@@ -270,7 +270,7 @@ export class SwarmCount {
     this.syncWatcher(minigame, arcade, state, now);
 
     this.bursts.update(dt);
-    this.floaters.update(dt);
+    this.floaters.update(dt, this.camera);
 
     this.shake *= frameDecay(0.87, dt);
     const shakeX = Math.sin(now / 11) * this.shake * 0.2 * shakeScale();

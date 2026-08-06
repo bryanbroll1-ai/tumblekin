@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin117";
+} from "./VoxelKit.js?v=tumblekin118";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   resizeStage,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin117";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin117";
+} from "./SceneKit.js?v=tumblekin118";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin118";
 
 // Eisstock — drei Steine je Person, gewischt auf ein Ringziel. Länge des Wisches
 // ist Kraft, Richtung ist Richtung. Fremde Steine darf man wegrempeln, und genau
@@ -56,6 +56,8 @@ export class IceStock {
     this.shake = 0;
     this.drag = null;
     this.lastClacks = 0;
+    this.ruhig = new Set();
+    this.letzterGleitTon = 0;
   }
 
   // Logikraum (x 0…1 quer, y 0…sheetY längs) auf Weltkoordinaten. Eine einzige
@@ -337,13 +339,52 @@ export class IceStock {
     const colourOf = (id) => state.players.find((player) => player.id === id)?.color || "#ffffff";
 
     const alive = new Set();
+    // Das GLEITEN hörbar machen.
+    //
+    // Von einem Eisstockspiel gab es bisher zwei Geräusche: den Abwurf und den
+    // Rempler. Dazwischen — der ganze lange Lauf über das Eis, das Eigentliche
+    // an diesem Spiel — war Stille. Ein Stein, der lautlos über eine Fläche
+    // zieht, fühlt sich an wie ein Standbild, das sich bewegt.
+    //
+    // Ein Dauerton ginge nicht: die Klangwerkstatt kennt nur kurze Töne. Also
+    // ein feines Ticken im Takt der Geschwindigkeit — schnell und hell, wenn er
+    // schiesst, langsam und leise, wenn er ausläuft. Mitgeschwenkt nach links
+    // und rechts, damit man hört, wo er läuft.
+    let schnellster = 0;
     (arcade.stones || []).forEach((stone) => {
       alive.add(stone.id);
       const visual = this.ensureStone(stone, colourOf(stone.playerId));
-      visual.group.position.set(this.worldX(stone.x), 0, this.worldZ(stone.y, sheetY));
-      visual.group.rotation.y += dt * Math.hypot(stone.vx, stone.vy) * 2.4;
+      const wx = this.worldX(stone.x);
+      visual.group.position.set(wx, 0, this.worldZ(stone.y, sheetY));
+      const tempo = Math.hypot(stone.vx, stone.vy);
+      visual.group.rotation.y += dt * tempo * 2.4;
       visual.handle.material.color.set(colourOf(stone.playerId));
+      if (tempo > schnellster) {
+        schnellster = tempo;
+        this.gleitPan = wx / (SHEET_W / 2);
+      }
+      // Zur Ruhe gekommen: ein kurzer Abschluss, damit man weiss, dass gezählt
+      // wird — vorher endete jeder Lauf einfach im Nichts.
+      const stand = tempo < 0.02;
+      if (stand && !this.ruhig.has(stone.id)) {
+        this.ruhig.add(stone.id);
+        if (stone.playerId === this.getControlledPlayerId()) {
+          this.feedback?.sound("lock", { pan: wx / (SHEET_W / 2) * 0.5 });
+          this.feedback?.vibrate(8);
+        }
+      } else if (!stand) {
+        this.ruhig.delete(stone.id);
+      }
     });
+    if (schnellster > 0.05) {
+      // Der Takt hängt am Tempo: bei vollem Schub alle 70 ms, im Auslaufen
+      // dreimal so langsam.
+      const takt = 70 + Math.max(0, 1 - schnellster / 1.6) * 150;
+      if (now - (this.letzterGleitTon || 0) > takt) {
+        this.letzterGleitTon = now;
+        this.feedback?.sound("step", { pan: (this.gleitPan || 0) * 0.5 });
+      }
+    }
     this.stoneMeshes.forEach((visual, id) => {
       if (alive.has(id)) return;
       this.scene.remove(visual.group);
@@ -366,7 +407,7 @@ export class IceStock {
     this.throwerAnimator.update(now);
 
     this.bursts.update(dt);
-    this.floaters.update(dt);
+    this.floaters.update(dt, this.camera);
 
     this.shake *= frameDecay(0.86, dt);
     const shakeX = Math.sin(now / 12) * this.shake * 0.16 * shakeScale();

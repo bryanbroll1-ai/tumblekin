@@ -6,9 +6,9 @@ import {
   createNameLabel,
   createOwnMarker,
   updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin117";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin117";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
+} from "./VoxelKit.js?v=tumblekin118";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin118";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin118";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -304,7 +304,7 @@ export class TowerStack {
     });
 
     this.bursts.update(dt);
-    this.floaters.update(dt);
+    this.floaters.update(dt, this.camera);
 
     // Camera rises smoothly with the tallest tower (a damped height avoids the
     // jump when a block lands).

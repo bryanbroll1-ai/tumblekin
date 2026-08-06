@@ -1377,6 +1377,37 @@ test("nagelbrett: zwischen Wand und äusserstem Nagel passt eine Kugel", () => {
   assert.ok(1 - rechts >= PLINKO_BALL_R * 2, `rechts nur ${(1 - rechts).toFixed(3)} frei`);
 });
 
+// Ein Klangname, den es nicht gibt, macht keinen Fehler — er macht STILLE. Genau
+// das ist schon passiert: an einer Kreuzung wurde sound("select") gerufen, den
+// es nicht gab, und die Wegwahl war lautlos. Nichts im Code fiel dabei auf.
+// Darum hier: jeder Name, den irgendeine Datei ruft, muss in der Klangwerkstatt
+// stehen.
+test("Klänge: jeder gerufene Name existiert auch", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const werkstatt = fs.readFileSync(path.join(__dirname, "../client/src/game/Feedback.js"), "utf8");
+  const tabelle = werkstatt.slice(werkstatt.indexOf("const sequences = {"));
+  const bekannt = new Set([...tabelle.matchAll(/^\s{6}([a-zA-Z]+):/gm)].map((treffer) => treffer[1]));
+  assert.ok(bekannt.size > 10, `nur ${bekannt.size} Klänge gefunden — Tabelle nicht erkannt`);
+
+  const gerufen = new Map();
+  const durchgehen = (ordner) => {
+    fs.readdirSync(ordner, { withFileTypes: true }).forEach((eintrag) => {
+      const voll = path.join(ordner, eintrag.name);
+      if (eintrag.isDirectory()) return durchgehen(voll);
+      if (!eintrag.name.endsWith(".js")) return;
+      const text = fs.readFileSync(voll, "utf8");
+      for (const treffer of text.matchAll(/sound\(\s*"([a-zA-Z]+)"/g)) {
+        if (!gerufen.has(treffer[1])) gerufen.set(treffer[1], []);
+        gerufen.get(treffer[1]).push(eintrag.name);
+      }
+    });
+  };
+  durchgehen(path.join(__dirname, "../client/src"));
+  const stumm = [...gerufen.keys()].filter((name) => !bekannt.has(name));
+  assert.deepEqual(stumm, [], `stumme Klänge: ${stumm.map((n) => `${n} (${gerufen.get(n).join(", ")})`).join("; ")}`);
+});
+
 // --- Board economy: stars, items and risk fields ---------------------------
 
 function boardPlayer(overrides = {}) {

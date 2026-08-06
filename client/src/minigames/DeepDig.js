@@ -7,15 +7,15 @@ import {
   createNameLabel,
   createVoxelKin,
   createCloud
-} from "./VoxelKit.js?v=tumblekin117";
+} from "./VoxelKit.js?v=tumblekin118";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin117";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin117";
+} from "./SceneKit.js?v=tumblekin118";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin118";
 
 // Tiefenrausch — tippen gräbt eine Stufe tiefer, hochwischen zahlt die Beute
 // ein. Tiefer bringt mehr, aber jeder Stollen kann einstürzen, und dann ist
@@ -295,7 +295,7 @@ export class DeepDig {
     }
 
     this.bursts.update(dt);
-    this.floaters.update(dt);
+    this.floaters.update(dt, this.camera);
 
     this.shake *= frameDecay(0.86, dt);
     const jolt = Math.sin(now / 11) * this.shake * 0.24 * shakeScale();

@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale } from "./Quality.js?v=tumblekin117";
+import { fxScale } from "./Quality.js?v=tumblekin118";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 
@@ -521,6 +521,35 @@ export class CubeBurst {
   }
 }
 
+// Schiebt eine Einblendung so weit zur Seite, dass sie ganz im Bild bleibt.
+//
+// Die Texte erscheinen über der Figur, der sie gelten — und Figuren stehen am
+// Bildrand. "FEHLSTART!" über dem linken Läufer war damit halb abgeschnitten,
+// "GESTOLPERT!" über zwei Springern gleichzeitig ergab Buchstabensalat. Ein
+// Ausruf, den man nicht lesen kann, ist schlimmer als keiner: man sieht, dass
+// etwas passiert ist, erfährt aber nicht was.
+//
+// Gerechnet wird im Bildraum: die halbe Textbreite in Bildkoordinaten ergibt
+// sich aus der Weltbreite geteilt durch die sichtbare Breite in dieser Tiefe.
+// Verschoben wird entlang der Kamera-Rechtsachse, damit der Text auf gleicher
+// Höhe bleibt und nur seitlich einrückt.
+const _rechts = new THREE.Vector3();
+const _ndc = new THREE.Vector3();
+function haltImBild(sprite, camera, weltBreite) {
+  camera.updateMatrixWorld();
+  _ndc.copy(sprite.position).project(camera);
+  const tiefe = sprite.position.distanceTo(camera.position);
+  const halbSichtbar = tiefe * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect;
+  if (!(halbSichtbar > 0)) return;
+  const halbText = (weltBreite / 2) / halbSichtbar;
+  const grenze = 0.97 - halbText;
+  if (grenze <= 0) return;                     // breiter als das Bild — nichts zu retten
+  const ueber = Math.abs(_ndc.x) - grenze;
+  if (ueber <= 0) return;
+  camera.matrixWorld.extractBasis(_rechts, new THREE.Vector3(), new THREE.Vector3());
+  sprite.position.addScaledVector(_rechts, -Math.sign(_ndc.x) * ueber * halbSichtbar);
+}
+
 // Pop-up 3D score/emote text that springs in, floats up and fades. One manager
 // per scene; call pop() on events and update(dt) each frame.
 export class FloatingText {
@@ -566,7 +595,9 @@ export class FloatingText {
     this.items.push({ sprite, age: 0, life, rise, baseY: position.y, size, aspect: width / height });
   }
 
-  update(dt) {
+  // `camera` ist freiwillig, aber ohne sie kann der Text nicht im Bild gehalten
+  // werden. Alle Szenen reichen sie durch.
+  update(dt, camera = null) {
     this.items = this.items.filter((item) => {
       item.age += dt;
       const progress = item.age / item.life;
@@ -582,6 +613,7 @@ export class FloatingText {
       const scale = item.size * pop;
       item.sprite.scale.set(scale * (item.aspect || 2), scale, 1);
       item.sprite.material.opacity = progress < 0.66 ? 1 : 1 - (progress - 0.66) / 0.34;
+      if (camera) haltImBild(item.sprite, camera, scale * (item.aspect || 2));
       return true;
     });
   }

@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin117";
+} from "./VoxelKit.js?v=tumblekin118";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   teardownStage,
   dressWater
-} from "./SceneKit.js?v=tumblekin117";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin117";
+} from "./SceneKit.js?v=tumblekin118";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin118";
 
 // Angelduell — der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
 // baut Spannung auf, Loslassen lässt sie sinken, kostet aber Weg. In seinen
@@ -309,7 +309,7 @@ export class FishDuel {
     }
 
     this.bursts.update(dt);
-    this.floaters.update(dt);
+    this.floaters.update(dt, this.camera);
 
     this.shake *= frameDecay(0.9, dt);
     const shakeX = Math.sin(now / 12) * this.shake * 0.2 * shakeScale();
