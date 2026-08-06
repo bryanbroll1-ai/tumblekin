@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -19,8 +19,8 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips
@@ -38,7 +38,6 @@ const GROUND_Y = 0;                 // Oberkante der Wiese
 const KIN_Y = standOn(GROUND_Y);
 const LOG_Y = 4.0;             // the disc floats a little higher above the throwers
 const LOG_Z = -0.3;
-const SPOTS = [-2.4, -0.8, 0.8, 2.4];
 
 function buildKnife(color) {
   const knife = new THREE.Group();
@@ -161,7 +160,7 @@ export class KnifeThrow {
     this.scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 13, keepOut: { x: 4.2, z: 4.6 }, spread: { x: 17, z: 15 } });
+    dressMeadow(this.scene, { seed: 13, keepOut: { x: 4.2, z: 4.6 }, spread: { x: 17, z: 15 }, grassColor: "#4f9e57", patchColors: ["#5aab5f", "#6dbb6f"], crownColor: "#26663a", crownColor2: "#37804a" });
     // Two tall support posts holding the disc up above the throwers.
     [-2.1, 2.1].forEach((x) => {
       const post = new THREE.Mesh(
@@ -457,7 +456,11 @@ export class KnifeThrow {
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
       this.baseCamY = portrait ? 3.2 : 2.9;
-      this.baseCamZ = portrait ? 8.9 : 7.7;
+            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
+      // -0.142 über den Bildrand hinaus — meist das Namensschild, das
+      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
+      // schmal, und die Reihe steht quer dazu.
+this.baseCamZ = portrait ? 10.6 : 7.7;
       camera.fov = portrait ? 54 : 48;
     });
   }

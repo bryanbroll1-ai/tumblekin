@@ -29,7 +29,10 @@ const {
 } = testRules;
 
 const LEVELS = ["easy", "normal", "hard"];
-const ROUNDS = Number(process.argv[3] || 24);
+// 24 Runden waren zu wenig: der Mittelwert streute um gut 0.2 Plaetze und das
+// Urteil wechselte bei unveraendertem Code. 60 kosten ein paar Minuten mehr
+// und liefern ein Urteil, auf das man sich verlassen kann.
+const ROUNDS = Number(process.argv[3] || 60);
 const ONLY = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : null;
 
 // Vier Bots, einer je Stufe plus ein zweiter „normal" — vier ist die echte
@@ -175,23 +178,53 @@ for (const game of targets) {
     hard: mean(totals.hard)
   };
   // Kleiner Platz ist besser. Gleichstand ist genauso schlimm wie eine
-  // Umkehrung: beides heisst, dass Koennen nichts bringt. 0.12 Plaetze ist die
-  // Schwelle — darunter entscheidet ueber vier Runden der Zufall.
+  // Umkehrung: beides heisst, dass Koennen nichts bringt.
   //
   // Verglichen wird nur, was auch am Tisch sass: zu zweit gibt es kein
   // "normal", und eine fehlende Stufe als 0 zu lesen erklaerte jede Familie fuer
   // kaputt (gemessen: 27 von 27).
+  //
+  // Und der Abstand wird gegen das RAUSCHEN geprüft, nicht gegen eine feste
+  // Zahl. Bei 24 Runden streut der Mittelwert um gut 0.2 Plätze — der Prüfer
+  // gab bei unverändertem Code mal "ok", mal "flach", mal "UMGEKEHRT" für
+  // dasselbe Spiel aus. Ein Werkzeug, dessen Urteil würfelt, ist schlimmer als
+  // keines: man fängt an, echte Befunde für Zufall zu halten. Unterhalb der
+  // doppelten Streuung heisst es deshalb "unsicher" samt der Rundenzahl, die
+  // für ein Urteil nötig wäre.
   const present = LEVELS.filter((level) => totals[level].length > 0);
+  const fehler = (level) => {
+    const werte = totals[level];
+    if (werte.length < 2) return 0;
+    const m = mean(werte);
+    const varianz = werte.reduce((summe, wert) => summe + (wert - m) ** 2, 0) / (werte.length - 1);
+    return Math.sqrt(varianz / werte.length);
+  };
   let verdict = "ok";
+  let noetig = 0;
   for (let i = 1; i < present.length; i += 1) {
     const gap = avg[present[i - 1]] - avg[present[i]];
-    if (gap < -0.12) { verdict = "UMGEKEHRT"; break; }
-    if (gap < 0.12) verdict = "flach";
+    const rauschen = 2 * Math.hypot(fehler(present[i - 1]), fehler(present[i]));
+    // Reihenfolge ist wichtig: erst fragen, ob man ueberhaupt etwas SIEHT,
+    // dann, ob das Gesehene klein ist. Andersherum wurde ein Abstand von 0.08
+    // bei einem Rauschen von 0.2 als "flach" gemeldet — als stuende fest, dass
+    // Koennen nichts bringt, obwohl die Messung dazu gar nichts sagen kann.
+    if (gap < -Math.max(0.12, rauschen)) { verdict = "UMGEKEHRT"; break; }
+    if (Math.abs(gap) < rauschen) {
+      if (verdict === "ok") {
+        verdict = "unsicher";
+        // Der Fehler faellt mit der Wurzel der Rundenzahl: fuer ein Urteil
+        // braucht es (Rauschen / Abstand)^2 mal so viele.
+        noetig = Math.ceil(ROUNDS * (rauschen / Math.max(0.01, Math.abs(gap))) ** 2);
+      }
+      continue;
+    }
+    if (gap < 0.12) { verdict = "flach"; continue; }
   }
-  if (verdict !== "ok") broken += 1;
+  if (verdict === "UMGEKEHRT" || verdict === "flach") broken += 1;
 
   const fmt = (value, level) => (totals[level].length > 0 ? value.toFixed(2) : "—").padEnd(10);
-  console.log(`${game.type.padEnd(20)}${fmt(avg.easy, "easy")}${fmt(avg.normal, "normal")}${fmt(avg.hard, "hard")}${verdict}`);
+  const anhang = verdict === "unsicher" ? ` (≈${noetig} Runden noetig)` : "";
+  console.log(`${game.type.padEnd(20)}${fmt(avg.easy, "easy")}${fmt(avg.normal, "normal")}${fmt(avg.hard, "hard")}${verdict}${anhang}`);
 }
 
 console.log("-".repeat(66));

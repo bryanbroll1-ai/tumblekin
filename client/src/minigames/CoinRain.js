@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -119,7 +119,7 @@ export class CoinRain {
     this.scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 9, keepOut: { x: 4.2, z: 4.0 }, spread: { x: 17, z: 15 } });
+    dressMeadow(this.scene, { seed: 9, keepOut: { x: 4.2, z: 4.0 }, spread: { x: 17, z: 15 }, grassColor: "#a8b055", patchColors: ["#b9b45f", "#cfc07a"], crownColor: "#c9772e", crownColor2: "#e0a63a", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ffd15c", "#ff9a4d", "#ffffff"] });
     for (let lane = 0; lane < 3; lane += 1) {
       const strip = new THREE.Mesh(
         new THREE.BoxGeometry(LANE_WIDTH - 0.12, 0.3, 2.8),

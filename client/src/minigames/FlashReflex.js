@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   resizeStage,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Blitzreflex — drei Läufe, jeder eine Startampel. Rot, Rot, Rot … und dann
 // GRÜN. Wer im richtigen Moment tippt, gewinnt Millisekunden; wer vorher tippt,
@@ -30,7 +30,11 @@ import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumbl
 // Moment, in dem sie umspringt.
 const LAMP_Y = 3.5;
 const LAMP_Z = -2.4;
-const LANE_GAP = 1.0;
+// Die vier Bahnen standen auf ±1.5. Die Figurenmitten lagen damit gemessen bei
+// 91 % der halben Bildbreite — und das Namensschild ist mit 0.62 Welteinheiten
+// breiter als die Figur selbst, ragte also hinaus. Nicht die Kamera stand zu
+// nah, die Reihe war zu breit.
+const LANE_GAP = 0.70;
 const KIN_Z = 1.8;
 
 function clamp(value, min, max) {
@@ -387,7 +391,11 @@ export class FlashReflex {
       // Die Ampel muss im oberen Drittel gross im Bild stehen: darauf schaut man
       // die ganze Zeit, und jede Kopfbewegung kostet hier Hundertstel.
       this.baseCamY = portrait ? 2.9 : 2.6;
-      this.baseCamZ = portrait ? 6.4 : 7.0;
+            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
+      // -0.155 über den Bildrand hinaus — meist das Namensschild, das
+      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
+      // schmal, und die Reihe steht quer dazu.
+this.baseCamZ = portrait ? 7.9 : 7.0;
       camera.fov = portrait ? 58 : 46;
     });
   }

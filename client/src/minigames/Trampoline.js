@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Trampolin — ein Takt schlägt gleichmässig; tippt man IM Takt, federt der Kin
 // höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie. Der Takt
@@ -164,7 +164,7 @@ export class Trampoline {
     this.scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 18, keepOut: { x: 5.0, z: 3.4 }, spread: { x: 18, z: 15 } });
+    dressMeadow(this.scene, { seed: 18, keepOut: { x: 5.0, z: 3.4 }, spread: { x: 18, z: 15 }, grassColor: "#74c46a", patchColors: ["#84cf78", "#9bdd8c"], crownColor: "#e88fb5", crownColor2: "#f2b3cd", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ff8fb1", "#ffffff", "#ffd15c"] });
 
     // Höhenmarken an einem Messpfosten — die Höhe ist die Wertung, also muss
     // man sie ablesen können.
@@ -450,7 +450,11 @@ export class Trampoline {
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
       this.baseCamY = portrait ? 2.9 : 2.6;
-      this.baseCamZ = portrait ? 9.6 : 8.0;
+            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
+      // +0.02 über den Bildrand hinaus — meist das Namensschild, das
+      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
+      // schmal, und die Reihe steht quer dazu.
+this.baseCamZ = portrait ? 10.5 : 8.0;
       camera.fov = portrait ? 62 : 52;
     });
   }

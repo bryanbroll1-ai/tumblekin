@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin116";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin117";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
 // grid button fast; the spiky red ones bite back.
@@ -106,7 +106,7 @@ export class WhackBlob {
     this.scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 4.4 }, spread: { x: 16, z: 15 } });
+    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 4.4 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#69bd5f", "#87d276"], crownColor: "#2f7f45", crownColor2: "#4a9c58", flowers: 80 });
     const mound = new THREE.Mesh(
       new THREE.BoxGeometry(CELL * 3 + 0.9, 0.4, CELL * 3 + 0.9),
       new THREE.MeshLambertMaterial({ color: "#8ad07f" })

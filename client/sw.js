@@ -1,11 +1,11 @@
-const CACHE_NAME = "tumblekin-living-worlds-v90";
+const CACHE_NAME = "tumblekin-living-worlds-v91";
 const CORE_ASSETS = [
   "/",
   "/index.html",
-  "/style.css?v=tumblekin116",
+  "/style.css?v=tumblekin117",
   "/manifest.json",
   "/assets/icon.svg",
-  "/src/main.js?v=tumblekin116"
+  "/src/main.js?v=tumblekin117"
 ];
 
 self.addEventListener("install", (event) => {

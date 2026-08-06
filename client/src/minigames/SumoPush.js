@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   standOn,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -19,13 +19,16 @@ import {
   syncOwnMarker,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
 // Auszeit. Rollt der Stein über deine Kante, kassierst du einen Treffer.
-const RING_WORLD = 2.6;        // Weltradius des Rings (Server rechnet 0..1)
+// Weltradius des Rings. Der Server rechnet in 0..1, die Zahl hier ist reine
+// Darstellung — und bei 2.6 berührte eine Figur am Ringrand samt Namensschild
+// den Bildrand. Der ganze Ring schrumpft mit, die Regel bleibt dieselbe.
+const RING_WORLD = 2.35;
 const MAT_TOP_Y = 0.09;             // Oberkante der Ringmatte
 const KIN_Y = standOn(MAT_TOP_Y);
 const STONE_R = 0.44;
@@ -535,7 +538,11 @@ export class SumoPush {
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
       this.baseCamY = portrait ? 6.0 : 5.4;
-      this.baseCamZ = portrait ? 6.8 : 6.2;
+            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
+      // -0.035 über den Bildrand hinaus — meist das Namensschild, das
+      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
+      // schmal, und die Reihe steht quer dazu.
+this.baseCamZ = portrait ? 9.0 : 6.2;
       camera.fov = portrait ? 54 : 46;
     });
   }

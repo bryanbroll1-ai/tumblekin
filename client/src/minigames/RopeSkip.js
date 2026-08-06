@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -19,8 +19,8 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at
@@ -125,7 +125,7 @@ export class RopeSkip {
     this.scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 11, keepOut: { x: 4.8, z: 3.0 }, spread: { x: 17, z: 15 } });
+    dressMeadow(this.scene, { seed: 11, keepOut: { x: 4.8, z: 3.0 }, spread: { x: 17, z: 15 }, grassColor: "#9dc45a", patchColors: ["#a8cc63", "#c2da7e"], crownColor: "#6f9e3c", crownColor2: "#8ab34e", trunkColor: "#8a6a45", crownShape: "blob" });
     const pit = new THREE.Mesh(
       new THREE.BoxGeometry(7.6, 0.34, 2.6),
       new THREE.MeshLambertMaterial({ color: "#ffe6a3" })

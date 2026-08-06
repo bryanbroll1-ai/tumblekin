@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin116";
-import { qualityTier } from "./Quality.js?v=tumblekin116";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin117";
+import { qualityTier } from "./Quality.js?v=tumblekin117";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -266,7 +266,15 @@ export function dressMeadow(scene, {
   grassColor = "#6cb95c",
   flowerColors = ["#ffd15c", "#ff8fb1", "#ffffff", "#b98cff"],
   trunkColor = "#7a5330",
-  crownColor = "#3f8f45"
+  crownColor = "#3f8f45",
+  // Baumform. Ein gemeinsamer Kulissenhelfer macht Szenen konsistent — und
+  // wenn man nicht aufpasst, austauschbar. Acht Spiele mit demselben Grün und
+  // denselben Nadelbäumen sind acht Bilder derselben Wiese. Form und Palette
+  // sind darum je Szene wählbar: derselbe Aufbau, ein anderer Ort.
+  crownShape = "cone",
+  // Ein zweiter Kronenton macht den Baumkranz lebendiger als eine Fläche in
+  // einem einzigen Grün.
+  crownColor2 = null
 } = {}) {
   const zufall = streuer(seed);
   const hilfs = new THREE.Object3D();
@@ -395,17 +403,28 @@ export function dressMeadow(scene, {
       o.rotation.set(0, 0, 0);
     }
   );
-  setzen(
-    new THREE.ConeGeometry(0.95, 1.9, 6),
-    new THREE.MeshLambertMaterial({ color: crownColor }),
-    trees,
-    (o, i) => {
-      const h = baumHoehe[i];
-      o.position.set(baumOrt[i].x, groundY + h * 0.6 + h * 0.42, baumOrt[i].z);
-      o.scale.setScalar(h * 0.62);
-      o.rotation.set(0, i * 0.7, 0);
-    }
-  );
+  const kroneGeo = () => (crownShape === "blob"
+    ? new THREE.DodecahedronGeometry(1.05, 0)
+    : crownShape === "palm"
+      ? new THREE.ConeGeometry(1.25, 0.7, 5)
+      : new THREE.ConeGeometry(0.95, 1.9, 6));
+  const kronenToene = crownColor2 ? [crownColor, crownColor2] : [crownColor];
+  kronenToene.forEach((ton, ti) => {
+    setzen(
+      kroneGeo(),
+      new THREE.MeshLambertMaterial({ color: ton }),
+      Math.ceil(trees / kronenToene.length),
+      (o, i) => {
+        const index = i * kronenToene.length + ti;
+        if (index >= trees) { o.position.set(0, -999, 0); o.scale.setScalar(0.001); return; }
+        const h = baumHoehe[index];
+        const hoch = crownShape === "cone" ? h * 0.42 : h * 0.34;
+        o.position.set(baumOrt[index].x, groundY + h * 0.6 + hoch, baumOrt[index].z);
+        o.scale.setScalar(h * (crownShape === "cone" ? 0.62 : 0.5));
+        o.rotation.set(0, index * 0.7, 0);
+      }
+    );
+  });
 
   return gestreut;
 }

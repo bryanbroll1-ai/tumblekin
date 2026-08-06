@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -18,12 +18,13 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Kanonenflug — one perfectly timed tap fires your Kin out of the cannon.
 // The power gauge swings up and down; tap at the peak to fly the farthest.
-const CANNON_GAP = 1.9;
+// Enger: bei 1.9 lag die äussere Kanone samt Namensschild knapp ausserhalb.
+const CANNON_GAP = 1.72;
 const FLIGHT_SCALE = 0.16;
 const FLIGHT_MS = 1600;
 
@@ -122,7 +123,8 @@ export class CannonFly {
       treeRing: { x: 16, z: 26 },
       frontCut: 4,
       trees: 34,
-      patches: 30
+      patches: 30,
+      grassColor: "#6fbe63", patchColors: ["#7cc86e", "#93d684"], crownColor: "#2f7f5a", crownColor2: "#46996b"
     });
     for (let m = 20; m <= 100; m += 20) {
       const stripe = new THREE.Mesh(
@@ -391,7 +393,11 @@ export class CannonFly {
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
       this.baseCamY = portrait ? 4 : 3.6;
-      this.baseCamZ = portrait ? 9 : 7.4;
+            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
+      // -0.048 über den Bildrand hinaus — meist das Namensschild, das
+      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
+      // schmal, und die Reihe steht quer dazu.
+this.baseCamZ = portrait ? 10.1 : 7.4;
       camera.fov = portrait ? 56 : 50;
     });
   }

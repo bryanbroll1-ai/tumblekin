@@ -12,10 +12,10 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin116";
-import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
+import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin117";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -475,7 +475,10 @@ export class BounceArena {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      this.baseCamera = portrait ? new THREE.Vector3(0, 5.0, 6.1) : new THREE.Vector3(0, 3.9, 5.8);
+      // Etwas weiter zurück: die äusseren Figuren hatten gemessen nur 0.041
+      // Luft bis zum Bildrand, also gut vier Prozent — ein Schritt zur Seite
+      // und sie sind angeschnitten.
+      this.baseCamera = portrait ? new THREE.Vector3(0, 5.3, 6.7) : new THREE.Vector3(0, 3.9, 5.8);
       camera.fov = portrait ? 47 : 43;
       camera.position.copy(this.baseCamera);
     }, { minHeight: 220 });

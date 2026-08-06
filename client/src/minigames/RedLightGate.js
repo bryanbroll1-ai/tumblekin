@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   KIN_SOLE,
   standOn
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -18,13 +18,14 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Lichtwächter — hold the button to sprint towards the gate while the
 // giant guard looks away. When the light flips to red he whirls around:
 // anyone still running is caught and stumbles backwards.
-const LANE_GAP = 1.5;
+// Enger: bei 1.5 klebten die äusseren Läufer am Bildrand.
+const LANE_GAP = 1.28;
 const START_Z = 5.2;
 const TRACK_LEN = 19;
 const LAWN_TOP_Y = 0;               // Oberkante der Wiese neben der Bahn
@@ -429,7 +430,9 @@ export class RedLightGate {
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
       this.baseCamY = portrait ? 5.2 : 4.4;
-      this.baseCamBack = portrait ? 8.6 : 7.2;
+      // Weiter zurück: gemessen ragte die Hülle der äusseren Läufer -0.091
+      // über den Bildrand — meist das Namensschild.
+      this.baseCamBack = portrait ? 9.8 : 7.2;
       camera.fov = portrait ? 58 : 52;
     });
   }

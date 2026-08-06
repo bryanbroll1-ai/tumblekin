@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -18,13 +18,15 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin116";
-import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin117";
 
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the
 // biggest balloon lifts its Kin into the sky.
-const STATION_GAP = 1.95;
+// Enger: bei 1.95 ragten die äusseren Stationen samt Namensschild aus dem
+// Bild — das Schild ist mit 0.62 Welteinheiten breiter als die Figur.
+const STATION_GAP = 1.48;
 const KIN_Y = 0.62;
 
 export class BalloonPump {
@@ -120,7 +122,7 @@ export class BalloonPump {
     this.scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 6, keepOut: { x: 4.6, z: 3.4 }, spread: { x: 17, z: 15 } });
+    dressMeadow(this.scene, { seed: 6, keepOut: { x: 4.6, z: 3.4 }, spread: { x: 17, z: 15 }, grassColor: "#7ec96a", patchColors: ["#8ed477", "#a7e08c"], crownColor: "#3fa05a", crownColor2: "#5cb96f", crownShape: "palm", trunkColor: "#94693c" });
     const deck = new THREE.Mesh(
       new THREE.BoxGeometry(9.4, 0.3, 4.4),
       new THREE.MeshLambertMaterial({ color: "#c98d4e" })
@@ -369,7 +371,11 @@ export class BalloonPump {
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
       this.baseCamY = portrait ? 3.8 : 3.4;
-      this.baseCamZ = portrait ? 11.6 : 9.4;
+            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
+      // -0.037 über den Bildrand hinaus — meist das Namensschild, das
+      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
+      // schmal, und die Reihe steht quer dazu.
+this.baseCamZ = portrait ? 12.7 : 9.4;
       camera.fov = portrait ? 54 : 48;
     });
   }

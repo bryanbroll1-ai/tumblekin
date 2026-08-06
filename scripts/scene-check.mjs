@@ -56,6 +56,13 @@ const FLIEGT_EINZELN = {
   sumoschubs: "wer rausgeschubst wird, fliegt"
 };
 const FLUG_AB = 1.0;
+// Szenen, in denen Figuren ABSICHTLICH aus dem Bild fliegen. Beim Kanonenflug
+// ist genau das das Spiel: wer weit fliegt, verlässt den Ausschnitt, und die
+// Kamera folgt dem eigenen Schuss. Die Randmessung würde dort dauerhaft
+// klagen. Dass die EIGENE Figur im Bild ist, wird weiterhin geprüft.
+const RAND_EGAL = {
+  kanonenflug: "wer weit fliegt, verlässt den Ausschnitt — das ist das Spiel"
+};
 const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome","/usr/bin/chromium"].find(existsSync);
 
 const srv = spawn(process.execPath, ["server/server.js"], { cwd: "/home/user/tumblekin",
@@ -204,6 +211,7 @@ for (const game of liste) {
       // schon als draussen — halb angeschnitten reicht zum Spielen nicht.
       const cam = host.camera;
       const draussen = [];
+      const knapp = [];
       let eigeneDraussen = false;
       // Die eigene Figur beim NAMEN nehmen. Vorher galt schlicht die erste
       // gefundene als die eigene — und die Reihenfolge kommt aus dem Szenen-
@@ -219,6 +227,23 @@ for (const game of liste) {
           const mitte = box.getCenter(new THREE.Vector3());
           const p = mitte.clone().project(cam);
           const sichtbar = p.z < 1 && p.x > -0.94 && p.x < 0.94 && p.y > -0.94 && p.y < 0.94;
+          // Nicht nur DRIN, sondern mit Luft zum Rand. "Gerade noch im Bild"
+          // heisst in der Praxis: bei der nächsten Bewegung halb draussen. Und
+          // die Figuren stehen in vielen Szenen dicht vor der Kamera, wo der
+          // sichtbare Ausschnitt hochkant nur ein bis zwei Meter breit ist —
+          // dort reicht ein Schritt zur Seite. Gemessen wird die HÜLLE, nicht
+          // die Mitte, sonst ist der Rand schon angeschnitten, bevor er zählt.
+          if (sichtbar && spielerKins?.has(kin)) {
+            const ecken = [];
+            [box.min.x, box.max.x].forEach((x) => [box.min.y, box.max.y].forEach((y) =>
+              [box.min.z, box.max.z].forEach((z) => ecken.push(new THREE.Vector3(x, y, z)))));
+            let rand = 1;
+            ecken.forEach((ecke) => {
+              const q = ecke.project(cam);
+              rand = Math.min(rand, 1 - Math.abs(q.x), 1 - Math.abs(q.y));
+            });
+            if (rand < 0.06) knapp.push({ index, rand: Number(rand.toFixed(3)) });
+          }
           // Nur SPIELERFIGUREN zählen. Die jubelnden Zuschauer bei Zielsprint
           // stehen über 127 Einheiten Strecke verteilt — dass die meisten
           // ausserhalb des Bildes sind, ist der Sinn der Sache und keine
@@ -231,20 +256,25 @@ for (const game of liste) {
           }
         });
       }
-      return { kins: kins.length, drin: aus, draussen, eigeneDraussen };
+      return { kins: kins.length, drin: aus, draussen, knapp, eigeneDraussen };
     });
 
+    if (befund?.knapp?.length && RAND_EGAL[game]) befund.knapp = [];
     // Fliegende Einzelfiguren aussortieren, bevor irgendetwas gezählt wird.
     if (befund?.drin?.length && FLIEGT_EINZELN[game]) {
       befund.drin = befund.drin.filter((d) => d.mass < FLUG_AB);
     }
     // In den Nur-eigene-Szenen zählt allein, ob die EIGENE Figur im Bild ist.
-    const sichtFehler = Boolean(befund?.draussen?.length)
-      && (!NUR_EIGENE[game] || befund.eigeneDraussen);
-    const sicht = befund?.draussen?.length
+    const sichtFehler = (Boolean(befund?.draussen?.length)
+      && (!NUR_EIGENE[game] || befund.eigeneDraussen))
+      || Boolean(befund?.knapp?.length);
+    const sicht = (befund?.draussen?.length
       ? ` · ${befund.draussen.length} ausserhalb des Bildes${befund.eigeneDraussen ? " (DARUNTER DIE EIGENE)" : ""}`
         + (NUR_EIGENE[game] && !befund.eigeneDraussen ? ` — so gewollt: ${NUR_EIGENE[game]}` : "")
-      : "";
+      : "")
+      + (befund?.knapp?.length
+        ? ` · ${befund.knapp.length} klebt am Rand (Luft bis ${Math.min(...befund.knapp.map((k) => k.rand))})`
+        : "");
     if (sichtFehler) treffer.push({ game, ...befund });
     if (befund?.drin?.length && !FLIEGT[game]) {
       if (!sichtFehler) treffer.push({ game, ...befund });

@@ -704,7 +704,7 @@ const KNIFE_LIVES = 2;
 // 3.4 rad/s sind 195 Grad/s: 100 ms menschliches Zittern ergeben 19.5 Grad und
 // bleiben damit knapp unter den 22 Grad Mindestabstand. Eng, aber machbar.
 const KNIFE_SPIN_START = 1.1;
-const KNIFE_SPIN_STEP = 0.22;
+const KNIFE_SPIN_STEP = 0.34;
 const KNIFE_SPIN_MAX = 3.4;
 const KNIFE_TURN_START_MS = 3000;     // Wurffenster in der ersten Runde
 const KNIFE_TURN_MIN_MS = 1500;

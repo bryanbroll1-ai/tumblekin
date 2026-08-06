@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin116";
+} from "./VoxelKit.js?v=tumblekin117";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin116";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin116";
+} from "./SceneKit.js?v=tumblekin117";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin117";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
@@ -172,7 +172,8 @@ export class BarrelRoll {
       trees: 26,
       patches: 22,
       tufts: 150,
-      stones: 14
+      stones: 14,
+      grassColor: "#67b95f", patchColors: ["#75c46b", "#8bd47f"], crownColor: "#4f9b4a", crownColor2: "#6cb45e", crownShape: "blob"
     });
 
     // The giant barrel: horizontal cylinder with wood stripes, seen from
