@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin119";
+} from "./VoxelKit.js?v=tumblekin120";
 import {
   mountStage,
   mountHud,
@@ -19,8 +19,8 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin119";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin119";
+} from "./SceneKit.js?v=tumblekin120";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
 
 // Messerwurf — a big log spins face-on; tap to stick a knife into it.
 // Land on top of another player's knife and you are out. The log flips

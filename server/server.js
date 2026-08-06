@@ -9040,6 +9040,9 @@ if (require.main === module) {
 
 module.exports = {
   testRules: {
+    updateCurling,
+    CURLING_SHEET_Y,
+    CURLING_STONE_RADIUS,
     updatePlinko,
     PLINKO_BALL_R,
     PLINKO_MAX_PLINKS,

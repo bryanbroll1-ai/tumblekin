@@ -1933,13 +1933,15 @@ body[data-screen="minigame"] .game-menu-button {
 }
 
 /* Blob-Klopfe: 3x3 tap pad mirroring the field of holes. *//* Farbfolge: four fat colour buttons. *//* Kanonenflug: vertical power gauge pinned to the HUD's right edge. */
+/* Nach OBEN gerückt statt in die Bildmitte: dort lag die Anzeige mitten auf der
+   äussersten Kanone und verdeckte einen ganzen Mitspieler. Oben rechts ist der
+   Streifen unter dem Menüknopf ohnehin frei. */
 .cannon-gauge {
   position: absolute;
   right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 26px;
-  height: 180px;
+  top: calc(150px + env(safe-area-inset-top));
+  width: 24px;
+  height: 150px;
   border: 3px solid #ffffff;
   border-radius: 12px;
   background: rgba(10, 18, 21, 0.65);
@@ -1987,7 +1989,7 @@ body[data-screen="minigame"] .game-menu-button {
 .cannon-phase-label {
   position: absolute;
   right: 6px;
-  top: calc(50% - 108px);
+  top: calc(118px + env(safe-area-inset-top));
   min-width: 44px;
   padding: 4px 6px;
   border-radius: 8px;

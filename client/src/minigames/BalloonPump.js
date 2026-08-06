@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin119";
+} from "./VoxelKit.js?v=tumblekin120";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin119";
-import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin119";
+} from "./SceneKit.js?v=tumblekin120";
+import { frameChance, frameDecay, frameLerp } from "./Quality.js?v=tumblekin120";
 
 // Pump-Panik — the tap battle: every tap pumps your balloon bigger.
 // The best part is watching all four balloons swell live; at the finale the

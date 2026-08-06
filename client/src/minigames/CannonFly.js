@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin119";
+} from "./VoxelKit.js?v=tumblekin120";
 import {
   mountStage,
   mountHud,
@@ -18,13 +18,13 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin119";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin119";
+} from "./SceneKit.js?v=tumblekin120";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
 
 // Kanonenflug — one perfectly timed tap fires your Kin out of the cannon.
 // The power gauge swings up and down; tap at the peak to fly the farthest.
 // Enger: bei 1.9 lag die äussere Kanone samt Namensschild knapp ausserhalb.
-const CANNON_GAP = 1.72;
+const CANNON_GAP = 1.5;
 const FLIGHT_SCALE = 0.16;
 const FLIGHT_MS = 1600;
 
@@ -173,6 +173,10 @@ export class CannonFly {
     // Blocky cannon aiming down-range. The barrel pivots high above a tall
     // base so its rear end never pokes out the bottom during angle selection.
     const cannon = new THREE.Group();
+    // Kurz und gedrungen — und das bleibt so. Ein längeres Rohr liest sich von
+    // hinten zwar eher als Kanone, aber die Kamera steht hinter den Kanonen und
+    // das Rohr wächst damit genau vor das GESICHT der Figur, die darin sitzt.
+    // Wen man spielt, ist wichtiger als die Silhouette des Geräts.
     const barrel = new THREE.Mesh(
       new THREE.CylinderGeometry(0.34, 0.42, 1.2, 8),
       new THREE.MeshLambertMaterial({ color: "#40506a" })
@@ -397,7 +401,12 @@ export class CannonFly {
       // -0.048 über den Bildrand hinaus — meist das Namensschild, das
       // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
       // schmal, und die Reihe steht quer dazu.
-this.baseCamZ = portrait ? 10.1 : 7.4;
+// Gerechnet: die Kanonen stehen bei z = 2.4, ihre äussere Kante liegt bei
+      // 2.25 + halbe Breite. Sichtbar sind an dieser Stelle 0.245 Einheiten je
+      // Einheit Abstand — für die ganze Reihe braucht es also gut elf, macht mit
+      // dem Versatz der Kanonenebene 13.4. Bei 10.1 waren die beiden äusseren
+      // Kanonen angeschnitten.
+      this.baseCamZ = portrait ? 13.4 : 7.4;
       camera.fov = portrait ? 56 : 50;
     });
   }

@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { drawDiceFace } from "./Dice.js?v=tumblekin119";
-import { FIELD_COLORS } from "./GameState.js?v=tumblekin119";
-import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin119";
-import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin119";
-import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin119";
+import { drawDiceFace } from "./Dice.js?v=tumblekin120";
+import { FIELD_COLORS } from "./GameState.js?v=tumblekin120";
+import { boardTheme, createThemeLayout } from "./BoardThemes.js?v=tumblekin120";
+import { CubeBurst, FloatingText } from "../minigames/VoxelKit.js?v=tumblekin120";
+import { frameDecay, frameLerp } from "../minigames/Quality.js?v=tumblekin120";
 
 const EVENT_FIELDS = new Set(["challenge", "gate", "star", "coin", "item", "luck", "trap"]);
 const CAMERA_DAMPING = 6.5;
