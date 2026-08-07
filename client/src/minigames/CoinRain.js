@@ -15,6 +15,7 @@ import {
   mountHud,
   addStageLights,
   resizeStage,
+  entflechteSchilder,
   syncOwnMarker,
   teardownStage,
   dressMeadow
@@ -365,6 +366,8 @@ export class CoinRain {
     // Flacher Pfeil: die Figuren stehen hier am unteren Bildrand, der übliche
     // Abstand von 0.9 hängte den Pfeil sichtbar losgelöst über ihnen.
     syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now, 0.35, 0.45);
+    // Drei Bahnen, vier Figuren: mindestens zwei stehen immer nebeneinander.
+    entflechteSchilder([...this.kins.values()].map((k) => k.userData.label), this.camera, { grundY: 0.62 });
     this.renderer.render(this.scene, this.camera);
   }
 

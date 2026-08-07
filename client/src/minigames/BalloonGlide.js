@@ -9,6 +9,7 @@ import {
   createVoxelKin
 } from "./VoxelKit.js?v=tumblekin121";
 import {
+  entflechteSchilder,
   mountStage,
   mountHud,
   addStageLights,
@@ -27,10 +28,17 @@ import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumbl
 const SHAFT_HEIGHT = 7.2;      // Weltmass fuer Hoehenanteil 0..1
 const SHAFT_BOTTOM = 0.4;
 const GATE_SPACING_X = 5.4;    // Weltabstand zweier Tore
-// Weiter auseinander als vorher (±1.35): zusammen mit dem seitlichen
-// Kamerawinkel fächern die Bahnen dadurch sichtbar auf.
-const LANE_Z = [-2.4, -0.8, 0.8, 2.4];
-const CAM_X = -3.4;                    // seitlicher Kameraversatz
+// Die Bahnen liegen in der TIEFE, nicht seitlich — sie müssen es: der Kurs
+// läuft in x, alle vier sind am selben Punkt des Kurses. Von vorn deckt der
+// vorderste Ballon die drei anderen dadurch fast vollständig ab.
+//
+// Ein seitlich versetzter Blick fächert sie auf — probiert, und verworfen:
+// aus dem Winkel wird aus jedem Tor, das über alle Bahnen reichen muss, eine
+// mannshohe Platte quer im Bild. Die Tiefe des Tores ist nur deshalb gratis,
+// weil man genau von vorn draufschaut. Also bleibt der Blick frontal, und die
+// fremden Ballons werden durchscheinend: man sieht sie hintereinander stehen,
+// ohne dass der eigene verdeckt wird.
+const LANE_Z = [-1.35, -0.45, 0.45, 1.35];
 const GATE_LOOKAHEAD = 4;      // so viele Tore stehen gleichzeitig im Bild
 
 function clamp(value, min, max) {
@@ -171,7 +179,7 @@ export class BalloonGlide {
     this.floaters = new FloatingText(this.scene);
     this.buildBalloons();
     this.resizeRenderer();
-    this.camera.position.set(CAM_X, 4.0, 12.5);
+    this.camera.position.set(0, 4.0, 12.5);
     this.camera.lookAt(0, 4.0, 0);
   }
 
@@ -182,11 +190,10 @@ export class BalloonGlide {
     for (let i = 0; i < GATE_LOOKAHEAD + 1; i += 1) {
       const group = new THREE.Group();
       const mat = new THREE.MeshLambertMaterial({ color: "#ffd15c" });
-      // 5.4 tief: das Tor muss über ALLE vier Bahnen reichen (±2.4), sonst
-      // fliegen die äusseren Ballons sichtbar daneben, obwohl der Server sie
-      // als Treffer wertet.
-      const top = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 5.4), mat);
-      const bottom = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 5.4), mat);
+      // 3.2 tief, damit das Tor über alle vier Bahnen (±1.35) reicht. Die
+      // Tiefe kostet im Bild nichts, weil die Kamera frontal draufschaut.
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 3.2), mat);
+      const bottom = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 3.2), mat);
       top.castShadow = true;
       bottom.castShadow = true;
       group.add(top, bottom);
@@ -194,7 +201,7 @@ export class BalloonGlide {
       // Ein leuchtender Balken in der Torluecke: er zeigt die Mitte, und genau
       // die ist mehr wert als der Rand.
       const centre = new THREE.Mesh(
-        new THREE.BoxGeometry(0.06, 0.06, 5.2),
+        new THREE.BoxGeometry(0.06, 0.06, 3.1),
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.4, depthWrite: false, toneMapped: false })
       );
       group.add(centre);
@@ -205,12 +212,23 @@ export class BalloonGlide {
 
   buildBalloons() {
     const state = this.getState();
+    const eigeneId = this.getControlledPlayerId();
     (state?.players || []).forEach((player, index) => {
+      // Fremde Ballons durchscheinend: sie stehen in derselben Bildspalte
+      // hintereinander, und der vorderste hat vorher die drei dahinter
+      // komplett verdeckt. Durchscheinend sieht man alle vier Höhen auf
+      // einmal — und der eigene bleibt der einzige volldeckende.
+      const fremd = player.id !== eigeneId;
+      const huelle = (farbe) => new THREE.MeshLambertMaterial(
+        fremd
+          ? { color: farbe, transparent: true, opacity: 0.5, depthWrite: false }
+          : { color: farbe }
+      );
       const group = new THREE.Group();
 
       const envelope = new THREE.Mesh(
         new THREE.SphereGeometry(0.52, 12, 10),
-        new THREE.MeshLambertMaterial({ color: player.color })
+        huelle(player.color)
       );
       envelope.scale.set(1, 1.18, 1);
       envelope.position.y = 0.95;
@@ -221,7 +239,7 @@ export class BalloonGlide {
       // Neigung ist das, woran man Steigen und Sinken zuerst sieht.
       const stripe = new THREE.Mesh(
         new THREE.SphereGeometry(0.53, 12, 10, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.16),
-        new THREE.MeshLambertMaterial({ color: "#fff4dc" })
+        huelle("#fff4dc")
       );
       stripe.scale.set(1, 1.18, 1);
       stripe.position.y = 0.95;
@@ -229,7 +247,7 @@ export class BalloonGlide {
 
       const basket = new THREE.Mesh(
         new THREE.BoxGeometry(0.4, 0.32, 0.4),
-        new THREE.MeshLambertMaterial({ color: "#a9763f" })
+        huelle("#a9763f")
       );
       basket.position.y = 0.1;
       basket.castShadow = true;
@@ -310,15 +328,14 @@ export class BalloonGlide {
     const ownY = own ? shaftY(own.y ?? 0.5) : 4.0;
     const wanted = 4.0 + (ownY - 4.0) * 0.45;
     this.camY = (this.camY ?? wanted) + (wanted - (this.camY ?? wanted)) * frameLerp(0.09, dt);
-    // Seitlich versetzt statt frontal. Die vier Ballons stehen alle auf x = 0
-    // und unterscheiden sich nur in der Tiefe — von genau vorn deckt der
-    // vorderste die drei anderen vollständig ab, im Bild war nur ein einziger
-    // Ballon zu sehen. Aus dem Winkel fächern die Bahnen auf, und man sieht,
-    // wer wo fliegt. Das Tor spannt über alle Bahnen, das bleibt richtig.
-    this.camera.position.set(CAM_X + jolt, this.camY, this.baseCamZ || 12.5);
+    this.camera.position.set(jolt, this.camY, this.baseCamZ || 12.5);
     this.camera.lookAt(0, this.camY - 0.2, 0);
 
     this.updateHud(minigame, arcade, state, now, own);
+    // Vier Ballons in derselben Bildspalte heisst vier Namensschilder
+    // übereinander. Die Staffelung macht sie wieder lesbar.
+    entflechteSchilder([...this.balloons.values()].map((b) => b.label), this.camera,
+      { grundY: 1.75, stufe: 0.42, naehe: 0.2 });
     this.renderer.render(this.scene, this.camera);
   }
 

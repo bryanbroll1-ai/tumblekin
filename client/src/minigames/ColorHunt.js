@@ -184,6 +184,63 @@ export class ColorHunt {
       }
     }
 
+    // Das Spielfeld schwebte in flachem Cyan — kein Boden, kein Horizont,
+    // nichts. Jetzt liegt es als Holzsteg über einem flachen Becken: das
+    // Wasser reicht bis unter die Kamera und weit hinter das Feld, ein Rand
+    // aus Bohlen fasst es ein. Kein Wiesenkranz — acht andere Spiele stehen
+    // schon auf Gras, und dieses hier soll man daran erkennen können.
+    const becken = new THREE.Mesh(
+      new THREE.BoxGeometry(60, 0.4, 60),
+      new THREE.MeshLambertMaterial({ color: "#2f9fc4" })
+    );
+    becken.position.set(0, -0.62, -6);
+    becken.receiveShadow = true;
+    this.scene.add(becken);
+
+    const stegBreit = this.cols * TILE + 1.5;
+    const stegLang = this.rows * TILE + 1.5;
+    const steg = new THREE.Mesh(
+      new THREE.BoxGeometry(stegBreit, 0.24, stegLang),
+      new THREE.MeshLambertMaterial({ color: "#8a7356" })
+    );
+    steg.position.y = -0.24;
+    steg.receiveShadow = true;
+    this.scene.add(steg);
+    // Bohlenfugen auf dem umlaufenden Rand.
+    const bohlen = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(stegBreit, 0.03, 0.08),
+      new THREE.MeshLambertMaterial({ color: "#6b5843" }),
+      14
+    );
+    const fuge = new THREE.Object3D();
+    for (let i = 0; i < 14; i += 1) {
+      fuge.position.set(0, -0.1, -stegLang / 2 + 0.3 + i * (stegLang / 14));
+      fuge.updateMatrix();
+      bohlen.setMatrixAt(i, fuge.matrix);
+    }
+    bohlen.instanceMatrix.needsUpdate = true;
+    this.scene.add(bohlen);
+
+    // Seerosenblätter im Becken, ausserhalb des Stegs.
+    const blaetter = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.55, 0.55, 0.05, 7),
+      new THREE.MeshLambertMaterial({ color: "#3f8f55" }),
+      18
+    );
+    const blatt = new THREE.Object3D();
+    for (let i = 0; i < 18; i += 1) {
+      // Fester Streuer: dasselbe Becken bei jedem Start.
+      const winkel = (i * 2.399) % (Math.PI * 2);
+      const radius = Math.max(stegBreit, stegLang) / 2 + 1.2 + ((i * 13) % 8) * 1.1;
+      blatt.position.set(Math.cos(winkel) * radius, -0.4, Math.sin(winkel) * radius - 3);
+      blatt.rotation.y = winkel;
+      blatt.scale.setScalar(0.6 + ((i * 7) % 5) * 0.26);
+      blatt.updateMatrix();
+      blaetter.setMatrixAt(i, blatt.matrix);
+    }
+    blaetter.instanceMatrix.needsUpdate = true;
+    this.scene.add(blaetter);
+
     [[-3.4, 4.4, -5, 6], [3.2, 5.0, -6, 1]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);

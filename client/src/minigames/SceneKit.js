@@ -182,6 +182,39 @@ export function fitKinsInView(host, { margin = 1.1, maxPush = 6 } = {}) {
   return schub;
 }
 
+// Staffelt Namensschilder, die im Bild übereinander liegen.
+//
+// In den Bahnspielen — Zielgerade, Münzregen — stehen zu Rundenbeginn drei von
+// vier Figuren fast auf demselben Punkt. Ihre Schilder liegen dann exakt
+// übereinander und ergeben Buchstabensalat: man sieht vier Namen und kann
+// keinen lesen. Wer waagerecht dicht beim Vordermann steht, bekommt sein
+// Schild eine Stufe höher.
+//
+// Die Höhe wird jedes Bild neu von `grundY` aus gesetzt, damit sich das
+// Anheben nicht über die Runde aufsummiert.
+const _schildOrt = new THREE.Vector3();
+export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.3, naehe = 0.15 } = {}) {
+  if (!camera || !schilder || schilder.length < 2) return;
+  const liste = [];
+  schilder.forEach((sprite) => {
+    if (!sprite) return;
+    sprite.position.y = grundY;
+    if (sprite.visible === false) return;
+    liste.push(sprite);
+  });
+  if (liste.length < 2) return;
+  camera.updateMatrixWorld();
+  const punkte = liste.map((sprite) => ({
+    sprite,
+    x: sprite.getWorldPosition(_schildOrt).project(camera).x
+  })).sort((a, b) => a.x - b.x);
+  let stapel = 0;
+  for (let i = 1; i < punkte.length; i += 1) {
+    stapel = Math.abs(punkte[i].x - punkte[i - 1].x) < naehe ? stapel + 1 : 0;
+    punkte[i].sprite.position.y = grundY + stapel * stufe;
+  }
+}
+
 // Keeps the downward "you" arrow pinned over the controlled player's kin so you
 // never lose yourself in the crowd. Pass the kin (or null to hide it).
 export function syncOwnMarker(host, target, now, offset = 0.35, lift = 0.9) {

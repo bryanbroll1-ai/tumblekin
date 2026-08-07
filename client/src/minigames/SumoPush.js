@@ -515,8 +515,11 @@ export class SumoPush {
     this.updateHud(minigame, arcade, state, now);
     syncOwnMarker(this, this.kins?.get(controlledId), now);
     // Auch die Mitspieler gehören ins Bild — sonst weiss man nicht, wie man
-    // gerade dasteht.
-    fitKinsInView(this);
+    // gerade dasteht. Rand 1.35 statt der voreingestellten 1.1: die Funktion
+    // hält den MITTELPUNKT der Figur im Bild. Gemessen lag der Mittelpunkt bei
+    // 1.22 genau auf 0.83 der halben Bildbreite — der Körper reicht von dort
+    // noch 0.16 weiter, und mit dem Kamerawackeln stand er wieder draussen.
+    fitKinsInView(this, { margin: 1.35 });
     this.renderer.render(this.scene, this.camera);
   }
 

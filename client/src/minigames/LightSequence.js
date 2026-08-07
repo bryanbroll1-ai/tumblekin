@@ -176,17 +176,20 @@ export class LightSequence {
       // Boden liegt fast ganz innerhalb der Sperrzone — bei 4.2/4.6 war rund
       // um die Pilze wieder blankes Grün.
       keepOut: { x: 2.6, z: 2.8 },
-      spread: { x: 18, z: 16 },
+      spread: { x: 15, z: 14 },
       patches: 30,
       patchColors: ["#4f8f40", "#6bb055"],
       tufts: 200,
       flowers: 34,
       stones: 26,
-      trees: 34,
-      // Weiter draussen und mit grösserem Vorfeld: bei 16/14 und frontCut 5.5
-      // stand ein Baum fast neben der Kamera und füllte ein Bildviertel.
-      treeRing: { x: 23, z: 21 },
-      frontCut: 10,
+      trees: 40,
+      // Der Baumkranz ist auf DIESE Kamera gerechnet: sie steht bei z = 5.6
+      // und sieht nur einen kleinen Fleck Boden. Bei frontCut 5.5 landete ein
+      // Baum zehn Zentimeter vor der Linse und füllte ein Bildviertel; bei
+      // treeRing 23 standen sie so weit hinten, dass nur noch einer im Bild
+      // war. 13/12 mit frontCut 0 legt sie als Saum an den Horizont.
+      treeRing: { x: 13, z: 12 },
+      frontCut: 0,
       grassColor: "#528f42",
       flowerColors: ["#ff6f61", "#ffe27a", "#ffffff", "#e08cff"],
       trunkColor: "#6b4a2c",

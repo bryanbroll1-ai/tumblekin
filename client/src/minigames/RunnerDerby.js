@@ -16,6 +16,7 @@ import {
   mountHud,
   addStageLights,
   resizeStage,
+  entflechteSchilder,
   syncOwnMarker,
   teardownStage,
   fitKinsInView,
@@ -825,6 +826,9 @@ export class RunnerDerby {
     // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
     // selbst nicht sieht, spielt blind.
     fitKinsInView(this);
+    // Bei Rundenbeginn stehen alle vier Läufer auf demselben Punkt — ohne
+    // Staffelung liegen die Namensschilder übereinander.
+    entflechteSchilder([...this.kins.values()].map((k) => k.userData.label), this.camera, { grundY: 0.62 });
     this.renderer.render(this.scene, this.camera);
   }
 
