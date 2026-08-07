@@ -5447,7 +5447,7 @@ function handleArcadeInput(room, player, rawInput) {
       
       if (ahead) {
         ahead.stumbleUntil = Date.now() + 1000;
-        ahead.stumbles += 1;
+        ahead.stumbles = (ahead.stumbles || 0) + 1;
       }
       return { ok: true };
     }
