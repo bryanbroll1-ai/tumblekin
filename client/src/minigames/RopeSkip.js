@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin121";
+} from "./VoxelKit.js?v=tumblekin122";
 import {
   mountStage,
   mountHud,
@@ -19,8 +19,8 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin121";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
+} from "./SceneKit.js?v=tumblekin122";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin122";
 
 // Seilspringen — two Kins swing a giant rope, everyone else jumps it.
 // Same server rhythm as the waves: the rope sweeps the ground exactly at

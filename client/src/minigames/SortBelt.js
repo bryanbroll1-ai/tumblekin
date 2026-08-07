@@ -9,15 +9,15 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin121";
+} from "./VoxelKit.js?v=tumblekin122";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin121";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
+} from "./SceneKit.js?v=tumblekin122";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin122";
 
 // Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die
@@ -27,10 +27,17 @@ import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 // Das Band läuft von hinten nach vorne auf die Kamera zu. Auf dem hohen
 // Handybild ist das die einzige Richtung, in der man weit vorausschauen kann,
 // ohne dass die Pakete winzig werden: die Tiefe ist gratis, die Breite nicht.
-const BELT_LENGTH = 13.0;      // Weltlänge des Bandes
+// Die Weltlänge des Bandes MUSS die Spanne zwischen Aufgabe- und Abwurfkante
+// sein. Als feste 13.0 war sie 0.6 zu lang, und weil das Deck um die Mitte
+// zwischen beiden Kanten gebaut wird, ragte es hinten wie vorn 0.3 darüber
+// hinaus — vorne genau dort, wo die drei Trichter stehen. Im Bild steckten die
+// Becher im Band statt davor.
+const BELT_FAR_Z_RAW = -9.4;
+const BELT_NEAR_Z_RAW = 3.0;
+const BELT_LENGTH = BELT_NEAR_Z_RAW - BELT_FAR_Z_RAW;
 const BELT_WIDTH = 2.4;
-const BELT_FAR_Z = -9.4;       // wo ein Paket auf das Band kommt (Bandanteil 0)
-const BELT_NEAR_Z = 3.0;       // Kante, an der es runterfällt (Bandanteil 1)
+const BELT_FAR_Z = BELT_FAR_Z_RAW;   // wo ein Paket auf das Band kommt (Bandanteil 0)
+const BELT_NEAR_Z = BELT_NEAR_Z_RAW; // Kante, an der es runterfällt (Bandanteil 1)
 // Seitlicher Abstand der äusseren Rutschen. 2.35 war zu breit: im Hochformat
 // ist der sichtbare Ausschnitt schmal, und die beiden äusseren Trichter lagen
 // ausserhalb. Man sah nur den mittleren — bei einem Spiel, in dem man die FARBE
@@ -310,7 +317,7 @@ export class SortBelt {
     const spots = [-CHUTE_X, 0, CHUTE_X];
     spots.forEach((x, index) => {
       const group = new THREE.Group();
-      group.position.set(x, 0, BELT_NEAR_Z + 0.85);
+      group.position.set(x, 0, BELT_NEAR_Z + 1.15);
       this.scene.add(group);
 
       // Der Trichter steht auf dem Boden und endet knapp unter der Bandkante —
@@ -344,7 +351,7 @@ export class SortBelt {
       group.add(glow);
 
       const shadow = createShadowBlob(0.58);
-      shadow.position.set(x, GROUND_Y + 0.02, BELT_NEAR_Z + 0.85);
+      shadow.position.set(x, GROUND_Y + 0.02, BELT_NEAR_Z + 1.15);
       this.scene.add(shadow);
 
       this.chutes.push({

@@ -1,6 +1,6 @@
-import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin121";
-import { playerStatus } from "../game/Player.js?v=tumblekin121";
-import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin121";
+import { FIELD_LEGEND, boardZoneName, getCurrentPlayer, getMyPlayer, isHost, isMyTurn, joinUrlFor, sortByStanding } from "../game/GameState.js?v=tumblekin122";
+import { playerStatus } from "../game/Player.js?v=tumblekin122";
+import { MINIGAME_CATALOG, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin122";
 
 export class UIManager {
   constructor(handlers, feedback = null) {
@@ -598,6 +598,7 @@ export class UIManager {
     this.el.introGestureLabel.textContent = gesture.label;
     this.el.intro.hidden = false;
     this.el.intro.classList.remove("counting");
+    this.el.intro.classList.remove("through");
     this.el.introCount.hidden = true;
 
     const clockOffset = (this.state?.serverTime || Date.now()) - Date.now();
@@ -609,10 +610,16 @@ export class UIManager {
       }
       const remaining = minigame.startedAt - (Date.now() + clockOffset);
       if (remaining > 3400) return;
-      if (remaining <= -600) {
+      if (remaining <= -320) {
         this.hideIntro();
         return;
       }
+      // Ab dem Startschuss nimmt die Karte KEINE Berührung mehr an, auch wenn
+      // "LOS!" noch einen Moment stehen bleibt. Vorher lag sie 600 ms lang
+      // über dem laufenden Spiel und schluckte jede Eingabe — bei Ballonfahrt
+      // hiess das: der Ballon sinkt schon, und der Finger kommt nicht durch.
+      // Man war auf dem Boden, bevor man das erste Mal steuern konnte.
+      if (remaining <= 0) this.el.intro.classList.add("through");
       this.el.intro.classList.add("counting");
       const value = remaining > 0 ? String(Math.min(3, Math.ceil(remaining / 1000))) : "LOS!";
       if (value !== lastShown) {
@@ -641,6 +648,7 @@ export class UIManager {
     this.introTimer = null;
     this.el.intro.hidden = true;
     this.el.intro.classList.remove("counting");
+    this.el.intro.classList.remove("through");
   }
 
   renderResult() {

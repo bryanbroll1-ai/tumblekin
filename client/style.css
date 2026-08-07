@@ -1793,10 +1793,10 @@ body[data-screen="minigame"] .game-menu-button {
   background: #4fb87b;
   box-shadow: 0 3px 0 rgba(5, 18, 16, 0.88);
 }.runner-lane-controls {
-  display: flex;
-  gap: 14px;
+  display: grid;
+  gap: 8px;
   width: 100%;
-  padding: 8px;
+  padding: 8px 12px 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--radius);
   background: rgba(10, 18, 21, 0.88);
@@ -1804,10 +1804,35 @@ body[data-screen="minigame"] .game-menu-button {
   backdrop-filter: blur(14px);
 }
 
-/* Der Hinweis meldet, wenn eine Stachelkugel bereit ist. Ohne Knopf ist er die
-   einzige Ansage, dass jetzt getippt werden kann. */
-.runner-swipe-hint.has-item {
-  color: #ffd15c;
+/* Der Schwungbalken. Er ist die einzige Anzeige, die man WÄHREND des Laufens
+   wirklich braucht: er sagt, ob der nächste Sprint noch trägt. Deshalb liegt
+   er direkt über der Hinweiszeile und nicht oben bei der Uhr — der Blick ist
+   auf der Strecke, nicht am oberen Rand. */
+.runner-schwung {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.runner-schwung > span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #b9a2ff, #7f5bff);
+  box-shadow: 0 0 10px rgba(155, 123, 255, 0.55);
+  transition: width 90ms linear;
+}
+
+.runner-schwung > span.leer {
+  background: linear-gradient(90deg, #6b7280, #4b5563);
+  box-shadow: none;
+}
+
+.runner-swipe-hint.sprintet {
+  color: #b9a2ff;
   font-weight: 900;
   animation: runner-hint-pop 0.3s ease;
 }
@@ -2670,6 +2695,17 @@ body[data-screen="minigame"] .game-menu-button {
 }
 
 .minigame-intro[hidden] { display: none; }
+
+/* Ab dem Startschuss läuft das Spiel — die Karte bleibt für einen Moment
+   sichtbar, nimmt aber keine Berührung mehr an. Sonst schluckt sie die erste
+   halbe Sekunde Eingabe, und in Spielen, die von der ersten Sekunde an
+   Steuerung verlangen (Ballonfahrt), hat man schon verloren, bevor man
+   anfangen durfte. */
+.minigame-intro.through {
+  pointer-events: none;
+  transition: opacity 220ms ease;
+  opacity: 0.75;
+}
 
 .intro-card {
   display: grid;

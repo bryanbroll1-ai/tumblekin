@@ -113,8 +113,11 @@ const SEEK_DURATION_MS = 42000;
 // waren. Vier Durchgänge; die Zeiten stehen fest, damit alle denselben Blick
 // haben und die Anzeige nie gegen den Server läuft.
 const ESTIMATE_ROUNDS = 4;
-const ESTIMATE_SHOW_MS = 1500;         // so lange ist der Schwarm zu sehen
-const ESTIMATE_GUESS_MS = 4500;        // so lange darf geschätzt werden
+// 2200 statt 1500: anderthalb Sekunden reichen für einen Eindruck nur, wenn
+// die Menge klein ist. Bei den grossen Durchgängen war der Schwarm weg, bevor
+// das Auge ihn erfasst hatte — dann rät man, und Raten macht keinen Spass.
+const ESTIMATE_SHOW_MS = 2200;         // so lange ist der Schwarm zu sehen
+const ESTIMATE_GUESS_MS = 4800;        // so lange darf geschätzt werden
 const ESTIMATE_REVEAL_MS = 1900;       // Auflösung, gemeinsam
 const ESTIMATE_LEAD_IN_MS = 900;
 const ESTIMATE_DURATION_MS = ESTIMATE_LEAD_IN_MS
@@ -199,18 +202,29 @@ const ARCADE_CONFIGS = {
 // schaut dann zu. Hier hängt jede Millisekunde an der Hand, alle vier fliegen
 // gleichzeitig durch denselben Kurs, und man sieht die ganze Zeit, wer vorn
 // liegt.
-const GLIDE_GRAVITY = 0.95;            // Höhenanteile pro Sekunde²
-const GLIDE_LIFT = 1.9;                // beim Halten, also netto +0.95 nach oben
-const GLIDE_VY_MAX = 0.72;             // Höhenanteile pro Sekunde
-const GLIDE_GATE_FIRST_MS = 2600;      // das erste Tor kommt mit Vorlauf
+// Der Ballon war zu träge, um genau zu sein. Mit Beschleunigung 0.95 und
+// Höchsttempo 0.72 dauerte ein Richtungswechsel von voller Sinkfahrt in volle
+// Steigfahrt 1.5 Sekunden — genau ein Tor-Intervall. Man steuerte also immer
+// das übernächste Tor an, nie das nächste, und das fühlt sich nicht wie
+// Ungeschick an, sondern wie ein Spiel, das nicht auf einen hört.
+//
+// Jetzt beschleunigt er doppelt so hart bei etwas kleinerem Höchsttempo:
+// Richtungswechsel in 0.6 Sekunden, Höchsttempo nach 0.34 Sekunden. Die Hand
+// wirkt sofort, das Schweben bleibt.
+const GLIDE_GRAVITY = 2.0;             // Höhenanteile pro Sekunde²
+const GLIDE_LIFT = 4.0;                // beim Halten, also netto +2.0 nach oben
+const GLIDE_VY_MAX = 0.68;             // Höhenanteile pro Sekunde
+const GLIDE_GATE_FIRST_MS = 3400;      // das erste Tor kommt mit Vorlauf
 const GLIDE_GATE_EVERY_MS = 1500;
-const GLIDE_GATE_GAP_START = 0.30;     // lichte Weite als Höhenanteil
-const GLIDE_GATE_GAP_END = 0.15;
+const GLIDE_GATE_GAP_START = 0.34;     // lichte Weite als Höhenanteil
+// 0.21 statt 0.15: bei 0.15 blieb am Ende ein Fenster von anderthalb
+// Ballonhöhen, und da hilft kein Können mehr, da hilft nur Glück.
+const GLIDE_GATE_GAP_END = 0.21;
 // Wieviel ein Tor gegenüber dem vorherigen springen darf. Aus der Physik
 // gerechnet und nicht geraten: mit GLIDE_VY_MAX schafft man in 1500 ms rund
-// 1.08 Höhenanteile, aber Beschleunigen und Abbremsen kosten davon gut die
-// Hälfte. Grössere Sprünge wären nicht schwer, sondern unmöglich.
-const GLIDE_GATE_MAX_STEP = 0.52;
+// 1.02 Höhenanteile, und mit der neuen Beschleunigung kosten Anfahren und
+// Abbremsen davon nur noch rund ein Drittel.
+const GLIDE_GATE_MAX_STEP = 0.62;
 const GLIDE_GATE_POINTS = 100;
 const GLIDE_CENTRE_BONUS = 50;         // volle Zugabe für die Tormitte
 const GLIDE_STALL_MS = 420;            // nach Boden- oder Deckenberührung
@@ -519,10 +533,17 @@ const SEEK_BOT_INTERVAL = { easy: 400, normal: 700, hard: 1150 };
 // Menge auf einen Blick einzuschätzen, ohne zu zählen. Darin sind Menschen sehr
 // unterschiedlich gut, und man merkt am Tisch sofort, wer ein Auge dafür hat.
 //
-// Die Spannen wachsen von Durchgang zu Durchgang. Bei acht bis zwanzig zählt
-// man notfalls noch mit; bei fünfundvierzig bis fünfundneunzig geht das in
-// anderthalb Sekunden nicht mehr, und genau dort trennt sich das Feld.
-const ESTIMATE_BANDS = [[8, 20], [16, 36], [28, 58], [45, 95]];
+// Die Spannen wachsen von Durchgang zu Durchgang, aber flacher als vorher.
+// Mit [8,20] → [16,36] → [28,58] → [45,95] verdoppelte sich die Menge in jedem
+// Durchgang: der erste war zum Mitzählen, der letzte purer Zufall. Ein Spiel,
+// das nach zwei Durchgängen in blindes Raten kippt, ist kein Schätzspiel mehr.
+//
+// Jetzt wächst die Obergrenze um rund die Hälfte je Durchgang und endet bei
+// 44. Das ist die Gegend, in der ein geübtes Auge in zwei Sekunden noch eine
+// begründete Zahl nennt — und ein ungeübtes nicht hoffnungslos danebenliegt.
+// Die Spannen sind ausserdem schmaler, der Schieberegler zeigt sie an: man
+// wählt aus 15 Zahlen statt aus 51.
+const ESTIMATE_BANDS = [[6, 14], [10, 22], [16, 32], [23, 44]];
 // Volle Punkte für einen genauen Treffer. Vorher 200 plus 60 Zugabe, macht über
 // vier Durchgänge bis zu 1040 — gemessen an einer halben Minute Spielzeit war
 // das deutlich zu viel und liess die Runde wichtiger wirken, als sie ist.
@@ -604,13 +625,39 @@ function seekFindValue(probes) {
 }
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
+// Zielgerade — neu gedacht.
+//
+// Die alte Fassung war ein Selbstläufer: alle rannten gleich schnell, und man
+// wischte hin und wieder um ein Hindernis herum. Wer nichts tat, wurde
+// bestraft, wer alles richtig machte, gewann nichts dazu — es gab keine
+// Entscheidung, nur eine Reaktionsprüfung mit langen Pausen dazwischen. Genau
+// das fühlt sich an, als spiele das Spiel sich selbst.
+//
+// Jetzt gibt es zwei Stellschrauben, und sie ziehen gegeneinander:
+//
+//  * DIE BAHN hat Tempo. Jeder Abschnitt gibt den drei Bahnen einen Belag —
+//    Tempo, normal, Sand. Die Bahnwahl wirkt damit die ganze Zeit, nicht nur
+//    im Moment eines Hindernisses. Man liest voraus und plant eine Linie.
+//  * DER SPRINT kostet Schwung und SPERRT DIE BAHN. Wer sprintet, kann nicht
+//    wechseln. Also sprintet man dort, wo die eigene Bahn eine Weile gut
+//    bleibt, und läuft locker durch die unübersichtlichen Stellen.
+//
+// Aus "ausweichen oder stolpern" wird "wo lohnt sich der Schwung". Die Hürden
+// bleiben, aber als Grund, rechtzeitig NICHT zu sprinten — nicht als
+// Zufallsstrafe.
 const RUNNER_LENGTH = 150;
-const RUNNER_BASE_SPEED = 5.8;
+const RUNNER_BASE_SPEED = 5.2;
+const RUNNER_SEG_LEN = 7.5;            // Länge eines Bahnabschnitts in Metern
+// Belagfaktoren. Der Abstand zwischen Sand und Tempo ist bewusst gross: eine
+// Bahn muss sich beim Hinschauen lohnen, sonst schaut niemand hin.
+const RUNNER_SURFACE = { sand: 0.70, normal: 1.0, tempo: 1.34 };
+const RUNNER_SPRINT_FACTOR = 1.45;
+const RUNNER_SPRINT_DRAIN = 1 / 2.6;   // Schwung je Sekunde beim Sprint
+const RUNNER_SPRINT_REFILL = 1 / 4.4;  // und beim lockeren Laufen zurück
 // Ein Stolperer muss das Rennen kosten können. Bei 1150 ms und 0.35-Tempo lag
 // der Verlust bei rund 0.75 s auf 26 s Renndauer — knapp drei Prozent, zu wenig,
 // als dass sich saubere Bahnwahl auszahlt.
-const RUNNER_STUMBLE_MS = 1500;
-const RUNNER_BOOST_MS = 1300;
+const RUNNER_STUMBLE_MS = 1200;
 const COLORGRID_SIZE = 6;
 const COLORGRID_ROUNDS = 6;
 const COLORGRID_ROUND_MS = 7000;
@@ -3747,21 +3794,20 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "runner") {
     arcade.trackLength = RUNNER_LENGTH;
-    arcade.rows = createRunnerCourse(config.seed);
-    arcade.shots = [];
-    arcade.nextShotId = 1;
+    arcade.segments = createRunnerCourse(config.seed);
+    arcade.segLen = RUNNER_SEG_LEN;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.lane = 1;
       entry.progress = 0;
-      entry.nextRow = 0;
+      entry.nextHurdle = 0;        // Index des nächsten noch offenen Abschnitts
       entry.stumbleUntil = 0;
-      entry.boostUntil = 0;
+      entry.sprinting = false;
+      entry.schwung = 1;           // volle Reserve am Start
+      entry.sprintMs = 0;          // wie lange insgesamt gesprintet wurde
       entry.finishedAt = null;
       entry.finishMs = null;
       entry.stumbles = 0;
-      entry.hasItem = false;
-      entry.throwsHit = 0;
     });
   }
   if (config.family === "colorgrid") {
@@ -4395,52 +4441,59 @@ function buildWaveSchedule(seed, totalMs) {
 
 // Same course for every player: at each row at least one lane stays free,
 // so the track is always beatable and fair.
+// Der Kurs besteht aus Abschnitten. Jeder verteilt die drei Beläge auf die
+// drei Bahnen, und in manchen steht zusätzlich eine Hürde in einer Bahn.
+//
+// Zwei Regeln halten ihn fair und lesbar:
+//  * Die Tempobahn wandert. Zwei Abschnitte hintereinander dieselbe schnelle
+//    Bahn wären eine Einladung, einmal zu wechseln und dann wegzuschauen.
+//  * Die Hürde steht NIE in der Sandbahn. Sonst wäre die Entscheidung geschenkt
+//    — der Sand ist schon Strafe genug, eine Hürde obendrauf trifft niemanden.
 function createRunnerCourse(seed) {
-  const rows = [];
-  let position = 14;
-  let index = 0;
-  // Kisten und Booster REIHUM auf die Bahnen verteilen statt zufällig. Bei
-  // zufälliger Wahl konnte eine Bahn über eine ganze Strecke deutlich mehr
-  // abbekommen — wer dort lief, hatte ohne eigenes Zutun mehr Würfe.
-  let laneCursor = Math.floor(arcadeNoise(seed + 5) * 3);
-  const giveLane = () => {
-    laneCursor = (laneCursor + 1) % 3;
-    return laneCursor;
-  };
-  while (position < RUNNER_LENGTH - 10) {
-    const roll = arcadeNoise(seed + index * 17);
-    if (roll < 0.1) {
-      // Occasional breather with a boost pad.
-      rows.push({ position, kind: "boost", lane: giveLane() });
-    } else if (roll < 0.38) {
-      // Pickup orb: grab it to throw a straight tumble-shot down your lane.
-      rows.push({ position, kind: "item", lane: giveLane() });
-    } else if (roll < 0.56) {
-      // Log blocks two adjacent lanes.
-      const freeLane = Math.floor(arcadeNoise(seed + index * 29) * 3);
-      rows.push({ position, kind: "log", freeLane });
-    } else if (roll < 0.66) {
-      // Slider oscillates between two lanes; the third lane is always safe.
-      const baseLane = Math.floor(arcadeNoise(seed + index * 31) * 2);
-      rows.push({ position, kind: "slider", baseLane, phase: arcadeNoise(seed + index * 37) * Math.PI * 2 });
-    } else {
-      rows.push({ position, kind: "cone", lane: Math.floor(arcadeNoise(seed + index * 41) * 3) });
+  const segments = [];
+  const count = Math.ceil(RUNNER_LENGTH / RUNNER_SEG_LEN);
+  let tempo = Math.floor(arcadeNoise(seed + 5) * 3);
+  let sand = (tempo + 1 + Math.floor(arcadeNoise(seed + 11) * 2)) % 3;
+  for (let index = 0; index < count; index += 1) {
+    const at = index * RUNNER_SEG_LEN;
+    // Die ersten beiden Abschnitte sind flach: man soll die Bahnen sehen,
+    // bevor sie etwas kosten.
+    const ruhig = index < 2;
+    const lanes = [0, 1, 2].map((lane) => {
+      if (ruhig) return "normal";
+      if (lane === tempo) return "tempo";
+      if (lane === sand) return "sand";
+      return "normal";
+    });
+    // Ab dem vierten Abschnitt stehen Hürden, und nur in gut jedem dritten.
+    let hurdle = null;
+    if (index >= 3 && arcadeNoise(seed + index * 23) < 0.38) {
+      const kandidaten = [0, 1, 2].filter((lane) => lanes[lane] !== "sand");
+      hurdle = kandidaten[Math.floor(arcadeNoise(seed + index * 29) * kandidaten.length)];
     }
-    // Denser spacing than before so there is more to dodge.
-    position += 3.8 + arcadeNoise(seed + index * 43) * 2.2;
-    index += 1;
+    segments.push({ index, at, lanes, hurdle, hurdleAt: at + RUNNER_SEG_LEN * 0.62 });
+    // Nächster Abschnitt: Tempo wandert um eine Bahn, Sand setzt sich woanders hin.
+    tempo = (tempo + (arcadeNoise(seed + index * 31) < 0.5 ? 1 : 2)) % 3;
+    sand = (tempo + 1 + Math.floor(arcadeNoise(seed + index * 37) * 2)) % 3;
   }
-  return rows;
+  return segments;
 }
 
-function runnerBlockedLanes(row, now) {
-  if (row.kind === "cone") return [row.lane];
-  if (row.kind === "log") return [0, 1, 2].filter((lane) => lane !== row.freeLane);
-  if (row.kind === "slider") {
-    return [row.baseLane + (Math.sin(now / 650 + row.phase) > 0 ? 1 : 0)];
-  }
-  return [];
+// Der Abschnitt, in dem eine Position liegt.
+function runnerSegmentAt(arcade, position) {
+  const segments = arcade.segments || [];
+  if (segments.length === 0) return null;
+  const index = Math.min(segments.length - 1, Math.max(0, Math.floor(position / RUNNER_SEG_LEN)));
+  return segments[index];
 }
+
+// Der Belagfaktor einer Bahn an einer Position.
+function runnerLaneFactor(arcade, position, lane) {
+  const segment = runnerSegmentAt(arcade, position);
+  if (!segment) return 1;
+  return RUNNER_SURFACE[segment.lanes[lane]] ?? 1;
+}
+
 
 // Vorwarnzeit und Zahl der sicheren Felder je Runde. Beides schrumpft, damit aus
 // „hinlaufen" gegen Ende „sofort loslaufen und den kürzesten Weg finden" wird.
@@ -5266,25 +5319,20 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "runner") {
-    if (input.action === "throw") {
-      if (arcadePlayer.finishedAt || !arcadePlayer.hasItem) return { ok: true };
-      // The shot flies straight forward down the thrower's own lane and hits
-      // the nearest runner ahead in that same lane.
-      arcadePlayer.hasItem = false;
+    if (arcadePlayer.finishedAt) return { ok: true };
+    if (input.action === "sprint") {
+      // Der Client meldet nur, OB gerade gehalten wird. Gerechnet wird im Tick,
+      // sonst hinge der Schwungverbrauch an der Ping-Rate des Geräts.
+      arcadePlayer.sprinting = input.down === true || input.down === 1 || input.down === "1";
       arcadePlayer.hasMoved = true;
-      arcade.shots.push({
-        id: arcade.nextShotId++,
-        fromId: player.id,
-        lane: arcadePlayer.lane,
-        fromProgress: arcadePlayer.progress,
-        firedAt: now,
-        speed: 60,              // metres/sec the shot travels
-        resolved: false
-      });
       return { ok: true };
     }
-    if (input.action !== "lane") return { ok: false, error: "Wische nach links oder rechts." };
-    if (arcadePlayer.finishedAt) return { ok: true };
+    if (input.action !== "lane") return { ok: false, error: "Wische zum Bahnwechsel, halte zum Sprint." };
+    // Sprinten sperrt die Bahn. Das IST das Spiel: Schwung gibt es nur dort,
+    // wo man sich auf die eigene Bahn festlegen kann.
+    if (arcadePlayer.sprinting && arcadePlayer.schwung > 0) {
+      return { ok: false, error: "Im Sprint bleibt die Bahn." };
+    }
     const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
     arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
     arcadePlayer.hasMoved = true;
@@ -6179,37 +6227,48 @@ function updateRunner(room, minigame, arcade, dt, now) {
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
     if (!entry || entry.finishedAt) return;
+
     const stumbling = now < entry.stumbleUntil;
-    const boosted = now < entry.boostUntil;
-    const speed = RUNNER_BASE_SPEED * (stumbling ? 0.25 : 1) * (boosted ? 1.55 : 1);
+
+    // Schwung: der Sprint zehrt, das lockere Laufen füllt nach. Wer stolpert,
+    // sprintet nicht — sonst wäre der Stolperer nur eine kurze Bremse und
+    // keine verlorene Gelegenheit.
+    const willSprint = entry.sprinting && !stumbling && entry.schwung > 0;
+    if (willSprint) {
+      entry.schwung = Math.max(0, entry.schwung - RUNNER_SPRINT_DRAIN * dt);
+      entry.sprintMs += dt * 1000;
+      if (entry.schwung <= 0) entry.sprinting = false;
+    } else {
+      entry.schwung = Math.min(1, entry.schwung + RUNNER_SPRINT_REFILL * dt);
+    }
+    entry.sprintingNow = willSprint;
+
+    const surface = runnerLaneFactor(arcade, entry.progress, entry.lane);
+    const speed = RUNNER_BASE_SPEED
+      * surface
+      * (willSprint ? RUNNER_SPRINT_FACTOR : 1)
+      * (stumbling ? 0.32 : 1);
+    entry.speed = speed;
+    entry.surface = runnerSegmentAt(arcade, entry.progress)?.lanes[entry.lane] || "normal";
     entry.progress = Math.min(arcade.trackLength, entry.progress + speed * dt);
 
-    while (entry.nextRow < arcade.rows.length && entry.progress >= arcade.rows[entry.nextRow].position) {
-      const row = arcade.rows[entry.nextRow];
-      entry.nextRow += 1;
-      if (row.kind === "boost") {
-        if (row.lane === entry.lane) {
-          entry.boostUntil = now + RUNNER_BOOST_MS;
-          entry.flash = "good";
-          entry.lastHitAt = now;
-        }
-      } else if (row.kind === "item") {
-        if (row.lane === entry.lane && !entry.hasItem) {
-          entry.hasItem = true;
-          // Aufgesammelte Kisten merken, damit der Client sie verschwinden
-          // lassen kann. Vorher blieb die Kiste stehen, obwohl man sie schon
-          // hatte — man sah nicht, ob der Griff gesessen hatte.
-          entry.takenRows = entry.takenRows || [];
-          entry.takenRows.push(entry.nextRow - 1);
-          entry.flash = "good";
-          entry.lastHitAt = now;
-        }
-      } else if (runnerBlockedLanes(row, now).includes(entry.lane)) {
-        entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
-        entry.stumbles += 1;
-        entry.flash = "bad";
-        entry.lastHitAt = now;
-      }
+    // Hürden werden je Abschnitt EINMAL abgerechnet, sobald die Figur die
+    // Hürdenposition überquert hat. Eine Prüfung pro Tick hinge sonst an der
+    // Tickrate statt an der Strecke.
+    const segments = arcade.segments || [];
+    while (entry.nextHurdle < segments.length && entry.progress >= segments[entry.nextHurdle].hurdleAt) {
+      const segment = segments[entry.nextHurdle];
+      entry.nextHurdle += 1;
+      if (segment.hurdle === null || segment.hurdle !== entry.lane) continue;
+      entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
+      entry.stumbles += 1;
+      // Ein Stolperer kostet zusätzlich den halben Schwung. Das ist der
+      // eigentliche Verlust: nicht die anderthalb Sekunden, sondern der
+      // Sprint, der auf dem nächsten guten Stück jetzt fehlt.
+      entry.schwung = Math.max(0, entry.schwung * 0.5);
+      entry.sprinting = false;
+      entry.flash = "bad";
+      entry.lastHitAt = now;
     }
 
     if (entry.progress >= arcade.trackLength) {
@@ -6224,47 +6283,6 @@ function updateRunner(room, minigame, arcade, dt, now) {
       : Math.round(entry.progress * 1000);
     syncArcadeScore(minigame, player, entry);
   });
-
-  // Shots travel straight forward down their lane; the first runner ahead in
-  // the same lane that they overtake gets tumbled.
-  arcade.shots.forEach((shot) => {
-    if (shot.resolved) return;
-    const travelled = ((now - shot.firedAt) / 1000) * shot.speed;
-    // Der Schuss ist ein FLIEGENDES Geschoss, kein wachsendes Band. Vorher lief
-    // die Trefferprüfung über die ganze Strecke vom Abschusspunkt bis zur
-    // Spitze — wer von hinten über den Abschusspunkt lief, während der Schuss
-    // noch unterwegs war, wurde dadurch nachträglich getroffen, obwohl das
-    // Geschoss längst vorbei war. Geprüft wird jetzt nur das Stück, das in
-    // DIESEM Tick überstrichen wurde.
-    const tail = shot.headProgress ?? shot.fromProgress;
-    shot.headProgress = shot.fromProgress + travelled;
-    const thrower = arcade.players[shot.fromId];
-    let hit = null;
-    room.players.forEach((candidate) => {
-      const entry = arcade.players[candidate.id];
-      if (!entry || candidate.id === shot.fromId || entry.finishedAt) return;
-      if (entry.lane !== shot.lane) return;
-      if (entry.progress > tail && entry.progress <= shot.headProgress) {
-        if (!hit || entry.progress < arcade.players[hit].progress) hit = candidate.id;
-      }
-    });
-    if (hit) {
-      const target = arcade.players[hit];
-      target.stumbleUntil = now + Math.round(RUNNER_STUMBLE_MS * 1.25);
-      target.stumbles += 1;
-      target.flash = "bad";
-      target.lastHitAt = now;
-      if (thrower) thrower.throwsHit = (thrower.throwsHit || 0) + 1;
-      shot.resolved = true;
-      shot.resolvedAt = now;
-      shot.hitId = hit;
-    } else if (travelled > RUNNER_LENGTH) {
-      shot.resolved = true;
-      shot.resolvedAt = now;
-    }
-  });
-  // Keep spent shots briefly so clients can play the impact, then drop.
-  arcade.shots = arcade.shots.filter((shot) => !shot.resolved || now < (shot.resolvedAt || now) + 700);
 }
 
 function updateColorGrid(room, minigame, arcade, now) {
@@ -8504,45 +8522,46 @@ function arcadeBotStep(room, bot) {
     if (player.finishedAt) return;
     const now = Date.now();
     const profile = botProfile(player);
-    if (player.hasItem) {
-      // Der Schuss läuft geradeaus die eigene Bahn hinunter. Ihn abzufeuern,
-      // wenn dort niemand voraus ist, ist verschenkt — vorher warf jeder Bot
-      // einfach drauflos, und die ganze Mechanik trug nichts zum Können bei.
-      const target = room.players.some((other) => {
-        const entry = arcade.players[other.id];
-        return entry && other.id !== bot.id && !entry.finishedAt
-          && entry.lane === player.lane
-          && entry.progress > player.progress
-          && entry.progress - player.progress < 40;
-      });
-      const fire = profile.level === "hard"
-        ? target
-        : profile.level === "normal" ? (target || Math.random() < 0.04) : Math.random() < 0.12;
-      if (fire) handleArcadeInput(room, bot, { action: "throw" });
+    const segments = arcade.segments || [];
+    const hier = runnerSegmentAt(arcade, player.progress);
+    if (!hier) return;
+    const naechster = segments[Math.min(segments.length - 1, hier.index + 1)];
+
+    // Je Abschnitt wird EINMAL entschieden, ob der Bot ihn sauber liest. Als
+    // Wurf je Tick summierte sich die Wahrscheinlichkeit über die Ticks auf,
+    // und gemessen spielten dann alle drei Stufen gleich gut.
+    if (player.botSegIndex !== hier.index) {
+      player.botSegIndex = hier.index;
+      player.botRead = Math.random() > profile.mistake;
     }
-    const nextRow = arcade.rows[player.nextRow];
-    if (!nextRow || nextRow.position - player.progress > 6) return;
-    // Je Reihe wird EINMAL entschieden, ob der Bot sie sauber liest. Als Wurf je
-    // Tick standen ihm auf den letzten sechs Metern mehrere Versuche zu, und die
-    // Wahrscheinlichkeit summierte sich auf: gemessen stolperten alle drei Stufen
-    // gleich oft (3.35 gegen 2.75 auf 150 Meter).
-    if (player.botRowIndex !== player.nextRow) {
-      player.botRowIndex = player.nextRow;
-      player.botRowRead = Math.random() > profile.mistake;
-    }
-    const pickupRow = nextRow.kind === "boost" || nextRow.kind === "item";
-    const blocked = pickupRow ? [] : runnerBlockedLanes(nextRow, now);
-    const lanes = [0, 1, 2];
+
+    // Die Bahn, die im NÄCHSTEN Abschnitt am meisten bringt und dort keine
+    // Hürde hat. Ein Bot, der nur den aktuellen Abschnitt bewertet, wechselt
+    // immer einen zu spät.
     let wanted = player.lane;
-    if (!player.botRowRead) {
-      wanted = player.lane;
-    } else if (pickupRow) {
-      wanted = nextRow.lane;
-    } else if (blocked.includes(player.lane)) {
-      const free = lanes.filter((lane) => !blocked.includes(lane));
-      wanted = free.sort((a, b) => Math.abs(a - player.lane) - Math.abs(b - player.lane))[0] ?? player.lane;
+    if (player.botRead) {
+      let best = -1;
+      [0, 1, 2].forEach((lane) => {
+        if (Math.abs(lane - player.lane) > 1) return;   // nur eine Bahn je Schritt
+        if (naechster.hurdle === lane) return;
+        const wert = (RUNNER_SURFACE[naechster.lanes[lane]] ?? 1)
+          + (hier.hurdle === lane ? -0.5 : 0)
+          - Math.abs(lane - player.lane) * 0.04;        // Wechsel nur, wenn er sich lohnt
+        if (wert > best) { best = wert; wanted = lane; }
+      });
     }
-    if (wanted !== player.lane) {
+
+    // Sprinten, wenn die eigene Bahn im nächsten Abschnitt gut und hürdenfrei
+    // bleibt — und wenn genug Schwung da ist, dass es sich lohnt.
+    const bahnBleibtGut = naechster.hurdle !== player.lane
+      && (RUNNER_SURFACE[naechster.lanes[player.lane]] ?? 1) >= 1
+      && wanted === player.lane;
+    const schwelle = profile.level === "hard" ? 0.35 : profile.level === "normal" ? 0.55 : 0.8;
+    const willSprint = player.botRead && bahnBleibtGut && player.schwung > schwelle;
+    if (willSprint !== Boolean(player.sprinting)) {
+      handleArcadeInput(room, bot, { action: "sprint", down: willSprint });
+    }
+    if (!willSprint && wanted !== player.lane) {
       handleArcadeInput(room, bot, { action: "lane", dir: wanted > player.lane ? 1 : -1 });
     }
     return;
@@ -9104,7 +9123,8 @@ module.exports = {
     ARENA_BALL_RADIUS,
     ARENA_RESPAWN_MS,
     createRunnerCourse,
-    runnerBlockedLanes,
+    runnerSegmentAt,
+    runnerLaneFactor,
     advanceColorRound,
     nearestLowerCanopyLeaf,
     refreshFluxScores,

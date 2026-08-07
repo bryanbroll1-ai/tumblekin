@@ -31,7 +31,8 @@ const {
   ARENA_RESPAWN_MS,
   createCanopyState,
   createRunnerCourse,
-  runnerBlockedLanes,
+  runnerSegmentAt,
+  runnerLaneFactor,
   advanceColorRound,
   getBoard,
   handleArcadeInput,
@@ -544,16 +545,48 @@ test("bumper: a bot too far out heads back to the middle instead of chasing", ()
   assert.ok(me.thrustX < 0, `Schub muss nach innen zeigen, war ${me.thrustX}`);
 });
 
-test("runner course always leaves at least one open lane per row", () => {
-  const rows = createRunnerCourse(367);
-  assert.ok(rows.length > 4);
-  for (let sample = 0; sample < 6; sample += 1) {
-    const now = sample * 220;
-    rows.forEach((row) => {
-      if (row.kind === "boost") return;
-      const blocked = runnerBlockedLanes(row, now);
-      assert.ok(blocked.length < 3, "never all three lanes blocked");
+test("runner course: jede Bahnlage ist fahrbar, Hürden stehen nie im Sand", () => {
+  const segments = createRunnerCourse(367);
+  assert.ok(segments.length > 8);
+  segments.forEach((segment) => {
+    // Genau eine Hürde je Abschnitt, und höchstens eine.
+    assert.ok(segment.hurdle === null || [0, 1, 2].includes(segment.hurdle));
+    // Es gibt IMMER eine Bahn ohne Hürde — sonst wäre der Abschnitt eine
+    // Zufallsstrafe statt einer Entscheidung.
+    const frei = [0, 1, 2].filter((lane) => segment.hurdle !== lane);
+    assert.ok(frei.length >= 2, "mindestens zwei Bahnen ohne Hürde");
+    // Eine Hürde im Sand träfe niemanden: dort steht ohnehin keiner freiwillig.
+    if (segment.hurdle !== null) {
+      assert.notEqual(segment.lanes[segment.hurdle], "sand", "keine Hürde im Sand");
+    }
+    // Beläge sind bekannt.
+    segment.lanes.forEach((belag) => {
+      assert.ok(["sand", "normal", "tempo"].includes(belag), `unbekannter Belag ${belag}`);
     });
+  });
+});
+
+test("runner: die Tempobahn wandert, sie steht nie zweimal hintereinander gleich", () => {
+  const segments = createRunnerCourse(367).filter((segment) => segment.lanes.includes("tempo"));
+  assert.ok(segments.length > 6);
+  for (let i = 1; i < segments.length; i += 1) {
+    const vorher = segments[i - 1].lanes.indexOf("tempo");
+    const jetzt = segments[i].lanes.indexOf("tempo");
+    assert.notEqual(jetzt, vorher, `Abschnitt ${i}: Tempobahn blieb auf ${jetzt}`);
+  }
+});
+
+test("runner: Belagfaktor kommt aus dem Abschnitt unter der Figur", () => {
+  const arcade = { segments: createRunnerCourse(367) };
+  const segment = runnerSegmentAt(arcade, 40);
+  assert.ok(segment, "es gibt einen Abschnitt bei 40 Metern");
+  const tempoLane = segment.lanes.indexOf("tempo");
+  if (tempoLane >= 0) {
+    assert.ok(runnerLaneFactor(arcade, 40, tempoLane) > 1.2, "Tempobahn ist schneller");
+  }
+  const sandLane = segment.lanes.indexOf("sand");
+  if (sandLane >= 0) {
+    assert.ok(runnerLaneFactor(arcade, 40, sandLane) < 0.8, "Sandbahn ist langsamer");
   }
 });
 
@@ -813,113 +846,116 @@ test("seilspringen: a jump that already landed does not save the player", () => 
   assert.equal(entry.eliminated, true, "landing before the wave means elimination");
 });
 
-test("zielgerade: pickups can be thrown and tumble the runner ahead", () => {
-  const chaser = player({ id: "ra", name: "RA", color: "#fff" });
-  const leader = player({ id: "rb", name: "RB", color: "#0ff" });
+test("zielgerade: Sprint macht schneller, kostet Schwung und sperrt die Bahn", () => {
+  const runner = player({ id: "rn", name: "RN", color: "#fff" });
   const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [chaser, leader], startedAt);
+  const arcade = createArcadeState("finishRush", [runner], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [chaser, leader] };
-  const a = arcade.players[chaser.id];
-  const b = arcade.players[leader.id];
+  const room = { currentMinigame: runner && minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  assert.equal(entry.schwung, 1, "man startet mit vollem Schwung");
 
-  // The course always contains pickup rows.
-  assert.ok(arcade.rows.some((row) => row.kind === "item"), "course has item pads");
+  const schritt = (ms) => {
+    arcade.lastUpdateAt = Date.now() - ms;
+    testRules.updateArcade(room);
+  };
 
-  // Without an item the throw does nothing.
-  assert.deepEqual(handleArcadeInput(room, chaser, { action: "throw" }), { ok: true });
-  assert.equal(arcade.shots.length, 0);
+  // Ohne Sprint: eine Referenzstrecke auf derselben Bahn.
+  const vorher = entry.progress;
+  schritt(100);
+  const locker = entry.progress - vorher;
 
-  // With an item, the shot flies straight forward down the thrower's lane.
-  a.hasItem = true;
-  a.lane = 1;
-  b.lane = 1;
-  a.progress = 10;
-  b.progress = 24;
-  a.lastInputAt = 0;
-  handleArcadeInput(room, chaser, { action: "throw" });
-  assert.equal(a.hasItem, false, "throwing consumes the pickup");
-  assert.equal(arcade.shots.length, 1);
-  assert.equal(arcade.shots[0].lane, 1, "shot travels down the thrower's lane");
+  // Mit Sprint auf derselben Bahn und demselben Belag muss mehr herauskommen.
+  entry.lastInputAt = 0;
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "sprint", down: true }), { ok: true });
+  const vorSprint = entry.progress;
+  schritt(100);
+  const gesprintet = entry.progress - vorSprint;
+  assert.ok(gesprintet > locker * 1.2, `Sprint muss spuerbar schneller sein (${gesprintet} gegen ${locker})`);
+  assert.ok(entry.schwung < 1, "der Sprint zehrt am Schwung");
 
-  // The shot overtakes the leader in the same lane and tumbles them.
-  arcade.shots[0].firedAt = Date.now() - 1000; // 1s * 60 m/s = 60m travelled
-  testRules.updateArcade(room);
-  assert.ok(b.stumbleUntil > Date.now(), "hit runner is tumbling");
-  assert.equal(b.stumbles, 1);
-  assert.equal(a.throwsHit, 1, "thrower gets the credit");
+  // Im Sprint bleibt die Bahn — das ist der Preis, nicht der Schwung allein.
+  entry.lastInputAt = 0;
+  const gesperrt = handleArcadeInput(room, runner, { action: "lane", dir: 1 });
+  assert.equal(gesperrt.ok, false, "Bahnwechsel im Sprint muss abgelehnt werden");
 
-  // A runner in a different lane is not hit.
-  const dodger = player({ id: "rd", name: "RD", color: "#0f0" });
-  arcade.players[dodger.id] = { lane: 0, progress: 30, stumbles: 0, finishedAt: null };
-  room.players.push(dodger);
-  a.hasItem = true;
-  a.lastInputAt = 0;
-  a.progress = 10;
-  handleArcadeInput(room, chaser, { action: "throw" });
-  const laneShot = arcade.shots[arcade.shots.length - 1];
-  laneShot.firedAt = Date.now() - 1000;
-  testRules.updateArcade(room);
-  assert.equal(arcade.players[dodger.id].stumbles, 0, "a runner in another lane is safe");
+  // Losgelassen darf wieder gewechselt werden.
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, runner, { action: "sprint", down: false });
+  entry.lastInputAt = 0;
+  const frei = handleArcadeInput(room, runner, { action: "lane", dir: 1 });
+  assert.equal(frei.ok, true, "ohne Sprint ist der Wechsel frei");
 });
 
-test("zielgerade: a shot that has already passed cannot hit someone from behind", () => {
-  // Der Schuss war vorher ein WACHSENDES Band ab dem Abschusspunkt statt eines
-  // fliegenden Geschosses. Wer von hinten über diesen Punkt lief, während der
-  // Schuss noch unterwegs war, wurde nachträglich getroffen — im Spiel sah es
-  // so aus, als träfe der Schuss zufällig jemanden hinter einem.
-  const shooter = player({ id: "sa", name: "SA", color: "#fff" });
-  const behind = player({ id: "sb", name: "SB", color: "#0ff" });
+test("zielgerade: Schwung laeuft leer und fuellt sich beim lockeren Laufen nach", () => {
+  const runner = player({ id: "rs", name: "RS", color: "#fff" });
   const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [shooter, behind], startedAt);
+  const arcade = createArcadeState("finishRush", [runner], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [shooter, behind] };
-  const me = arcade.players[shooter.id];
-  const other = arcade.players[behind.id];
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  const schritt = (ms) => {
+    arcade.lastUpdateAt = Date.now() - ms;
+    testRules.updateArcade(room);
+  };
 
-  me.lane = 1; other.lane = 1;
-  me.progress = 50;
-  other.progress = 20;          // deutlich HINTER mir
-  me.hasItem = true;
-  me.lastInputAt = 0;
-  handleArcadeInput(room, shooter, { action: "throw" });
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, runner, { action: "sprint", down: true });
+  // Bis der Schwung leer ist. Danach schaltet der Sprint sich selbst ab und
+  // der Vorrat fuellt sich sofort wieder — auf "genau 0" zu pruefen ginge nur
+  // in dem einen Tick, in dem er leerlaeuft.
+  let schritte = 0;
+  while (entry.sprinting && schritte < 80) { schritt(100); schritte += 1; }
+  assert.equal(entry.sprinting, false, "bei leerem Schwung endet der Sprint von selbst");
+  assert.ok(entry.schwung < 0.1, `beim Abschalten ist der Vorrat leer, war ${entry.schwung}`);
+  // Aus voller Reserve muss der Sprint rund 2.6 s reichen (RUNNER_SPRINT_DRAIN).
+  assert.ok(entry.sprintMs > 2200 && entry.sprintMs < 3100,
+    `voller Schwung traegt rund 2.6 s, waren ${Math.round(entry.sprintMs)} ms`);
 
-  // Der Schuss fliegt los und ist nach kurzer Zeit weit vorn.
-  arcade.shots[0].firedAt = Date.now() - 400;   // 0.4 s * 60 = 24 m voraus
-  testRules.updateArcade(room);
-  // Gezählt wird die Treffergutschrift des Schützen: `stumbles` steigt auch
-  // durch Hindernisse auf der Strecke und würde hier das Falsche messen.
-  assert.equal(me.throwsHit || 0, 0, "wer hinten ist, wird vom Schuss nach vorn nicht getroffen");
-
-  // Jetzt läuft der Hintermann über den Abschusspunkt hinaus, während der Schuss
-  // noch in der Luft ist. Genau hier schlug der alte Fehler zu.
-  other.progress = 62;
-  arcade.shots[0].firedAt = Date.now() - 500;
-  testRules.updateArcade(room);
-  assert.equal(me.throwsHit || 0, 0, "ein längst vorbeigeflogener Schuss darf nicht nachträglich treffen");
-
-  // Gegenprobe: wer WIRKLICH im überstrichenen Stück steht, wird getroffen.
-  other.progress = arcade.shots[0].headProgress + 4;
-  arcade.shots[0].firedAt = Date.now() - 900;
-  testRules.updateArcade(room);
-  assert.equal(me.throwsHit, 1, "ein Ziel im Flugweg muss sehr wohl getroffen werden");
+  for (let i = 0; i < 20; i += 1) schritt(100);
+  assert.ok(entry.schwung > 0.35, `lockeres Laufen fuellt nach, war ${entry.schwung}`);
 });
 
-test("zielgerade: running over an item pad picks it up", () => {
-  const runner = player({ id: "rc", name: "RC", color: "#fff" });
+test("zielgerade: eine Huerde in der eigenen Bahn kostet Zeit und den halben Schwung", () => {
+  const runner = player({ id: "rh", name: "RH", color: "#fff" });
   const startedAt = Date.now() - 100;
   const arcade = createArcadeState("finishRush", [runner], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
   const room = { currentMinigame: minigame, players: [runner] };
   const entry = arcade.players[runner.id];
 
-  const itemRow = arcade.rows.find((row) => row.kind === "item");
-  const itemIndex = arcade.rows.indexOf(itemRow);
-  entry.lane = itemRow.lane;
-  entry.nextRow = itemIndex;
-  entry.progress = itemRow.position - 0.01;
+  const mitHuerde = arcade.segments.find((segment) => segment.hurdle !== null);
+  assert.ok(mitHuerde, "der Kurs enthaelt Huerden");
+
+  // Direkt vor die Huerde stellen, in genau ihre Bahn.
+  entry.lane = mitHuerde.hurdle;
+  entry.progress = mitHuerde.hurdleAt - 0.4;
+  entry.nextHurdle = mitHuerde.index;
+  entry.schwung = 1;
+  arcade.lastUpdateAt = Date.now() - 300;
   testRules.updateArcade(room);
-  assert.equal(entry.hasItem, true, "pad on the own lane grants the pickup");
+
+  assert.ok(entry.stumbleUntil > Date.now(), "die Huerde muss stolpern lassen");
+  assert.equal(entry.stumbles, 1);
+  assert.ok(entry.schwung <= 0.5 + 1e-6, `der Stolperer kostet den halben Schwung, war ${entry.schwung}`);
+});
+
+test("zielgerade: dieselbe Huerde zaehlt nur einmal", () => {
+  const runner = player({ id: "r1", name: "R1", color: "#fff" });
+  const startedAt = Date.now() - 100;
+  const arcade = createArcadeState("finishRush", [runner], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  const mitHuerde = arcade.segments.find((segment) => segment.hurdle !== null);
+  entry.lane = mitHuerde.hurdle;
+  entry.progress = mitHuerde.hurdleAt - 0.2;
+  entry.nextHurdle = mitHuerde.index;
+  for (let i = 0; i < 5; i += 1) {
+    arcade.lastUpdateAt = Date.now() - 100;
+    testRules.updateArcade(room);
+  }
+  assert.equal(entry.stumbles, 1, "eine Huerde, ein Stolperer");
 });
 
 test("marathon plan picks distinct minigames", () => {
@@ -1886,6 +1922,10 @@ test("glide: bumping stalls the balloon for a moment", () => {
   advance(3000);
   assert.equal(entry.y, 0, "der Ballon muss auf dem Boden liegen");
   assert.ok(entry.bumps >= 1, "eine Bodenberuehrung muss zaehlen");
+  // Die Stockung frisch stellen. Der Aufschlag liegt zu diesem Zeitpunkt
+  // schon laenger zurueck als GLIDE_STALL_MS — die Regel selbst pruefen wir
+  // aber an einer frischen Stockung, nicht an einer zufaellig noch laufenden.
+  entry.stallUntil = Date.now() + GLIDE_STALL_MS;
   hold(true);
   advance(120);
   assert.ok(entry.y < 0.02, "waehrend der Stockung darf Halten nichts bringen");

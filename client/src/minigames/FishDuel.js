@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin121";
+} from "./VoxelKit.js?v=tumblekin122";
 import {
   mountStage,
   mountHud,
@@ -16,8 +16,8 @@ import {
   resizeStage,
   teardownStage,
   dressWater
-} from "./SceneKit.js?v=tumblekin121";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin121";
+} from "./SceneKit.js?v=tumblekin122";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin122";
 
 // Angelduell — der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
 // baut Spannung auf, Loslassen lässt sie sinken, kostet aber Weg. In seinen

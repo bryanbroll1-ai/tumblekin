@@ -12,15 +12,19 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin121";
-import { mountStage, addStageLights, fitKinsInView, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin121";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin121";
+} from "./VoxelKit.js?v=tumblekin122";
+import { mountStage, addStageLights, fitKinsInView, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin122";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin122";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin122";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
 const KIN_REST_Y = 0.55;
 const WATER_Y = -2.1;
+
+function clampNum(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
 
 export class BounceArena {
   constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
@@ -210,6 +214,25 @@ export class BounceArena {
       this.scene.add(rock);
       this.drifters.push(rock);
     });
+
+    // Schleifspuren: flache Scheiben, die schnelle Figuren hinter sich lassen
+    // und dann verblassen. Ein Rempelspiel lebt davon, dass man SIEHT, wer
+    // gerade Fahrt hat — ohne Spur sieht ein schneller Kin aus wie ein
+    // langsamer, nur an einer anderen Stelle.
+    this.trails = [];
+    const trailGeo = new THREE.CircleGeometry(0.24, 10);
+    for (let i = 0; i < 26; i += 1) {
+      const spur = new THREE.Mesh(
+        trailGeo,
+        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, depthWrite: false })
+      );
+      spur.rotation.x = -Math.PI / 2;
+      spur.visible = false;
+      this.scene.add(spur);
+      this.trails.push({ mesh: spur, age: 0, life: 0.5 });
+    }
+    this.trailCursor = 0;
+    this.trailStamp = new Map();
 
     this.bursts = new CubeBurst(this.scene);
     this.floaters = new FloatingText(this.scene);
@@ -404,9 +427,35 @@ export class BounceArena {
       } else {
         animator?.set(speed > 0.3 ? "run" : "idle", { base: true });
       }
+      // Der Schritttakt hängt am wirklichen Tempo. Ohne das trippelt ein
+      // angeschobener Kin genauso wie einer, der aus eigener Kraft läuft.
+      if (animator) animator.rate = Math.max(0.7, Math.min(2.1, 0.7 + speed * 0.5));
       animator?.update(now);
       // Extra lean into the direction of travel on top of the run cycle.
       data.body.rotation.x += Math.min(0.22, speed * 0.1);
+      // Kurvenneigung: die Querbeschleunigung legt die Figur zur Seite. Das
+      // ist der Unterschied zwischen "rutscht" und "fährt".
+      const drehRate = Math.atan2(Math.sin((data.lastRot ?? kin.rotation.y) - kin.rotation.y),
+        Math.cos((data.lastRot ?? kin.rotation.y) - kin.rotation.y));
+      data.lastRot = kin.rotation.y;
+      data.body.rotation.z = THREE.MathUtils.lerp(
+        data.body.rotation.z, clampNum(drehRate * speed * 2.2, -0.32, 0.32), Math.min(1, dt * 10));
+
+      // Spur legen, solange Fahrt drin ist — höchstens alle 60 ms je Figur.
+      if (speed > 1.1) {
+        const letzte = this.trailStamp.get(player.id) || 0;
+        if (frameNow - letzte > 60) {
+          this.trailStamp.set(player.id, frameNow);
+          const spur = this.trails[this.trailCursor];
+          this.trailCursor = (this.trailCursor + 1) % this.trails.length;
+          spur.mesh.position.set(kin.position.x, PLATFORM_TOP_Y + 0.016, kin.position.z);
+          spur.mesh.material.color.set(player.color);
+          spur.mesh.scale.setScalar(0.7 + Math.min(1, speed / 4) * 0.6);
+          spur.mesh.visible = true;
+          spur.age = 0;
+          spur.life = 0.42;
+        }
+      }
 
       // Spawn grace: gently pulse translucent so it reads as "protected".
       const opacity = invulnerable ? 0.45 + Math.abs(Math.sin(now / 120)) * 0.4 : 1;
@@ -439,6 +488,38 @@ export class BounceArena {
       drifter.position.x += Math.sin(now / 2600 + data.phase) * 0.0015;
     });
     this.water.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.04;
+
+    // Spuren verblassen und verschwinden.
+    this.trails?.forEach((spur) => {
+      if (!spur.mesh.visible) return;
+      spur.age += dt;
+      const t = spur.age / spur.life;
+      if (t >= 1) { spur.mesh.visible = false; return; }
+      spur.mesh.material.opacity = 0.42 * (1 - t);
+      spur.mesh.scale.multiplyScalar(1 + dt * 0.8);
+    });
+
+    // Die Plattform kippt zum Schwerpunkt der Figuren. Winzig — zwei Grad —
+    // aber es macht aus einer Scheibe etwas, das das Gewicht der Rempler
+    // spürt. Genau dieses Detail unterscheidet ein Brett von einem Ring.
+    if (this.plateGroupTilt === undefined) this.plateGroupTilt = { x: 0, z: 0 };
+    let mx = 0;
+    let mz = 0;
+    let anzahl = 0;
+    this.kins.forEach((kin, id) => {
+      const eintrag = minigame.arena?.players?.[id];
+      if (!eintrag?.inPlay) return;
+      mx += kin.position.x;
+      mz += kin.position.z;
+      anzahl += 1;
+    });
+    if (anzahl > 0) { mx /= anzahl; mz /= anzahl; }
+    this.plateGroupTilt.x = THREE.MathUtils.lerp(this.plateGroupTilt.x, clampNum(mz * 0.016, -0.035, 0.035), frameLerp(0.06, dt));
+    this.plateGroupTilt.z = THREE.MathUtils.lerp(this.plateGroupTilt.z, clampNum(-mx * 0.016, -0.035, 0.035), frameLerp(0.06, dt));
+    if (this.rim) {
+      this.rim.rotation.x = Math.PI / 2 + this.plateGroupTilt.x;
+      this.rim.rotation.z = this.plateGroupTilt.z;
+    }
 
     this.bursts.update(dt);
 

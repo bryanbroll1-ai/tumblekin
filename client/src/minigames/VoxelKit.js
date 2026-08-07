@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale } from "./Quality.js?v=tumblekin121";
+import { fxScale } from "./Quality.js?v=tumblekin122";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 
@@ -130,6 +130,14 @@ export class KinAnimator {
     // every one-shot state (hit/stumble/jump/fall) finish instantly.
     this.stateStart = null;
     this.groundY = kin.position.y;
+    // Schrittfrequenz. Szenen, in denen sich das Tempo einer Figur wirklich
+    // ändert (Zielgerade: Sand, normal, Tempobahn, Sprint), setzen das je
+    // Bild — ein Läufer, der im Sand genauso trippelt wie im Sprint, sieht aus
+    // wie ein Video mit falscher Geschwindigkeit. Voreingestellt 1, damit für
+    // alle anderen Szenen nichts anders läuft als bisher.
+    this.rate = 1;
+    this.takt = 0;
+    this.letzterTakt = null;
   }
 
   set(state, { base = false } = {}) {
@@ -148,6 +156,12 @@ export class KinAnimator {
 
   update(now = performance.now()) {
     if (this.stateStart === null) this.stateStart = now;
+    // Eigene Uhr für zyklische Bewegungen: sie läuft mit `rate` schneller oder
+    // langsamer als die echte, ohne die Dauer der einmaligen Zustände (Sprung,
+    // Treffer) anzutasten — die hängen weiter an `t`.
+    if (this.letzterTakt === null) this.letzterTakt = now;
+    this.takt += (now - this.letzterTakt) * (this.rate || 1);
+    this.letzterTakt = now;
     const t = (now - this.stateStart) / 1000;
     const d = this.kin.userData;
     const phase = d.phase;
@@ -168,12 +182,12 @@ export class KinAnimator {
     switch (this.state) {
       case "run": {
         // Bouncy, exaggerated sprint with head bob and body roll.
-        const stride = Math.sin(now / 78 + phase);
+        const stride = Math.sin(this.takt / 78 + phase);
         d.feet.forEach((foot, index) => { foot.rotation.x = stride * (index === 0 ? 1.05 : -1.05); });
         d.arms.forEach((arm, index) => { arm.rotation.z = arm.userData.baseRotZ + stride * (index === 0 ? -0.75 : 0.75); });
         d.body.rotation.x = 0.2;
         d.body.rotation.z = stride * 0.09;
-        const bounce = Math.abs(Math.sin(now / 78 + phase));
+        const bounce = Math.abs(Math.sin(this.takt / 78 + phase));
         d.body.scale.set(1 - bounce * 0.05, 1 + bounce * 0.08, 1 - bounce * 0.05);
         this.kin.position.y = this.groundY + bounce * 0.09;
         break;
