@@ -125,8 +125,6 @@ const ESTIMATE_DURATION_MS = ESTIMATE_LEAD_IN_MS
 const GLIDE_DURATION_MS = 34000;
 const SIMON_DURATION_MS = 36000;
 const DIVE_DURATION_MS = 36000;
-// 30 s statt 12: mit Takt und roter Linie braucht die Runde Luft zum Steigern.
-const PUMP_DURATION_MS = 30000;
 const FISH_DURATION_MS = 34000;
 const PAINT_DURATION_MS = 32000;
 
@@ -137,7 +135,7 @@ const MINIGAMES = [
   { type: "colorEscape", title: "Farbflucht", duration: 46000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
-  { type: "ballonPump", title: "Pump-Panik", duration: PUMP_DURATION_MS, arcadeFamily: "pump" },
+  { type: "ballonPump", title: "Pump-Panik", duration: 12000, arcadeFamily: "pump" },
   { type: "fassrolle", title: "Fassrolle", duration: 32000, arcadeFamily: "barrel" },
   { type: "zuendstoff", title: "Zündstoff", duration: 45000, arcadeFamily: "bomb" },
   { type: "muenzregen", title: "Münzregen", duration: 30000, arcadeFamily: "catchfall" },
@@ -702,79 +700,6 @@ const WAVE_MIN_GAP = 1150;            // passes accelerate down to this gap
 // niemand ausscheidet, hat keinen Einsatz. Jetzt ist die Laufgeschwindigkeit
 // FEST: in ruhigen Schueben rennt man muehelos zurueck, in schnellen haelt man
 // sich gerade eben, und wer eine Richtungsaenderung verschlaeft, ist weg.
-// Ballonpumpe — Daumen UND Takt.
-//
-// Erste Fassung: reines Tapduell, Punkte gleich Anzahl Taps. Keine
-// Entscheidung, nur Daumengeschwindigkeit.
-// Zweite Fassung: nur noch Halten. Damit war das Tapspiel ganz weg — und ein
-// Partyspielsatz ohne ein einziges Daumenspiel fehlt etwas.
-//
-// Jetzt beides, und zwar so, dass sie sich gegenseitig brauchen:
-//
-//  * JEDER TAP pumpt. Schnell tippen bringt schnell Druck, und Druck bringt
-//    laufend Punkte. Der Daumen zählt also wirklich.
-//  * DER HUB HAT EINEN TAKT. Ein Tap im Takt ist ein voller Hub und bringt
-//    gut das Dreifache eines Taps daneben. Wer blind hämmert, kommt hoch —
-//    wer im Takt tippt, kommt weiter hoch.
-//  * ÜBER DER ROTEN LINIE platzt der Ballon. Und genau das ist die Falle für
-//    den Hämmerer: er schiesst über die Linie, bevor er es merkt. Aufhören
-//    und die Luft abgehen lassen ist die einzige Bremse.
-//
-// Der Takt zieht über die Runde an, wie beim Fassrollen: erst gemütlich, am
-// Ende hektisch.
-const PUMP_MAX = 1.45;                 // technisch möglicher Druck
-const PUMP_STROKE_BEAT = 0.095;        // voller Hub, im Takt getroffen
-const PUMP_STROKE_OFF = 0.028;         // danebengetippt — zählt, aber wenig
-const PUMP_BEAT_WINDOW_MS = 115;       // wie genau der Takt getroffen sein muss
-const PUMP_BEAT_START_MS = 660;        // Taktabstand am Anfang
-const PUMP_BEAT_MIN_MS = 300;          // und am Ende
-const PUMP_LEAK = 0.19;                // Druckabbau je Sekunde, immer
-const PUMP_LIMIT_BASE = 1.0;           // Mitte der roten Linie
-const PUMP_LIMIT_SWING = 0.13;         // wie weit sie wandert
-const PUMP_LIMIT_PERIOD_MS = 5200;     // und wie langsam
-const PUMP_STRAIN_RATE = 2.6;          // Spannungsaufbau je Druckeinheit über der Linie
-const PUMP_STRAIN_RELAX = 1.1;         // Abbau darunter
-const PUMP_REPAIR_MS = 1900;           // Pause nach dem Platzen
-const PUMP_POINT_RATE = 46;            // Punkte je Sekunde bei Druck 1.0
-
-// Die rote Linie zu einem Zeitpunkt. Für alle gleich — niemand bekommt ein
-// leichteres Ventil, und der Client kann sie zeichnen, ohne zu fragen.
-function pumpLimitAt(seed, elapsed) {
-  const phase = (seed % 100) / 100 * Math.PI * 2;
-  return PUMP_LIMIT_BASE + Math.sin((elapsed / PUMP_LIMIT_PERIOD_MS) * Math.PI * 2 + phase) * PUMP_LIMIT_SWING;
-}
-
-// Der Taktplan steht beim Start fest, wie die Tore bei der Ballonfahrt. Zwei
-// Gründe: alle hören denselben Takt, und der Client kann die nächsten Schläge
-// schon zeichnen, statt sie erst beim Eintreffen zu erfahren.
-function buildPumpBeats(totalMs) {
-  const beats = [];
-  let at = PUMP_BEAT_START_MS;
-  while (at < totalMs + PUMP_BEAT_START_MS) {
-    beats.push(Math.round(at));
-    // Der Abstand schrumpft linear über die Runde.
-    const anteil = Math.min(1, at / Math.max(1, totalMs));
-    at += PUMP_BEAT_START_MS - (PUMP_BEAT_START_MS - PUMP_BEAT_MIN_MS) * anteil;
-  }
-  return beats;
-}
-
-// Der Schlag, der einem Zeitpunkt am nächsten liegt, samt Abstand dorthin.
-// Rückgabe { index, at, distance } oder null, wenn es keinen Plan gibt.
-function pumpNearestBeat(beats, elapsed) {
-  if (!beats || beats.length === 0) return null;
-  // Binäre Suche auf den ersten Schlag ab `elapsed`, dann Nachbarn vergleichen.
-  let lo = 0;
-  let hi = beats.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (beats[mid] < elapsed) lo = mid + 1; else hi = mid;
-  }
-  let best = lo;
-  if (lo > 0 && Math.abs(beats[lo - 1] - elapsed) <= Math.abs(beats[lo] - elapsed)) best = lo - 1;
-  return { index: best, at: beats[best], distance: Math.abs(beats[best] - elapsed) };
-}
-
 const BARREL_LIMIT = 1.7;             // slide distance before falling off
 const BARREL_RUN_SPEED = 2.1;         // counter-run speed while holding
 const BARREL_HOLD_FRESH_MS = 220;     // "holding" = a run ping this recent
@@ -2755,8 +2680,7 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return (arcadePlayer.eliminated ? 0 : 5000000) + (arcadePlayer.survived || 0) * 1000;
   }
   if (arcade.family === "pump") {
-    // Punkte entscheiden; bei Gleichstand der Ballon, der nie geplatzt ist.
-    return Math.round((arcadePlayer.points || 0) * 10) - (arcadePlayer.bursts || 0);
+    return arcadePlayer.pumps || 0;
   }
   if (arcade.family === "dive") {
     return Math.max(0, arcadePlayer.banked || 0);
@@ -2927,7 +2851,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: arcadePlayer.survived || 0, label: "Wellen" };
   }
   if (arcade.family === "pump") {
-    return { kind: "points", value: Math.round(arcadePlayer.points || 0), label: "Druckpunkte" };
+    return { kind: "points", value: arcadePlayer.pumps || 0, label: "Pumps" };
   }
   if (arcade.family === "barrel") {
     // Reine Zeit. Der Punktestand mischt Zeit und Balancearbeit — als Dauer
@@ -3933,21 +3857,9 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "pump") {
-    arcade.limitSeed = config.seed;
-    arcade.beats = buildPumpBeats(PUMP_DURATION_MS);
-    arcade.beatWindow = PUMP_BEAT_WINDOW_MS;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
-      entry.pressure = 0;
-      entry.strain = 0;
-      entry.burstUntil = 0;
-      entry.bursts = 0;
-      entry.strokes = 0;
-      entry.onBeat = 0;           // Hübe, die im Takt sassen
-      entry.lastStrokeAt = 0;
-      entry.lastStrokeGood = false;
-      entry.usedBeat = -1;        // je Schlag zählt nur EIN voller Hub
-      entry.points = 0;
+      entry.pumps = 0;
     });
   }
   if (config.family === "barrel") {
@@ -4631,7 +4543,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 45, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -4684,30 +4596,15 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "pump") {
-    if (input.action !== "pump") return { ok: false, error: "Tippe im Takt der Pumpe." };
-    if (now < arcadePlayer.burstUntil) return { ok: true };
-    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
-    const beat = pumpNearestBeat(arcade.beats, elapsed);
-    // Ein voller Hub braucht den Takt UND einen noch unbenutzten Schlag.
-    // Ohne die zweite Bedingung könnte man um einen Schlag herum dreimal
-    // tippen und dreimal den vollen Hub kassieren — dann wäre der Takt keine
-    // Genauigkeitsprüfung mehr, sondern nur eine Stelle zum Hämmern.
-    const imTakt = Boolean(beat)
-      && beat.distance <= PUMP_BEAT_WINDOW_MS
-      && beat.index !== arcadePlayer.usedBeat;
-    if (imTakt) arcadePlayer.usedBeat = beat.index;
-    arcadePlayer.pressure = clamp(
-      arcadePlayer.pressure + (imTakt ? PUMP_STROKE_BEAT : PUMP_STROKE_OFF),
-      0,
-      PUMP_MAX
-    );
-    arcadePlayer.strokes += 1;
-    if (imTakt) arcadePlayer.onBeat += 1;
-    arcadePlayer.lastStrokeAt = now;
-    arcadePlayer.lastStrokeGood = imTakt;
-    arcadePlayer.flash = imTakt ? "good" : null;
-    if (imTakt) arcadePlayer.lastHitAt = now;
+    if (input.action !== "pump") return { ok: false, error: "Tippe so schnell du kannst." };
+    arcadePlayer.pumps += 1;
+    arcadePlayer.score = arcadePlayer.pumps;
     arcadePlayer.hasMoved = true;
+    if (arcadePlayer.pumps % 10 === 0) {
+      arcadePlayer.flash = "good";
+      arcadePlayer.lastHitAt = now;
+    }
+    syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
 
@@ -6037,12 +5934,6 @@ function updateArcade(room) {
     updateWave(room, minigame, arcade, now);
   }
 
-  if (arcade.family === "pump") {
-    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
-    arcade.lastUpdateAt = now;
-    updatePump(room, minigame, arcade, dt, now);
-  }
-
   if (arcade.family === "barrel") {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
@@ -6303,59 +6194,6 @@ function updateRedlight(room, minigame, arcade, dt, now) {
         entry.lastHitAt = now;
       }
     }
-  });
-}
-
-function updatePump(room, minigame, arcade, dt, now) {
-  const elapsed = Math.max(0, now - minigame.startedAt);
-  arcade.limit = pumpLimitAt(arcade.limitSeed || 0, elapsed);
-  arcade.elapsed = elapsed;
-
-  room.players.forEach((player) => {
-    const entry = arcade.players[player.id];
-    if (!entry) return;
-
-    // Nach dem Platzen ist für einen Moment nichts zu machen: neuer Ballon,
-    // und Tippen bringt so lange gar nichts. Das ist die ganze Strafe — kein
-    // Punktabzug, sondern verlorene Zeit.
-    if (now < entry.burstUntil) {
-      entry.pressure = 0;
-      entry.strain = 0;
-      return;
-    }
-
-    // Die Luft geht immer ab. Aufhören zu tippen IST die Bremse — anders
-    // kommt man nicht unter die rote Linie zurück.
-    entry.pressure = clamp(entry.pressure - PUMP_LEAK * dt, 0, PUMP_MAX);
-
-    // Über der Linie baut sich Spannung auf, darunter fällt sie ab. Der
-    // Aufbau hängt am ABSTAND zur Linie: knapp darüber hat man Sekunden,
-    // ganz oben Sekundenbruchteile.
-    const ueber = entry.pressure - arcade.limit;
-    entry.strain = clamp(
-      entry.strain + (ueber > 0 ? ueber * PUMP_STRAIN_RATE : -PUMP_STRAIN_RELAX) * dt,
-      0,
-      1
-    );
-
-    if (entry.strain >= 1) {
-      entry.bursts += 1;
-      entry.burstUntil = now + PUMP_REPAIR_MS;
-      entry.pressure = 0;
-      entry.strain = 0;
-      entry.flash = "bad";
-      entry.lastHitAt = now;
-      entry.lastBurstAt = now;
-      entry.usedBeat = -1;
-    } else {
-      // Punkte laufen mit dem Druck, und zwar überproportional: bei halbem
-      // Druck gibt es ein Drittel, bei vollem das Doppelte. Sonst wäre
-      // gemütlich unter der Linie zu bleiben genauso gut wie das Risiko.
-      entry.points += PUMP_POINT_RATE * Math.pow(entry.pressure, 1.8) * dt;
-    }
-
-    entry.score = Math.round(entry.points);
-    syncArcadeScore(minigame, player, entry);
   });
 }
 
@@ -7974,22 +7812,10 @@ function arcadeBotStep(room, bot) {
     return;
   }
   if (arcade.family === "pump") {
-    const now = Date.now();
-    if (now < player.burstUntil) return;
     const profile = botProfile(player);
-    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
-    const limit = pumpLimitAt(arcade.limitSeed || 0, elapsed);
-    // Wie dicht der Bot an die Linie geht — das IST hier das Können. Wer
-    // immer bei 0.6 bleibt, gewinnt nie; wer immer bei 1.1 steht, platzt.
-    const puffer = profile.level === "hard" ? 0.04 : profile.level === "normal" ? 0.14 : 0.28;
-    if ((player.pressure || 0) > limit - puffer) return;
-
-    // Und wie genau er den Takt trifft. Ein Bot, der immer perfekt trifft,
-    // wäre unschlagbar; einer, der nie trifft, käme nie hoch.
-    const beat = pumpNearestBeat(arcade.beats, elapsed);
-    if (!beat) return;
-    const genau = profile.level === "hard" ? 70 : profile.level === "normal" ? 130 : 240;
-    if (beat.distance <= genau) handleArcadeInput(room, bot, { action: "pump" });
+    // Tap rate scales with skill; the input cooldown caps the maximum.
+    const chance = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.7 : 0.5;
+    if (Math.random() < chance) handleArcadeInput(room, bot, { action: "pump" });
     return;
   }
   if (arcade.family === "barrel") {
@@ -9297,12 +9123,6 @@ module.exports = {
     ARENA_BALL_RADIUS,
     ARENA_RESPAWN_MS,
     createRunnerCourse,
-    pumpLimitAt,
-    buildPumpBeats,
-    pumpNearestBeat,
-    updatePump,
-    PUMP_MAX,
-    PUMP_REPAIR_MS,
     runnerSegmentAt,
     runnerLaneFactor,
     advanceColorRound,

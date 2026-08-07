@@ -31,11 +31,6 @@ const {
   ARENA_RESPAWN_MS,
   createCanopyState,
   createRunnerCourse,
-  pumpLimitAt,
-  buildPumpBeats,
-  pumpNearestBeat,
-  PUMP_MAX,
-  PUMP_REPAIR_MS,
   runnerSegmentAt,
   runnerLaneFactor,
   advanceColorRound,
@@ -970,162 +965,20 @@ test("marathon plan picks distinct minigames", () => {
   plan.forEach((type) => assert.ok(MINIGAMES.some((game) => game.type === type)));
 });
 
-function pumpRoom(players = [{ id: "pa", name: "PA", isBot: false }]) {
-  const startedAt = Date.now();
-  const arcade = createArcadeState("ballonPump", players, startedAt);
-  const minigame = { id: 1, type: "ballonPump", startedAt, duration: 30000, arcade, scores: {}, lastInputAt: {} };
-  const room = { currentMinigame: minigame, players };
-  const me = players[0];
-  const entry = arcade.players[me.id];
-  const STEP = 60;
-  // Die Zeit wird gefaelscht, indem startedAt zurueckgeschoben wird: der
-  // Server rechnet `elapsed` daraus, also wandert die Runde nach vorn, ohne
-  // dass der Test wirklich warten muss.
-  const advance = (ms) => {
-    let left = ms;
-    while (left > 0) {
-      const chunk = Math.min(STEP, left);
-      const now = Date.now();
-      arcade.lastUpdateAt = now - chunk;
-      minigame.startedAt -= chunk;
-      if (entry.burstUntil) entry.burstUntil -= chunk;
-      testRules.updateArcade(room);
-      left -= chunk;
-    }
-  };
-  // Einmal tippen. `imTakt` legt fest, ob der Tap auf einen Schlag faellt:
-  // dafuer wird startedAt so gestellt, dass `elapsed` genau auf dem Schlag
-  // (oder weit daneben) liegt.
-  const tap = (imTakt, beatIndex = 0) => {
-    const schlag = arcade.beats[beatIndex];
-    const ziel = imTakt ? schlag : schlag + 220;
-    minigame.startedAt = Date.now() - ziel;
+test("pump-panik: every tap counts and ranks by taps", () => {
+  const tapper = player({ id: "pa", name: "PA", color: "#fff" });
+  const startedAt = Date.now() - 100;
+  const arcade = createArcadeState("ballonPump", [tapper], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 12000, finishing: false };
+  const room = { currentMinigame: minigame, players: [tapper] };
+  const entry = arcade.players[tapper.id];
+
+  for (let i = 0; i < 5; i += 1) {
     entry.lastInputAt = 0;
-    return handleArcadeInput(room, me, { action: "pump" });
-  };
-  return { room, me, arcade, entry, minigame, advance, tap };
-}
-
-test("pump-panik: jeder Tap pumpt, im Takt deutlich mehr", () => {
-  const daneben = pumpRoom([{ id: "d1", name: "D1", isBot: false }]);
-  daneben.tap(false, 3);
-  const schwach = daneben.entry.pressure;
-  assert.ok(schwach > 0, "auch ein Tap daneben muss pumpen — es ist ein Daumenspiel");
-
-  const treffer = pumpRoom([{ id: "t1", name: "T1", isBot: false }]);
-  treffer.tap(true, 3);
-  const voll = treffer.entry.pressure;
-  assert.ok(voll > schwach * 2.5,
-    `ein Hub im Takt muss ein Vielfaches bringen (${voll} gegen ${schwach})`);
-  assert.equal(treffer.entry.onBeat, 1);
-  assert.equal(daneben.entry.onBeat, 0);
-});
-
-test("pump-panik: ein Schlag gibt nur EINEN vollen Hub", () => {
-  // Sonst koennte man um einen Schlag herum dreimal tippen und dreimal den
-  // vollen Hub kassieren — dann waere der Takt keine Genauigkeitspruefung
-  // mehr, sondern nur eine Stelle zum Haemmern.
-  const { entry, tap } = pumpRoom();
-  tap(true, 4);
-  const nachErstem = entry.pressure;
-  tap(true, 4);
-  const zuwachs = entry.pressure - nachErstem;
-  assert.ok(zuwachs < nachErstem * 0.5,
-    `der zweite Tap auf denselben Schlag darf nur schwach zaehlen, war ${zuwachs}`);
-  assert.equal(entry.onBeat, 1, "nur ein Hub im Takt");
-});
-
-test("pump-panik: die Luft geht immer ab — Aufhoeren ist die Bremse", () => {
-  const { entry, advance } = pumpRoom();
-  entry.pressure = 1.0;
-  advance(1000);
-  assert.ok(entry.pressure < 0.9, `Druck muss ohne Tippen fallen, war ${entry.pressure}`);
-});
-
-test("pump-panik: Punkte laufen mit dem Druck und wachsen ueberproportional", () => {
-  const flach = pumpRoom([{ id: "p1", name: "P1", isBot: false }]);
-  flach.entry.pressure = 0.5;
-  const vorFlach = flach.entry.points;
-  flach.advance(300);
-  const gewinnFlach = flach.entry.points - vorFlach;
-
-  const steil = pumpRoom([{ id: "p2", name: "P2", isBot: false }]);
-  steil.entry.pressure = 1.0;
-  const vorSteil = steil.entry.points;
-  steil.advance(300);
-  const gewinnSteil = steil.entry.points - vorSteil;
-
-  assert.ok(gewinnFlach > 0, "auch niedriger Druck bringt Punkte");
-  assert.ok(gewinnSteil > gewinnFlach * 2.4,
-    `doppelter Druck muss mehr als das 2.4-fache bringen (${gewinnSteil} gegen ${gewinnFlach})`);
-});
-
-test("pump-panik: ueber der roten Linie platzt der Ballon, darunter nie", () => {
-  const sicher = pumpRoom([{ id: "s1", name: "S1", isBot: false }]);
-  for (let i = 0; i < 40; i += 1) {
-    sicher.entry.pressure = 0.7;
-    sicher.advance(100);
+    handleArcadeInput(room, tapper, { action: "pump" });
   }
-  assert.equal(sicher.entry.bursts, 0, "unter der Linie darf nichts passieren");
-
-  const gierig = pumpRoom([{ id: "g1", name: "G1", isBot: false }]);
-  for (let i = 0; i < 60 && gierig.entry.bursts === 0; i += 1) {
-    gierig.entry.pressure = PUMP_MAX;
-    gierig.advance(100);
-  }
-  assert.equal(gierig.entry.bursts, 1, "voller Druck muss den Ballon platzen lassen");
-  assert.equal(gierig.entry.pressure, 0, "nach dem Platzen faengt der neue Ballon bei null an");
-});
-
-test("pump-panik: nach dem Platzen bringt Tippen eine Weile gar nichts", () => {
-  const { entry, tap } = pumpRoom();
-  entry.burstUntil = Date.now() + PUMP_REPAIR_MS;
-  tap(true, 5);
-  assert.equal(entry.pressure, 0, "waehrend der Pause bleibt der Druck bei null");
-  assert.equal(entry.strokes, 0, "und der Hub zaehlt nicht");
-});
-
-test("pump-panik: der Takt zieht ueber die Runde an", () => {
-  const beats = buildPumpBeats(30000);
-  assert.ok(beats.length > 40, `zu wenige Schlaege: ${beats.length}`);
-  const ersterAbstand = beats[1] - beats[0];
-  const letzterAbstand = beats[beats.length - 1] - beats[beats.length - 2];
-  assert.ok(letzterAbstand < ersterAbstand * 0.72,
-    `am Ende muss es deutlich schneller sein (${letzterAbstand} gegen ${ersterAbstand})`);
-  // Und er muss durchgehend spielbar bleiben: nie schneller als das Minimum.
-  for (let i = 1; i < beats.length; i += 1) {
-    assert.ok(beats[i] - beats[i - 1] >= 295, `Schlag ${i} kommt zu dicht: ${beats[i] - beats[i - 1]} ms`);
-  }
-});
-
-test("pump-panik: der naechste Schlag wird richtig gefunden", () => {
-  const beats = [500, 1100, 1650];
-  assert.equal(pumpNearestBeat(beats, 520).index, 0);
-  assert.equal(pumpNearestBeat(beats, 900).index, 1);
-  assert.equal(pumpNearestBeat(beats, 0).index, 0);
-  assert.equal(pumpNearestBeat(beats, 9000).index, 2);
-  assert.equal(pumpNearestBeat(beats, 1100).distance, 0);
-  assert.equal(pumpNearestBeat([], 100), null);
-});
-
-test("pump-panik: die rote Linie wandert, steht aber fuer alle gleich", () => {
-  const a = pumpLimitAt(401, 0);
-  const b = pumpLimitAt(401, 1300);
-  assert.notEqual(a, b, "die Linie muss wandern");
-  assert.equal(pumpLimitAt(401, 1300), b, "und fuer denselben Zeitpunkt gleich bleiben");
-  for (let t = 0; t < 30000; t += 250) {
-    const limit = pumpLimitAt(401, t);
-    assert.ok(limit > 0.8 && limit < 1.2, `Linie bei ${t} ms ausserhalb des Rahmens: ${limit}`);
-    assert.ok(limit < PUMP_MAX, "die Linie muss erreichbar bleiben");
-  }
-});
-
-test("pump-panik: mehr Punkte gewinnen, bei Gleichstand der heile Ballon", () => {
-  const arcade = createArcadeState("ballonPump", [player({ id: "pz", name: "PZ", color: "#fff" })], Date.now());
-  assert.ok(arcadeRankingScore(arcade, { points: 900, bursts: 0 })
-    > arcadeRankingScore(arcade, { points: 700, bursts: 0 }));
-  assert.ok(arcadeRankingScore(arcade, { points: 900, bursts: 0 })
-    > arcadeRankingScore(arcade, { points: 900, bursts: 2 }));
+  assert.equal(entry.pumps, 5);
+  assert.ok(arcadeRankingScore(arcade, { pumps: 9 }) > arcadeRankingScore(arcade, { pumps: 5 }));
 });
 
 test("fassrolle: the spinning barrel slides idle players off, counter-running holds", () => {

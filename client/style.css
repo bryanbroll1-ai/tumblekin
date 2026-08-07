@@ -1931,24 +1931,121 @@ body[data-screen="minigame"] .game-menu-button {
   box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
 }
 
-.pump-button {
-  position: relative;
-  overflow: visible;
-}
-
-.pump-button:active,
-.pump-button.stroke {
+.pump-button:active {
   transform: translateY(6px) scale(0.98);
   box-shadow: 0 2px 0 #833508;
 }
 
-.pump-button.stroke {
-  animation: pump-stroke 140ms ease-out;
+/* Der Taktring läuft auf den Knopf ZU und ist genau auf dem Schlag
+   deckungsgleich mit ihm. Ein Ring, der zuläuft, kündigt den Takt an; ein
+   blosses Blinken meldet ihn nur — und dann tippt man immer zu spät. */
+.pump-beat {
+  position: absolute;
+  inset: -6px;
+  border: 4px solid rgba(255, 255, 255, 0.7);
+  border-radius: 28px;
+  pointer-events: none;
+  transform: scale(2.2);
+  opacity: 0.25;
+  transition: none;
 }
 
-@keyframes pump-stroke {
-  from { transform: translateY(9px) scale(0.96); }
-  to { transform: translateY(0) scale(1); }
+.pump-beat.jetzt {
+  border-color: #7fe0a8;
+  box-shadow: 0 0 16px rgba(127, 224, 168, 0.8);
+}
+
+/* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
+   dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
+   Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
+.runner-lane-controls button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 108px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius);
+  background: #203037;
+  color: #fff;
+  font-size: 2.6rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow: 0 7px 0 #071014;
+}
+
+.runner-lane-controls button:first-child {
+  border-color: var(--blue);
+}
+
+.runner-lane-controls button:active {
+  transform: translateY(4px);
+  background: #33474f;
+  box-shadow: 0 3px 0 #071014;
+}
+
+/* Big single-action buttons for the new 3D games. */
+.nerve-button,
+.hold-button,
+.jump-button,
+.pump-button,
+.bomb-button {
+  display: grid;
+  place-items: center;
+  width: min(100%, 340px);
+  min-height: 92px;
+  margin: 0 auto;
+  border-radius: 24px;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.nerve-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff4d5e, #d81330);
+  box-shadow: 0 8px 0 #7c0a1c, 0 18px 30px rgba(216, 19, 48, 0.4);
+}
+
+.nerve-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #7c0a1c;
+}
+
+.hold-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #37d96e, #17a84a);
+  box-shadow: 0 8px 0 #0b5a27, 0 18px 30px rgba(23, 168, 74, 0.4);
+}
+
+.hold-button.is-holding,
+.hold-button:active {
+  transform: translateY(6px);
+  background: linear-gradient(180deg, #4bee81, #1fc257);
+  box-shadow: 0 2px 0 #0b5a27;
+}
+
+.jump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #3db2ff, #0f7fd6);
+  box-shadow: 0 8px 0 #084a80, 0 18px 30px rgba(15, 127, 214, 0.4);
+}
+
+.jump-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #084a80;
+}
+
+.pump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff8b2e, #f2600f);
+  box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
+}
+
+.pump-button:active {
+  transform: translateY(6px) scale(0.98);
+  box-shadow: 0 2px 0 #833508;
 }
 
 /* Der Taktring läuft auf den Knopf ZU und ist genau auf dem Schlag

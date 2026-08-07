@@ -28,7 +28,7 @@ export const MINIGAME_CATALOG = [
   { type: "colorEscape", title: "Farbflucht", family: "colorgrid", gesture: "swipeAny", help: "Wisch in die Richtung, in der die angesagte Farbe liegt, und steh darauf, bevor der Boden wegbricht." },
   { type: "nervenprobe", title: "Nervenprobe", family: "stopclock", gesture: "tap", help: "Die Uhr versteckt sich nach 2 Sekunden. Drück den Knopf so nah wie möglich an der Zielzeit." },
   { type: "lichtwaechter", title: "Lichtwächter", family: "redlight", gesture: "hold", help: "Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!" },
-  { type: "ballonPump", title: "Pump-Panik", family: "pump", gesture: "taps", help: "Tippe, was der Daumen hergibt — aber TRIFF DEN TAKT: ein Hub im Ring pumpt dreimal so viel. Punkte laufen mit dem Druck. Über der roten Linie platzt der Ballon, also rechtzeitig aufhören." },
+  { type: "ballonPump", title: "Pump-Panik", family: "pump", gesture: "taps", help: "Tippe so schnell du kannst! Jeder Tap pumpt deinen Ballon größer – der dickste Ballon gewinnt." },
   { type: "fassrolle", title: "Fassrolle", family: "barrel", gesture: "hold", help: "Das Riesenfass rollt immer schneller. Halte ◀ oder ▶ und lauf dagegen an – wer abrutscht, platscht ins Wasser." },
   { type: "zuendstoff", title: "Zündstoff", family: "bomb", gesture: "tap", help: "Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus." },
   { type: "muenzregen", title: "Münzregen", family: "catchfall", gesture: "swipeSide", help: "Wisch nach links oder rechts, um die Spur zu wechseln. Fang die goldenen Münzen und weich den schwarzen Bomben aus." },
