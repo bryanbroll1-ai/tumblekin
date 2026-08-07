@@ -12,10 +12,10 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin120";
-import { mountStage, addStageLights, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
+import { mountStage, addStageLights, fitKinsInView, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin121";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -453,7 +453,15 @@ export class BounceArena {
     const shakeY = Math.cos(now / 12) * this.shake * 0.12;
     this.camera.position.x = this.baseCamera.x + Math.sin(now / 3600) * 0.1 + shakeX;
     this.camera.position.y = this.baseCamera.y + shakeY;
+    this.camera.position.z = this.baseCamera.z;
     this.camera.lookAt(this.lookTarget);
+    // Die Kins stehen auf einem Ring mit Radius 1.7, das Hochformat zeigt bei
+    // dieser Entfernung aber nur 1.69 nach jeder Seite — die beiden seitlichen
+    // Figuren wurden am Bildrand abgeschnitten. Statt die Kamera fest weiter
+    // wegzustellen (und alles klein zu machen) weicht sie nur dann zurück,
+    // wenn jemand wirklich an den Rand gedrängt wird. Die Grundstellung wird
+    // dafür jeden Bild neu gesetzt, sonst summiert sich das Zurückweichen auf.
+    fitKinsInView(this, { margin: 1.25, maxPush: 4 });
 
     // The 3-2-1 countdown is shown once by the shared intro card, not here.
     // A downward arrow marks your own kin so you never lose yourself.

@@ -4,12 +4,11 @@ import {
   FloatingText,
   KinAnimator,
   applyFinaleMood,
-  createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -17,8 +16,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Zündstoff — hot-potato with a blocky bomb. The fuse length is secret:
 // tap to pass the bomb on before it blows. Whoever holds it when it pops
@@ -56,7 +55,7 @@ export class BombPass {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    mountStage(this, { label: "3D Zündstoff", background: "#ffd9b8", fog: ["#ffe3c4", 16, 40] });
+    mountStage(this, { label: "3D Zündstoff", background: "#241f3d", fog: ["#3a2f4e", 26, 62] });
 
     mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
@@ -101,27 +100,40 @@ export class BombPass {
   }
 
   createScene() {
-    // Warm sunset light — it is a tense evening around the campfire circle.
+    // Nachtlager statt Mittagswüste. Die Szene stand vorher in prallem
+    // Orange: heller Sandboden, oranger Himmel, orange Tafelberge — auf dem
+    // Bild war kein Horizont zu erkennen, und der nächste Tafelberg stand so
+    // gross im Bild, dass er wie ein schwebender Klotz wirkte. Ein Spiel, in
+    // dem eine brennende Lunte herumgereicht wird, gehört ohnehin in die
+    // Nacht: dunkler Himmel gegen warmes Feuer trennt jede Silhouette, und
+    // die Lunte ist endlich das hellste Ding im Bild.
     addStageLights(this.scene, {
-      sunPosition: [-5, 10, 6],
-      hemiIntensity: 2.2,
-      sunIntensity: 2.8,
-      skyColor: 0xffe9cf,
-      groundColor: 0xa8785a,
-      sunColor: 0xffd9a0
+      sunPosition: [-6, 12, -3],
+      hemiIntensity: 1.5,
+      sunIntensity: 1.5,
+      skyColor: 0x8089c8,
+      groundColor: 0x4a3730,
+      sunColor: 0xc3cdff,
+      fillColor: 0x9a8ede,
+      fillIntensity: 0.5
     });
 
-    // Desert-canyon plateau with a stone circle.
+    // Das Lagerfeuer ist die eigentliche Lichtquelle: warm, mittig, flackernd.
+    this.fireLight = new THREE.PointLight(0xff8a3a, 6, 16, 2);
+    this.fireLight.position.set(0, 0.9, 0);
+    this.scene.add(this.fireLight);
+
+    // Wüstenboden bei Nacht — dunkel genug, dass das Feuer darauf arbeitet.
     const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(26, 0.5, 20),
-      new THREE.MeshLambertMaterial({ color: "#e8b077" })
+      new THREE.BoxGeometry(40, 0.5, 34),
+      new THREE.MeshLambertMaterial({ color: "#6d5038" })
     );
-    ground.position.y = -0.25;
+    ground.position.set(0, -0.25, -6);
     ground.receiveShadow = true;
     this.scene.add(ground);
     const plateau = new THREE.Mesh(
       new THREE.CylinderGeometry(3.6, 3.9, 0.5, 8),
-      new THREE.MeshLambertMaterial({ color: "#d89a5e" })
+      new THREE.MeshLambertMaterial({ color: "#8a6644" })
     );
     plateau.position.y = 0.05;
     plateau.receiveShadow = true;
@@ -131,40 +143,123 @@ export class BombPass {
       const angle = (i / 8) * Math.PI * 2;
       const stone = new THREE.Mesh(
         new THREE.BoxGeometry(0.4, 0.3 + (i % 3) * 0.12, 0.4),
-        new THREE.MeshLambertMaterial({ color: i % 2 === 0 ? "#b5793f" : "#c9884a" })
+        new THREE.MeshLambertMaterial({ color: i % 2 === 0 ? "#584435" : "#6b5340" })
       );
       stone.position.set(Math.cos(angle) * 3.3, 0.35, Math.sin(angle) * 3.3);
       stone.rotation.y = angle;
       stone.castShadow = true;
       this.scene.add(stone);
     }
-    // Distant mesas.
-    [[-8, 2.2, -7], [8, 3, -6], [0, 2.6, -10]].forEach(([x, h, z], index) => {
-      const mesa = new THREE.Mesh(
-        new THREE.BoxGeometry(3 + index, h, 2.4),
-        new THREE.MeshLambertMaterial({ color: index % 2 === 0 ? "#c9793f" : "#b5642f" })
+
+    // Feuerstelle in der Kreismitte: Steinring, gekreuzte Scheite, Flamme.
+    this.fire = new THREE.Group();
+    for (let i = 0; i < 7; i += 1) {
+      const angle = (i / 7) * Math.PI * 2;
+      const kiesel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.18, 0.24),
+        new THREE.MeshLambertMaterial({ color: "#4c3b30" })
       );
-      mesa.position.set(x, h / 2 - 0.3, z);
-      this.scene.add(mesa);
+      kiesel.position.set(Math.cos(angle) * 0.55, 0.09, Math.sin(angle) * 0.55);
+      kiesel.rotation.y = angle;
+      this.fire.add(kiesel);
+    }
+    [-0.5, 0.5].forEach((drehung) => {
+      const scheit = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 0.16, 0.16),
+        new THREE.MeshLambertMaterial({ color: "#43312a" })
+      );
+      scheit.position.y = 0.14;
+      scheit.rotation.y = drehung;
+      this.fire.add(scheit);
     });
-    [[-6, 5, -4, 5], [6, 5.6, -3, 6]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+    this.flammen = [0, 1, 2].map((i) => {
+      const flamme = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26 - i * 0.06, 0.3 - i * 0.06, 0.26 - i * 0.06),
+        new THREE.MeshBasicMaterial({ color: i === 0 ? "#ff7a24" : i === 1 ? "#ffb03a" : "#ffe58a" })
+      );
+      flamme.position.y = 0.32 + i * 0.2;
+      this.fire.add(flamme);
+      return flamme;
     });
+    this.scene.add(this.fire);
+
+    // Abendhimmel als Verlauf hinter allem. Ohne ihn war der erste Versuch
+    // gleichmässig dunkel: die Felswand verschwand im Himmel, weil beide fast
+    // dieselbe Farbe hatten. Der warme Rest der Sonne unten am Horizont gibt
+    // der Wand etwas, wovor sie schwarz stehen kann.
+    const himmelBild = document.createElement("canvas");
+    himmelBild.width = 4;
+    himmelBild.height = 256;
+    const stift = himmelBild.getContext("2d");
+    // Der Verlauf ist auf den schmalen Streifen gerechnet, der im Hochformat
+    // über dem Bodenrand überhaupt sichtbar ist: das sind nur rund neun
+    // Welteinheiten Höhe. Liegt das Abendrot höher, sieht man im Bild nur
+    // Nachtblau — genau das war der erste Versuch.
+    const verlauf = stift.createLinearGradient(0, 0, 0, 256);
+    verlauf.addColorStop(0, "#171430");
+    verlauf.addColorStop(0.3, "#1d1a38");
+    verlauf.addColorStop(0.43, "#3a2551");
+    verlauf.addColorStop(0.53, "#9c4450");
+    verlauf.addColorStop(0.61, "#e0803c");
+    verlauf.addColorStop(0.7, "#ffb268");
+    verlauf.addColorStop(1, "#ffd8a4");
+    stift.fillStyle = verlauf;
+    stift.fillRect(0, 0, 4, 256);
+    const himmelTex = new THREE.CanvasTexture(himmelBild);
+    himmelTex.colorSpace = THREE.SRGBColorSpace;
+    const himmel = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 44),
+      new THREE.MeshBasicMaterial({ map: himmelTex, fog: false, depthWrite: false })
+    );
+    himmel.position.set(0, 8, -34);
+    this.scene.add(himmel);
+
+    // Sterne im oberen, dunklen Teil des Verlaufs.
+    const sterne = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.2, 0.2, 0.2),
+      new THREE.MeshBasicMaterial({ color: "#ffeed2", fog: false }),
+      40
+    );
+    const platz = new THREE.Object3D();
+    for (let i = 0; i < 40; i += 1) {
+      // Fester Streuer: das Sternbild soll bei jedem Start dasselbe sein.
+      platz.position.set(((i * 97) % 53) - 26, 4.6 + ((i * 53) % 11) * 0.5, -30);
+      platz.scale.setScalar(0.6 + ((i * 17) % 5) * 0.4);
+      platz.updateMatrix();
+      sterne.setMatrixAt(i, platz.matrix);
+    }
+    sterne.instanceMatrix.needsUpdate = true;
+    this.scene.add(sterne);
+
+    // Canyonwand als Silhouette weit hinten. Weit genug weg, dass sie Kulisse
+    // bleibt: vorher stand der nächste Klotz bei z = -6 mitten im Bild. Und
+    // flach genug, dass über ihr noch Himmel steht.
+    const wand = new THREE.Group();
+    for (let i = 0; i < 18; i += 1) {
+      const hoehe = 1.6 + ((i * 7) % 5) * 0.7;
+      const zacke = new THREE.Mesh(
+        new THREE.BoxGeometry(3.4, hoehe, 3),
+        new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? "#241c33" : "#1c162a", fog: false })
+      );
+      zacke.position.set(-27 + i * 3.2, hoehe / 2 - 0.6, -24 - ((i * 5) % 3));
+      wand.add(zacke);
+    }
+    this.scene.add(wand);
 
     // The bomb: black voxel ball, fuse stub, spark.
     this.bomb = new THREE.Group();
     const core = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.5, 0.5),
-      new THREE.MeshLambertMaterial({ color: "#1b2530" })
+      // Nicht mehr fast schwarz: in der Nachtszene wäre die Bombe sonst ein
+      // Loch im Bild statt der Hauptfigur.
+      new THREE.MeshLambertMaterial({ color: "#31405a" })
     );
     core.castShadow = true;
     this.bomb.add(core);
     [[0.28, 0, 0], [-0.28, 0, 0], [0, 0, 0.28], [0, 0, -0.28], [0, -0.28, 0]].forEach(([x, y, z]) => {
       const bulge = new THREE.Mesh(
         new THREE.BoxGeometry(0.26, 0.32, 0.26),
-        new THREE.MeshLambertMaterial({ color: "#232f3d" })
+        new THREE.MeshLambertMaterial({ color: "#3d4e6b" })
       );
       bulge.position.set(x, y, z);
       this.bomb.add(bulge);
@@ -181,6 +276,11 @@ export class BombPass {
     );
     this.spark.position.y = 0.62;
     this.bomb.add(this.spark);
+    // Die Lunte leuchtet den Träger an. In der Nacht ist das nicht nur hübsch:
+    // man sieht auf einen Blick, wer die Bombe hat, ohne den Namen zu lesen.
+    this.sparkLight = new THREE.PointLight(0xffb04a, 3.2, 4.5, 2);
+    this.sparkLight.position.y = 0.7;
+    this.bomb.add(this.sparkLight);
 
     // A floating timer plate above the bomb: shows the fuse seconds for a
     // moment after each pass, then hides behind a "?" so you must remember it.
@@ -267,7 +367,7 @@ export class BombPass {
     if (holderKin) {
       const targetPos = new THREE.Vector3(
         holderKin.position.x + Math.sin(now / (90 - nervous * 40)) * nervous * 0.08,
-        holderKin.position.y + 1.45 + Math.sin(now / 260) * 0.06,
+        holderKin.position.y + 1.35 + Math.sin(now / 260) * 0.06,
         holderKin.position.z + Math.cos(now / (110 - nervous * 40)) * nervous * 0.08
       );
       this.bomb.position.lerp(targetPos, Math.min(1, dt * 9));
@@ -381,6 +481,17 @@ export class BombPass {
     }
 
     this.bursts.update(dt);
+
+    // Feuerflackern: zwei ungleiche Sinus, damit kein Takt hörbar wird.
+    if (this.fireLight) {
+      const flackern = Math.sin(now / 190) * 0.5 + Math.sin(now / 77) * 0.3;
+      this.fireLight.intensity = 6 + flackern * 1.4;
+      if (this.sparkLight) this.sparkLight.intensity = 3.2 + Math.sin(now / 55) * 0.9;
+      this.flammen?.forEach((flamme, i) => {
+        flamme.scale.setScalar(1 + Math.sin(now / (150 + i * 40)) * 0.16);
+        flamme.rotation.y = now / (900 + i * 300);
+      });
+    }
 
     this.floaters.update(dt, this.camera);
 

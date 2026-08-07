@@ -8,15 +8,15 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Augenmaß — ein Schwarm Glühkäfer blitzt anderthalb Sekunden auf, danach
 // schätzt man, wie viele es waren.
@@ -161,12 +161,76 @@ export class SwarmCount {
     });
 
     const meadow = new THREE.Mesh(
-      new THREE.BoxGeometry(20, 0.5, 20),
+      new THREE.BoxGeometry(60, 0.5, 60),
       new THREE.MeshLambertMaterial({ color: "#1c3324" })
     );
-    meadow.position.y = -0.25;
+    meadow.position.set(0, -0.25, -12);
     meadow.receiveShadow = true;
     this.scene.add(meadow);
+
+    // Die Szene war ein Nachthimmel ohne alles: flaches Marineblau über
+    // flachem Dunkelgrün, dazwischen eine harte Kante. Ein Mond, ein
+    // Baumsaum und Sterne geben dem Blau einen Ort — und dem Zählen einen
+    // ruhigen Hintergrund, vor dem die Käfer wirklich leuchten.
+    const mond = new THREE.Mesh(
+      new THREE.CircleGeometry(1.5, 24),
+      new THREE.MeshBasicMaterial({ color: "#f3f0d8", fog: false })
+    );
+    mond.position.set(-5.5, 8.2, -24);
+    this.scene.add(mond);
+    // Der Hof braucht einen weichen Rand. Als gleichmässig gefüllter Kreis mit
+    // 14 % Deckkraft war er im Bild eine graue Scheibe mit sichtbarer Kante —
+    // er sah aus wie ein zweiter Himmelskörper, nicht wie Mondschein.
+    const hofBild = document.createElement("canvas");
+    hofBild.width = 64;
+    hofBild.height = 64;
+    const hofStift = hofBild.getContext("2d");
+    const hofVerlauf = hofStift.createRadialGradient(32, 32, 4, 32, 32, 32);
+    hofVerlauf.addColorStop(0, "rgba(200,214,255,0.42)");
+    hofVerlauf.addColorStop(0.45, "rgba(170,186,235,0.13)");
+    hofVerlauf.addColorStop(1, "rgba(150,166,220,0)");
+    hofStift.fillStyle = hofVerlauf;
+    hofStift.fillRect(0, 0, 64, 64);
+    const hofTex = new THREE.CanvasTexture(hofBild);
+    hofTex.colorSpace = THREE.SRGBColorSpace;
+    const hof = new THREE.Mesh(
+      new THREE.PlaneGeometry(9, 9),
+      new THREE.MeshBasicMaterial({ map: hofTex, transparent: true, fog: false, depthWrite: false })
+    );
+    hof.position.set(-5.5, 8.2, -24.1);
+    this.scene.add(hof);
+
+    const sterne = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.13, 0.13, 0.13),
+      new THREE.MeshBasicMaterial({ color: "#dfe6ff", fog: false }),
+      52
+    );
+    const punkt = new THREE.Object3D();
+    for (let i = 0; i < 52; i += 1) {
+      // Fester Streuer: dasselbe Sternbild bei jedem Start.
+      punkt.position.set(((i * 89) % 47) - 23, 5 + ((i * 61) % 13) * 0.86, -23);
+      punkt.scale.setScalar(0.5 + ((i * 23) % 5) * 0.35);
+      punkt.updateMatrix();
+      sterne.setMatrixAt(i, punkt.matrix);
+    }
+    sterne.instanceMatrix.needsUpdate = true;
+    this.scene.add(sterne);
+
+    // Baumsaum am Horizont, als Silhouette.
+    const saum = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(1.15, 3.2, 5),
+      new THREE.MeshBasicMaterial({ color: "#0d1a18", fog: false }),
+      26
+    );
+    const baum = new THREE.Object3D();
+    for (let i = 0; i < 26; i += 1) {
+      baum.position.set(-25 + i * 2, 1.2 + ((i * 17) % 5) * 0.3, -19 - ((i * 11) % 4) * 0.8);
+      baum.scale.set(1, 0.75 + ((i * 29) % 6) * 0.19, 1);
+      baum.updateMatrix();
+      saum.setMatrixAt(i, baum.matrix);
+    }
+    saum.instanceMatrix.needsUpdate = true;
+    this.scene.add(saum);
 
     // Der Schwarm wird EINMAL angelegt und danach nur ein- und ausgeblendet.
     // 95 Käfer je Durchgang neu zu bauen hiesse, im Lauf eines Abends tausende
@@ -175,7 +239,13 @@ export class SwarmCount {
     for (let index = 0; index < MAX_SWARM; index += 1) {
       const mesh = new THREE.Mesh(
         flyGeometry,
-        new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0, toneMapped: false })
+        // Additiv: vor dem Nachthimmel wird aus einer gelben Kugel ein
+        // Leuchtpunkt. Die Käfer sind das, was gezählt werden muss — sie
+        // müssen das Hellste im Bild sein.
+        new THREE.MeshBasicMaterial({
+          color: "#ffe36b", transparent: true, opacity: 0, toneMapped: false,
+          blending: THREE.AdditiveBlending, depthWrite: false
+        })
       );
       mesh.visible = false;
       this.scene.add(mesh);

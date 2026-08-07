@@ -4,20 +4,19 @@ import {
   FloatingText,
   KinAnimator,
   applyFinaleMood,
-  createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Spürsinn — im Feld liegt ein Fundstück versteckt. Jeder Tipp auf ein Feld
 // verrät, wie viele Schritte es bis dorthin sind. Wer die Angaben kombiniert,
@@ -108,7 +107,7 @@ export class SeekGrid {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    mountStage(this, { label: "3D Spürsinn", background: "#2b3a4f", fog: ["#3d5068", 22, 54], fov: 56, far: 90 });
+    mountStage(this, { label: "3D Spürsinn", background: "#161d2c", fog: ["#202a3d", 24, 58], fov: 56, far: 90 });
 
     mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
@@ -182,16 +181,30 @@ export class SeekGrid {
   }
 
   createScene() {
+    // Nachtgrabung: kühles Mondlicht von oben, die Wärme kommt aus den
+    // Laternen an den Ecken.
     addStageLights(this.scene, {
       sunPosition: [-5, 13, 7],
-      shadow: { left: -6, right: 6, top: 8, bottom: -4 }
+      shadow: { left: -6, right: 6, top: 8, bottom: -4 },
+      hemiIntensity: 1.9,
+      sunIntensity: 2.1,
+      skyColor: 0x7d8fc4,
+      groundColor: 0x3d3226,
+      sunColor: 0xc6d4ff,
+      fillColor: 0x8f9bd8,
+      fillIntensity: 0.5
     });
 
+    // Vorher: eine 16×16-Platte in fast derselben Farbe wie der Hintergrund,
+    // ringsum nichts. Im Bild schwebte das Raster in einer leeren blaugrauen
+    // Fläche, und die Suchfigur stand allein im Nichts. Jetzt ist es eine
+    // Ausgrabung bei Nacht: Erdboden bis unter die Kamera, eine Steinkante um
+    // das Feld, Laternen an den Ecken und Gerümpel am Rand.
     const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(16, 0.5, 16),
-      new THREE.MeshLambertMaterial({ color: "#3a4a5e" })
+      new THREE.BoxGeometry(44, 0.5, 44),
+      new THREE.MeshLambertMaterial({ color: "#57452f" })
     );
-    floor.position.y = -0.25;
+    floor.position.set(0, -0.25, 2);
     floor.receiveShadow = true;
     this.scene.add(floor);
 
@@ -225,11 +238,94 @@ export class SeekGrid {
     this.gem.visible = false;
     this.scene.add(this.gem);
 
-    [[-6.2, 6.4, -9, 3], [5.8, 7.1, -10, 7]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+    // Steinkante rund um das Suchfeld — die Grabungskante.
+    const kanteMat = new THREE.MeshLambertMaterial({ color: "#4a5c70" });
+    const kante = span / 2 + 0.62;
+    [[0, kante, span + 1.7, 0.55], [0, -kante, span + 1.7, 0.55],
+     [kante, 0, 0.55, span + 1.7], [-kante, 0, 0.55, span + 1.7]].forEach(([x, z, w, d]) => {
+      const stein = new THREE.Mesh(new THREE.BoxGeometry(w, 0.42, d), kanteMat);
+      stein.position.set(x, 0.21, z);
+      stein.receiveShadow = true;
+      this.scene.add(stein);
     });
+
+    // Laternen an den vier Ecken: warme Punkte gegen das kalte Steinraster.
+    // Sie sind die einzige warme Farbe im Bild und binden es zusammen.
+    // Die Standorte sind fürs Hochformat ausgerechnet, nicht an die Feldecken
+    // gesetzt: an den Ecken (±3.3) standen sie beim ersten Versuch genau am
+    // Bildrand und waren praktisch unsichtbar. Die beiden vorderen stehen im
+    // leeren Streifen zwischen Feld und Suchfigur — dort, wo vorher nichts war.
+    // Hinten zwei Mastlaternen, vorne zwei Bodenlampen. Vorne standen erst
+    // ebenfalls Masten — dicht vor der Kamera warfen sie zwei schwarze Keile
+    // quer durch den ganzen Vordergrund, und ihr Licht sass so hoch, dass
+    // unten nichts ankam. Flach auf dem Boden legen sie ihre Pfütze genau
+    // dorthin, wo die Suchfigur steht.
+    this.laternen = [];
+    [[-2.9, -4.0, "mast"], [2.9, -4.0, "mast"], [-1.5, 4.6, "boden"], [1.5, 4.6, "boden"]]
+      .forEach(([x, z, art], index) => {
+      const hoch = art === "mast";
+      const glasY = hoch ? 2.32 : 0.34;
+      if (hoch) {
+        const pfosten = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 1.9, 0.16),
+          new THREE.MeshLambertMaterial({ color: "#2f2a26" })
+        );
+        pfosten.position.set(x, 1.35, z);
+        this.scene.add(pfosten);
+      }
+      const glas = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, hoch ? 0.4 : 0.32, 0.34),
+        new THREE.MeshBasicMaterial({ color: "#ffd489" })
+      );
+      glas.position.set(x, glasY, z);
+      this.scene.add(glas);
+      // Nur die Mastlaternen bekommen eine Haube. Auf den Bodenlampen sass sie
+      // bei dieser Aufsicht genau über dem Glas — im Bild lag mitten in jeder
+      // Lichtpfütze ein schwarzes Quadrat.
+      if (hoch) {
+        const haube = new THREE.Mesh(
+          new THREE.BoxGeometry(0.44, 0.12, 0.44),
+          new THREE.MeshLambertMaterial({ color: "#2f2a26" })
+        );
+        haube.position.set(x, glasY + 0.26, z);
+        this.scene.add(haube);
+      }
+      const licht = new THREE.PointLight(0xffb75e, hoch ? 14 : 6, hoch ? 11 : 7, 2);
+      licht.position.set(x, glasY, z);
+      this.scene.add(licht);
+      this.laternen.push({ licht, glas, phase: index * 1.7, grund: licht.intensity });
+    });
+
+    // Gerümpel am Rand: Kisten, Schutt, eine Schaufel im Erdhaufen.
+    [[-1.7, 5.4, 0.8, 0.7, "#6d5538"], [1.9, 5.9, 0.9, 0.6, "#5c472e"],
+     [-3.5, -4.3, 0.6, 0.6, "#6d5538"], [3.4, -4.6, 0.7, 0.5, "#5c472e"]].forEach(([x, z, w, h, color]) => {
+      const kiste = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h, w),
+        new THREE.MeshLambertMaterial({ color })
+      );
+      kiste.position.set(x, h / 2, z);
+      kiste.rotation.y = x * 0.4;
+      kiste.castShadow = true;
+      this.scene.add(kiste);
+    });
+    const schutt = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.3, 0.22, 0.3),
+      new THREE.MeshLambertMaterial({ color: "#6a563a" }),
+      22
+    );
+    const brocken = new THREE.Object3D();
+    for (let i = 0; i < 22; i += 1) {
+      // Fester Streuer, damit der Schutt bei jedem Start gleich liegt.
+      const winkel = (i * 2.399) % (Math.PI * 2);
+      const radius = span / 2 + 1.1 + ((i * 13) % 7) * 0.28;
+      brocken.position.set(Math.cos(winkel) * radius, 0.09, Math.sin(winkel) * radius);
+      brocken.rotation.y = winkel;
+      brocken.scale.setScalar(0.6 + ((i * 7) % 5) * 0.22);
+      brocken.updateMatrix();
+      schutt.setMatrixAt(i, brocken.matrix);
+    }
+    schutt.instanceMatrix.needsUpdate = true;
+    this.scene.add(schutt);
 
     this.bursts = new CubeBurst(this.scene);
     this.floaters = new FloatingText(this.scene);
@@ -292,7 +388,7 @@ export class SeekGrid {
     const state = this.getState();
     const me = state?.players?.find((player) => player.id === this.getControlledPlayerId()) || state?.players?.[0];
     const kin = createVoxelKin(me?.color || "#ff5d73", 0);
-    kin.scale.setScalar(0.74);
+    kin.scale.setScalar(0.95);
     const label = createNameLabel("du", me?.color || "#ff5d73");
     label.position.y = 0.72;
     kin.add(label);
@@ -330,6 +426,14 @@ export class SeekGrid {
     this.syncTiles(dt, now);
     this.syncGem(own, now, dt);
     this.syncSearcher(minigame, arcade, state, own, now);
+
+    // Laternen flackern leicht und ungleich — sonst wirken vier gleiche
+    // Lichtpunkte wie Lampen, nicht wie Feuer.
+    this.laternen?.forEach(({ licht, glas, phase, grund }) => {
+      const f = Math.sin(now / 320 + phase) * 0.5 + Math.sin(now / 137 + phase) * 0.3;
+      licht.intensity = grund * (1 + f * 0.19);
+      glas.scale.setScalar(1 + f * 0.05);
+    });
 
     this.bursts.update(dt);
     this.floaters.update(dt, this.camera);

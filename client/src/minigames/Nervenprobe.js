@@ -4,12 +4,11 @@ import {
   CubeBurst,
   FloatingText,
   KinAnimator,
-  createCloud,
   createNameLabel,
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -17,14 +16,16 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Nervenprobe — all four Kins face the camera behind a timer podium.
 // The clock counts visibly for two seconds, then hides. Everyone slams
 // their red button at the target time; at the end all times are revealed
 // and the closest guess wins.
-const PODIUM_GAP = 1.55;
+// 1.42 statt 1.55: bei vier Spielern standen die äusseren Pulte im
+// Hochformat halb ausserhalb des Bildes.
+const PODIUM_GAP = 1.42;
 const RISER_TOP_Y = 0.88;           // Oberkante des Podeststufe (0.57 + 0.62/2)
 const KIN_Y = standOn(RISER_TOP_Y);
 
@@ -131,7 +132,11 @@ export class Nervenprobe {
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    mountStage(this, { label: "3D Nervenprobe", background: "#a4e0f5", fog: ["#b0e6f7", 18, 42], fov: 46 });
+    // Studiodunkel statt Himmelblau. Vorher stand die Showbühne unter freiem
+    // Himmel, samt Wolken: über dem Vorhang, links und rechts neben ihm und
+    // sogar unter der Bühnenkante war Blau zu sehen. Ein Fernsehstudio hat
+    // dort nichts als Dunkel — und das Dunkel lässt die Bühne leuchten.
+    mountStage(this, { label: "3D Nervenprobe", background: "#170e28", fog: ["#241539", 22, 50], fov: 46 });
 
     mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-nerve-target></strong></div>
@@ -177,15 +182,25 @@ export class Nervenprobe {
   }
 
   createScene() {
-    addStageLights(this.scene, { sunPosition: [-4, 10, 7], groundColor: 0x74b6c8 });
+    addStageLights(this.scene, {
+      sunPosition: [-4, 10, 7],
+      skyColor: 0xb49ae8,
+      groundColor: 0x6a4a3a,
+      sunColor: 0xfff0d2,
+      fillColor: 0xff9ecb,
+      fillIntensity: 0.7
+    });
 
     // A proper game-show stage: warm floor, red carpet, curtain backdrop,
     // bunting between golden pillars, sweeping spotlights and star sparkles.
+    // Der Boden reicht bis unter die Kamera: seine Vorderkante lag vorher bei
+    // z = 4.5 und darunter sah man Himmel — im Bild ein blauer Streifen quer
+    // unter der Bühne.
     const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(13, 0.5, 9),
+      new THREE.BoxGeometry(26, 0.5, 34),
       new THREE.MeshLambertMaterial({ color: "#e8a94f" })
     );
-    floor.position.y = -0.25;
+    floor.position.set(0, -0.25, 8);
     floor.receiveShadow = true;
     this.scene.add(floor);
     const stage = new THREE.Mesh(
@@ -202,6 +217,60 @@ export class Nervenprobe {
     carpet.position.set(0, 0.3, 1.55);
     carpet.receiveShadow = true;
     this.scene.add(carpet);
+
+    // Die Vorbühne. Der goldene Boden reicht jetzt bis unter die Kamera und
+    // füllte damit das untere Bilddrittel mit einer einzigen hellen Fläche —
+    // schlimmer als das Loch, das er stopfen sollte. Vor der Bühne liegt
+    // deshalb dunkler Studioboden, und das Gold bleibt der Bühne.
+    const vorbuehne = new THREE.Mesh(
+      new THREE.BoxGeometry(26, 0.12, 22),
+      new THREE.MeshLambertMaterial({ color: "#2e2242" })
+    );
+    vorbuehne.position.set(0, 0.02, 14);
+    vorbuehne.receiveShadow = true;
+    this.scene.add(vorbuehne);
+    // Zwei warme Lichtpfützen darauf, damit die Fläche nicht tot ist.
+    [[-3.4, 6.4], [3.4, 8.2]].forEach(([x, z]) => {
+      const pfuetze = new THREE.Mesh(
+        new THREE.CircleGeometry(2.6, 20),
+        new THREE.MeshBasicMaterial({ color: "#ffb35c", transparent: true, opacity: 0.12, depthWrite: false })
+      );
+      pfuetze.rotation.x = -Math.PI / 2;
+      pfuetze.position.set(x, 0.1, z);
+      this.scene.add(pfuetze);
+    });
+    // Publikumsränder im Vordergrund: dunkle Köpfe am unteren Bildrand. Im
+    // Hochformat ist das Sichtfeld dicht vor der Kamera nur gut einen Meter
+    // breit — mehr als drei, vier Köpfe passen dort ohnehin nicht ins Bild.
+    // Als Instanzen: 28 Einzelmeshes wären 28 Zeichenaufrufe für eine
+    // Silhouette, die sich nie bewegt.
+    const koepfe = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.5, 0.5, 0.5),
+      new THREE.MeshLambertMaterial({ color: "#1d1730" }),
+      14
+    );
+    const schultern = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.78, 0.6, 0.5),
+      new THREE.MeshLambertMaterial({ color: "#171226" }),
+      14
+    );
+    const sitz = new THREE.Object3D();
+    for (let i = 0; i < 14; i += 1) {
+      const x = (i - 6.5) * 0.82;
+      const z = 8.6 + (i % 2) * 0.9;
+      sitz.position.set(x, 1.05 + (i % 3) * 0.06, z);
+      sitz.rotation.y = (i % 5) * 0.2 - 0.4;
+      sitz.updateMatrix();
+      koepfe.setMatrixAt(i, sitz.matrix);
+      sitz.position.set(x, 0.5, z);
+      sitz.rotation.y = 0;
+      sitz.updateMatrix();
+      schultern.setMatrixAt(i, sitz.matrix);
+    }
+    koepfe.instanceMatrix.needsUpdate = true;
+    schultern.instanceMatrix.needsUpdate = true;
+    this.scene.add(koepfe);
+    this.scene.add(schultern);
 
     // Curtain backdrop: alternating pleats instead of one flat slab.
     for (let i = 0; i < 12; i += 1) {
@@ -276,11 +345,37 @@ export class Nervenprobe {
       this.stars.push(star);
     });
 
-    [[-6, 5.4, -4, 5], [6, 6, -2, 6]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
-    });
+    // Traverse mit Scheinwerfern über der Bühne — das, was in einem Studio
+    // über dem Vorhang hängt. Hier standen vorher zwei Wolken.
+    const traverse = new THREE.Mesh(
+      new THREE.BoxGeometry(13, 0.28, 0.28),
+      new THREE.MeshLambertMaterial({ color: "#3d4658" })
+    );
+    traverse.position.set(0, 6.4, -2.6);
+    this.scene.add(traverse);
+    for (let i = 0; i < 5; i += 1) {
+      const x = (i - 2) * 2.4;
+      const buegel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.5, 0.1),
+        new THREE.MeshLambertMaterial({ color: "#3d4658" })
+      );
+      buegel.position.set(x, 6.05, -2.6);
+      this.scene.add(buegel);
+      const lampe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.44, 0.44, 0.6),
+        new THREE.MeshLambertMaterial({ color: "#2b3242" })
+      );
+      lampe.position.set(x, 5.68, -2.6);
+      lampe.rotation.x = 0.45;
+      this.scene.add(lampe);
+      const linse = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.34, 0.06),
+        new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? "#fff0b8" : "#ffc9e4" })
+      );
+      linse.position.set(x, 5.55, -2.35);
+      linse.rotation.x = 0.45;
+      this.scene.add(linse);
+    }
 
     this.bursts = new CubeBurst(this.scene);
     this.floaters = new FloatingText(this.scene);
@@ -553,7 +648,7 @@ export class Nervenprobe {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      this.baseCameraZ = portrait ? 12.2 : 9.6;
+      this.baseCameraZ = portrait ? 13.6 : 9.6;
       camera.fov = portrait ? 54 : 44;
     });
   }

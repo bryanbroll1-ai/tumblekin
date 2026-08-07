@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale } from "./Quality.js?v=tumblekin120";
+import { fxScale } from "./Quality.js?v=tumblekin121";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 
@@ -353,9 +353,14 @@ export function createOwnMarker(color = "#ffe25c") {
   return group;
 }
 
-export function updateOwnMarker(marker, now, baseY) {
+// `lift` ist der Abstand zwischen Figurenkopf und Pfeil. Die 0.9 stammen aus
+// Szenen mit fast waagerechter Kamera; schaut die Kamera steil von oben, wird
+// aus demselben Höhenversatz ein grosser Sprung im Bild — bei Farbenjagd
+// schwebte der Pfeil rund 150 Pixel über seiner Figur, oben in der Anzeige.
+// Solche Szenen geben einen kleineren Wert mit.
+export function updateOwnMarker(marker, now, baseY, lift = 0.9) {
   if (!marker) return;
-  marker.position.y = baseY + 0.9 + Math.sin(now / 260 + marker.userData.phase) * 0.1;
+  marker.position.y = baseY + lift + Math.sin(now / 260 + marker.userData.phase) * 0.1;
   marker.rotation.y = Math.sin(now / 500) * 0.3;
 }
 
@@ -541,9 +546,19 @@ function haltImBild(sprite, camera, weltBreite) {
   const tiefe = sprite.position.distanceTo(camera.position);
   const halbSichtbar = tiefe * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect;
   if (!(halbSichtbar > 0)) return;
+  // Ist der Text breiter als das Bild, half Verschieben früher gar nichts: die
+  // Funktion gab auf, und "TREFFER! 4 übrig" lief bei Sumoschubs rechts aus dem
+  // Bild. Ein zu breiter Text wird jetzt so weit verkleinert, dass er passt —
+  // kleiner und ganz lesbar schlägt gross und halb abgeschnitten. update()
+  // setzt die Skalierung jedes Bild neu, das Schrumpfen summiert sich also nicht.
+  const passtBreite = halbSichtbar * 2 * 0.94;
+  if (weltBreite > passtBreite) {
+    sprite.scale.multiplyScalar(passtBreite / weltBreite);
+    weltBreite = passtBreite;
+  }
   const halbText = (weltBreite / 2) / halbSichtbar;
   const grenze = 0.97 - halbText;
-  if (grenze <= 0) return;                     // breiter als das Bild — nichts zu retten
+  if (grenze <= 0) return;
   const ueber = Math.abs(_ndc.x) - grenze;
   if (ueber <= 0) return;
   camera.matrixWorld.extractBasis(_rechts, new THREE.Vector3(), new THREE.Vector3());

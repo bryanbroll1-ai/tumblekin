@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   resizeStage,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Blitzreflex — drei Läufe, jeder eine Startampel. Rot, Rot, Rot … und dann
 // GRÜN. Wer im richtigen Moment tippt, gewinnt Millisekunden; wer vorher tippt,
@@ -113,21 +113,114 @@ export class FlashReflex {
       shadow: { left: -5, right: 5, top: 8, bottom: -3 }
     });
 
+    // Startaufstellung einer Rennstrecke. Vorher war das ein einzelner Mast
+    // auf einer blassen Platte im leeren Blau — und damit fast dasselbe Bild
+    // wie Falschsignal, das ebenfalls eine Ampel auf einem hellen Platz
+    // zeigt. Zwei von dreissig Spielen dürfen nicht austauschbar aussehen.
     const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(20, 0.5, 16),
-      new THREE.MeshLambertMaterial({ color: "#6fc4a0" })
+      new THREE.BoxGeometry(60, 0.5, 50),
+      new THREE.MeshLambertMaterial({ color: "#5aa87f" })
     );
-    ground.position.y = -0.25;
+    ground.position.set(0, -0.25, -8);
     ground.receiveShadow = true;
     this.scene.add(ground);
 
     const track = new THREE.Mesh(
-      new THREE.BoxGeometry(LANE_GAP * 4.6, 0.04, 7),
-      new THREE.MeshLambertMaterial({ color: "#adbcb2" })
+      new THREE.BoxGeometry(LANE_GAP * 4.6, 0.04, 30),
+      new THREE.MeshLambertMaterial({ color: "#4b4f56" })
     );
-    track.position.set(0, 0.01, 0);
+    track.position.set(0, 0.01, -9);
     track.receiveShadow = true;
     this.scene.add(track);
+
+    // Rot-weisse Randsteine links und rechts der Bahn. Als Instanzen: 96
+    // einzelne Klötzchen wären 96 Zeichenaufrufe für reine Kulisse, und die
+    // Bildrate auf dem Handy ist hier das eigentliche Spielgefühl.
+    const bahnHalb = (LANE_GAP * 4.6) / 2;
+    const steinGeo = new THREE.BoxGeometry(0.5, 0.06, 1.2);
+    [["#e8384f", 0], ["#f2f2f2", 1]].forEach(([farbe, versatz]) => {
+      const reihe = new THREE.InstancedMesh(
+        steinGeo, new THREE.MeshLambertMaterial({ color: farbe }), 24
+      );
+      const platz = new THREE.Object3D();
+      for (let i = 0; i < 24; i += 1) {
+        const seite = i % 2 === 0 ? -1 : 1;
+        platz.position.set(seite * (bahnHalb + 0.25), 0.03, 5 - (Math.floor(i / 2) * 2 + versatz) * 1.25);
+        platz.updateMatrix();
+        reihe.setMatrixAt(i, platz.matrix);
+      }
+      reihe.instanceMatrix.needsUpdate = true;
+      this.scene.add(reihe);
+    });
+
+    // Startboxen auf dem Asphalt: weisse Kästen, einer je Bahn.
+    for (let lane = 0; lane < 4; lane += 1) {
+      const kasten = new THREE.Mesh(
+        new THREE.BoxGeometry(LANE_GAP * 0.82, 0.02, 1.5),
+        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.32, depthWrite: false })
+      );
+      kasten.position.set((lane - 1.5) * LANE_GAP, 0.045, KIN_Z - 0.1);
+      this.scene.add(kasten);
+    }
+
+    // Streckenbegrenzung und Tribüne dahinter — die Kulisse, die dem Bild
+    // seinen Ort gibt.
+    [-1, 1].forEach((seite) => {
+      const bande = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.9, 26),
+        new THREE.MeshLambertMaterial({ color: "#e9edf2" })
+      );
+      bande.position.set(seite * (bahnHalb + 1.25), 0.45, -8);
+      this.scene.add(bande);
+      // Bandenwerbung: eine Instanz je Farbe statt neun Einzelmeshes.
+      const tafelGeo = new THREE.BoxGeometry(0.34, 0.5, 2.4);
+      ["#ff5d73", "#3fc5e8", "#ffd15c", "#71d97b"].forEach((farbe, f) => {
+        const anzahl = Math.ceil((9 - f) / 4);
+        const tafeln = new THREE.InstancedMesh(
+          tafelGeo, new THREE.MeshLambertMaterial({ color: farbe }), anzahl
+        );
+        const platz = new THREE.Object3D();
+        for (let k = 0; k < anzahl; k += 1) {
+          platz.position.set(seite * (bahnHalb + 1.25), 0.52, 3 - (f + k * 4) * 2.8);
+          platz.updateMatrix();
+          tafeln.setMatrixAt(k, platz.matrix);
+        }
+        tafeln.instanceMatrix.needsUpdate = true;
+        this.scene.add(tafeln);
+      });
+      // Tribüne: zwei Instanzen für vier Stufen.
+      const rangGeo = new THREE.BoxGeometry(1.1, 0.5, 20);
+      ["#8d97a8", "#7c869a"].forEach((farbe, f) => {
+        const raenge = new THREE.InstancedMesh(rangGeo, new THREE.MeshLambertMaterial({ color: farbe }), 2);
+        const platz = new THREE.Object3D();
+        for (let k = 0; k < 2; k += 1) {
+          const stufe = f + k * 2;
+          platz.position.set(seite * (bahnHalb + 2.3 + stufe * 0.95), 0.25 + stufe * 0.5, -7);
+          platz.updateMatrix();
+          raenge.setMatrixAt(k, platz.matrix);
+        }
+        raenge.instanceMatrix.needsUpdate = true;
+        this.scene.add(raenge);
+      });
+      const publikum = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(0.34, 0.42, 0.34),
+        new THREE.MeshLambertMaterial({ color: "#2b3446" }),
+        40
+      );
+      const kopf = new THREE.Object3D();
+      for (let i = 0; i < 40; i += 1) {
+        const stufe = i % 4;
+        kopf.position.set(
+          seite * (bahnHalb + 2.3 + stufe * 0.95),
+          0.71 + stufe * 0.5,
+          2 - Math.floor(i / 4) * 1.9
+        );
+        kopf.updateMatrix();
+        publikum.setMatrixAt(i, kopf.matrix);
+      }
+      publikum.instanceMatrix.needsUpdate = true;
+      this.scene.add(publikum);
+    });
 
     const line = new THREE.Mesh(
       new THREE.BoxGeometry(LANE_GAP * 4.6, 0.02, 0.16),

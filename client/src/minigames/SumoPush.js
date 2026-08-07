@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   standOn,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -19,8 +19,8 @@ import {
   syncOwnMarker,
   teardownStage,
   fitKinsInView
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
 // Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
@@ -239,6 +239,60 @@ export class SumoPush {
     this.scene.add(this.stone);
     this.stoneShadow = createShadowBlob(0.6);
     this.scene.add(this.stoneShadow);
+
+    // Vier Quastenpfosten an den Ringecken. Der Ring stand bisher als nackte
+    // Scheibe in einer leeren Fläche Cyan — hier sagen sie auf einen Blick,
+    // dass das ein Ring ist und kein Teller. Sie stehen auf den Diagonalen:
+    // seitlich wäre bei diesem Hochformat kein Platz, der sichtbare Halbraum
+    // ist in Ringtiefe nur gut zwei Einheiten breit.
+    [[0.7854, "#e0334f"], [2.3562, "#3fc5e8"], [3.9270, "#ffd15c"], [5.4978, "#71d97b"]]
+      .forEach(([winkel, farbe]) => {
+      const px = Math.cos(winkel) * (RING_WORLD + 0.34);
+      const pz = Math.sin(winkel) * (RING_WORLD + 0.34);
+      const pfosten = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 1.5, 0.12),
+        new THREE.MeshLambertMaterial({ color: "#7a4a2c" })
+      );
+      pfosten.position.set(px, 0.75, pz);
+      pfosten.castShadow = true;
+      this.scene.add(pfosten);
+      const quaste = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, 0.44, 0.26),
+        new THREE.MeshLambertMaterial({ color: farbe })
+      );
+      quaste.position.set(px, 1.32, pz);
+      this.scene.add(quaste);
+    });
+
+    // Schaumkämme auf dem Wasser — eine Instanz statt vieler Meshes.
+    const wellen = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1.5, 0.06, 0.22),
+      new THREE.MeshLambertMaterial({ color: "#bfeaf5" }),
+      26
+    );
+    const kamm = new THREE.Object3D();
+    for (let i = 0; i < 26; i += 1) {
+      // Fester Streuer, damit das Meer bei jedem Start gleich aussieht.
+      const winkel = (i * 2.399) % (Math.PI * 2);
+      const radius = 4.2 + ((i * 13) % 9) * 1.1;
+      kamm.position.set(Math.cos(winkel) * radius, -2.12, Math.sin(winkel) * radius);
+      kamm.rotation.y = winkel + 1.2;
+      kamm.scale.setScalar(0.7 + ((i * 7) % 5) * 0.28);
+      kamm.updateMatrix();
+      wellen.setMatrixAt(i, kamm.matrix);
+    }
+    wellen.instanceMatrix.needsUpdate = true;
+    this.scene.add(wellen);
+
+    // Inseln am Horizont: sie geben dem Wasser eine Kante.
+    [[-9, -13, 1.6, 3.4], [8, -15, 2.1, 4.6], [-2.5, -18, 1.2, 5.2]].forEach(([x, z, h, w]) => {
+      const insel = new THREE.Mesh(
+        new THREE.CylinderGeometry(w * 0.55, w * 0.8, h, 7),
+        new THREE.MeshLambertMaterial({ color: "#5f9c6f" })
+      );
+      insel.position.set(x, -2.3 + h / 2, z);
+      this.scene.add(insel);
+    });
 
     [[-6, 4.4, -5, 5], [6, 5, -3, 6]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);

@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   standOn,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Farbflucht — a blocky "stand on the called colour" party round.
 // Each round a colour is announced; when the floor drops, every tile of a
@@ -178,7 +178,9 @@ export class ColorRush {
       }
     }
 
-    [[-6, 5, -4, 5], [6, 6, -2, 6], [-5, 6, 5, 7]].forEach(([x, y, z, seed]) => {
+    // Weiter hinten und höher: durch den versetzten Blickpunkt liegt der
+    // sichtbare Himmel jetzt über der Rasterkante, nicht mehr seitlich davon.
+    [[-6.5, 4.6, -13, 5], [6.2, 6.2, -16, 6], [-1, 7.4, -20, 7]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
       this.scene.add(cloud);
@@ -378,7 +380,12 @@ export class ColorRush {
     const shakeY = Math.cos(now / 13) * this.shake * 0.2;
     const desired = new THREE.Vector3(focusX * 0.25 + shakeX, this.baseCamera.y + shakeY, focusZ * 0.25 + this.baseCamera.z);
     this.camera.position.lerp(desired, frameLerp(0.12, dt));
-    this.camera.lookAt(0, 0, 0);
+    // Blickpunkt hinter der Feldmitte: das quadratische Raster füllt im
+    // Hochformat schon die volle Breite und kann deshalb nicht wachsen — es
+    // stand aber zu hoch im Bild, darunter lag ein Viertel Bildfläche
+    // nackte Grubenwand. Der versetzte Blickpunkt schiebt das Raster nach
+    // unten vor die Bedienleiste und die Wand aus dem Bild.
+    this.camera.lookAt(0, 0, -1.8);
 
     this.updateHud(minigame, state, arcade, phase, now);
     // A downward arrow marks your own kin so you never lose yourself.

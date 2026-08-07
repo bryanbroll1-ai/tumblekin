@@ -9,15 +9,16 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
+  dressMeadow,
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Leuchtfolge — vier Pilze leuchten der Reihe nach auf, danach tippt man sie in
 // derselben Reihenfolge nach. Jede Runde ist die Folge einen Pilz länger.
@@ -159,12 +160,40 @@ export class LightSequence {
     });
 
     const glade = new THREE.Mesh(
-      new THREE.BoxGeometry(14, 0.5, 14),
-      new THREE.MeshLambertMaterial({ color: "#7bbf5e" })
+      new THREE.BoxGeometry(44, 0.5, 44),
+      new THREE.MeshLambertMaterial({ color: "#5c9c4a" })
     );
-    glade.position.y = -0.25;
+    glade.position.set(0, -0.25, -4);
     glade.receiveShadow = true;
     this.scene.add(glade);
+
+    // Pilzlichtung: bis hierher war das eine nackte grüne Platte mit vier
+    // Pilzen darauf und einer harten Kante gegen den Himmel. Eigene Palette,
+    // eigene Baumform — die Wiese soll nicht die von acht anderen Spielen sein.
+    dressMeadow(this.scene, {
+      seed: 23,
+      // Enger freigehalten als üblich: die Kamera steht dicht, der sichtbare
+      // Boden liegt fast ganz innerhalb der Sperrzone — bei 4.2/4.6 war rund
+      // um die Pilze wieder blankes Grün.
+      keepOut: { x: 2.6, z: 2.8 },
+      spread: { x: 18, z: 16 },
+      patches: 30,
+      patchColors: ["#4f8f40", "#6bb055"],
+      tufts: 200,
+      flowers: 34,
+      stones: 26,
+      trees: 34,
+      // Weiter draussen und mit grösserem Vorfeld: bei 16/14 und frontCut 5.5
+      // stand ein Baum fast neben der Kamera und füllte ein Bildviertel.
+      treeRing: { x: 23, z: 21 },
+      frontCut: 10,
+      grassColor: "#528f42",
+      flowerColors: ["#ff6f61", "#ffe27a", "#ffffff", "#e08cff"],
+      trunkColor: "#6b4a2c",
+      crownColor: "#2f6f3a",
+      crownColor2: "#3f8a44",
+      crownShape: "blob"
+    });
 
     const ring = new THREE.Mesh(
       new THREE.CylinderGeometry(3.4, 3.4, 0.06, 28),

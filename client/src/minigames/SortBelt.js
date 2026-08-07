@@ -9,15 +9,15 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die
@@ -224,8 +224,10 @@ export class SortBelt {
     // harten Kante gegen den Himmel, und der Boden war ein grosser leerer
     // sandfarbener Wisch — die untere Bildhälfte enthielt gar nichts.
     const wandMat = new THREE.MeshLambertMaterial({ color: "#c9b48d" });
-    const rueckwand = new THREE.Mesh(new THREE.BoxGeometry(26, 7, 0.6), wandMat);
-    rueckwand.position.set(0, GROUND_Y + 3.5, BELT_FAR_Z - 2.4);
+    // 13 hoch statt 7: mit dem höheren Blickpunkt blieb über der Wand ein
+    // Streifen Himmel stehen — mitten in einer Halle.
+    const rueckwand = new THREE.Mesh(new THREE.BoxGeometry(26, 13, 0.6), wandMat);
+    rueckwand.position.set(0, GROUND_Y + 6.5, BELT_FAR_Z - 2.4);
     rueckwand.receiveShadow = true;
     this.scene.add(rueckwand);
     // Der Schacht, aus dem die Pakete kommen.
@@ -251,7 +253,11 @@ export class SortBelt {
     });
 
     this.camera.position.set(0, 5.0, 10.4);
-    this.camera.lookAt(0, 0.1, 1.6);
+    // Blickpunkt höher: die Kamera stand zu flach auf den Boden gerichtet,
+    // unter den Rutschen lag ein leeres Viertel Hallenboden. Ein Stück nach
+    // oben gekippt rutscht das Band ins untere Bilddrittel und der Boden aus
+    // dem Bild; oben füllt die Rückwand nach.
+    this.camera.lookAt(0, 1.2, 1.6);
   }
 
   buildBelt() {
@@ -443,7 +449,7 @@ export class SortBelt {
     this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
     this.camera.position.y = this.baseCamY || 5.0;
     this.camera.position.z = this.baseCamZ || 10.4;
-    this.camera.lookAt(0, 0.1, 1.6);
+    this.camera.lookAt(0, 1.2, 1.6);
 
     this.updateHud(minigame, arcade, state, now, own);
     this.renderer.render(this.scene, this.camera);

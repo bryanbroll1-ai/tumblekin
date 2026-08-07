@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin120";
-import { qualityTier } from "./Quality.js?v=tumblekin120";
+import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin121";
+import { qualityTier } from "./Quality.js?v=tumblekin121";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker
@@ -184,7 +184,7 @@ export function fitKinsInView(host, { margin = 1.1, maxPush = 6 } = {}) {
 
 // Keeps the downward "you" arrow pinned over the controlled player's kin so you
 // never lose yourself in the crowd. Pass the kin (or null to hide it).
-export function syncOwnMarker(host, target, now, offset = 0.35) {
+export function syncOwnMarker(host, target, now, offset = 0.35, lift = 0.9) {
   if (!host.scene) return;
   if (!target) {
     if (host.ownMarker) host.ownMarker.visible = false;
@@ -196,7 +196,7 @@ export function syncOwnMarker(host, target, now, offset = 0.35) {
   }
   host.ownMarker.visible = target.visible !== false;
   host.ownMarker.position.set(target.position.x, 0, target.position.z);
-  updateOwnMarker(host.ownMarker, now, target.position.y + offset);
+  updateOwnMarker(host.ownMarker, now, target.position.y + offset, lift);
 }
 
 // Frees GPU resources and removes the DOM the stage owns. Safe to call twice.

@@ -6,9 +6,9 @@ import {
   createNameLabel,
   createOwnMarker,
   updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin120";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
+import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Turmbau — a block slides back and forth over each player's tower; tap to
 // drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
@@ -17,6 +17,11 @@ import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
 // die Szene hat — und die Breite entscheidet, wie weit die Kamera weg muss.
 // Bei 1.85 Abstand stand der äusserste Turm gemessen ausserhalb des Bildes.
 const COL_GAP = 1.62;
+// Wie stark die Kamera zum eigenen Turm rückt. Der Wert MUSS in die Rechnung
+// für die Kameradistanz eingehen (siehe resizeRenderer) — bei 0.18 fraß der
+// Versatz den ganzen Rand auf und der äusserste Turm stand wieder halb
+// ausserhalb des Bildes, obwohl die Distanz vorher genau dafür gerechnet war.
+const OWN_BIAS = 0.10;
 // Höhere Klötze. Bei 0.32 war ein Turm aus zehn Steinen drei Einheiten hoch,
 // während die Kamera vierzehn Einheiten Höhe zeigte: das Bild war zur Hälfte
 // Himmel und zur Hälfte Wiese, und dazwischen lagen drei flache Bretter.
@@ -130,7 +135,7 @@ export class TowerStack {
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureTower(player, index, players.length));
     this.resizeRenderer();
-    this.camera.position.set(0, this.baseCamY || 3.2, this.baseCamZ || 13.1);
+    this.camera.position.set(0, this.baseCamY || 3.2, this.baseCamZ || 13.9);
     this.camera.lookAt(0, BASE_Y + 0.5, 0);
   }
 
@@ -316,9 +321,9 @@ export class TowerStack {
     const focusY = BASE_Y + 0.5 + this.smoothTop * BLOCK_H * 0.55;
     // Bias slightly toward the own tower so it's never cut off, while all four
     // stay in frame.
-    const ownX = (this.towers.get(controlledId)?.x || 0) * 0.18;
+    const ownX = (this.towers.get(controlledId)?.x || 0) * OWN_BIAS;
     const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
-    const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 3.2) + this.smoothTop * BLOCK_H * 0.55, this.baseCamZ || 13.1);
+    const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 3.2) + this.smoothTop * BLOCK_H * 0.55, this.baseCamZ || 13.9);
     this.camera.position.lerp(desired, frameLerp(0.12, dt));
     this.camera.lookAt(ownX, focusY, 0);
 
@@ -365,13 +370,14 @@ export class TowerStack {
 
   resizeRenderer() {
     resizeStage(this, (portrait, camera) => {
-      // Abstand gerechnet, nicht geschätzt: vier Säulen im Abstand COL_GAP plus
-      // eine halbe Klotzbreite sind 3.11 Einheiten halbe Breite. Sichtbar sind
-      // bei 58° und diesem Seitenverhältnis 0.2554 Einheiten je Einheit
-      // Abstand — macht mit 8 % Rand 13.1. Bei 10.5 stand der äusserste Turm
-      // ausserhalb des Bildes, und das war er auch.
+      // Abstand gerechnet, nicht geschätzt: vier Säulen im Abstand COL_GAP
+      // plus eine halbe Klotzbreite sind 3.105 Einheiten halbe Breite. Dazu
+      // kommt der Kameraversatz zum eigenen Turm, 1.5·COL_GAP·OWN_BIAS =
+      // 0.243 — der verschiebt den Ausschnitt und muss mitgerechnet werden.
+      // Sichtbar sind bei 58° und diesem Seitenverhältnis 0.2554 Einheiten je
+      // Einheit Abstand: (3.105 + 0.243) · 1.06 / 0.2554 = 13.9.
       this.baseCamY = portrait ? 3.2 : 2.6;
-      this.baseCamZ = portrait ? 13.1 : 8.5;
+      this.baseCamZ = portrait ? 13.9 : 8.5;
       camera.fov = portrait ? 58 : 48;
     });
   }

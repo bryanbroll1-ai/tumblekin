@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Münzregen — coins and bombs rain into three lanes; hop lanes to catch
 // the gold and dodge the black fizzers.
@@ -136,20 +136,43 @@ export class CoinRain {
       marker.position.set(this.laneX(lane), 0.09, 0);
       this.scene.add(marker);
     }
-    // A giant cloud machine hangs above the lanes and spits the drops.
+    // Drei einzelne Schütten statt eines durchgehenden Trichters.
+    //
+    // Der alte Trichter war 5.2 breit, dann 4.0 — in beiden Fällen breiter als
+    // das Bild: auf Höhe der Maschine zeigt das Hochformat nur gut 4.2
+    // Einheiten. Was man sah, war ein violettes Band quer über den Bildschirm,
+    // oben von der Anzeigeleiste abgeschnitten, mit drei losen Klötzen
+    // darunter. Ein Trichter, der die drei Bahnen (Abstand 1.5) überspannt,
+    // KANN in diesem Bild nicht als Gegenstand lesbar sein — also bekommt
+    // jede Bahn ihre eigene, schmale Schütte mit einem Rohr nach oben aus dem
+    // Bild. Die Münzen kommen von oben, das erklärt sich von selbst.
     const machine = new THREE.Group();
-    const hopper = new THREE.Mesh(
-      new THREE.BoxGeometry(5.2, 0.7, 1.2),
-      new THREE.MeshLambertMaterial({ color: "#8f6ae0" })
-    );
-    machine.add(hopper);
     for (let lane = 0; lane < 3; lane += 1) {
-      const spout = new THREE.Mesh(
-        new THREE.BoxGeometry(0.55, 0.45, 0.55),
+      const x = this.laneX(lane);
+      const rohr = new THREE.Mesh(
+        new THREE.BoxGeometry(0.46, 2.6, 0.46),
         new THREE.MeshLambertMaterial({ color: "#7a4ddb" })
       );
-      spout.position.set(this.laneX(lane), -0.55, 0.3);
-      machine.add(spout);
+      rohr.position.set(x, 1.5, 0.3);
+      machine.add(rohr);
+      const kragen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.66, 0.24, 0.66),
+        new THREE.MeshLambertMaterial({ color: "#a888ee" })
+      );
+      kragen.position.set(x, 0.18, 0.3);
+      machine.add(kragen);
+      const trichter = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.32, 0.5, 0.5, 6),
+        new THREE.MeshLambertMaterial({ color: "#8f6ae0" })
+      );
+      trichter.position.set(x, -0.2, 0.3);
+      machine.add(trichter);
+      const lippe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.62, 0.1, 0.62),
+        new THREE.MeshLambertMaterial({ color: "#6f45c4" })
+      );
+      lippe.position.set(x, -0.48, 0.3);
+      machine.add(lippe);
     }
     machine.position.set(0, DROP_TOP_Y + 0.85, -0.9);
     this.scene.add(machine);
@@ -339,7 +362,9 @@ export class CoinRain {
 
     this.updateHud(minigame, arcade, state, now);
     // A downward arrow marks your own kin so you never lose yourself.
-    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
+    // Flacher Pfeil: die Figuren stehen hier am unteren Bildrand, der übliche
+    // Abstand von 0.9 hängte den Pfeil sichtbar losgelöst über ihnen.
+    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now, 0.35, 0.45);
     this.renderer.render(this.scene, this.camera);
   }
 

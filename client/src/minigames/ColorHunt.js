@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   KIN_SOLE
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -17,9 +17,9 @@ import {
   resizeStage,
   syncOwnMarker,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin120";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin121";
+import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Farbenjagd — EINE geteilte Fläche für alle. Jeder Kin färbt das Feld, auf dem
 // er steht, in seine Farbe, auch wenn dort schon eine fremde liegt. Damit ist es
@@ -298,7 +298,9 @@ export class ColorHunt {
     this.camera.position.z = this.baseCamZ || 4.6;
     this.camera.lookAt(0, 0, this.baseLookZ ?? 0.6);
 
-    syncOwnMarker(this, this.kins.get(controlledId), now, 0.62);
+    // Steile Aufsicht: 0.3 statt der üblichen 0.9 Pfeilhöhe, sonst steht der
+    // Pfeil im Bild weit über seiner Figur statt auf ihr.
+    syncOwnMarker(this, this.kins.get(controlledId), now, 0.45, 0.14);
     this.updateHud(minigame, arcade, state, now);
     this.renderer.render(this.scene, this.camera);
   }

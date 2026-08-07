@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   KIN_SOLE,
   standOn
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
@@ -20,8 +20,8 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin120";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -93,13 +93,19 @@ export class RunnerDerby {
     this.shake = 0;
     this.fov = 48;
     this.fovKick = 0;
-    this.baseCamera = new THREE.Vector3(0, 3.6, -6.2);
+    // Näher und flacher hinter den Läufern: vorher standen sie klein in der
+    // Bildmitte und darunter lag ein Drittel leere Bahn.
+    this.baseCamera = new THREE.Vector3(0, 3.2, -5.1);
   }
 
   start(minigame) {
     this.minigame = minigame;
     this.update = minigame;
-    mountStage(this, { label: "3D Zielgerade", background: "#8fd8f2", fog: ["#9fdef5", 10, 30], fov: 52 });
+    // Nebel ab 18 statt ab 10: der Blickpunkt liegt gut zehn Meter vor der
+    // Kamera, der alte Nebel setzte also genau dort ein, wo man hinschaut —
+    // die ganze Strecke lag im Dunst, Bäume und Zuschauer waren blasse
+    // Schemen.
+    mountStage(this, { label: "3D Zielgerade", background: "#8fd8f2", fog: ["#9fdef5", 18, 48], fov: 52 });
 
     mountHud(this, `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0m</strong></div>

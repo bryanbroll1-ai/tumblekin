@@ -7,15 +7,15 @@ import {
   createCloud,
   createNameLabel,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin120";
+} from "./VoxelKit.js?v=tumblekin121";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin120";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin120";
+} from "./SceneKit.js?v=tumblekin121";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin121";
 
 // Ballonfahrt — halten steigt, loslassen sinkt, und der Kurs kommt in Toren auf
 // einen zu. Alle vier fliegen denselben Kurs gleichzeitig und nebeneinander:
@@ -27,7 +27,10 @@ import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumbl
 const SHAFT_HEIGHT = 7.2;      // Weltmass fuer Hoehenanteil 0..1
 const SHAFT_BOTTOM = 0.4;
 const GATE_SPACING_X = 5.4;    // Weltabstand zweier Tore
-const LANE_Z = [-1.35, -0.45, 0.45, 1.35];
+// Weiter auseinander als vorher (±1.35): zusammen mit dem seitlichen
+// Kamerawinkel fächern die Bahnen dadurch sichtbar auf.
+const LANE_Z = [-2.4, -0.8, 0.8, 2.4];
+const CAM_X = -3.4;                    // seitlicher Kameraversatz
 const GATE_LOOKAHEAD = 4;      // so viele Tore stehen gleichzeitig im Bild
 
 function clamp(value, min, max) {
@@ -122,11 +125,14 @@ export class BalloonGlide {
 
     // Boden und Decke sind die harten Grenzen des Schachts. Sie muessen als
     // solche zu lesen sein: an ihnen bleibt man haengen.
+    // 34 tief statt 7: der Boden endete bei z = 3.5, die Kamera steht bei
+    // 12.5 — im Bild lief unter dem Grün wieder Himmel durch, ein
+    // schwebender Bodenstreifen quer über den Bildschirm.
     this.floor = new THREE.Mesh(
-      new THREE.BoxGeometry(60, 0.6, 7),
+      new THREE.BoxGeometry(60, 0.6, 34),
       new THREE.MeshLambertMaterial({ color: "#7bbf5e" })
     );
-    this.floor.position.set(0, SHAFT_BOTTOM - 0.3, 0);
+    this.floor.position.set(0, SHAFT_BOTTOM - 0.3, -3);
     this.floor.receiveShadow = true;
     this.scene.add(this.floor);
 
@@ -165,7 +171,7 @@ export class BalloonGlide {
     this.floaters = new FloatingText(this.scene);
     this.buildBalloons();
     this.resizeRenderer();
-    this.camera.position.set(0, 4.0, 12.5);
+    this.camera.position.set(CAM_X, 4.0, 12.5);
     this.camera.lookAt(0, 4.0, 0);
   }
 
@@ -176,8 +182,11 @@ export class BalloonGlide {
     for (let i = 0; i < GATE_LOOKAHEAD + 1; i += 1) {
       const group = new THREE.Group();
       const mat = new THREE.MeshLambertMaterial({ color: "#ffd15c" });
-      const top = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 1.1), mat);
-      const bottom = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 1.1), mat);
+      // 5.4 tief: das Tor muss über ALLE vier Bahnen reichen (±2.4), sonst
+      // fliegen die äusseren Ballons sichtbar daneben, obwohl der Server sie
+      // als Treffer wertet.
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 5.4), mat);
+      const bottom = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1, 5.4), mat);
       top.castShadow = true;
       bottom.castShadow = true;
       group.add(top, bottom);
@@ -185,7 +194,7 @@ export class BalloonGlide {
       // Ein leuchtender Balken in der Torluecke: er zeigt die Mitte, und genau
       // die ist mehr wert als der Rand.
       const centre = new THREE.Mesh(
-        new THREE.BoxGeometry(0.06, 0.06, 3.4),
+        new THREE.BoxGeometry(0.06, 0.06, 5.2),
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.4, depthWrite: false, toneMapped: false })
       );
       group.add(centre);
@@ -301,7 +310,12 @@ export class BalloonGlide {
     const ownY = own ? shaftY(own.y ?? 0.5) : 4.0;
     const wanted = 4.0 + (ownY - 4.0) * 0.45;
     this.camY = (this.camY ?? wanted) + (wanted - (this.camY ?? wanted)) * frameLerp(0.09, dt);
-    this.camera.position.set(jolt, this.camY, this.baseCamZ || 12.5);
+    // Seitlich versetzt statt frontal. Die vier Ballons stehen alle auf x = 0
+    // und unterscheiden sich nur in der Tiefe — von genau vorn deckt der
+    // vorderste die drei anderen vollständig ab, im Bild war nur ein einziger
+    // Ballon zu sehen. Aus dem Winkel fächern die Bahnen auf, und man sieht,
+    // wer wo fliegt. Das Tor spannt über alle Bahnen, das bleibt richtig.
+    this.camera.position.set(CAM_X + jolt, this.camY, this.baseCamZ || 12.5);
     this.camera.lookAt(0, this.camY - 0.2, 0);
 
     this.updateHud(minigame, arcade, state, now, own);
