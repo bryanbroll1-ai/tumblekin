@@ -8,15 +8,15 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin122";
+} from "./VoxelKit.js?v=tumblekin124";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin122";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin122";
+} from "./SceneKit.js?v=tumblekin124";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin124";
 
 // Augenmaß — ein Schwarm Glühkäfer blitzt anderthalb Sekunden auf, danach
 // schätzt man, wie viele es waren.
