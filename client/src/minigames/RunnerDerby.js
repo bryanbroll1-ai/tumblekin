@@ -124,29 +124,19 @@ export class RunnerDerby {
     // von der Strecke zu nehmen — genau in dem Moment, in dem man sie liest.
     this.controls.innerHTML = `
       <div class="runner-lane-controls">
-        <div class="runner-schwung"><span data-schwung-fill></span></div>
-        <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen ▶ · Halten = Sprint</p>
+        <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen ▶ · ⬆ Springen · ⬇ Angriff</p>
       </div>
     `;
-    this.schwungFill = this.controls.querySelector("[data-schwung-fill]");
     this.swipeHint = this.controls.querySelector("[data-swipe-hint]");
 
     this.onCanvasPointerDown = (event) => {
       this.swipe = { x: event.clientX, y: event.clientY, at: performance.now(), moved: false };
-      // Der Sprint startet erst nach einer kurzen Sperre. Sonst würde jeder
-      // Wischer, der ja mit einem Druck beginnt, für einen Wimpernschlag die
-      // Bahn sperren — und der Wechsel, den man gerade wischt, ginge verloren.
-      this.holdTimer = setTimeout(() => {
-        if (this.swipe && !this.swipe.moved) this.setSprint(true);
-      }, 150);
     };
     this.onCanvasPointerMove = (event) => {
       if (!this.swipe) return;
-      if (Math.abs(event.clientX - this.swipe.x) > 16) this.swipe.moved = true;
+      if (Math.hypot(event.clientX - this.swipe.x, event.clientY - this.swipe.y) > 16) this.swipe.moved = true;
     };
     this.onCanvasPointerUp = (event) => {
-      clearTimeout(this.holdTimer);
-      this.setSprint(false);
       this.resolveSwipe(event);
     };
     this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
@@ -159,21 +149,25 @@ export class RunnerDerby {
   resolveSwipe(event) {
     if (!this.swipe) return;
     const dx = event.clientX - this.swipe.x;
+    const dy = event.clientY - this.swipe.y;
     this.swipe = null;
-    if (Math.abs(dx) < 26) return;
-    this.sendLane(dx > 0 ? 1 : -1);
-  }
-
-  setSprint(down) {
-    if (down === this.sprinting) return;
-    const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
-    if (down && (own?.finishedAt || (own?.schwung ?? 1) <= 0.02)) return;
-    this.sprinting = down;
-    if (down) {
-      this.feedback?.sound("whoosh");
-      this.feedback?.vibrate(12);
+    
+    if (Math.abs(dx) < 26 && Math.abs(dy) < 26) {
+       this.sendInput({ action: "attack" }).catch(() => {});
+       return;
     }
-    this.sendInput({ action: "sprint", down }).catch(() => {});
+    
+    if (Math.abs(dx) > Math.abs(dy)) {
+       this.sendLane(dx > 0 ? 1 : -1);
+    } else {
+       if (dy < 0) {
+          this.feedback?.sound("pop");
+          this.sendInput({ action: "jump" }).catch(() => {});
+       } else {
+          this.feedback?.sound("move");
+          this.sendInput({ action: "attack" }).catch(() => {});
+       }
+    }
   }
 
   sendLane(dir) {
@@ -306,7 +300,7 @@ export class RunnerDerby {
     [-1, 1].forEach((side) => {
       const shoulder = new THREE.Mesh(
         new THREE.BoxGeometry(0.34, 0.34, trackZ + 8),
-        new THREE.MeshLambertMaterial({ color: "#c98d4e" })
+        new THREE.MeshLambertMaterial({ color: "#6cb95c" })
       );
       shoulder.position.set(side * (LANE_WIDTH * 1.5 + 0.15), FLOOR_Y - 0.16, trackZ / 2);
       this.scene.add(shoulder);
@@ -622,13 +616,24 @@ export class RunnerDerby {
       }
       // While tumbling: dizzy stars orbit the head and the kin reels back.
       kin.userData.dizzy.visible = stumbling;
+      const jumping = now < entry.jumpUntil;
+      
       if (stumbling) {
-        kin.userData.dizzy.rotation.y = now / 110;
         kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, -0.35, frameLerp(0.25, dt));
         kin.rotation.y = Math.sin(now / 90) * 0.25;
+        kin.position.y = THREE.MathUtils.lerp(kin.position.y, KIN_Y, frameLerp(0.3, dt));
+      } else if (jumping) {
+        kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, 0.2, frameLerp(0.3, dt));
+        kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, frameLerp(0.2, dt));
+        
+        // Parabolic jump arc based on remaining time
+        const timeLeft = Math.max(0, entry.jumpUntil - now) / 650;
+        const jumpHeight = Math.sin(timeLeft * Math.PI) * 1.5;
+        kin.position.y = KIN_Y + jumpHeight;
       } else {
         kin.rotation.x = THREE.MathUtils.lerp(kin.rotation.x, 0, frameLerp(0.2, dt));
         kin.rotation.y = THREE.MathUtils.lerp(kin.rotation.y, 0, frameLerp(0.2, dt));
+        kin.position.y = THREE.MathUtils.lerp(kin.position.y, KIN_Y, frameLerp(0.3, dt));
       }
       if (entry.finishedAt && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
@@ -771,21 +776,8 @@ export class RunnerDerby {
     const meters = controlled?.finishedAt ? "Ziel!" : `${Math.round(controlled?.progress || 0)}m`;
     this.hud.querySelector("[data-kinetic-score]").textContent = meters;
 
-    // Der Schwungbalken ist die einzige Anzeige, die man WÄHREND des Laufens
-    // wirklich braucht: er sagt, ob der nächste Sprint noch trägt.
-    const schwung = Math.max(0, Math.min(1, controlled?.schwung ?? 0));
-    if (this.schwungFill) {
-      this.schwungFill.style.width = `${(schwung * 100).toFixed(1)}%`;
-      this.schwungFill.classList.toggle("leer", schwung < 0.12);
-    }
-    const sprintet = Boolean(controlled?.sprintingNow);
-    if (this.swipeHint && sprintet !== this.hintZeigtSprint) {
-      this.hintZeigtSprint = sprintet;
-      this.swipeHint.textContent = sprintet ? "SPRINT — Bahn gesperrt" : "◀ Wischen ▶ · Halten = Sprint";
-      this.swipeHint.classList.toggle("sprintet", sprintet);
-    }
-
-    // The 3-2-1 countdown is shown once by the shared intro card, not here.
+    // Swipe hint is static now.
+    const sprintet = Boolean(controlled?.sprintingNow);    // The 3-2-1 countdown is shown once by the shared intro card, not here.
     const countdown = this.hud.querySelector("[data-kinetic-countdown]");
     if (countdown) countdown.hidden = true;
   }

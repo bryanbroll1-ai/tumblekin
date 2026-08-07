@@ -987,10 +987,10 @@ const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel
 // Falling is a timed respawn, never elimination, so every player is in for the
 // whole round and the score is survival time + knockouts.
 const ARENA_RADIUS = 1.0;             // plate disk radius (logical units)
-const ARENA_BALL_RADIUS = 0.15;       // kin collision radius
+const ARENA_BALL_RADIUS = 0.11;       // kin collision radius
 const ARENA_ACCEL = 3.8;              // stick thrust acceleration (snappy, responsive)
 const ARENA_DRAG = 1.75;              // velocity damping (quick stops, still carries momentum)
-const ARENA_RESTITUTION = 1.4;        // >1: bouncy bumpers, so rams carry punch
+const ARENA_RESTITUTION = 2.4;        // >1: bouncy bumpers, so rams carry punch
 const ARENA_RIM_RESTITUTION = 0.62;   // bounce back onto the plate when not launched
 const ARENA_LAUNCH_IMPULSE = 0.95;    // min hit strength (normal Δv) that launches a rival
 const ARENA_LAUNCH_MS = 1150;         // launched window during which the rim lets you fly off
@@ -5423,23 +5423,35 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "runner") {
     if (arcadePlayer.finishedAt) return { ok: true };
-    if (input.action === "sprint") {
-      // Der Client meldet nur, OB gerade gehalten wird. Gerechnet wird im Tick,
-      // sonst hinge der Schwungverbrauch an der Ping-Rate des Geräts.
-      arcadePlayer.sprinting = input.down === true || input.down === 1 || input.down === "1";
+    if (input.action === "lane") {
+      const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
+      arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
       arcadePlayer.hasMoved = true;
       return { ok: true };
     }
-    if (input.action !== "lane") return { ok: false, error: "Wische zum Bahnwechsel, halte zum Sprint." };
-    // Sprinten sperrt die Bahn. Das IST das Spiel: Schwung gibt es nur dort,
-    // wo man sich auf die eigene Bahn festlegen kann.
-    if (arcadePlayer.sprinting && arcadePlayer.schwung > 0) {
-      return { ok: false, error: "Im Sprint bleibt die Bahn." };
+    if (input.action === "jump") {
+      arcadePlayer.jumpUntil = Date.now() + 650;
+      arcadePlayer.hasMoved = true;
+      return { ok: true };
     }
-    const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
-    arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
-    arcadePlayer.hasMoved = true;
-    return { ok: true };
+    if (input.action === "attack") {
+      if (Date.now() < (arcadePlayer.lastAttackAt || 0) + 3000) {
+        return { ok: false, error: "Angriff lädt auf!" };
+      }
+      arcadePlayer.lastAttackAt = Date.now();
+      
+      const ahead = room.players
+        .map(p => arcade.players[p.id])
+        .filter(p => p && p !== arcadePlayer && !p.finishedAt && p.progress > arcadePlayer.progress)
+        .sort((a, b) => a.progress - b.progress)[0];
+      
+      if (ahead) {
+        ahead.stumbleUntil = Date.now() + 1000;
+        ahead.stumbles += 1;
+      }
+      return { ok: true };
+    }
+    return { ok: false, error: "Wische zum Spurwechsel, hoch zum Springen, tippen für Angriff." };
   }
 
   if (arcade.family === "colorgrid") {
@@ -6391,46 +6403,30 @@ function updateRunner(room, minigame, arcade, dt, now) {
     if (!entry || entry.finishedAt) return;
 
     const stumbling = now < entry.stumbleUntil;
+    const jumping = now < entry.jumpUntil;
 
-    // Schwung: der Sprint zehrt, das lockere Laufen füllt nach. Wer stolpert,
-    // sprintet nicht — sonst wäre der Stolperer nur eine kurze Bremse und
-    // keine verlorene Gelegenheit.
-    const willSprint = entry.sprinting && !stumbling && entry.schwung > 0;
-    if (willSprint) {
-      entry.schwung = Math.max(0, entry.schwung - RUNNER_SPRINT_DRAIN * dt);
-      entry.sprintMs += dt * 1000;
-      if (entry.schwung <= 0) entry.sprinting = false;
-    } else {
-      entry.schwung = Math.min(1, entry.schwung + RUNNER_SPRINT_REFILL * dt);
-    }
-    entry.sprintingNow = willSprint;
-
+    // Constantly run forward like Subway Surfers
     const surface = runnerLaneFactor(arcade, entry.progress, entry.lane);
     const speed = RUNNER_BASE_SPEED
       * surface
-      * (willSprint ? RUNNER_SPRINT_FACTOR : 1)
-      * (stumbling ? 0.32 : 1);
+      * (stumbling ? 0.32 : 1.25);
+    
     entry.speed = speed;
     entry.surface = runnerSegmentAt(arcade, entry.progress)?.lanes[entry.lane] || "normal";
     entry.progress = Math.min(arcade.trackLength, entry.progress + speed * dt);
 
-    // Hürden werden je Abschnitt EINMAL abgerechnet, sobald die Figur die
-    // Hürdenposition überquert hat. Eine Prüfung pro Tick hinge sonst an der
-    // Tickrate statt an der Strecke.
     const segments = arcade.segments || [];
     while (entry.nextHurdle < segments.length && entry.progress >= segments[entry.nextHurdle].hurdleAt) {
       const segment = segments[entry.nextHurdle];
       entry.nextHurdle += 1;
       if (segment.hurdle === null || segment.hurdle !== entry.lane) continue;
-      entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
-      entry.stumbles += 1;
-      // Ein Stolperer kostet zusätzlich den halben Schwung. Das ist der
-      // eigentliche Verlust: nicht die anderthalb Sekunden, sondern der
-      // Sprint, der auf dem nächsten guten Stück jetzt fehlt.
-      entry.schwung = Math.max(0, entry.schwung * 0.5);
-      entry.sprinting = false;
-      entry.flash = "bad";
-      entry.lastHitAt = now;
+      
+      if (!jumping) {
+        entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
+        entry.stumbles += 1;
+        entry.flash = "bad";
+        entry.lastHitAt = now;
+      }
     }
 
     if (entry.progress >= arcade.trackLength) {
@@ -8701,41 +8697,36 @@ function arcadeBotStep(room, bot) {
     if (!hier) return;
     const naechster = segments[Math.min(segments.length - 1, hier.index + 1)];
 
-    // Je Abschnitt wird EINMAL entschieden, ob der Bot ihn sauber liest. Als
-    // Wurf je Tick summierte sich die Wahrscheinlichkeit über die Ticks auf,
-    // und gemessen spielten dann alle drei Stufen gleich gut.
     if (player.botSegIndex !== hier.index) {
       player.botSegIndex = hier.index;
       player.botRead = Math.random() > profile.mistake;
     }
 
-    // Die Bahn, die im NÄCHSTEN Abschnitt am meisten bringt und dort keine
-    // Hürde hat. Ein Bot, der nur den aktuellen Abschnitt bewertet, wechselt
-    // immer einen zu spät.
+    // Jump if hurdle is right in front of us
+    if (player.botRead && hier.hurdle === player.lane && (hier.hurdleAt - player.progress) < 3.0) {
+       handleArcadeInput(room, bot, { action: "jump" });
+       return;
+    }
+    
+    // Attack occasionally
+    if (Math.random() < 0.05) {
+       handleArcadeInput(room, bot, { action: "attack" });
+    }
+
     let wanted = player.lane;
     if (player.botRead) {
       let best = -1;
       [0, 1, 2].forEach((lane) => {
-        if (Math.abs(lane - player.lane) > 1) return;   // nur eine Bahn je Schritt
+        if (Math.abs(lane - player.lane) > 1) return;
         if (naechster.hurdle === lane) return;
         const wert = (RUNNER_SURFACE[naechster.lanes[lane]] ?? 1)
           + (hier.hurdle === lane ? -0.5 : 0)
-          - Math.abs(lane - player.lane) * 0.04;        // Wechsel nur, wenn er sich lohnt
+          - Math.abs(lane - player.lane) * 0.04;
         if (wert > best) { best = wert; wanted = lane; }
       });
     }
 
-    // Sprinten, wenn die eigene Bahn im nächsten Abschnitt gut und hürdenfrei
-    // bleibt — und wenn genug Schwung da ist, dass es sich lohnt.
-    const bahnBleibtGut = naechster.hurdle !== player.lane
-      && (RUNNER_SURFACE[naechster.lanes[player.lane]] ?? 1) >= 1
-      && wanted === player.lane;
-    const schwelle = profile.level === "hard" ? 0.35 : profile.level === "normal" ? 0.55 : 0.8;
-    const willSprint = player.botRead && bahnBleibtGut && player.schwung > schwelle;
-    if (willSprint !== Boolean(player.sprinting)) {
-      handleArcadeInput(room, bot, { action: "sprint", down: willSprint });
-    }
-    if (!willSprint && wanted !== player.lane) {
+    if (wanted !== player.lane) {
       handleArcadeInput(room, bot, { action: "lane", dir: wanted > player.lane ? 1 : -1 });
     }
     return;
