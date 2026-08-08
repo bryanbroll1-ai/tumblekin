@@ -4575,10 +4575,13 @@ function updateSimon(room, minigame, arcade, now) {
   // Aufleuchten noch sieht.
   const kuerzung = (round.until - elapsed) - SIMON_SETTLE_MS;
   if (kuerzung <= 0) return;
+  // Die laufende Runde wird nur vorne abgeschnitten — ihr `inputFrom` liegt
+  // schon in der Vergangenheit. Alles Spaetere rueckt komplett nach vorn.
+  round.until -= kuerzung;
   arcade.rounds.forEach((r) => {
-    if (r.index < round.index) return;
-    if (r.index > round.index) r.showFrom -= kuerzung;
-    r.inputFrom = Math.min(r.inputFrom, r.inputFrom - (r.index > round.index ? kuerzung : 0));
+    if (r.index <= round.index) return;
+    r.showFrom -= kuerzung;
+    r.inputFrom -= kuerzung;
     r.until -= kuerzung;
   });
 }
