@@ -17,7 +17,9 @@ const { testRules } = require("../server/server.js");
 
 const {
   MINIGAMES, createArcadeState, updateArcade, arcadeBotStep,
-  arcadeRankingScore, arcadeResultDetail
+  arcadeRankingScore, arcadeResultDetail,
+  createArenaState, updateBounceArena, arenaBotStep,
+  bounceResultScore, minigameResultDetail
 } = testRules;
 
 const PROFILE = {
@@ -33,7 +35,36 @@ const NUR = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : nul
 // einem eigenen Feld und die Zahl ist nur Beiwerk.
 const KEINE_RANGZAHL = new Set(["standing", "out", "time", "deviation", "sumTime", "progress"]);
 
+// Bumper Bloom laeuft nicht ueber die Arcade-Familien, sondern hat einen
+// eigenen Zustand. Es faellt damit auch aus der Bot-Waage heraus — und war
+// prompt das einzige Spiel, dessen Ergebniskarte noch die falsche Zahl zeigte.
+function spieleArena() {
+  const tpl = MINIGAMES.find((m) => m.type === "bounceArena");
+  const players = SEATS.map((_, i) => ({
+    id: `b${i}`, name: `Bot ${i}`, isBot: true, connected: true,
+    color: ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"][i]
+  }));
+  const echt = Date.now;
+  let clock = echt();
+  Date.now = () => clock;
+  const startedAt = clock;
+  const arena = createArenaState(players, startedAt);
+  const minigame = { id: 1, type: "bounceArena", startedAt, duration: tpl.duration, arena, scores: {}, lastInputAt: {} };
+  const room = { id: "r", players, currentMinigame: minigame };
+  for (let t = 0; t <= tpl.duration; t += 18 + Math.random() * 26) {
+    clock = startedAt + t;
+    players.forEach((p) => arenaBotStep(arena, p.id));
+    updateBounceArena(room);
+  }
+  Date.now = echt;
+  return players.map((p) => ({
+    rang: bounceResultScore(arena.players[p.id]),
+    detail: minigameResultDetail(minigame, p.id, clock)
+  }));
+}
+
 function spiele(type) {
+  if (type === "bounceArena") return spieleArena();
   const tpl = MINIGAMES.find((m) => m.type === type);
   const players = SEATS.map((_, i) => ({
     id: `b${i}`, name: `Bot ${i}`, isBot: true, connected: true,
@@ -66,7 +97,7 @@ function spiele(type) {
   }));
 }
 
-const spiele_liste = MINIGAMES.filter((m) => m.arcadeFamily).map((m) => m.type);
+const spiele_liste = MINIGAMES.filter((m) => m.arcadeFamily || m.type === "bounceArena").map((m) => m.type);
 const liste = NUR ? [NUR] : spiele_liste;
 let befunde = 0;
 

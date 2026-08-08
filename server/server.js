@@ -935,6 +935,7 @@ const DIVE_RISK_MAX = 0.62;
 const DIVE_MAX_DEPTH = 12;             // Sicherheitsnetz gegen endlose Schächte
 
 const SIMON_ROUNDS = 5;
+const SIMON_SETTLE_MS = 450;          // Nachklang, bevor die naechste Folge laeuft
 const REACT_ROUNDS = 3;
 const REACT_WINDOW_MS = 2200;
 const REACT_PENALTY_MS = 900;
@@ -2706,10 +2707,17 @@ function finishMinigame(room) {
 
 function bounceResultScore(arenaPlayer) {
   if (!arenaPlayer) return 0;
-  // Survival time and knockouts are already folded into the live score; a
-  // last-one-standing survivor gets a decisive bonus on top.
-  const base = Math.max(0, Math.round(arenaPlayer.score || 0));
-  return base + (arenaPlayer.inPlay ? 100000 : 0);
+  // "Draengen, rammen, auf der Platte bleiben" — in dieser Reihenfolge steht es
+  // im Hinweis, und in dieser Reihenfolge wird jetzt auch gewertet: oben bleiben
+  // zuerst, dann die Rauswuerfe, dann die Zeit.
+  //
+  // Vorher war die Schlagzeile `score`, in dem Ueberlebenszeit und Rauswuerfe
+  // vermischt waren, waehrend das Ergebnisbild NUR die Rauswuerfe zeigte. Ein
+  // Ueberlebender mit null Rauswuerfen stand damit vor einem Rausgeworfenen mit
+  // zwei — und auf der Karte stand "0" ueber "2".
+  return (arenaPlayer.inPlay ? 100000000 : 0)
+    + (arenaPlayer.knockouts || 0) * 100000
+    + Math.round(arenaPlayer.playMs || 0);
 }
 
 function arcadeRankingScore(arcade, arcadePlayer) {
@@ -2886,13 +2894,10 @@ function minigameResultDetail(minigame, playerId, finishedAt) {
   }
   if (minigame.type === "bounceArena") {
     const arenaPlayer = minigame.arena.players[playerId];
-    return {
-      kind: "knockouts",
-      value: arenaPlayer?.knockouts || 0,
-      survivedMs: Math.round(arenaPlayer?.playMs || 0),
-      falls: arenaPlayer?.falls || 0,
-      label: "Rauswürfe"
-    };
+    // Zuerst steht da, ob man noch oben ist — genau so wird auch gewertet.
+    return arenaPlayer?.inPlay
+      ? { kind: "points", value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" }
+      : { kind: "out", survived: false, value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" };
   }
   if (minigame.type === "dodgeBlocks") {
     return { kind: "hits", value: minigame.hits[playerId] || 0, label: "Treffer" };
@@ -4545,6 +4550,39 @@ function buildSimonRounds(seed) {
   return rounds;
 }
 
+// Leuchtfolge: die Runde weiterziehen, sobald ALLE fertig sind.
+//
+// Der Rundenplan steht in festen Zeiten, und das Eingabefenster ist so bemessen,
+// dass auch ein langsamer Daumen sechs Farben schafft. Wer nach drei Sekunden
+// fertig war, sass danach noch zwei Sekunden vor einem Bild, auf dem nichts
+// passiert — gemessen summierte sich das am Rundenende auf 5.1 Sekunden Stille,
+// und dazwischen kam es in jeder Runde noch einmal.
+//
+// Der Plan wird deshalb zusammengeschoben statt abgewartet. Der Client liest
+// dieselben Zeiten aus dem Zustand, er zieht also einfach mit.
+function updateSimon(room, minigame, arcade, now) {
+  const elapsed = Math.max(0, now - minigame.startedAt);
+  const round = simonRoundAt(arcade, elapsed);
+  if (!round || elapsed < round.inputFrom) return;
+  const alleFertig = room.players.every((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry) return true;
+    return entry.currentRound === round.index
+      && (entry.roundFailed || entry.roundProgress >= round.sequence.length);
+  });
+  if (!alleFertig) return;
+  // Ein kurzer Moment bleibt stehen, damit der letzte Tipper sein eigenes
+  // Aufleuchten noch sieht.
+  const kuerzung = (round.until - elapsed) - SIMON_SETTLE_MS;
+  if (kuerzung <= 0) return;
+  arcade.rounds.forEach((r) => {
+    if (r.index < round.index) return;
+    if (r.index > round.index) r.showFrom -= kuerzung;
+    r.inputFrom = Math.min(r.inputFrom, r.inputFrom - (r.index > round.index ? kuerzung : 0));
+    r.until -= kuerzung;
+  });
+}
+
 function simonRoundAt(arcade, elapsed) {
   return arcade.rounds.find((round) => elapsed >= round.showFrom && elapsed < round.until) || null;
 }
@@ -6184,6 +6222,10 @@ function updateArcade(room) {
     updateKnife(room, minigame, arcade, dt, now);
   }
 
+  if (arcade.family === "simon") {
+    updateSimon(room, minigame, arcade, now);
+  }
+
   maybeFinishArcadeEarly(room, minigame, arcade, now);
 }
 
@@ -6701,6 +6743,9 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
       const entry = arcade.players[player.id];
       return entry?.toppled || (entry?.height || 0) >= arcade.total;
     });
+  } else if (arcade.family === "simon") {
+    const letzte = arcade.rounds[arcade.rounds.length - 1];
+    done = Boolean(letzte) && now - minigame.startedAt >= letzte.until;
   } else if (arcade.family === "climb") {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
   } else if (arcade.family === "sumo") {
@@ -7194,35 +7239,82 @@ function updateDirectWorld(room, minigame, arcade, elapsed, dt, now) {
 // Ringplan für Falschsignal. Aus dem Seed erzeugt, damit alle Clients dieselbe
 // Folge sehen und der Server sie autoritativ auswerten kann.
 function buildFeintSignals(seed, durationMs) {
+  // BLOCKWEISE gebaut, nicht Ring fuer Ring.
+  //
+  // Die Regel des Spiels ist "je Dreierblock genau ein echter Ring" — sie haelt
+  // das Mischungsverhaeltnis stabil, und daran haengt, dass blindes Haemmern
+  // sich unterm Strich nicht lohnt (echte Ringe bringen 500, ein Fehlgriff
+  // kostet 300, also muss auf jeden echten Ring rund das Doppelte an
+  // Faelschungen kommen).
+  //
+  // Ring fuer Ring gebaut endete der Plan auf einem HALBEN Block, und wenn darin
+  // kein echter Ring lag, hoerte die Runde mit bis zu zwoelf Sekunden auf, in
+  // denen man nur noch verlieren konnte. Den Rest wegzuwerfen ging nicht: zwei
+  // Faelschungen weniger sind 600 Punkte mehr fuers Haemmern, und bei einem
+  // Startwert kippte damit das Vorzeichen. Ein ganzer Block passt oder er passt
+  // nicht — so bleibt das Verhaeltnis exakt und der letzte Block hat immer
+  // seinen echten Ring.
   const signals = [];
   let at = FEINT_LEAD_IN_MS;
   let index = 0;
-  while (at < durationMs - FEINT_GROW_MS - FEINT_HOLD_MS) {
-    const roll = arcadeNoise(seed + index * 13);
-    // Blockweise geplant: in jedem Dreierblock ist GENAU ein Ring echt. Ein
-    // freier Würfel pro Ring traf beides — mit einem Seed war die Hälfte echt
-    // (blindes Tippen zahlte sich aus), mit dem nächsten kamen fünf Fälschungen
-    // in Folge und die Runde fühlte sich kaputt an. Die Position im Block bleibt
-    // zufällig, die Mischung nicht.
-    const block = Math.floor(index / FEINT_BLOCK);
+  for (let block = 0; ; block += 1) {
+    // Die Position im Block bleibt zufaellig, die Mischung nicht. Ein freier
+    // Wuerfel pro Ring traf beides — mit einem Startwert war die Haelfte echt
+    // (blindes Tippen zahlte sich aus), mit dem naechsten kamen fuenf
+    // Faelschungen in Folge und die Runde fuehlte sich kaputt an.
     const goSlot = Math.min(FEINT_BLOCK - 1, Math.floor(arcadeNoise(seed + block * 29) * FEINT_BLOCK));
-    const slot = index % FEINT_BLOCK;
-    const real = slot === goSlot;
-    // Die Fälschungen rotieren, statt frei gewürfelt zu werden: gewürfelt kamen
-    // drei fast gleiche in Folge, und die schwerste tauchte manchmal eine ganze
-    // Runde nicht auf.
-    const fakeSlot = slot > goSlot ? slot - 1 : slot;
     const rotation = Math.floor(arcadeNoise(seed + block * 41) * FEINT_FAKE_LIMITS.length);
-    const limit = real ? 1 : FEINT_FAKE_LIMITS[(block + fakeSlot + rotation) % FEINT_FAKE_LIMITS.length];
-    // Wie lange der Ring überhaupt zu sehen ist. Ein echter wächst bis zur Marke
-    // und steht dann noch kurz; ein falscher bleibt stehen und verlischt.
-    const windowMs = real
-      ? FEINT_GROW_MS + FEINT_HOLD_MS
-      : Math.round(FEINT_GROW_MS * limit * 1.25 + FEINT_FADE_MS);
-    signals.push({ index, at, real, limit, kind: real ? "go" : "fake", windowMs });
-    at += windowMs + FEINT_GAP_MIN_MS + roll * (FEINT_GAP_MAX_MS - FEINT_GAP_MIN_MS);
-    index += 1;
+    const gebaut = [];
+    let zeit = at;
+    for (let slot = 0; slot < FEINT_BLOCK; slot += 1) {
+      const roll = arcadeNoise(seed + (index + slot) * 13);
+      const real = slot === goSlot;
+      // Die Faelschungen rotieren, statt frei gewuerfelt zu werden: gewuerfelt
+      // kamen drei fast gleiche in Folge, und die schwerste tauchte manchmal
+      // eine ganze Runde nicht auf.
+      const fakeSlot = slot > goSlot ? slot - 1 : slot;
+      const limit = real ? 1 : FEINT_FAKE_LIMITS[(block + fakeSlot + rotation) % FEINT_FAKE_LIMITS.length];
+      // Wie lange der Ring ueberhaupt zu sehen ist. Ein echter waechst bis zur
+      // Marke und steht dann noch kurz; ein falscher bleibt stehen und verlischt.
+      const windowMs = real
+        ? FEINT_GROW_MS + FEINT_HOLD_MS
+        : Math.round(FEINT_GROW_MS * limit * 1.25 + FEINT_FADE_MS);
+      const gapAfter = FEINT_GAP_MIN_MS + roll * (FEINT_GAP_MAX_MS - FEINT_GAP_MIN_MS);
+      gebaut.push({ at: zeit, real, limit, kind: real ? "go" : "fake", windowMs, gapAfter });
+      zeit += windowMs + gapAfter;
+    }
+    // Passt der ganze Block noch in die Runde?
+    const letzter = gebaut[gebaut.length - 1];
+    if (letzter.at + letzter.windowMs > durationMs) break;
+
+    // Im LETZTEN Block, der noch passt, kommt der echte Ring zum Schluss. Das
+    // steht hier und nicht hinterher, weil sich mit der Reihenfolge auch die
+    // Zeiten verschieben: die Abstaende gehoeren zur Stelle, nicht zum Ring.
+    gebaut.forEach((sig) => { signals.push(sig); });
+    index += FEINT_BLOCK;
+    at = zeit;
   }
+
+  // Der echte Ring des letzten Blocks ans Ende. Eine Runde, die mit "jetzt bloss
+  // nichts tun" aufhoert, hat kein Finale.
+  const ersterDesLetzten = signals.length - FEINT_BLOCK;
+  if (ersterDesLetzten >= 0) {
+    const block = signals.slice(ersterDesLetzten);
+    const echt = block.map((sig) => sig.real).lastIndexOf(true);
+    if (echt >= 0 && echt < block.length - 1) {
+      const umsortiert = block.slice();
+      umsortiert.splice(echt, 1);
+      umsortiert.push(block[echt]);
+      const abstaende = block.map((sig) => sig.gapAfter);
+      let zeit = block[0].at;
+      umsortiert.forEach((sig, i) => {
+        sig.at = zeit;
+        zeit += sig.windowMs + abstaende[i];
+      });
+      signals.splice(ersterDesLetzten, block.length, ...umsortiert);
+    }
+  }
+  signals.forEach((sig, i) => { sig.index = i; });
   return signals;
 }
 
@@ -9522,6 +9614,7 @@ module.exports = {
     humansInRoom,
     rankPlaces,
     bounceResultScore,
+    minigameResultDetail,
     buildBoardPath,
     canopyRaceScore,
     compareStanding,

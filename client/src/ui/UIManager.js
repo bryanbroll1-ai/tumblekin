@@ -892,7 +892,6 @@ function formatResultMetric(entry) {
   if (detail.kind === "survival") {
     return detail.alive ? "Bis zuletzt auf der Platte" : `${formatMilliseconds(detail.value)} überlebt`;
   }
-  if (detail.kind === "knockouts") return countNoun(detail.value, "Rauswürfe");
   // In Ausscheidungsspielen entscheidet zuerst, ob man noch dabei ist. Eine
   // reine Trefferzahl behauptete sonst das Gegenteil der Rangfolge: ein
   // Ausgeschiedener mit fünf Treffern liegt hinter einem Überlebenden mit zwei.

@@ -15,7 +15,8 @@
     "session-sim": "node scripts/session-sim.mjs",
     "scene-check": "node scripts/scene-check.mjs",
     "board-check": "node scripts/board-check.mjs",
-    "anzeige-check": "node scripts/anzeige-check.mjs"
+    "anzeige-check": "node scripts/anzeige-check.mjs",
+    "leerlauf-check": "node scripts/leerlauf-check.mjs"
   },
   "keywords": [
     "party-game",
