@@ -854,98 +854,47 @@ test("seilspringen: a jump that already landed does not save the player", () => 
   assert.equal(entry.eliminated, true, "landing before the wave means elimination");
 });
 
-test("zielgerade: Sprint macht schneller, kostet Schwung und sperrt die Bahn", () => {
+test("zielgerade: Springen und Angreifen funktionieren", () => {
   const runner = player({ id: "rn", name: "RN", color: "#fff" });
+  const rival = player({ id: "rv", name: "RV", color: "#000" });
   const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
+  const arcade = createArcadeState("finishRush", [runner, rival], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: runner && minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-  assert.equal(entry.schwung, 1, "man startet mit vollem Schwung");
+  const room = { currentMinigame: minigame, players: [runner, rival] };
 
-  const schritt = (ms) => {
-    arcade.lastUpdateAt = Date.now() - ms;
-    testRules.updateArcade(room);
-  };
+  // Jump action sets jumpUntil timestamp
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "jump" }), { ok: true });
+  assert.ok(arcade.players[runner.id].jumpUntil > Date.now());
 
-  // Ohne Sprint: eine Referenzstrecke auf derselben Bahn.
-  const vorher = entry.progress;
-  schritt(100);
-  const locker = entry.progress - vorher;
+  // Reset input cooldown for test
+  arcade.players[runner.id].lastInputAt = 0;
 
-  // Mit Sprint auf derselben Bahn und demselben Belag muss mehr herauskommen.
-  entry.lastInputAt = 0;
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "sprint", down: true }), { ok: true });
-  const vorSprint = entry.progress;
-  schritt(100);
-  const gesprintet = entry.progress - vorSprint;
-  assert.ok(gesprintet > locker * 1.2, `Sprint muss spuerbar schneller sein (${gesprintet} gegen ${locker})`);
-  assert.ok(entry.schwung < 1, "der Sprint zehrt am Schwung");
-
-  // Im Sprint bleibt die Bahn — das ist der Preis, nicht der Schwung allein.
-  entry.lastInputAt = 0;
-  const gesperrt = handleArcadeInput(room, runner, { action: "lane", dir: 1 });
-  assert.equal(gesperrt.ok, false, "Bahnwechsel im Sprint muss abgelehnt werden");
-
-  // Losgelassen darf wieder gewechselt werden.
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "sprint", down: false });
-  entry.lastInputAt = 0;
-  const frei = handleArcadeInput(room, runner, { action: "lane", dir: 1 });
-  assert.equal(frei.ok, true, "ohne Sprint ist der Wechsel frei");
+  // Attack action stumbles rival ahead
+  arcade.players[runner.id].progress = 10;
+  arcade.players[rival.id].progress = 20;
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  assert.ok(arcade.players[rival.id].stumbleUntil > Date.now());
 });
 
-test("zielgerade: Schwung laeuft leer und fuellt sich beim lockeren Laufen nach", () => {
-  const runner = player({ id: "rs", name: "RS", color: "#fff" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-  const schritt = (ms) => {
-    arcade.lastUpdateAt = Date.now() - ms;
-    testRules.updateArcade(room);
-  };
-
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "sprint", down: true });
-  // Bis der Schwung leer ist. Danach schaltet der Sprint sich selbst ab und
-  // der Vorrat fuellt sich sofort wieder — auf "genau 0" zu pruefen ginge nur
-  // in dem einen Tick, in dem er leerlaeuft.
-  let schritte = 0;
-  while (entry.sprinting && schritte < 80) { schritt(100); schritte += 1; }
-  assert.equal(entry.sprinting, false, "bei leerem Schwung endet der Sprint von selbst");
-  assert.ok(entry.schwung < 0.1, `beim Abschalten ist der Vorrat leer, war ${entry.schwung}`);
-  // Aus voller Reserve muss der Sprint rund 2.6 s reichen (RUNNER_SPRINT_DRAIN).
-  assert.ok(entry.sprintMs > 2200 && entry.sprintMs < 3100,
-    `voller Schwung traegt rund 2.6 s, waren ${Math.round(entry.sprintMs)} ms`);
-
-  for (let i = 0; i < 20; i += 1) schritt(100);
-  assert.ok(entry.schwung > 0.35, `lockeres Laufen fuellt nach, war ${entry.schwung}`);
-});
-
-test("zielgerade: eine Huerde in der eigenen Bahn kostet Zeit und den halben Schwung", () => {
+test("zielgerade: Huerde stolpert den Läufer wenn er nicht springt", () => {
   const runner = player({ id: "rh", name: "RH", color: "#fff" });
   const startedAt = Date.now() - 100;
   const arcade = createArcadeState("finishRush", [runner], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
   const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
 
   const mitHuerde = arcade.segments.find((segment) => segment.hurdle !== null);
   assert.ok(mitHuerde, "der Kurs enthaelt Huerden");
 
-  // Direkt vor die Huerde stellen, in genau ihre Bahn.
+  entry = arcade.players[runner.id];
   entry.lane = mitHuerde.hurdle;
   entry.progress = mitHuerde.hurdleAt - 0.4;
   entry.nextHurdle = mitHuerde.index;
-  entry.schwung = 1;
   arcade.lastUpdateAt = Date.now() - 300;
   testRules.updateArcade(room);
 
   assert.ok(entry.stumbleUntil > Date.now(), "die Huerde muss stolpern lassen");
   assert.equal(entry.stumbles, 1);
-  assert.ok(entry.schwung <= 0.5 + 1e-6, `der Stolperer kostet den halben Schwung, war ${entry.schwung}`);
 });
 
 test("zielgerade: dieselbe Huerde zaehlt nur einmal", () => {

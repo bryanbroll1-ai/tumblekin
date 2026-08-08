@@ -19,7 +19,8 @@ import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin125";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
-const KIN_REST_Y = 0.55;
+const BUMPER_RADIUS = 0.35;
+const KIN_REST_Y = PLATFORM_TOP_Y + BUMPER_RADIUS;
 const WATER_Y = -2.1;
 
 function clampNum(value, min, max) {
@@ -284,17 +285,40 @@ export class BounceArena {
 
   ensureKin(player, index = 0) {
     if (this.kins.has(player.id)) return this.kins.get(player.id);
-    const kin = createVoxelKin(player.color, index);
+    
+    const kin = new THREE.Group();
+    
+    // Create the rolling ball with a face
+    const meshGroup = new THREE.Group();
+    
+    const bumperGeo = new THREE.SphereGeometry(BUMPER_RADIUS, 16, 16);
+    const bumperMat = new THREE.MeshLambertMaterial({ color: player.color });
+    const bumperBall = new THREE.Mesh(bumperGeo, bumperMat);
+    bumperBall.castShadow = true;
+    bumperBall.receiveShadow = true;
+    meshGroup.add(bumperBall);
+
+    // Eyes
+    const eyeGeo = new THREE.BoxGeometry(0.1, 0.1, 0.05);
+    const eyeMat = new THREE.MeshLambertMaterial({ color: "#000000" });
+    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+    leftEye.position.set(-0.12, 0.1, BUMPER_RADIUS - 0.02);
+    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+    rightEye.position.set(0.12, 0.1, BUMPER_RADIUS - 0.02);
+    meshGroup.add(leftEye, rightEye);
+
+    kin.add(meshGroup);
 
     const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.y = 0.62;
+    label.position.y = BUMPER_RADIUS + 0.4;
     kin.add(label);
 
-    const shadow = createShadowBlob(0.56);
+    const shadow = createShadowBlob(BUMPER_RADIUS + 0.1);
     this.scene.add(shadow);
 
     kin.userData.label = label;
     kin.userData.shadow = shadow;
+    kin.userData.meshGroup = meshGroup;
     kin.userData.target = new THREE.Vector3(0, KIN_REST_Y, 0);
     kin.userData.fallSpin = 0;
     kin.userData.wasInPlay = true;
@@ -302,9 +326,6 @@ export class BounceArena {
     kin.position.set(0, KIN_REST_Y, 0);
     this.scene.add(kin);
     this.kins.set(player.id, kin);
-    const animator = new KinAnimator(kin);
-    animator.groundY = KIN_REST_Y;
-    this.animators.set(player.id, animator);
     return kin;
   }
 
@@ -336,6 +357,7 @@ export class BounceArena {
       if (data.wasInPlay && !entry.inPlay) {
         data.fallY = KIN_REST_Y;
         data.fallSpin = 0;
+        data.meshGroup.visible = false;
         this.splashed.delete(player.id);
         this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0)), ["#ffffff", player.color], { count: 10, speed: 2.1, up: 2.2, size: 0.08, life: 0.6 });
         if (player.id === controlledId) {
@@ -345,16 +367,13 @@ export class BounceArena {
       }
       if (!data.wasInPlay && entry.inPlay) {
         kin.position.set(entry.x * WORLD_SCALE, KIN_REST_Y, entry.y * WORLD_SCALE);
-        setKinOpacity(kin, 1);
+        data.meshGroup.visible = true;
         this.splashed.delete(player.id);
         this.bursts.spawn(new THREE.Vector3(entry.x * WORLD_SCALE, KIN_REST_Y, entry.y * WORLD_SCALE), ["#ffffff", player.color], { count: 8, speed: 1.4, up: 1.8, size: 0.07, life: 0.5 });
         if (player.id === controlledId) this.feedback?.sound("pop");
       }
       data.wasInPlay = entry.inPlay;
 
-      // Collision juice for every player — but rate-limited per player so
-      // grinding against someone doesn't spam rings, bursts and shakes.
-      const animator = this.animators.get(player.id);
       const collisions = entry.collisionCount || 0;
       if (collisions > (this.lastCollisions.get(player.id) || 0)) {
         const stamp = this.fxStamp.get(player.id) || 0;
@@ -363,17 +382,15 @@ export class BounceArena {
           this.bursts.spawn(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0)), ["#ffffff", player.color], { count: 5, speed: 1.6, up: 1.6, size: 0.06, life: 0.45 });
           this.spawnRing(kin.position.x, kin.position.z);
           this.shake = Math.max(this.shake, 0.45);
-          animator?.trigger("hit");
         }
       }
       this.lastCollisions.set(player.id, collisions);
 
       if (!entry.inPlay) {
-        // Off the plate: tumble down toward the water, splash once, sink out.
         data.fallSpin += dt * 7;
         data.fallY = Math.max(WATER_Y - 1.4, data.fallY - dt * (1.6 + (KIN_REST_Y - data.fallY) * 0.9) - dt * 2.2);
         kin.position.set(entry.x * WORLD_SCALE, data.fallY, entry.y * WORLD_SCALE);
-        data.body.rotation.x = data.fallSpin;
+        data.meshGroup.rotation.x = data.fallSpin;
         if (!this.splashed.has(player.id) && kin.position.y < WATER_Y + 0.3) {
           this.splashed.add(player.id);
           this.bursts.spawn(new THREE.Vector3(kin.position.x, WATER_Y + 0.2, kin.position.z), ["#ffffff", "#7fdbe8"], { count: 18, speed: 2.5, up: 2.6, size: 0.09, life: 0.8, drag: 1.5 });
@@ -381,16 +398,11 @@ export class BounceArena {
           this.floaters.pop(new THREE.Vector3(kin.position.x, WATER_Y + 1, kin.position.z), "PLATSCH! 💦", { color: "#bfe9ff", size: 0.42, life: 1 });
           if (player.id === controlledId) this.feedback?.sound("land");
         }
-        setKinOpacity(kin, Math.max(0, 1 - Math.max(0, WATER_Y + 0.3 - kin.position.y) * 1.4));
         data.shadow.visible = false;
         data.label.material.opacity = 0.25;
         return;
       }
 
-      // On the plate: extrapolate the last server snapshot by its velocity and
-      // the snapshot's age — the target then GLIDES between 90ms ticks instead
-      // of stair-stepping at tick rate ("10fps feel"), and a time-based lerp
-      // smooths the correction.
       const snapshotAge = Math.min(0.22, (frameNow - this.lastServerAt) / 1000);
       const lead = 0.05;
       data.target.set(
@@ -398,23 +410,22 @@ export class BounceArena {
         KIN_REST_Y,
         (entry.y + (entry.vy || 0) * (snapshotAge + lead)) * WORLD_SCALE
       );
+      
+      const oldPos = kin.position.clone();
       kin.position.lerp(data.target, 1 - Math.pow(0.0004, dt));
-
-      const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
-      if (speed > 0.05) {
-        // Turn smoothly toward the travel direction instead of snapping.
-        const targetRot = Math.atan2(entry.vx || 0, entry.vy || 0);
-        const delta = Math.atan2(Math.sin(targetRot - kin.rotation.y), Math.cos(targetRot - kin.rotation.y));
-        kin.rotation.y += delta * Math.min(1, dt * 14);
+      
+      // Roll the ball!
+      const dx = kin.position.x - oldPos.x;
+      const dz = kin.position.z - oldPos.z;
+      
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.0001) {
+        const axis = new THREE.Vector3(-dz, 0, dx).normalize();
+        const angle = dist / BUMPER_RADIUS;
+        data.meshGroup.rotateOnWorldAxis(axis, angle);
       }
 
-      // Full animation state machine: sprint stride, breathing idle, hit
-      // shock, and a victory dance during the finale.
       if (minigame.finaleAt && entry.inPlay) {
-        // `minigame.arena`, nicht `arena` — die freie Variable gab es hier nie.
-        // Aufgefallen ist das erst, als der Rauchtest bis ins Finale lief:
-        // vorher lief in diesem Zweig schlicht nie ein Test.
-        applyFinaleMood(animator, minigame.arena?.places?.[player.id], state.players.length);
         kin.rotation.y += dt * 5;
         if (!this.finaleCelebrated) {
           this.finaleCelebrated = true;
@@ -424,24 +435,12 @@ export class BounceArena {
           this.feedback?.sound("win");
           this.feedback?.vibrate([20, 24, 40]);
         }
-      } else {
-        animator?.set(speed > 0.3 ? "run" : "idle", { base: true });
       }
-      // Der Schritttakt hängt am wirklichen Tempo. Ohne das trippelt ein
-      // angeschobener Kin genauso wie einer, der aus eigener Kraft läuft.
-      if (animator) animator.rate = Math.max(0.7, Math.min(2.1, 0.7 + speed * 0.5));
-      animator?.update(now);
-      // Extra lean into the direction of travel on top of the run cycle.
-      data.body.rotation.x += Math.min(0.22, speed * 0.1);
-      // Kurvenneigung: die Querbeschleunigung legt die Figur zur Seite. Das
-      // ist der Unterschied zwischen "rutscht" und "fährt".
-      const drehRate = Math.atan2(Math.sin((data.lastRot ?? kin.rotation.y) - kin.rotation.y),
-        Math.cos((data.lastRot ?? kin.rotation.y) - kin.rotation.y));
-      data.lastRot = kin.rotation.y;
-      data.body.rotation.z = THREE.MathUtils.lerp(
-        data.body.rotation.z, clampNum(drehRate * speed * 2.2, -0.32, 0.32), Math.min(1, dt * 10));
-
+      
+      kin.userData.shadow.position.set(kin.position.x, PLATFORM_TOP_Y + 0.01, kin.position.z);
+      
       // Spur legen, solange Fahrt drin ist — höchstens alle 60 ms je Figur.
+      const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
       if (speed > 1.1) {
         const letzte = this.trailStamp.get(player.id) || 0;
         if (frameNow - letzte > 60) {

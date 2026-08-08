@@ -24,7 +24,7 @@ export const GESTURES = {
 
 export const MINIGAME_CATALOG = [
   { type: "bounceArena", title: "Bumper Bloom", gesture: "joystick", help: "Drängen, rammen, auf der Platte bleiben." },
-  { type: "finishRush", title: "Zielgerade", family: "runner", gesture: "swipeSide", help: "Die Bahnen sind unterschiedlich schnell: Blau ist Tempo, Braun ist Sand. Wisch auf die gute Bahn. HALTEN sprintet — kostet Schwung und sperrt die Bahn, also nur dort, wo vorne alles frei ist." },
+  { type: "finishRush", title: "Zielgerade", family: "runner", gesture: "swipeAny", help: "Weiche Hürden aus (Hoch wischen zum Springen) und wechsle die Bahn (Links/Rechts wischen). Tippe oder wische nach unten, um Spieler vor dir mit einem Angriff stolpern zu lassen!" },
   { type: "colorEscape", title: "Farbflucht", family: "colorgrid", gesture: "swipeAny", help: "Wisch in die Richtung, in der die angesagte Farbe liegt, und steh darauf, bevor der Boden wegbricht." },
   { type: "nervenprobe", title: "Nervenprobe", family: "stopclock", gesture: "tap", help: "Die Uhr versteckt sich nach 2 Sekunden. Drück den Knopf so nah wie möglich an der Zielzeit." },
   { type: "lichtwaechter", title: "Lichtwächter", family: "redlight", gesture: "hold", help: "Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!" },

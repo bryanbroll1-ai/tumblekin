@@ -226,58 +226,72 @@ export class BalloonGlide {
       );
       const group = new THREE.Group();
 
-      const envelope = new THREE.Mesh(
-        new THREE.SphereGeometry(0.52, 12, 10),
-        huelle(player.color)
-      );
-      envelope.scale.set(1, 1.18, 1);
-      envelope.position.y = 0.95;
+      const points = [];
+      for (let i = 0; i <= 30; i++) {
+        const t = i / 30;
+        const y = t * 2.4; 
+        let x = 0;
+        if (y < 0.6) {
+          x = 0.3 + (y / 0.6) * 0.4;
+        } else {
+          const dy = y - 1.5;
+          const r2 = 0.9 * 0.9 - dy * dy;
+          x = r2 > 0 ? Math.sqrt(r2) + 0.2 : 0.2;
+        }
+        points.push(new THREE.Vector2(x, y));
+      }
+      const envGeo = new THREE.LatheGeometry(points, 24);
+      const envelope = new THREE.Mesh(envGeo, huelle(player.color));
+      envelope.position.y = 0.8;
       envelope.castShadow = true;
       group.add(envelope);
 
-      // Ein heller Streifen ueber den Ballon: er zeigt die Neigung, und die
-      // Neigung ist das, woran man Steigen und Sinken zuerst sieht.
-      const stripe = new THREE.Mesh(
-        new THREE.SphereGeometry(0.53, 12, 10, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.16),
-        huelle("#fff4dc")
-      );
-      stripe.scale.set(1, 1.18, 1);
-      stripe.position.y = 0.95;
+      // Stripes (we create a slightly larger Lathe, but only some segments)
+      const stripeGeo = new THREE.LatheGeometry(points, 24, 0, Math.PI * 0.3);
+      const stripe = new THREE.Mesh(stripeGeo, huelle("#ffffff"));
+      stripe.scale.setScalar(1.02);
+      stripe.position.y = 0.8;
       group.add(stripe);
+      
+      const stripe2 = new THREE.Mesh(stripeGeo, huelle("#ffffff"));
+      stripe2.scale.setScalar(1.02);
+      stripe2.position.y = 0.8;
+      stripe2.rotation.y = Math.PI;
+      group.add(stripe2);
 
       const basket = new THREE.Mesh(
-        new THREE.BoxGeometry(0.4, 0.32, 0.4),
+        new THREE.BoxGeometry(0.5, 0.4, 0.5),
         huelle("#a9763f")
       );
-      basket.position.y = 0.1;
+      basket.position.y = 0.15;
       basket.castShadow = true;
       group.add(basket);
 
-      [[-0.16, 0.16], [0.16, 0.16], [-0.16, -0.16], [0.16, -0.16]].forEach(([x, z]) => {
+      [[-0.22, 0.22], [0.22, 0.22], [-0.22, -0.22], [0.22, -0.22]].forEach(([x, z]) => {
         const rope = new THREE.Mesh(
-          new THREE.BoxGeometry(0.03, 0.42, 0.03),
-          new THREE.MeshLambertMaterial({ color: "#6c5540" })
+          new THREE.CylinderGeometry(0.015, 0.015, 0.6),
+          new THREE.MeshLambertMaterial({ color: "#4a331c" })
         );
-        rope.position.set(x, 0.46, z);
+        rope.position.set(x, 0.55, z);
+        rope.rotation.x = z > 0 ? -0.15 : 0.15;
+        rope.rotation.z = x > 0 ? 0.15 : -0.15;
         group.add(rope);
       });
 
-      // Die Flamme ist die einzige Rueckmeldung darauf, ob gerade gehalten wird.
-      // Ohne sie fuehlt sich die Steuerung an, als reagiere sie verzoegert.
-      const flame = new THREE.Mesh(
-        new THREE.ConeGeometry(0.14, 0.4, 6),
-        new THREE.MeshBasicMaterial({ color: "#ffb347", transparent: true, opacity: 0, depthWrite: false, toneMapped: false })
-      );
-      flame.position.y = 0.42;
+      const flameGeo = new THREE.SphereGeometry(0.25, 8, 8);
+      const flameMat = new THREE.MeshBasicMaterial({ color: "#ffaa00", transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+      const flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.scale.set(1, 1.8, 1);
+      flame.position.y = 0.8;
       group.add(flame);
 
       const kin = createVoxelKin(player.color, index);
-      kin.scale.setScalar(0.34);
-      kin.position.y = 0.16;
+      kin.scale.setScalar(0.2); // Tiny kin in a huge balloon
+      kin.position.y = 0.15;
       group.add(kin);
 
       const label = createNameLabel(player.name, player.color);
-      label.position.y = 1.75;
+      label.position.y = 3.5;
       group.add(label);
 
       group.position.set(0, shaftY(0.5), LANE_Z[index % LANE_Z.length]);
