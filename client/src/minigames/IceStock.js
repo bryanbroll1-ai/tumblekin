@@ -194,6 +194,16 @@ export class IceStock {
       this.scene.add(disc);
     });
 
+    // Der Knopf. Seit die Wertung stufenlos ist, entscheidet der genaue Mittel-
+    // punkt und nicht mehr die Ringstufe — dann muss er auch zu sehen sein.
+    const knopf = new THREE.Mesh(
+      new THREE.CircleGeometry(0.022 * SHEET_W, 24),
+      new THREE.MeshBasicMaterial({ color: "#ff5d73", toneMapped: false })
+    );
+    knopf.rotation.x = -Math.PI / 2;
+    knopf.position.set(this.worldX(arcade.house.x), 0.06 + rings.length * 0.004, this.worldZ(arcade.house.y, sheetY));
+    this.scene.add(knopf);
+
     // Abwurflinie: von hier starten alle Steine.
     const line = new THREE.Mesh(
       new THREE.BoxGeometry(SHEET_W, 0.02, 0.1),

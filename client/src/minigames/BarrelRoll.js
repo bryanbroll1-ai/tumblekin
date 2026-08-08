@@ -71,7 +71,7 @@ export class BarrelRoll {
     this.createScene();
 
     this.controls.innerHTML = `
-      <div class="runner-lane-controls">
+      <div class="runner-lane-controls barrel-run-controls">
         <button type="button" data-barrel-run="-1" aria-label="Nach links laufen">◀</button>
         <button type="button" data-barrel-run="1" aria-label="Nach rechts laufen">▶</button>
       </div>
@@ -232,25 +232,34 @@ export class BarrelRoll {
     // Die Zone, in der es Punkte gibt. Das Spiel wertet die Zeit MITTIG oben —
     // ohne eine sichtbare Mitte waere das eine unsichtbare Regel, und der Spieler
     // wuerde sich an den sicheren Rand stellen und sich wundern, warum er
-    // verliert. Der Streifen laeuft mit dem Fass mit, weil er zum Fass gehoert.
+    // verliert.
+    //
+    // Sie haengt an der SZENE, nicht am Fass. Der Punktwert richtet sich nach dem
+    // Bogenabstand zum Scheitelpunkt, und der ist eine Weltposition: ein
+    // mitdrehender Streifen wuerde genau das Gegenteil behaupten und den Spieler
+    // hinter dem Fass herlaufen lassen.
     const grenze = this.minigame?.arcade?.limit || 1.7;
     const zoneAngle = (grenze * 0.4) / BARREL_R;
     for (let i = -3; i <= 3; i += 1) {
       const angle = (i / 3) * zoneAngle;
       const naehe = 1 - Math.abs(i) / 3;
       const band = new THREE.Mesh(
-        new THREE.BoxGeometry(0.26, 0.05, 3.3),
+        new THREE.BoxGeometry(0.16, 0.07, 3.3),
         new THREE.MeshBasicMaterial({
-          color: "#7bf59a",
+          color: naehe > 0.6 ? "#c9ffdc" : "#5fe08a",
           transparent: true,
-          opacity: 0.2 + naehe * 0.5,
+          opacity: 0.35 + naehe * 0.55,
           depthWrite: false,
           toneMapped: false
         })
       );
-      band.position.set(Math.sin(angle) * (BARREL_R + 0.09), Math.cos(angle) * (BARREL_R + 0.09), 0);
+      band.position.set(
+        Math.sin(angle) * (BARREL_R + 0.14),
+        BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.14),
+        0
+      );
       band.rotation.z = -angle;
-      this.barrel.add(band);
+      this.scene.add(band);
     }
 
     // Danger edges: bright striped rails at the exact world angle where a

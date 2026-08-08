@@ -1846,6 +1846,16 @@ body[data-screen="minigame"] .game-menu-button {
 /* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
    dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
    Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
+/* Links und rechts gehoeren NEBENeinander. `.runner-lane-controls` ist ein
+   einspaltiges Raster — richtig fuer die Zielgerade, wo Schwungbalken und
+   Hinweis untereinander stehen, aber bei der Fassrolle standen dadurch ◀ und ▶
+   uebereinander. Zwei Richtungstasten in einer Spalte sind kein Detail: die
+   Hand greift nach links und trifft "vorwaerts". */
+.barrel-run-controls {
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+
 .runner-lane-controls button {
   flex: 1 1 0;
   min-width: 0;
