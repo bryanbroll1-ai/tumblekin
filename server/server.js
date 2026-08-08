@@ -2804,10 +2804,14 @@ function arcadeRankingScore(arcade, arcadePlayer) {
       : 100000000000000 + (arcadePlayer.passes || 0);
   }
   if (arcade.family === "catchfall") {
-    return Math.max(0, 50000 + (arcadePlayer.catches || 0) * 1000 - (arcadePlayer.bombs || 0) * 600);
+    // Der Bombenabzug steckt seit updateCatchfall schon in `catches` — genau der
+    // Zahl, die auch angezeigt wird. Ihn hier noch einmal abzuziehen hiesse, ihn
+    // doppelt zu zaehlen.
+    return Math.max(0, 50000 + (arcadePlayer.catches || 0) * 1000);
   }
   if (arcade.family === "whack") {
-    return Math.max(0, 50000 + (arcadePlayer.hits || 0) * 1000 - (arcadePlayer.badHits || 0) * 400);
+    // Der Abzug steckt seit dem Eingabe-Handler schon in `hits`.
+    return Math.max(0, 50000 + (arcadePlayer.hits || 0) * 1000);
   }
   if (arcade.family === "cannon") {
     return arcadePlayer.launchedAt ? (arcadePlayer.distance || 0) : 0;
@@ -2847,6 +2851,15 @@ function arcadeRankingScore(arcade, arcadePlayer) {
       + (arcadePlayer.stuck || 0) * 1000
       + precision
       - (arcadePlayer.clashes || 0) * 100);
+  }
+  if (arcade.family === "bounce") {
+    // Gewertet wird die Hoehe — genau die Zahl, die auch angezeigt wird, und in
+    // derselben Rundung. Vorher stand im Rang zusaetzlich die beste Serie, und
+    // die steckt ueber die Resonanz laengst in der Hoehe: sie wurde also doppelt
+    // gezaehlt und konnte einen sichtbaren Hoehenunterschied kippen. Gemessen
+    // rangierte 2.0 vor 2.1, und auf dem Ergebnisbild stand genau das Gegenteil.
+    // Die Serie ordnet jetzt nur noch, was auf dieselbe angezeigte Hoehe faellt.
+    return Math.round((arcadePlayer.best || 0) * 10) * 1000 + (arcadePlayer.bestStreak || 0);
   }
   if (arcade.family === "stack") {
     // Tallest tower wins; perfect stacks are the tie-breaker.
@@ -3008,7 +3021,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     // Ein Ausgeschiedener mit fünf Treffern liegt hinter einem Überlebenden mit
     // zwei, und eine reine Trefferzahl behauptete das Gegenteil.
     return arcadePlayer.eliminated
-      ? { kind: "knifeOut", survived: false, value: arcadePlayer.stuck || 0, label: "Treffer" }
+      ? { kind: "out", survived: false, value: arcadePlayer.stuck || 0, label: "Treffer" }
       : { kind: "points", value: arcadePlayer.stuck || 0, label: "Treffer" };
   }
   if (arcade.family === "stack") {
@@ -3056,9 +3069,12 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     };
   }
   if (arcade.family === "sumo") {
-    // Eine Zahl, und zwar die, nach der auch sortiert wird: wie oft man den
-    // Stein zurückgeschlagen hat. Die Treffer entscheiden nur über das Aus.
-    return { kind: "points", value: arcadePlayer.blocks || 0, label: "Abgewehrt" };
+    // Zuerst entscheidet, ob man noch drin ist — also steht das auch da. Eine
+    // reine Abwehrzahl behauptete das Gegenteil der Rangfolge: gemessen zeigte
+    // ein Ausgeschiedener 11 und stand hinter einem Ueberlebenden mit 0.
+    return arcadePlayer.eliminated
+      ? { kind: "out", survived: false, value: arcadePlayer.blocks || 0, label: "Abgewehrt" }
+      : { kind: "points", value: arcadePlayer.blocks || 0, label: "Abgewehrt" };
   }
   if (arcade.family === "dive") {
     // Eine Zahl: das eingezahlte Gold. Was noch im Schacht hängt, zählt bewusst
@@ -4824,14 +4840,19 @@ function handleArcadeInput(room, player, rawInput) {
     arcadePlayer.hitPopIds[pop.id] = true;
     arcadePlayer.hasMoved = true;
     if (pop.kind === "bad") {
+      // Ein Stachelblob kostet einen Treffer — derselbe Grund wie beim
+      // Muenzregen: angezeigt wurden die Treffer, gewertet Treffer minus
+      // Fehlgriffe. Zwei Zahlen fuer dieselbe Sache widersprechen sich
+      // frueher oder spaeter.
       arcadePlayer.badHits += 1;
+      arcadePlayer.hits = Math.max(0, arcadePlayer.hits - 1);
       arcadePlayer.flash = "bad";
     } else {
       arcadePlayer.hits += 1;
       arcadePlayer.flash = "good";
     }
     arcadePlayer.lastHitAt = now;
-    arcadePlayer.score = Math.max(0, arcadePlayer.hits * 10 - arcadePlayer.badHits * 4);
+    arcadePlayer.score = arcadePlayer.hits * 10;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
@@ -6183,12 +6204,19 @@ function updateCatchfall(room, minigame, arcade, now) {
         entry.streak = (entry.streak || 0) + 1;
         entry.flash = "good";
       } else {
+        // Eine Bombe kostet eine Muenze. Vorher lief der Abzug an der Zaehlung
+        // vorbei: angezeigt wurden die gefangenen Muenzen, gewertet wurde
+        // Muenzen minus Bomben, und `score` rechnete nochmal anders. Drei Zahlen
+        // fuer ein Spiel — gemessen rangierte 31 vor 32, und auf dem Ergebnisbild
+        // stand das Gegenteil. Jetzt sagt die Muenzzahl die Wahrheit, und man
+        // SIEHT sie fallen, wenn man eine Bombe frisst.
         entry.bombs += 1;
+        entry.catches = Math.max(0, entry.catches - 1);
         entry.streak = 0;
         entry.flash = "bad";
       }
       entry.lastHitAt = now;
-      entry.score = Math.max(0, entry.catches * 10 - entry.bombs * 8);
+      entry.score = entry.catches * 10;
       syncArcadeScore(minigame, player, entry);
     });
   });

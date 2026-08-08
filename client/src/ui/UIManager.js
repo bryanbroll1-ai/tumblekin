@@ -893,10 +893,10 @@ function formatResultMetric(entry) {
     return detail.alive ? "Bis zuletzt auf der Platte" : `${formatMilliseconds(detail.value)} überlebt`;
   }
   if (detail.kind === "knockouts") return countNoun(detail.value, "Rauswürfe");
-  // Beim Messerwurf entscheidet zuerst, ob man noch dabei ist. Eine reine
-  // Trefferzahl behauptete sonst das Gegenteil der Rangfolge: ein
+  // In Ausscheidungsspielen entscheidet zuerst, ob man noch dabei ist. Eine
+  // reine Trefferzahl behauptete sonst das Gegenteil der Rangfolge: ein
   // Ausgeschiedener mit fünf Treffern liegt hinter einem Überlebenden mit zwei.
-  if (detail.kind === "knifeOut") return `Raus · ${countNoun(detail.value, detail.label)}`;
+  if (detail.kind === "out") return `Raus · ${countNoun(detail.value, detail.label)}`;
   if (detail.kind === "strikes") return countNoun(detail.value, "Treffer");
   if (detail.kind === "fit") return `${detail.value}/${detail.total} ${detail.label}`;
   // Alles Übrige ist eine gezählte Grösse mit eigener Beschriftung.

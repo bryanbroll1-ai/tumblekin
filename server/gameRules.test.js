@@ -1251,13 +1251,23 @@ test("muenzregen: catching coins scores, catching bombs costs", () => {
   testRules.updateArcade(room);
   assert.equal(entry.catches, 1, "coin in own lane is caught");
 
+  // Nur die Bombe stehen lassen. Ohne das springt die Uhr bis zu ihrem
+  // Zeitpunkt und arbeitet ALLE Tropfen dazwischen in einem Tick ab — die
+  // Zahlen danach sagen dann nichts mehr ueber die Bombe aus.
+  arcade.drops.forEach((drop) => { drop.processed = true; });
   entry.lane = bomb.lane;
   minigame.startedAt = Date.now() - bomb.catchAt - 10;
   bomb.processed = false;
   testRules.updateArcade(room);
   assert.equal(entry.bombs, 1, "bomb in own lane hits");
+  // Eine Bombe kostet eine Muenze, und zwar an der Muenzzahl selbst — das ist
+  // dieselbe Zahl, die angezeigt und nach der gewertet wird. Frueher lief der
+  // Abzug daran vorbei: angezeigt wurden die gefangenen Muenzen, gewertet
+  // Muenzen minus Bomben, und wer 32 fing und zwei Bomben frass, stand hinter
+  // jemandem mit 31 — auf dem Ergebnisbild sah es umgekehrt aus.
+  assert.equal(entry.catches, 0, "die Bombe kostet die gefangene Muenze");
   assert.ok(
-    arcadeRankingScore(arcade, { catches: 5, bombs: 0 }) > arcadeRankingScore(arcade, { catches: 5, bombs: 2 })
+    arcadeRankingScore(arcade, { catches: 5 }) > arcadeRankingScore(arcade, { catches: 3 })
   );
 });
 
