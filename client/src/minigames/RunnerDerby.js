@@ -10,7 +10,7 @@ import {
   createVoxelKin,
   KIN_SOLE,
   standOn
-} from "./VoxelKit.js?v=tumblekin125";
+} from "./VoxelKit.js?v=tumblekin126";
 import {
   mountStage,
   mountHud,
@@ -21,8 +21,8 @@ import {
   teardownStage,
   fitKinsInView,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin125";
-import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin125";
+} from "./SceneKit.js?v=tumblekin126";
+import { frameChance, frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin126";
 
 // Zielgerade — a blocky three-lane endless-runner sprint.
 // The server auto-runs every kin forward; the player only swaps lanes to
@@ -775,6 +775,19 @@ export class RunnerDerby {
     this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
     const meters = controlled?.finishedAt ? "Ziel!" : `${Math.round(controlled?.progress || 0)}m`;
     this.hud.querySelector("[data-kinetic-score]").textContent = meters;
+
+    // Wie viele Angriffe noch da sind, gehoert ins Bild. Sie sind begrenzt, und
+    // eine begrenzte Sache, deren Vorrat man nicht sieht, ist keine Entscheidung
+    // — man drueckt einfach, bis nichts mehr kommt.
+    if (this.swipeHint) {
+      const uebrig = controlled?.attacksLeft;
+      const pfeile = uebrig === undefined ? "" : ` (${"⬇".repeat(Math.max(0, uebrig)) || "—"})`;
+      const hinweis = `◀ Wischen ▶ · ⬆ Springen · ⬇ Angriff${pfeile}`;
+      if (this.letzterHinweis !== hinweis) {
+        this.letzterHinweis = hinweis;
+        this.swipeHint.textContent = hinweis;
+      }
+    }
 
     // Swipe hint is static now.
     const sprintet = Boolean(controlled?.sprintingNow);    // The 3-2-1 countdown is shown once by the shared intro card, not here.

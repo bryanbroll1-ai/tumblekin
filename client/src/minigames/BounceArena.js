@@ -12,10 +12,10 @@ import {
   noise,
   setKinOpacity,
   updateCountdownSprite
-} from "./VoxelKit.js?v=tumblekin125";
-import { mountStage, addStageLights, fitKinsInView, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin125";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin125";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin125";
+} from "./VoxelKit.js?v=tumblekin126";
+import { mountStage, addStageLights, fitKinsInView, resizeStage, syncOwnMarker, teardownStage } from "./SceneKit.js?v=tumblekin126";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin126";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin126";
 
 const WORLD_SCALE = 2.03;
 const PLATFORM_TOP_Y = 0.255;
@@ -291,8 +291,14 @@ export class BounceArena {
     // Create the rolling ball with a face
     const meshGroup = new THREE.Group();
     
+    // Die Kugel und ihre Materialien. `materials` ist kein Beiwerk: setKinOpacity
+    // aus dem VoxelKit greift genau darauf zu, und ohne die Liste stuerzte die
+    // Szene im ERSTEN Bild ab ("Cannot read properties of undefined (reading
+    // 'forEach')") — der Rauchtest meldete Bumper Bloom als einziges Spiel rot.
+    // Wer die Voxelfigur durch eigene Geometrie ersetzt, uebernimmt damit auch
+    // den Vertrag, den das Kit mit den Szenen hat.
     const bumperGeo = new THREE.SphereGeometry(BUMPER_RADIUS, 16, 16);
-    const bumperMat = new THREE.MeshLambertMaterial({ color: player.color });
+    const bumperMat = new THREE.MeshLambertMaterial({ color: player.color, transparent: true });
     const bumperBall = new THREE.Mesh(bumperGeo, bumperMat);
     bumperBall.castShadow = true;
     bumperBall.receiveShadow = true;
@@ -300,7 +306,7 @@ export class BounceArena {
 
     // Eyes
     const eyeGeo = new THREE.BoxGeometry(0.1, 0.1, 0.05);
-    const eyeMat = new THREE.MeshLambertMaterial({ color: "#000000" });
+    const eyeMat = new THREE.MeshLambertMaterial({ color: "#000000", transparent: true });
     const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
     leftEye.position.set(-0.12, 0.1, BUMPER_RADIUS - 0.02);
     const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
@@ -308,6 +314,7 @@ export class BounceArena {
     meshGroup.add(leftEye, rightEye);
 
     kin.add(meshGroup);
+    kin.userData.materials = [bumperMat, eyeMat];
 
     const label = createNameLabel(player.name.slice(0, 7), player.color);
     label.position.y = BUMPER_RADIUS + 0.4;

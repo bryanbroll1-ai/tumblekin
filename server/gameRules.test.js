@@ -177,7 +177,9 @@ const {
   paintBrushTiles,
   paintOwnedCount,
   nearestToStar,
-  standingsLeader
+  standingsLeader,
+  RUNNER_ATTACK_RANGE,
+  RUNNER_ATTACKS_PER_RACE
 } = testRules;
 
 function player(overrides = {}) {
@@ -869,11 +871,80 @@ test("zielgerade: Springen und Angreifen funktionieren", () => {
   // Reset input cooldown for test
   arcade.players[runner.id].lastInputAt = 0;
 
-  // Attack action stumbles rival ahead
-  arcade.players[runner.id].progress = 10;
-  arcade.players[rival.id].progress = 20;
+  // Der Angriff geht nach vorne in die EIGENE Bahn und hat eine Reichweite.
+  // Beides ist nicht kosmetisch: ohne das traf er immer den Fuehrenden, egal wo
+  // der lief, und weil alle gleich oft angreifen, stellte das die Rangfolge auf
+  // den Kopf (gemessen easy 2.23, hard 2.80).
+  const laeufer = arcade.players[runner.id];
+  const gegner = arcade.players[rival.id];
+  laeufer.progress = 10;
+  laeufer.lane = 1;
+  gegner.lane = 1;
+
+  // Zu weit weg: nichts passiert.
+  gegner.progress = 10 + RUNNER_ATTACK_RANGE + 5;
   assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
-  assert.ok(arcade.players[rival.id].stumbleUntil > Date.now());
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "ausser Reichweite trifft nicht");
+  // Ein Fehlgriff kostet trotzdem einen Angriff — sonst waere Dauerdruecken
+  // gratis, und genau daran ist die Rangfolge vorher gekippt.
+  assert.equal(laeufer.attacksLeft, RUNNER_ATTACKS_PER_RACE - 1, "auch ein Fehlgriff kostet");
+  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+
+  // Andere Bahn: nichts passiert.
+  laeufer.lastAttackAt = 0;
+  laeufer.lastInputAt = 0;
+  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+  gegner.progress = 14;
+  gegner.lane = 2;
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "eine andere Bahn trifft nicht");
+
+  // Gleiche Bahn, in Reichweite: trifft.
+  laeufer.lastAttackAt = 0;
+  laeufer.lastInputAt = 0;
+  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+  gegner.lane = 1;
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  assert.ok(gegner.stumbleUntil > Date.now(), "gleiche Bahn in Reichweite trifft");
+
+  // Wer springt, wird verfehlt.
+  gegner.stumbleUntil = 0;
+  gegner.jumpUntil = Date.now() + 500;
+  laeufer.lastAttackAt = 0;
+  laeufer.lastInputAt = 0;
+  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Sprung weicht dem Angriff aus");
+});
+
+test("zielgerade: Angriffe sind begrenzt", () => {
+  // Der Angriff muss eine Entscheidung sein. Gemessen: ohne Angriffe trennen
+  // sich die Spielstaerken um eine halbe Sekunde Zielzeit, mit Dauerfeuer kamen
+  // vier Sekunden Stolper-Rauschen dazu und die Rangfolge war weg.
+  const runner = player({ id: "ra", name: "RA", color: "#fff" });
+  const rival = player({ id: "rb", name: "RB", color: "#000" });
+  const startedAt = Date.now() - 100;
+  const arcade = createArcadeState("finishRush", [runner, rival], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner, rival] };
+  const laeufer = arcade.players[runner.id];
+  const gegner = arcade.players[rival.id];
+  laeufer.lane = 1;
+  gegner.lane = 1;
+  laeufer.progress = 10;
+  gegner.progress = 14;
+
+  assert.equal(laeufer.attacksLeft, RUNNER_ATTACKS_PER_RACE, "man startet mit vollem Vorrat");
+  for (let i = 0; i < RUNNER_ATTACKS_PER_RACE; i += 1) {
+    laeufer.lastAttackAt = 0;
+    laeufer.lastInputAt = 0;
+    assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  }
+  assert.equal(laeufer.attacksLeft, 0);
+  laeufer.lastAttackAt = 0;
+  laeufer.lastInputAt = 0;
+  const leer = handleArcadeInput(room, runner, { action: "attack" });
+  assert.equal(leer.ok, false, "ohne Vorrat geht nichts mehr");
 });
 
 test("zielgerade: Huerde stolpert den Läufer wenn er nicht springt", () => {

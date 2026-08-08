@@ -666,6 +666,16 @@ const RUNNER_SPRINT_REFILL = 1 / 4.4;  // und beim lockeren Laufen zurück
 // der Verlust bei rund 0.75 s auf 26 s Renndauer — knapp drei Prozent, zu wenig,
 // als dass sich saubere Bahnwahl auszahlt.
 const RUNNER_STUMBLE_MS = 1200;
+// Der Angriff ist eine ENTSCHEIDUNG, kein Dauerfeuer. Gemessen: ohne Angriffe
+// trennen sich die Spielstaerken um eine halbe Sekunde Zielzeit, mit
+// Dauerangriffen (alle drei Sekunden, sieben Stueck je Rennen) kamen vier
+// Sekunden Stolper-Rauschen dazu — das Achtfache des Signals, und die Rangfolge
+// war weg. Drei Stueck je Rennen, dazwischen fuenf Sekunden Pause: dann kostet
+// ein verschenkter Angriff etwas, und der richtige Moment ist etwas wert.
+const RUNNER_ATTACK_RANGE = 9;         // nur wer dicht genug auffaehrt, trifft
+const RUNNER_ATTACK_COOLDOWN_MS = 5000;
+const RUNNER_ATTACK_STUMBLE_MS = 600;
+const RUNNER_ATTACKS_PER_RACE = 3;
 const COLORGRID_SIZE = 6;
 const COLORGRID_ROUNDS = 6;
 const COLORGRID_ROUND_MS = 7000;
@@ -3925,6 +3935,7 @@ function createArcadeState(type, players, startedAt) {
       entry.stumbleUntil = 0;
       entry.sprinting = false;
       entry.schwung = 1;           // volle Reserve am Start
+      entry.attacksLeft = RUNNER_ATTACKS_PER_RACE;
       entry.sprintMs = 0;          // wie lange insgesamt gesprintet wurde
       entry.finishedAt = null;
       entry.finishMs = null;
@@ -5591,20 +5602,45 @@ function handleArcadeInput(room, player, rawInput) {
       return { ok: true };
     }
     if (input.action === "attack") {
-      if (Date.now() < (arcadePlayer.lastAttackAt || 0) + 3000) {
+      if ((arcadePlayer.attacksLeft ?? RUNNER_ATTACKS_PER_RACE) <= 0) {
+        return { ok: false, error: "Keine Angriffe mehr." };
+      }
+      if (now < (arcadePlayer.lastAttackAt || 0) + RUNNER_ATTACK_COOLDOWN_MS) {
         return { ok: false, error: "Angriff lädt auf!" };
       }
-      arcadePlayer.lastAttackAt = Date.now();
-      
+      arcadePlayer.lastAttackAt = now;
+      arcadePlayer.attacksLeft = (arcadePlayer.attacksLeft ?? RUNNER_ATTACKS_PER_RACE) - 1;
+
+      // Der Angriff geht nach VORNE IN DIE EIGENE BAHN, hat eine Reichweite, und
+      // wer springt, wird verfehlt.
+      //
+      // Ohne das traf er immer den Fuehrenden, egal wo der lief — und weil alle
+      // gleich oft angreifen, war das eine reine Fuehrungsstrafe ohne Gegenwehr.
+      // Gemessen stellte das die Rangfolge auf den Kopf: der schwaechste Bot lag
+      // im Schnitt auf Platz 2.23, der staerkste auf 2.80. Ein Spiel, in dem
+      // Vorne-Liegen bestraft wird und man nichts dagegen tun kann, belohnt kein
+      // Koennen.
+      //
+      // Reichweite allein half nicht: das Feld laeuft dicht beisammen, da ist
+      // immer jemand in neun Metern. Erst die Bahn macht daraus ein Spiel — der
+      // Angreifer muss sich hinter sein Opfer setzen, und das Opfer kann
+      // ausweichen oder abspringen. Beides ist sichtbar und beides ist Koennen.
       const ahead = room.players
-        .map(p => arcade.players[p.id])
-        .filter(p => p && p !== arcadePlayer && !p.finishedAt && p.progress > arcadePlayer.progress)
+        .map((p) => arcade.players[p.id])
+        .filter((p) => p && p !== arcadePlayer && !p.finishedAt
+          && p.lane === arcadePlayer.lane
+          && p.progress > arcadePlayer.progress
+          && p.progress - arcadePlayer.progress <= RUNNER_ATTACK_RANGE)
         .sort((a, b) => a.progress - b.progress)[0];
-      
-      if (ahead) {
-        ahead.stumbleUntil = Date.now() + 1000;
+
+      if (ahead && now >= (ahead.jumpUntil || 0)) {
+        ahead.stumbleUntil = now + RUNNER_ATTACK_STUMBLE_MS;
         ahead.stumbles = (ahead.stumbles || 0) + 1;
+        ahead.flash = "bad";
+        ahead.lastHitAt = now;
+        arcadePlayer.attacksLanded = (arcadePlayer.attacksLanded || 0) + 1;
       }
+      arcadePlayer.hasMoved = true;
       return { ok: true };
     }
     return { ok: false, error: "Wische zum Spurwechsel, hoch zum Springen, tippen für Angriff." };
@@ -9041,26 +9077,55 @@ function arcadeBotStep(room, bot) {
       player.botRead = Math.random() > profile.mistake;
     }
 
-    // Jump if hurdle is right in front of us
+    // Springen, wenn die Huerde direkt vor einem steht.
     if (player.botRead && hier.hurdle === player.lane && (hier.hurdleAt - player.progress) < 3.0) {
-       handleArcadeInput(room, bot, { action: "jump" });
-       return;
-    }
-    
-    // Attack occasionally
-    if (Math.random() < 0.05) {
-       handleArcadeInput(room, bot, { action: "attack" });
+      handleArcadeInput(room, bot, { action: "jump" });
+      return;
     }
 
+    // Angreifen, wenn wirklich jemand in Reichweite ist. Blind alle drei
+    // Sekunden zu druecken war das Gegenteil von Koennen: der Angriff traf so
+    // oder so den Fuehrenden, also griffen alle gleich gut an, und weil das
+    // ausgerechnet den Besten traf, stand die Rangfolge auf dem Kopf. Jetzt
+    // muss der Bot erkennen, dass jemand in Reichweite ist — und wie
+    // zuverlaessig er das erkennt, ist seine Spielstaerke.
+    const opfer = room.players
+      .map((p) => arcade.players[p.id])
+      .filter((p) => p && p !== player && !p.finishedAt
+        && p.lane === player.lane
+        && p.progress > player.progress
+        && p.progress - player.progress <= RUNNER_ATTACK_RANGE)
+      .sort((a, b) => a.progress - b.progress)[0];
+    if (opfer && (player.attacksLeft ?? 0) > 0 && Math.random() > profile.mistake) {
+      handleArcadeInput(room, bot, { action: "attack" });
+    }
+
+    // Die Bahn bewerten — und zwar BEIDE Abschnitte, den laufenden anteilig und
+    // den naechsten ganz.
+    //
+    // Vorher zaehlte nur der naechste. Der Bot wechselte also fuer eine Bahn, die
+    // erst gleich gut wird, und bezahlte dafuer den Rest des laufenden
+    // Abschnitts — oft auf Sand. Gemessen kam dabei fuer ALLE drei Stufen ein
+    // mittlerer Belag von 0.97 heraus, also schlechter als stur geradeaus
+    // (1.00): die Tempobahn, um die sich das halbe Spiel dreht, nutzte niemand.
+    // Ohne Angriffe liefen alle drei Stufen exakt gleich schnell ins Ziel, das
+    // Spiel mass gar nichts mehr.
+    //
+    // Huerden wiegen nur noch leicht, seit man springen kann: sie kosten einen
+    // Sprung, nicht den Abschnitt. Sie ganz auszuschliessen hat den Bot von
+    // guten Tempobahnen ferngehalten.
     let wanted = player.lane;
     if (player.botRead) {
-      let best = -1;
+      const rest = clamp(((hier.at + RUNNER_SEG_LEN) - player.progress) / RUNNER_SEG_LEN, 0, 1);
+      let best = -Infinity;
       [0, 1, 2].forEach((lane) => {
         if (Math.abs(lane - player.lane) > 1) return;
-        if (naechster.hurdle === lane) return;
-        const wert = (RUNNER_SURFACE[naechster.lanes[lane]] ?? 1)
-          + (hier.hurdle === lane ? -0.5 : 0)
-          - Math.abs(lane - player.lane) * 0.04;
+        const jetzt = RUNNER_SURFACE[hier.lanes[lane]] ?? 1;
+        const dann = RUNNER_SURFACE[naechster.lanes[lane]] ?? 1;
+        let wert = jetzt * rest + dann;
+        if (hier.hurdle === lane && player.progress < hier.hurdleAt) wert -= 0.25;
+        if (naechster.hurdle === lane) wert -= 0.25;
+        wert -= Math.abs(lane - player.lane) * 0.04;
         if (wert > best) { best = wert; wanted = lane; }
       });
     }
@@ -9609,6 +9674,8 @@ module.exports = {
     rankPlaces,
     bounceResultScore,
     minigameResultDetail,
+    RUNNER_ATTACK_RANGE,
+    RUNNER_ATTACKS_PER_RACE,
     buildBoardPath,
     canopyRaceScore,
     compareStanding,
