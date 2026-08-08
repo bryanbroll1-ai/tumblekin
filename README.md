@@ -47,7 +47,7 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 - Am Ende gibt es Bonus-Sterne für die meisten Münzen und die meisten Challenge-Siege — niemand ist vor dem letzten Wurf ausgeschieden.
 - Nach fünf Runden gewinnen die meisten Sterne; Münzen entscheiden nur Gleichstände.
 
-## 30 Challenges
+## 31 Challenges
 
 Alle Challenges sind auf einen Blick verständlich, dauern nur wenige Sekunden und
 setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks und Klacks über
@@ -84,6 +84,7 @@ neue fehlten. Ein Test hält jetzt fest, dass jeder Katalogeintrag auch hier auf
 ### 👆⏺️ Knopf gedrückt halten
 
 - **Lichtwächter:** Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!
+- **Fassmut:** Ein Fass rollt auf dich zu und wird dabei immer schneller. EIN Tap bremst es. Wer es am dichtesten vor der roten Linie zum Stehen bringt, gewinnt — wer zu spät bremst, wird überrollt.
 - **Fassrolle:** Das Riesenfass rollt immer schneller. Halte ◀ oder ▶ und lauf dagegen an – wer abrutscht, platscht ins Wasser.
 - **Ballonfahrt:** Halte den Finger auf dem Bild, dann steigt dein Ballon — loslassen lässt ihn sinken. Flieg durch die Tore, mittig durch bringt mehr, und Boden oder Decke schalten den Brenner kurz ab.
 
@@ -150,7 +151,7 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 ## Dev-Testmodus
 
-Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 30 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
+Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät. Auf dem Board kann jede der 31 Challenges direkt aus dem Katalog gestartet und zwischen allen vier Spielern gewechselt werden.
 
 ## Lokal testen
 
@@ -163,7 +164,7 @@ npm test
 Rauchtest im echten Browser — startet den Server auf einem freien Port, öffnet jedes Minispiel, spielt ein paar Sekunden und meldet Render- und Konsolenfehler:
 
 ```bash
-npm run smoke                # alle 30 Minispiele
+npm run smoke                # alle 31 Minispiele
 npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 ```
@@ -208,7 +209,7 @@ Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
 
 - Express liefert PWA, Three.js und Clientmodule aus.
 - Socket.io synchronisiert Raum, Board, Challenge-Inputs, Resultate und Reconnects.
-- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und alle 30 Challenges.
+- Three.js rendert die drei datengetriebenen Spielwelten, vier animierte Figuren und alle 31 Challenges.
 - Service Worker, Manifest und App-Icon erlauben die Installation auf dem Homescreen.
 
 Gemeinsame Bausteine der Minispiele:

@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   standOn
-} from "./VoxelKit.js?v=tumblekin124";
+} from "./VoxelKit.js?v=tumblekin125";
 import {
   dressMeadow,
   mountStage,
@@ -17,8 +17,8 @@ import {
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin124";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin124";
+} from "./SceneKit.js?v=tumblekin125";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin125";
 
 // Leuchtfolge — vier Pilze leuchten der Reihe nach auf, danach tippt man sie in
 // derselben Reihenfolge nach. Jede Runde ist die Folge einen Pilz länger.

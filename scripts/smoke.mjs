@@ -16,7 +16,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const ALL_GAMES = [
   "bounceArena", "finishRush", "colorEscape", "nervenprobe", "lichtwaechter",
-  "ballonPump", "fassrolle", "zuendstoff", "muenzregen", "blobklopfe",
+  "ballonPump", "fassmut", "fassrolle", "zuendstoff", "muenzregen", "blobklopfe",
   "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger",
   "ballonfahrt", "sumoschubs", "trampolin", "falschsignal", "spurmaler", "sortierband", "leuchtfolge", "blitzreflex", "nagelbrett", "eisstock", "tiefenrausch", "angelduell", "farbenjagd", "spuersinn", "augenmass"
 ];

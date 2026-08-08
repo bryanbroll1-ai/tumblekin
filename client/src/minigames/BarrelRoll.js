@@ -9,7 +9,7 @@ import {
   createShadowBlob,
   createVoxelKin,
   setKinOpacity
-} from "./VoxelKit.js?v=tumblekin124";
+} from "./VoxelKit.js?v=tumblekin125";
 import {
   mountStage,
   mountHud,
@@ -18,8 +18,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin124";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin124";
+} from "./SceneKit.js?v=tumblekin125";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin125";
 
 // Fassrolle — everyone stands on one giant rolling barrel above the water.
 // The barrel spins faster and keeps flipping direction; hold ◀ or ▶ to run
@@ -229,9 +229,38 @@ export class BarrelRoll {
     this.barrel.position.set(0, BARREL_CENTER_Y, 0);
     this.scene.add(this.barrel);
 
+    // Die Zone, in der es Punkte gibt. Das Spiel wertet die Zeit MITTIG oben —
+    // ohne eine sichtbare Mitte waere das eine unsichtbare Regel, und der Spieler
+    // wuerde sich an den sicheren Rand stellen und sich wundern, warum er
+    // verliert. Der Streifen laeuft mit dem Fass mit, weil er zum Fass gehoert.
+    const grenze = this.minigame?.arcade?.limit || 1.7;
+    const zoneAngle = (grenze * 0.4) / BARREL_R;
+    for (let i = -3; i <= 3; i += 1) {
+      const angle = (i / 3) * zoneAngle;
+      const naehe = 1 - Math.abs(i) / 3;
+      const band = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, 0.05, 3.3),
+        new THREE.MeshBasicMaterial({
+          color: "#7bf59a",
+          transparent: true,
+          opacity: 0.2 + naehe * 0.5,
+          depthWrite: false,
+          toneMapped: false
+        })
+      );
+      band.position.set(Math.sin(angle) * (BARREL_R + 0.09), Math.cos(angle) * (BARREL_R + 0.09), 0);
+      band.rotation.z = -angle;
+      this.barrel.add(band);
+    }
+
     // Danger edges: bright striped rails at the exact world angle where a
     // Kin slides off, so you can see how much room you have left.
-    const limitAngle = 1.35 / BARREL_R; // matches server BARREL_LIMIT / radius
+    //
+    // Der Winkel kommt vom SERVER. Fest verdrahtet stand hier 1.35, waehrend der
+    // Server bei 1.7 fallen laesst: die roten Schienen standen also 35 cm zu weit
+    // innen, und wer sie beruehrte, dachte er sei gleich unten, hatte aber noch
+    // ein Fuenftel des Fasses uebrig.
+    const limitAngle = grenze / BARREL_R;
     this.edgeMarkers = [];
     [-1, 1].forEach((sign) => {
       const angle = sign * limitAngle;
@@ -420,8 +449,11 @@ export class BarrelRoll {
     const own = arcade.players[this.getControlledPlayerId()];
     const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
     this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    const survived = own?.fallenAt ? own.survivedMs : Math.max(0, now - minigame.startedAt);
-    this.hud.querySelector("[data-kinetic-score]").textContent = `${Math.floor((survived || 0) / 1000)}s`;
+    // Die Zahl, nach der auch gewertet wird: Zeit MITTIG auf dem Fass. Vorher
+    // stand hier die reine Standzeit — die ist fuer alle Ueberlebenden gleich und
+    // sagte damit nichts ueber den Rang aus.
+    this.hud.querySelector("[data-kinetic-score]").textContent =
+      `${((own?.balanceWork || 0)).toFixed(1)}s`;
 
     const banner = this.hud.querySelector("[data-barrel-banner]");
     if (banner) {

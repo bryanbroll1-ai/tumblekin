@@ -127,6 +127,12 @@ const SIMON_DURATION_MS = 36000;
 const DIVE_DURATION_MS = 36000;
 const FISH_DURATION_MS = 34000;
 const PAINT_DURATION_MS = 32000;
+// Fassmut — drei Fässer, jedes ein eigener Versuch.
+const DARE_ROUNDS = 3;
+const DARE_LEAD_IN_MS = 1400;          // Ruhe, bevor das erste Fass losrollt
+const DARE_ROLL_MS = 4200;             // so lange rollt eines höchstens
+const DARE_SHOW_MS = 2200;             // Auflösung: Abstand wird eingeblendet
+const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_ROUNDS * (DARE_ROLL_MS + DARE_SHOW_MS) + 600;
 
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
@@ -137,6 +143,7 @@ const MINIGAMES = [
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
   { type: "ballonPump", title: "Pump-Panik", duration: 12000, arcadeFamily: "pump" },
   { type: "fassrolle", title: "Fassrolle", duration: 32000, arcadeFamily: "barrel" },
+  { type: "fassmut", title: "Fassmut", duration: DARE_DURATION_MS, arcadeFamily: "daredevil" },
   { type: "zuendstoff", title: "Zündstoff", duration: 45000, arcadeFamily: "bomb" },
   { type: "muenzregen", title: "Münzregen", duration: 30000, arcadeFamily: "catchfall" },
   { type: "blobklopfe", title: "Blob-Klopfe", duration: 25000, arcadeFamily: "whack" },
@@ -168,6 +175,7 @@ const ARCADE_CONFIGS = {
   nervenprobe: { family: "stopclock", seed: 353 },
   lichtwaechter: { family: "redlight", seed: 389 },
   ballonPump: { family: "pump", seed: 401 },
+  fassmut: { family: "daredevil", seed: 617 },
   fassrolle: { family: "barrel", seed: 409 },
   zuendstoff: { family: "bomb", seed: 419 },
   muenzregen: { family: "catchfall", seed: 421 },
@@ -700,9 +708,84 @@ const WAVE_MIN_GAP = 1150;            // passes accelerate down to this gap
 // niemand ausscheidet, hat keinen Einsatz. Jetzt ist die Laufgeschwindigkeit
 // FEST: in ruhigen Schueben rennt man muehelos zurueck, in schnellen haelt man
 // sich gerade eben, und wer eine Richtungsaenderung verschlaeft, ist weg.
+// Fassmut — ein Fass rollt auf einen zu, ein Tap bremst es.
+//
+// Wer es am dichtesten vor der roten Linie zum Stehen bringt, gewinnt den
+// Durchgang. Wer zu spät bremst, wird überrollt und bekommt für den Durchgang
+// gar nichts.
+//
+// Das Können steckt in einer einzigen Grösse: DER BREMSWEG WÄCHST MIT DEM
+// QUADRAT DES TEMPOS. Das Fass beschleunigt, während es rollt — früh bremsen
+// ist sicher, aber weit weg; spät bremsen bringt einen dicht heran, kostet
+// aber überproportional viel Bremsweg. Genau dieser Zusammenhang ist das
+// Spiel, und er ist echte Physik: Weg = v² / (2a). Man muss ihn nicht kennen,
+// aber man MUSS ihn fühlen lernen, und das geht nach zwei Fässern.
+// Die Zahlen sind am Spielgefühl gerechnet, nicht geschätzt. Mit dem ersten
+// Satz (Start 26 m, Beschleunigung 3.9, Bremse 5.2) lag das Punktefenster bei
+// 250 ms und das "gut"-Fenster bei 50 — davor waren zwei Sekunden Rollen ohne
+// jeden Wert. Ein Spiel, in dem die ersten drei Viertel egal sind, ist kein
+// Spiel, sondern ein Wartezimmer mit Reaktionstest am Ende.
+//
+// Jetzt: sanftere Beschleunigung, stärkere Bremse, kürzere Strecke. Das
+// Punktefenster ist rund 800 ms breit, die letzten 100 ms davon sind die
+// Mutprobe. Frei rollend erreicht das Fass die Linie nach 2.9 Sekunden — wer
+// gar nichts tut, wird also sicher überrollt.
+// Am Spielgefühl gerechnet, nicht geraten. Entscheidend ist nicht das Fenster,
+// sondern die STEILHEIT: um wie viele Meter sich der Ruhepunkt verschiebt, wenn
+// man einen Sekundenbruchteil zu spät tippt. Mit den ersten Zahlen waren das
+// 13.3 m/s — ein Tap 90 ms zu spät kostete 1.2 m und damit mehr, als zwischen
+// „perfekt" und „gut" überhaupt liegt. Das Spiel belohnte damit nicht Timing,
+// sondern Glück, und die Bot-Waage zeigte es sauber an: der schlechteste Bot
+// gewann, weil er früh und weit weg bremste und nie überrollt wurde.
+// Jetzt sind es 6.5 m/s: 90 ms kosten 0.58 m, das ist sichtbar, aber nicht
+// tödlich. Das Fenster wächst dabei von 0.76 s auf 1.67 s.
+const DARE_START_M = 14.5;             // Abstand des Fasses beim Loslassen
+const DARE_SPEED0 = 1.8;               // Anfangstempo in Metern je Sekunde
+const DARE_ACCEL = 1.0;                // Beschleunigung, solange es frei rollt
+const DARE_BRAKE = 3.33;               // Verzögerung nach dem Tap
+const DARE_HIT_M = 0.0;                // ab hier ist man überrollt
+// Punkte je Durchgang. Ein Volltreffer auf der Linie gibt DARE_POINTS, und
+// der Wert fällt mit dem Abstand — nicht linear, sondern steil: zwischen 10
+// und 50 Zentimetern muss ein spürbarer Unterschied liegen, sonst lohnt sich
+// das Risiko nicht.
+const DARE_POINTS = 300;
+const DARE_FALLOFF_M = 9;              // ab hier gibt es nichts mehr
+
+// Wo das Fass zum Zeitpunkt `t` steht, wenn bei `brakeAt` getippt wurde.
+// Eine reine Funktion: Server und Client rechnen dasselbe, und der Client
+// kann zwischen zwei Ticks sauber weiterzeichnen statt zu ruckeln.
+function dareBarrelAt(t, brakeAt = null) {
+  const rollTime = brakeAt === null ? t : Math.min(t, brakeAt);
+  const speed = DARE_SPEED0 + DARE_ACCEL * rollTime;
+  let travelled = DARE_SPEED0 * rollTime + 0.5 * DARE_ACCEL * rollTime * rollTime;
+  let v = speed;
+  if (brakeAt !== null && t > brakeAt) {
+    const braking = Math.min(t - brakeAt, speed / DARE_BRAKE);
+    travelled += speed * braking - 0.5 * DARE_BRAKE * braking * braking;
+    v = Math.max(0, speed - DARE_BRAKE * braking);
+  }
+  return { distance: Math.max(DARE_HIT_M, DARE_START_M - travelled), speed: v };
+}
+
+// Der Abstand, an dem das Fass endgültig stehenbleibt, wenn bei `brakeAt`
+// getippt wird. Das ist die Zahl, die gewertet wird.
+function dareRestingDistance(brakeAt) {
+  const speed = DARE_SPEED0 + DARE_ACCEL * brakeAt;
+  const rolled = DARE_SPEED0 * brakeAt + 0.5 * DARE_ACCEL * brakeAt * brakeAt;
+  const brakePath = (speed * speed) / (2 * DARE_BRAKE);
+  return DARE_START_M - rolled - brakePath;
+}
+
+function darePoints(distance) {
+  if (distance <= 0) return 0;
+  const anteil = Math.max(0, 1 - distance / DARE_FALLOFF_M);
+  return Math.round(DARE_POINTS * anteil * anteil);
+}
+
 const BARREL_LIMIT = 1.7;             // slide distance before falling off
 const BARREL_RUN_SPEED = 2.1;         // counter-run speed while holding
 const BARREL_HOLD_FRESH_MS = 220;     // "holding" = a run ping this recent
+const BARREL_TURN_MS = 700;           // so lange braucht das Fass fuer einen Richtungswechsel
 
 // Zündstoff — hot-potato bomb: the fuse time is shown for the first moments,
 // then hidden, so a good passer can time the boom.
@@ -892,16 +975,25 @@ const PLINKO_MAX_PLINKS = 60;
 const PLINKO_BALL_REST = 0.86;        // wie sehr zwei Kugeln voneinander abprallen
 const PLINKO_FLOOR_Y = 1.3;
 const CURLING_SHEET_Y = 1.3;
+// Gerechnet, nicht geschaetzt: in einen Ring vom Radius r passen rund
+// (r/Steinradius)^2 * 0.8 Steine. Mit 0.075 und Steinen von 0.045 waren das
+// ZWEI — bei zwoelf geworfenen Steinen. Wer am Knopf lag, entschied damit nicht
+// der Wurf, sondern das Geschiebe: alle zielen auf denselben Punkt, und die
+// Ueberlappungsaufloesung schob die Ueberzaehligen gleichmaessig nach aussen.
+// Genau daran verschwand das Koennen (gemessen 2.90 / 2.47 / 2.17).
+// Jetzt passen sechs in den Innenring — die vier besten Wuerfe eines Tisches
+// duerfen also alle dort liegen, und dann entscheidet wieder die Genauigkeit.
 const CURLING_RINGS = [
-  { radius: 0.075, points: 15 },
-  { radius: 0.15, points: 8 },
-  { radius: 0.24, points: 4 }
+  { radius: 0.09, points: 15 },
+  { radius: 0.16, points: 8 },
+  { radius: 0.25, points: 4 }
 ];
 const CURLING_STONES_PER_PLAYER = 3;
-const CURLING_STONE_RADIUS = 0.045;   // stone radius in the logical sheet
+const CURLING_STONE_RADIUS = 0.032;   // stone radius in the logical sheet
 const CURLING_FRICTION = 1.15;        // ice glide damping -> stones coast, then settle
 const CURLING_WALL_REST = 0.55;       // side-cushion bounce ("Rempler erlaubt")
-const CURLING_RESTITUTION = 0.92;     // stone-on-stone bounce
+const CURLING_RESTITUTION = 0;      // Steine schieben sich, sie prallen nicht ab
+const CURLING_BUTTON_FACTOR = 1.6;    // Wert am Knopf, gemessen am inneren Ring
 const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel through
 
 // Bumper Bloom — a sumo bumper arena on a round plate.
@@ -2644,14 +2736,9 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.max(0, score * 1000 + successes);
   }
   if (arcade.family === "curling") {
-    // Die Ringe sind grob: ein Stein 1 mm neben dem Knopf zählt genauso viel
-    // wie einer am Innenrand. Damit war das Spiel oben gedeckelt — "normal" und
-    // "hard" lagen gemessen gleichauf, weil Präzision ab einem gewissen Punkt
-    // gar nicht mehr belohnt wurde.
-    //
-    // Die Ringpunkte bleiben die Schlagzeile (die sieht der Spieler), darunter
-    // entscheidet die Nähe zum Knopf. Der Feinwert bleibt unter 1000 und kann
-    // deshalb keinen Ringunterschied kippen.
+    // Der Punktestand ist seit curlingStonePoints stufenlos und steckt die Nähe
+    // schon vollständig. Der Feinwert darunter ordnet nur noch, was auf denselben
+    // gerundeten Punkt fällt.
     return Math.max(0, score * 1000 + (arcadePlayer.precision || 0));
   }
   if (arcade.family === "stopclock") {
@@ -2679,6 +2766,13 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     // Survive more waves to win; later elimination breaks ties.
     return (arcadePlayer.eliminated ? 0 : 5000000) + (arcadePlayer.survived || 0) * 1000;
   }
+  if (arcade.family === "daredevil") {
+    // Punkte entscheiden; bei Gleichstand der dichteste einzelne Treffer.
+    const nah = arcadePlayer.best === null || arcadePlayer.best === undefined
+      ? 0
+      : Math.max(0, Math.round((DARE_FALLOFF_M - arcadePlayer.best) * 100));
+    return Math.round((arcadePlayer.points || 0) * 1000) + nah;
+  }
   if (arcade.family === "pump") {
     return arcadePlayer.pumps || 0;
   }
@@ -2696,10 +2790,12 @@ function arcadeRankingScore(arcade, arcadePlayer) {
       + Math.max(0, arcade.hitsOut - (arcadePlayer.hits || 0)) * 50;
   }
   if (arcade.family === "barrel") {
-    // Whoever stays on longest wins; survivors rank above everyone who fell.
-    return arcadePlayer.fallenAt
-      ? Math.round(arcadePlayer.survivedMs || 0)
-      : 10000000 + Math.round(arcadePlayer.score || 0);
+    // Oben geblieben zaehlt zuerst — darunter entscheidet, wer wie lange MITTIG
+    // oben war. Vorher rangierten die Ueberlebenden nach `score`, und da steckte
+    // die verstrichene Zeit mit drin: die ist fuer alle Ueberlebenden gleich, also
+    // entschied sie nichts und die Balancearbeit verschwand dahinter.
+    const mitte = Math.round((arcadePlayer.balanceWork || 0) * 1000);
+    return arcadePlayer.fallenAt ? mitte : 10000000 + mitte;
   }
   if (arcade.family === "bomb") {
     // Survivors on top; among the blown-up, a later boom ranks higher.
@@ -2819,7 +2915,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "curling") {
-    return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Ring-Punkte" };
+    return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "stopclock") {
     // Eine Zahl, und zwar die, nach der auch sortiert wird: wie weit die
@@ -2850,17 +2946,21 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "wave") {
     return { kind: "points", value: arcadePlayer.survived || 0, label: "Wellen" };
   }
+  if (arcade.family === "daredevil") {
+    return { kind: "points", value: Math.round(arcadePlayer.points || 0), label: "Punkte" };
+  }
   if (arcade.family === "pump") {
     return { kind: "points", value: arcadePlayer.pumps || 0, label: "Pumps" };
   }
   if (arcade.family === "barrel") {
-    // Reine Zeit. Der Punktestand mischt Zeit und Balancearbeit — als Dauer
-    // formatiert ergab das eine Zahl, die niemand einordnen kann.
+    // Die Zahl, nach der auch sortiert wird: wie lange man MITTIG oben stand.
+    // Die reine Standzeit sagte darueber nichts — wer sich an den Rand stellte,
+    // stand am laengsten und hatte am wenigsten getan.
     return {
       kind: "standing",
       survived: !arcadePlayer.fallenAt,
-      value: Math.round(arcadePlayer.survivedMs || 0),
-      label: "Auf dem Fass"
+      value: Math.round((arcadePlayer.balanceWork || 0) * 1000),
+      label: "In der Mitte"
     };
   }
   if (arcade.family === "bomb") {
@@ -3856,6 +3956,25 @@ function createArcadeState(type, players, startedAt) {
       entry.survived = 0;
     });
   }
+  if (config.family === "daredevil") {
+    arcade.rounds = DARE_ROUNDS;
+    arcade.leadIn = DARE_LEAD_IN_MS;
+    arcade.rollMs = DARE_ROLL_MS;
+    arcade.showMs = DARE_SHOW_MS;
+    arcade.startM = DARE_START_M;
+    arcade.round = -1;
+    arcade.settled = 0;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      entry.roundIndex = -1;     // in welchem Durchgang dieser Zustand gilt
+      entry.brakeAt = null;      // Sekunden seit Rollbeginn, null = noch nicht getippt
+      entry.distance = null;     // Endabstand des laufenden Fasses
+      entry.hit = false;         // überrollt?
+      entry.results = [];        // je Durchgang { distance, points, hit }
+      entry.points = 0;
+      entry.best = null;         // bester Abstand über alle Durchgänge
+    });
+  }
   if (config.family === "pump") {
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -4275,14 +4394,14 @@ function buildBarrelPhases(seed, totalMs) {
   while (at < totalMs) {
     const length = 1250 + arcadeNoise(seed + index * 13) * 1150;
     // A short calm start, then a livelier ramp so it stays exciting.
-    const ramp = Math.min(1, index * 0.07);
+    const ramp = Math.min(1, index * 0.11);
     // Die spaeten Schuebe sind SCHNELLER als man laufen kann. Genau daran haengt
     // das ganze Spiel: in einem schnellen Schub kann man den Rutsch nur
     // verlangsamen, nicht umkehren — man muss vorher Platz gesammelt haben.
     // Blieben alle Schuebe unter der Laufgeschwindigkeit, koennte man jede Lage
     // jederzeit retten, und gemessen ueberlebten dann 120 von 120 Bots die
     // volle Runde: ein Spiel ganz ohne Einsatz.
-    const magnitude = 0.5 + ramp * 1.9 + arcadeNoise(seed + index * 19) * 0.25;
+    const magnitude = 0.5 + ramp * 1.6 + arcadeNoise(seed + index * 19) * 0.25;
     // Mostly alternate, sometimes double up in the same direction for surprise.
     if (arcadeNoise(seed + index * 29) > 0.28) sign = -sign;
     phases.push({ from: at, until: at + length, vel: sign * magnitude });
@@ -4290,6 +4409,32 @@ function buildBarrelPhases(seed, totalMs) {
     index += 1;
   }
   return phases;
+}
+
+// Wie schnell das Fass gerade WIRKLICH dreht. Ein Riesenfass springt nicht in
+// einem Tick von voller Linksdrehung auf volle Rechtsdrehung — und genau das tat
+// es vorher. Die Folge war messbar und ziemlich vernichtend: sobald ein Schub
+// schneller war als man laufen kann, fiel man bei jedem Wechsel herunter, egal
+// wie schnell man reagierte. 0 von 80 Bots ueberlebten eine Runde, alle fielen
+// in den letzten vier Sekunden, und "hard" lag mit 28.2 s gleichauf mit "easy".
+// Die ersten 25 Sekunden entschieden nichts.
+//
+// Jetzt dreht das Fass ueber BARREL_TURN_MS in die neue Richtung. Damit ist der
+// Wechsel zu SEHEN, bevor er weh tut — und Hinschauen und frueh Gegenhalten
+// zahlen sich aus. Das ist das Koennen, das dieses Spiel behauptet zu messen.
+function barrelVelAt(arcade, elapsed) {
+  for (let index = 0; index < arcade.phases.length; index += 1) {
+    const phase = arcade.phases[index];
+    if (elapsed >= phase.until) continue;
+    const vorher = index > 0 ? arcade.phases[index - 1].vel : 0;
+    const t = clamp((elapsed - phase.from) / BARREL_TURN_MS, 0, 1);
+    // Weiche Kurve statt Geraden: der Umschwung faengt sanft an und laeuft sanft
+    // aus, so wie ein schweres Fass eben dreht.
+    const w = t * t * (3 - 2 * t);
+    return vorher + (phase.vel - vorher) * w;
+  }
+  const letzte = arcade.phases[arcade.phases.length - 1];
+  return letzte ? letzte.vel : 0;
 }
 
 function barrelPhaseAt(arcade, elapsed) {
@@ -4543,7 +4688,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { daredevil: 200, dive: 90, steer: 55, kinetic: 55, direct: 42, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
   // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
   // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
   // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
@@ -4592,6 +4737,50 @@ function handleArcadeInput(room, player, rawInput) {
     if (now < arcadePlayer.jumpUntil) return { ok: true };
     arcadePlayer.jumpUntil = now + WAVE_JUMP_MS;
     arcadePlayer.hasMoved = true;
+    return { ok: true };
+  }
+
+  if (arcade.family === "daredevil") {
+    if (input.action !== "brake") return { ok: false, error: "Tippe, um das Fass zu bremsen." };
+    // Die Runde wird HIER aus der Zeit gerechnet, nicht aus arcade.round. Ein
+    // Tap kann zwischen zwei Ticks ankommen, und dann hinkt arcade.round um
+    // bis zu einen Tick hinterher — der erste Tap eines Durchgangs ginge
+    // verloren, und das ist genau der, auf den es ankommt.
+    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
+    const seit = elapsed - DARE_LEAD_IN_MS;
+    if (seit < 0) return { ok: true };                          // noch im Vorlauf
+    const zyklus = DARE_ROLL_MS + DARE_SHOW_MS;
+    const runde = Math.floor(seit / zyklus);
+    if (runde >= DARE_ROUNDS) return { ok: true };              // vorbei
+    const jetzt = (seit - runde * zyklus) / 1000;
+    if (jetzt > DARE_ROLL_MS / 1000) return { ok: true };       // Auswertungsphase
+    // Ein Bot darf seinen GEPLANTEN Bremszeitpunkt mitschicken, ein Client nie.
+    // Der Grund ist keine Bequemlichkeit: der Bot sieht das Fass nur alle 90 bis
+    // 180 ms, ein Mensch sieht es dauernd. Ohne das hier misst das Spiel beim
+    // Bot die Tickrate statt das Zielen — gemessen wurde der beste Bot dadurch
+    // regelmässig überrollt und der schlechteste gewann. Was den Bot unterscheiden
+    // SOLL, ist sein Zielabstand und dessen Streuung, nicht sein Taktgeber.
+    const t = player.isBot && typeof input.at === "number" && Number.isFinite(input.at)
+      ? clamp(input.at, 0, jetzt)
+      : jetzt;
+    // Frisches Fass, falls dieser Tap der erste Kontakt mit der Runde ist.
+    // Den Reset am Tick aufzuhängen ginge schief: ein Tap, der zwischen zwei
+    // Ticks ankommt, würde vom nächsten Tick wieder gelöscht — und das ist
+    // ausgerechnet der schnellste Tap.
+    if (arcadePlayer.roundIndex !== runde) {
+      arcadePlayer.roundIndex = runde;
+      arcadePlayer.brakeAt = null;
+      arcadePlayer.brakeSpeed = 0;
+      arcadePlayer.distance = null;
+      arcadePlayer.barrelSpeed = 0;
+      arcadePlayer.hit = false;
+    }
+    if (arcadePlayer.brakeAt !== null || arcadePlayer.hit) return { ok: true };
+    arcadePlayer.brakeAt = t;
+    arcadePlayer.brakeSpeed = DARE_SPEED0 + DARE_ACCEL * t;
+    arcadePlayer.hasMoved = true;
+    arcadePlayer.flash = "good";
+    arcadePlayer.lastHitAt = now;
     return { ok: true };
   }
 
@@ -4754,7 +4943,15 @@ function handleArcadeInput(room, player, rawInput) {
     if (input.action !== "throw") return { ok: false, error: "Tippe, um das Messer zu werfen." };
     // Only the active thrower may throw, only during their own window.
     if (arcade.activeId !== player.id || arcadePlayer.eliminated || arcadePlayer.turnDone) return { ok: true };
-    const angleDeg = ((arcade.logAngle * 180) / Math.PI) % 360;
+    // Ein Bot darf den Augenblick mitschicken, auf den er gezielt hat, ein
+    // Client nie. Sonst misst das Spiel beim Bot seinen Taktgeber statt sein
+    // Auge: er sieht die Scheibe nur alle 110 bis 180 ms, ein Mensch dauernd.
+    // Gemessen hat dieses Rauschen den Unterschied zwischen den Stufen
+    // vollständig verschluckt — „hard" lag hinter „normal".
+    const rueck = player.isBot && Number.isFinite(input.atMs)
+      ? clamp(now - input.atMs, 0, 400) : 0;
+    const dir = arcade.turnIndex % 2 === 0 ? 1 : -1;
+    const angleDeg = (((arcade.logAngle - arcade.spinSpeed * dir * (rueck / 1000)) * 180) / Math.PI) % 360;
     const normalized = (angleDeg + 360) % 360;
     // Collision if another knife already sits within the safety gap.
     const clash = arcade.knives.some((knife) => {
@@ -5406,6 +5603,14 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "curling") {
     if (input.action !== "flick") return { ok: false, error: "Wische, um einen Stein zu schieben." };
     if ((arcadePlayer.stonesLeft || 0) <= 0) return { ok: false, error: "Keine Steine mehr." };
+    // Erst schauen, dann werfen: der nächste Stein geht erst, wenn der eigene
+    // vorige liegt. Ohne das lagen alle zwölf Steine gleichzeitig in der Luft —
+    // der Eingabe-Cooldown erlaubte drei Würfe in einer halben Sekunde — und
+    // dann entscheidet nicht mehr das Zielen, sondern wer wen unterwegs
+    // anschiesst. Gemessen hat genau das die Spielstärken eingeebnet.
+    const eigenerRollt = arcade.stones.some((stone) =>
+      stone.playerId === player.id && (stone.vx !== 0 || stone.vy !== 0));
+    if (eigenerRollt) return { ok: true };
     const dx = clamp(inputNumber(input.dx) || 0, -1, 1);
     const dy = clamp(inputNumber(input.dy) || 0, -1, 0.1);
     const power = Math.min(1, Math.hypot(dx, dy));
@@ -5934,6 +6139,10 @@ function updateArcade(room) {
     updateWave(room, minigame, arcade, now);
   }
 
+  if (arcade.family === "daredevil") {
+    updateDaredevil(room, minigame, arcade, now);
+  }
+
   if (arcade.family === "barrel") {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
@@ -6104,9 +6313,9 @@ function updateKnife(room, minigame, arcade, dt, now) {
 
 function updateBarrel(room, minigame, arcade, dt, now) {
   const elapsed = Math.max(0, now - minigame.startedAt);
-  const phase = barrelPhaseAt(arcade, elapsed);
-  arcade.barrelVel = phase.vel;
-  arcade.barrelAngle += phase.vel * dt;
+  const vel = barrelVelAt(arcade, elapsed);
+  arcade.barrelVel = vel;
+  arcade.barrelAngle += vel * dt;
 
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
@@ -6119,7 +6328,7 @@ function updateBarrel(room, minigame, arcade, dt, now) {
     // Sekunde — von der Mitte bis zum Rand also gut vier Zehntel.
     const runVel = holding ? entry.runDir * BARREL_RUN_SPEED : 0;
     // The spinning barrel carries you along; counter-run to stay on top.
-    entry.offset += (phase.vel + runVel) * dt;
+    entry.offset += (vel + runVel) * dt;
     if (Math.abs(entry.offset) >= arcade.limit) {
       entry.fallenAt = now;
       entry.survivedMs = elapsed;
@@ -6128,11 +6337,21 @@ function updateBarrel(room, minigame, arcade, dt, now) {
       syncArcadeScore(minigame, player, entry);
       return;
     }
-    // Wer oben bleibt, wird nach Ruhe in der Balance getrennt: Zeit dicht an der
-    // Mitte zählt. Ohne das bekamen ALLE Überlebenden exakt dieselbe Punktzahl
-    // (die verstrichene Zeit) und die Partie endete unentschieden.
-    entry.balanceWork = (entry.balanceWork || 0) + (1 - Math.abs(entry.offset) / arcade.limit) * dt;
-    entry.score = Math.round(elapsed + entry.balanceWork * 120);
+    // DAS Ziel des Spiels: oben auf dem Fass BLEIBEN, also mittig. Am Rand zu
+    // stehen war vorher gratis — sogar besser, denn wer sich gegen die Drehung
+    // an den Rand stellt, hat den ganzen Weg als Reserve und kann praktisch nicht
+    // mehr herunterfallen. Gemessen war das kein Randfall: mit einer Spitze von
+    // 2.35 ueberlebten 80 von 80 Bots die volle Runde, mit 2.65 keiner. Zwischen
+    // "unfallbar" und "chancenlos" lag nichts, weil das Spiel gar nicht mass, wo
+    // man steht — nur, ob man noch oben ist.
+    //
+    // Quadratisch statt linear: am Rand bringt eine Sekunde fast nichts, in der
+    // Mitte fast alles. Damit ist Randstehen weiter erlaubt und weiter sicher —
+    // es gewinnt nur nichts mehr. Genau das macht aus dem Spiel eine Entscheidung.
+    const naehe = 1 - Math.abs(entry.offset) / arcade.limit;
+    entry.balanceWork = (entry.balanceWork || 0) + naehe * naehe * dt;
+    entry.centreMs = Math.round(entry.balanceWork * 1000);
+    entry.score = Math.round(entry.balanceWork * 100);
     syncArcadeScore(minigame, player, entry);
   });
 }
@@ -6194,6 +6413,92 @@ function updateRedlight(room, minigame, arcade, dt, now) {
         entry.lastHitAt = now;
       }
     }
+  });
+}
+
+function updateDaredevil(room, minigame, arcade, now) {
+  const elapsed = Math.max(0, now - minigame.startedAt);
+  const zyklus = DARE_ROLL_MS + DARE_SHOW_MS;
+  const seit = elapsed - DARE_LEAD_IN_MS;
+  const roh = seit < 0 ? -1 : Math.floor(seit / zyklus);
+  const runde = Math.min(DARE_ROUNDS - 1, roh);
+  const imZyklus = seit < 0 ? 0 : seit - runde * zyklus;
+  // Nach dem letzten Durchgang läuft nichts mehr, auch wenn die Spielzeit
+  // noch nicht ganz um ist.
+  const rollend = runde >= 0 && roh < DARE_ROUNDS && imZyklus < DARE_ROLL_MS;
+
+  // Neuer Durchgang: ein frisches Fass für jeden, der noch in der alten
+  // Runde steht. Der Reset hängt am SPIELER, nicht am Tick — wer schon
+  // gebremst hat, hat damit auch schon seine Runde gesetzt und wird hier
+  // nicht mehr angefasst.
+  if (runde >= 0) {
+    arcade.round = runde;
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry || entry.roundIndex === runde) return;
+      entry.roundIndex = runde;
+      entry.brakeAt = null;
+      entry.brakeSpeed = 0;
+      entry.distance = null;
+      entry.barrelSpeed = 0;
+      entry.hit = false;
+    });
+  }
+
+  arcade.rolling = rollend;
+  arcade.phase = runde < 0 ? "lead" : (rollend ? "roll" : "show");
+  arcade.rollT = rollend ? imZyklus / 1000 : DARE_ROLL_MS / 1000;
+
+  if (rollend) {
+    const t = imZyklus / 1000;
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry || entry.hit) return;
+      const stand = dareBarrelAt(t, entry.brakeAt);
+      entry.distance = stand.distance;
+      entry.barrelSpeed = stand.speed;
+      // Überrollt: das Fass hat die Linie erreicht, bevor es stand.
+      if (stand.distance <= DARE_HIT_M + 1e-6 && stand.speed > 0.05) {
+        entry.hit = true;
+        entry.flash = "bad";
+        entry.lastHitAt = now;
+        entry.hitAt = now;
+      }
+    });
+    return;
+  }
+
+  // Rollphase vorbei: EINMAL abrechnen. Beim Wechsel abzurechnen hätte den
+  // letzten Durchgang nie erfasst — nach ihm kommt kein Wechsel mehr.
+  if (runde >= 0 && (arcade.settled || 0) === runde) {
+    arcade.settled = runde + 1;
+    closeDaredevilRound(room, minigame, arcade, now);
+  }
+}
+
+// Ein Durchgang wird EINMAL abgerechnet, sobald sein Fass ausgerollt ist.
+function closeDaredevilRound(room, minigame, arcade, now) {
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry) return;
+    // Wer nie getippt hat, wird überrollt — Nichtstun ist keine sichere Wahl.
+    // Überrollt ist, wer nie getippt hat, wen das Fass schon erreicht hat —
+    // ODER wer so spät gebremst hat, dass der Bremsweg über die Linie reicht.
+    // Der dritte Fall braucht die Rechnung: der Tick sieht ihn nur, wenn das
+    // Fass die Linie innerhalb der Rollzeit auch wirklich erreicht.
+    const ruhe = entry.brakeAt === null ? -1 : dareRestingDistance(entry.brakeAt);
+    const hit = entry.hit || entry.brakeAt === null || ruhe <= 0;
+    const distance = hit ? null : ruhe;
+    const points = hit ? 0 : darePoints(distance);
+    entry.results.push({ distance, points, hit });
+    entry.points += points;
+    entry.distance = distance;
+    entry.hit = hit;
+    if (!hit && (entry.best === null || entry.best === undefined || distance < entry.best)) {
+      entry.best = distance;
+    }
+    entry.score = entry.points;
+    syncArcadeScore(minigame, player, entry);
   });
 }
 
@@ -6564,6 +6869,33 @@ function updateEstimate(room, minigame, arcade, now) {
   arcade.lastReveal = reveal;
 }
 
+// Was ein Stein wert ist. Die Ringe waren ein Quantisierer, und zwar ein
+// groeberer als das Koennen, das er messen sollte: gemessen landete der starke
+// Bot im Mittel 0.107 vom Knopf entfernt, der mittlere 0.133 — BEIDE im selben
+// Ring. Damit warf die Wertung genau die Information weg, die das Spiel erzeugt,
+// und die Bot-Waage sah nur noch Rauschen (2.90 / 2.47 / 2.17).
+//
+// Jetzt zaehlt der Abstand selbst, stueckweise linear durch die Ringwerte. Am
+// AUSSENRAND jedes Rings kommt genau die Zahl heraus, die seine Farbe schon
+// immer versprochen hat — die Farbe sagt also weiter „mindestens so viel" —,
+// und nach innen waechst es stetig weiter bis 24 am Knopf.
+function curlingStonePoints(arcade, distance) {
+  const ringe = [...arcade.rings].sort((a, b) => a.radius - b.radius);
+  const aussen = ringe[ringe.length - 1];
+  if (distance > aussen.radius) return 0;
+  let innenR = 0;
+  let innenP = ringe[0].points * CURLING_BUTTON_FACTOR;
+  for (const ring of ringe) {
+    if (distance <= ring.radius) {
+      const t = (distance - innenR) / Math.max(1e-6, ring.radius - innenR);
+      return innenP + (ring.points - innenP) * t;
+    }
+    innenR = ring.radius;
+    innenP = ring.points;
+  }
+  return 0;
+}
+
 function updateCurling(room, minigame, arcade, dt, now) {
   const stoneRadius = CURLING_STONE_RADIUS;
   const sub = CURLING_SUBSTEPS;
@@ -6602,6 +6934,24 @@ function updateCurling(room, minigame, arcade, dt, now) {
         if (distance < 0.0001) { dx = 0.01; dy = 0; distance = 0.01; }
         const nx = dx / distance;
         const ny = dy / distance;
+
+        // Steine PRALLEN NICHT AB, sie schieben sich.
+        //
+        // Das war der teuerste Fehler in diesem Spiel, und er stand als Zahl im
+        // Messprotokoll: mit Rueckprall 0.92 landete der erste Stein, wo gezielt
+        // war (0.031 gewollt, 0.040 erreicht), der zweite prallte auf 0.101 weg,
+        // der dritte auf 0.166 — regelmaessig ganz aus dem Haus. Ein perfekter
+        // Wurf wurde also bestraft, weil er genau dorthin ging, wo schon der
+        // eigene Stein lag. Ueber drei Steine summiert war vom Zielen nichts mehr
+        // uebrig (Verschiebung Ø 0.115 gegen einen Zielfehler von 0.034).
+        //
+        // Ein schwerer Eisstock, der gegen einen anderen laeuft, springt auch in
+        // Wirklichkeit nicht zurueck: beide gleiten zusammen weiter. Genau das
+        // ist eine vollstaendig unelastische Stossantwort — beide teilen sich die
+        // Wucht laengs der Beruehrung. Damit bleibt Anschieben moeglich (man kann
+        // jemanden vom Knopf draengen, das ist Koennen), ohne dass irgendwer
+        // quer durchs Haus geschossen wird. Gemessen faellt die Verschiebung
+        // damit auf 0.073.
         const overlap = (stoneRadius * 2 - distance) / 2;
         first.x -= nx * overlap;
         first.y -= ny * overlap;
@@ -6633,15 +6983,13 @@ function updateCurling(room, minigame, arcade, dt, now) {
     arcade.stones.forEach((stone) => {
       if (stone.playerId !== player.id) return;
       const distance = Math.hypot(stone.x - arcade.house.x, stone.y - arcade.house.y);
-      const ring = arcade.rings.find((candidate) => distance <= candidate.radius);
-      if (ring) {
-        points += ring.points;
-        // Feinwertung innerhalb des Rings: ganz am Knopf zählt mehr als am
-        // Innenrand. Ohne das war das Spiel oben gedeckelt.
+      const wert = curlingStonePoints(arcade, distance);
+      if (wert > 0) {
+        points += wert;
         closeness += 1 - distance / outer;
       }
     });
-    entry.score = points;
+    entry.score = Math.round(points);
     entry.precision = Math.round(
       (closeness / Math.max(1, CURLING_STONES_PER_PLAYER)) * 900);
     syncArcadeScore(minigame, player, entry);
@@ -7811,6 +8159,32 @@ function arcadeBotStep(room, bot) {
     }
     return;
   }
+  if (arcade.family === "daredevil") {
+    if (!arcade.rolling || player.brakeAt !== null || player.hit) return;
+    const profile = botProfile(player);
+    // Der Bot zielt auf einen Abstand und rechnet zurück, wann er dafür
+    // tippen muss. Die Stufe steckt im Zielabstand UND in der Streuung:
+    // ein Bot, der immer 0.0 trifft, wäre unschlagbar.
+    if (player.botAimDist === undefined || player.botAimRound !== arcade.round) {
+      player.botAimRound = arcade.round;
+      const ziel = profile.level === "hard" ? 0.5 : profile.level === "normal" ? 1.5 : 3.2;
+      player.botAimDist = Math.max(0.05, ziel + (Math.random() - 0.5) * 2 * (ziel * 0.55));
+    }
+    // Bremszeitpunkt aus dem Zielabstand: dareRestingDistance ist streng
+    // fallend in brakeAt, also reicht eine kurze Suche.
+    let lo = 0;
+    let hi = DARE_ROLL_MS / 1000;
+    for (let i = 0; i < 24; i += 1) {
+      const mid = (lo + hi) / 2;
+      if (dareRestingDistance(mid) > player.botAimDist) lo = mid; else hi = mid;
+    }
+    // Sobald der Zeitpunkt durch ist, wird gebremst — und zwar auf `lo`, nicht
+    // auf „jetzt". Siehe handleArcadeInput: sonst misst der Lauf die Tickrate
+    // des Bots statt sein Zielvermögen.
+    if ((arcade.rollT || 0) >= lo) handleArcadeInput(room, bot, { action: "brake", at: lo });
+    return;
+  }
+
   if (arcade.family === "pump") {
     const profile = botProfile(player);
     // Tap rate scales with skill; the input cooldown caps the maximum.
@@ -7822,26 +8196,35 @@ function arcadeBotStep(room, bot) {
     if (player.fallenAt) return;
     const profile = botProfile(player);
     const now = Date.now();
-    // Gegenhalten schlägt das Fass immer um denselben Betrag — wer in die
-    // richtige Richtung hält, kann also gar nicht herunterfallen. Alles hängt
-    // deshalb daran, WANN man den Richtungswechsel bemerkt: bis dahin hält man
-    // in die falsche Richtung und wird mit doppeltem Tempo an den Rand getragen.
-    // Genau das wird hier abgebildet. Vorher wurde je Tick gewürfelt, OB
-    // überhaupt gegengehalten wird — über die vielen Ticks lief das auf „immer"
-    // hinaus, und alle drei Stufen hielten sich exakt gleich gut.
-    if (player.botPendingVel !== arcade.barrelVel) {
-      player.botPendingVel = arcade.barrelVel;
-      player.botVelSeenAt = now;
+    // Alles haengt daran, WANN man den Richtungswechsel bemerkt: bis dahin haelt
+    // man in die falsche Richtung und wird mit doppeltem Tempo an den Rand
+    // getragen. Genau das wird hier abgebildet — der Bot sieht das Fass mit
+    // seiner Reaktionszeit Verspaetung.
+    //
+    // Die Verzoegerung braucht ein Gedaechtnis, keinen Vergleich: seit das Fass
+    // stufenlos dreht (barrelVelAt), aendert sich barrelVel in JEDEM Tick, und
+    // ein "hat sich der Wert geaendert?"-Test haette den Bot nie etwas sehen
+    // lassen. Er fuehrt darum ein kurzes Protokoll und liest daraus den Wert von
+    // vor reactionMs.
+    const verzug = profile.reactionMs * 0.6;
+    if (!player.botVelLog) player.botVelLog = [];
+    player.botVelLog.push({ t: now, v: arcade.barrelVel });
+    while (player.botVelLog.length > 1 && now - player.botVelLog[0].t > 1600) player.botVelLog.shift();
+    let seenVel = player.botVelLog[0].v;
+    for (const eintrag of player.botVelLog) {
+      if (now - eintrag.t < verzug) break;
+      seenVel = eintrag.v;
     }
-    if (now - player.botVelSeenAt >= profile.reactionMs * 0.6) {
-      player.botSeenVel = arcade.barrelVel;
-    }
-    const seenVel = player.botSeenVel ?? arcade.barrelVel;
     // Der Bot stellt sich gegen die Drehrichtung ins Fass, und zwar umso weiter,
     // je schneller es dreht: in einem schnellen Schub kann er den Rutsch nur
     // verlangsamen, also braucht er den Platz VORHER. Genau das ist auch der
     // Trick, den ein Mensch hier lernt.
-    const bank = Math.min(arcade.limit * 0.75, 0.3 + Math.abs(seenVel) * 0.35);
+    // Wie weit sich der Bot aus der Mitte traut. Das ist seit der Wertung nach
+    // Mittelzeit die eigentliche Entscheidung des Spiels: Rand ist sicher und
+    // bringt nichts, Mitte bringt Punkte und kann den Sturz kosten. Ein starker
+    // Spieler bleibt dichter dran, weil er den Wechsel frueher sieht.
+    const mut = profile.level === "hard" ? 0.5 : profile.level === "normal" ? 0.72 : 1;
+    const bank = Math.min(arcade.limit * 0.75, (0.3 + Math.abs(seenVel) * 0.35) * mut);
     const target = -Math.sign(seenVel || 1) * bank;
     if (Math.abs(player.offset - target) > 0.05) {
       handleArcadeInput(room, bot, { action: "run", dir: player.offset > target ? -1 : 1 });
@@ -8012,7 +8395,9 @@ function arcadeBotStep(room, bot) {
       const dir = arcade.turnIndex % 2 === 0 ? 1 : -1;
       const perMs = (arcade.spinSpeed * dir * 180) / Math.PI / 1000;
       const nowAngle = (((arcade.logAngle * 180) / Math.PI) % 360 + 360) % 360;
-      const nerve = 420;                 // grösser als der Bot-Takt (120-180 ms)
+      // Nervenreserve. Seit der Bot seinen Zielaugenblick mitschickt, muss sie
+      // nicht mehr den Bot-Takt abdecken, sondern nur noch Zögern abbilden.
+      const nerve = 260;
       const horizon = Math.max(0, arcade.turnEndsAt - now - nerve);
       let bestAt = now;
       let bestGap = -1;
@@ -8029,7 +8414,12 @@ function arcadeBotStep(room, bot) {
     }
 
     if (now >= player.botThrowAt || arcade.turnEndsAt - now <= 200) {
-      handleArcadeInput(room, bot, { action: "throw" });
+      // Auf den geplanten Augenblick werfen, nicht auf „jetzt" — siehe
+      // handleArcadeInput. Der Panikwurf am Fensterende zielt auf jetzt.
+      handleArcadeInput(room, bot, {
+        action: "throw",
+        atMs: Math.min(now, Math.max(player.botThrowAt, now - 400))
+      });
     }
     return;
   }
@@ -9123,6 +9513,14 @@ module.exports = {
     ARENA_BALL_RADIUS,
     ARENA_RESPAWN_MS,
     createRunnerCourse,
+    dareBarrelAt,
+    dareRestingDistance,
+    darePoints,
+    DARE_START_M,
+    DARE_ROUNDS,
+    DARE_ROLL_MS,
+    DARE_LEAD_IN_MS,
+    DARE_SHOW_MS,
     runnerSegmentAt,
     runnerLaneFactor,
     advanceColorRound,

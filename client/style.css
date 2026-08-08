@@ -1875,6 +1875,7 @@ body[data-screen="minigame"] .game-menu-button {
 .hold-button,
 .jump-button,
 .pump-button,
+.dare-button,
 .bomb-button {
   display: grid;
   place-items: center;
@@ -1930,6 +1931,47 @@ body[data-screen="minigame"] .game-menu-button {
   background: linear-gradient(180deg, #ff8b2e, #f2600f);
   box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
 }
+
+/* Fassmut: der Bremsknopf und die laufende Abstandsanzeige. Die Zahl ist der
+   Grund, warum man beim zweiten Fass besser ist als beim ersten — man hat
+   beim ersten gesehen, bei welchem Abstand man getippt hat. */
+.dare-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff5d73, #d81330);
+  box-shadow: 0 8px 0 #7c0a1c, 0 18px 30px rgba(216, 19, 48, 0.4);
+}
+
+.dare-button:active {
+  transform: translateY(6px) scale(0.98);
+  box-shadow: 0 2px 0 #7c0a1c;
+}
+
+.dare-button:disabled {
+  filter: saturate(0.35) brightness(0.7);
+  box-shadow: 0 4px 0 #4a1018;
+}
+
+/* Die Abstandszahl steht MITTIG UNTER der Spielerleiste, nicht oben neben der
+   Rundenanzeige — dort stiess sie mit ihr zusammen (der Prüfer hat es gleich
+   beim ersten Bild gemeldet: 74x26 Pixel Überlappung). Unten hat sie Platz
+   und liegt ausserdem näher an der Bahn, auf die man ohnehin schaut. */
+.dare-distance {
+  position: absolute;
+  top: calc(150px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 18px;
+  border-radius: 999px;
+  background: rgba(10, 18, 21, 0.82);
+  color: #ffffff;
+  font-size: 1.6rem;
+  font-weight: 1000;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.dare-distance.steht { color: #7fe0a8; }
+.dare-distance.ueberrollt { color: #ff6b7f; letter-spacing: 0.16em; }
 
 .pump-button:active {
   transform: translateY(6px) scale(0.98);
@@ -1987,6 +2029,7 @@ body[data-screen="minigame"] .game-menu-button {
 .hold-button,
 .jump-button,
 .pump-button,
+.dare-button,
 .bomb-button {
   display: grid;
   place-items: center;

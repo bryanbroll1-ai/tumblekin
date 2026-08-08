@@ -20,7 +20,7 @@ const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome","/usr/bin/chro
 const OUT = "/tmp/claude-0/-home-user-tumblekin/6615fb5b-58b2-5604-9f2e-566ed2634f35/scratchpad/galerie";
 mkdirSync(OUT, { recursive: true });
 const ALLE = ["bounceArena","finishRush","colorEscape","nervenprobe","lichtwaechter","ballonPump",
-  "fassrolle","zuendstoff","muenzregen","blobklopfe","seilspringen","kanonenflug","messerwurf",
+  "fassmut","fassrolle","zuendstoff","muenzregen","blobklopfe","seilspringen","kanonenflug","messerwurf",
   "turmbau","bergsteiger","ballonfahrt","sumoschubs","trampolin","falschsignal","spurmaler",
   "sortierband","leuchtfolge","blitzreflex","nagelbrett","eisstock","tiefenrausch","angelduell",
   "farbenjagd","spuersinn","augenmass"];

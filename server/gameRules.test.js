@@ -31,6 +31,14 @@ const {
   ARENA_RESPAWN_MS,
   createCanopyState,
   createRunnerCourse,
+  dareBarrelAt,
+  dareRestingDistance,
+  darePoints,
+  DARE_START_M,
+  DARE_ROUNDS,
+  DARE_ROLL_MS,
+  DARE_LEAD_IN_MS,
+  DARE_SHOW_MS,
   runnerSegmentAt,
   runnerLaneFactor,
   advanceColorRound,
@@ -243,7 +251,7 @@ test("catalog contains only the 3D challenges", () => {
     [
       "angelduell", "augenmass", "ballonPump", "ballonfahrt", "bergsteiger", "blitzreflex",
       "blobklopfe", "bounceArena", "colorEscape", "eisstock", "falschsignal",
-      "farbenjagd", "fassrolle", "finishRush", "kanonenflug", "leuchtfolge",
+      "farbenjagd", "fassmut", "fassrolle", "finishRush", "kanonenflug", "leuchtfolge",
       "lichtwaechter", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
       "seilspringen", "sortierband", "spuersinn", "spurmaler", "sumoschubs", "tiefenrausch",
       "trampolin", "turmbau", "zuendstoff"
@@ -963,6 +971,155 @@ test("marathon plan picks distinct minigames", () => {
   assert.equal(plan.length, 5);
   assert.equal(new Set(plan).size, 5, "no repeats in a marathon plan");
   plan.forEach((type) => assert.ok(MINIGAMES.some((game) => game.type === type)));
+});
+
+function dareRoom(players = [{ id: "fa", name: "FA", isBot: false }]) {
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassmut", players, startedAt);
+  const minigame = { id: 1, type: "fassmut", startedAt, duration: 60000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  // Die Zeit wird gefaelscht, indem startedAt zurueckgeschoben wird — der
+  // Server rechnet `elapsed` daraus.
+  const bei = (ms) => {
+    minigame.startedAt = Date.now() - ms;
+    testRules.updateArcade(room);
+  };
+  // In Runde `r` zum Zeitpunkt `t` (Sekunden nach Rollbeginn) bremsen.
+  const bremse = (r, t) => {
+    minigame.startedAt = Date.now() - (DARE_LEAD_IN_MS + r * (DARE_ROLL_MS + DARE_SHOW_MS) + t * 1000);
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "brake" });
+  };
+  const rundeAb = (r) => DARE_LEAD_IN_MS + r * (DARE_ROLL_MS + DARE_SHOW_MS);
+  return { room, me, arcade, entry, minigame, bei, bremse, rundeAb };
+}
+
+test("fassmut: das Punktefenster ist breit genug zum Spielen", () => {
+  // Gemessen statt geglaubt: wie lange dauert die Phase, in der ein Stopp
+  // ueberhaupt Punkte bringt? Beim ersten Satz Zahlen waren es 250 ms, und
+  // davor lagen zwei Sekunden ohne jeden Wert.
+  let ersterPunkt = null;
+  let letzterSicher = null;
+  for (let t = 0; t <= DARE_ROLL_MS / 1000; t += 0.01) {
+    const ruhe = dareRestingDistance(t);
+    if (ruhe <= 0) break;
+    if (ersterPunkt === null && darePoints(ruhe) > 0) ersterPunkt = t;
+    letzterSicher = t;
+  }
+  assert.ok(ersterPunkt !== null, "irgendwann muss es Punkte geben");
+  const fenster = letzterSicher - ersterPunkt;
+  assert.ok(fenster > 1.2, `das Punktefenster ist zu schmal: ${fenster.toFixed(2)} s`);
+  // Und wer gar nichts tut, muss ueberrollt werden — Abwarten darf nie die
+  // sichere Wahl sein.
+  assert.ok(letzterSicher < DARE_ROLL_MS / 1000 - 0.5,
+    "das Fass muss die Linie innerhalb der Rollzeit erreichen");
+
+  // Die Zahl, an der das Spiel wirklich haengt: um wie viele Meter verschiebt
+  // sich der Ruhepunkt, wenn man 100 ms zu spaet tippt? Beim ersten Satz Zahlen
+  // waren das 1.33 m — mehr, als zwischen „perfekt" und „gut" ueberhaupt liegt.
+  // Ein Spiel, in dem der Bremsweg schneller waechst als die Hand reagieren
+  // kann, misst kein Timing mehr, sondern Glueck.
+  const kurzVorSchluss = letzterSicher - 0.1;
+  const proZehntel = dareRestingDistance(kurzVorSchluss) - dareRestingDistance(letzterSicher);
+  assert.ok(proZehntel < 0.8,
+    `100 ms zu spaet kosten ${proZehntel.toFixed(2)} m — das ist nicht mehr spielbar`);
+});
+
+test("fassmut: der Bremsweg waechst mit dem Quadrat des Tempos", () => {
+  // Das IST das Spiel. Spaeter bremsen heisst schneller sein, und der
+  // Bremsweg waechst dann ueberproportional — sonst waere immer-spaet-bremsen
+  // die einzige richtige Antwort und es gaebe nichts zu entscheiden.
+  const frueh = DARE_START_M - dareRestingDistance(0.5);
+  const mittel = DARE_START_M - dareRestingDistance(1.0);
+  const spaet = DARE_START_M - dareRestingDistance(1.5);
+  assert.ok(mittel > frueh && spaet > mittel, "spaeter bremsen laeuft weiter");
+  // Ueberproportional: der Zuwachs von 1.0 auf 1.5 muss groesser sein als der
+  // von 0.5 auf 1.0.
+  assert.ok(spaet - mittel > mittel - frueh,
+    `der Zuwachs muss wachsen (${spaet - mittel} gegen ${mittel - frueh})`);
+});
+
+test("fassmut: dicht an der Linie bringt deutlich mehr als weit weg", () => {
+  assert.ok(darePoints(0.1) > darePoints(3.0) * 1.5, "dicht dran muss sich lohnen");
+  assert.ok(darePoints(1.0) > darePoints(3.0), "naeher ist immer besser");
+  assert.equal(darePoints(12), 0, "weit daneben gibt nichts");
+  assert.equal(darePoints(0), 0, "auf der Linie selbst ist ueberrollt");
+});
+
+test("fassmut: das Fass rollt an und wird nach dem Tap langsamer", () => {
+  const frei = dareBarrelAt(1.2, null);
+  const gebremst = dareBarrelAt(1.2, 0.6);
+  assert.ok(gebremst.distance > frei.distance, "gebremst kommt es weniger weit");
+  assert.ok(gebremst.speed < frei.speed, "und es ist langsamer");
+  // Lange nach dem Tap steht es still.
+  const steht = dareBarrelAt(9, 0.6);
+  assert.equal(steht.speed, 0);
+  assert.ok(Math.abs(steht.distance - Math.max(0, dareRestingDistance(0.6))) < 1e-6,
+    "der Standort muss zur geschlossenen Formel passen");
+});
+
+test("fassmut: wer bremst, bekommt Punkte; wer nicht bremst, wird ueberrollt", () => {
+  const gut = dareRoom([{ id: "d1", name: "D1", isBot: false }]);
+  gut.bei(0);                     // Vorlauf
+  gut.bremse(0, 2.2);
+  assert.notEqual(gut.entry.brakeAt, null, "der Tap muss ankommen");
+  // Bis in die Auswertungsphase der ersten Runde laufen.
+  gut.bei(gut.rundeAb(0) + DARE_ROLL_MS + 200);
+  assert.equal(gut.entry.results.length, 1, "die Runde muss abgerechnet sein");
+  assert.equal(gut.entry.results[0].hit, false);
+  assert.ok(gut.entry.points > 0, "ein sauberer Stopp bringt Punkte");
+
+  const faul = dareRoom([{ id: "d2", name: "D2", isBot: false }]);
+  faul.bei(0);
+  faul.bei(faul.rundeAb(0) + DARE_ROLL_MS + 200);
+  assert.equal(faul.entry.results[0].hit, true, "Nichtstun heisst ueberrollt");
+  assert.equal(faul.entry.points, 0);
+});
+
+test("fassmut: zu spaet gebremst heisst ueberrollt", () => {
+  const { entry, bei, bremse, rundeAb } = dareRoom();
+  bei(0);
+  // So spaet, dass der Bremsweg laenger ist als der Rest der Strecke.
+  bremse(0, DARE_ROLL_MS / 1000 - 0.1);
+  bei(rundeAb(0) + DARE_ROLL_MS + 200);
+  assert.equal(entry.results[0].hit, true, "zu spaet muss ueberrollen");
+  assert.equal(entry.results[0].points, 0);
+});
+
+test("fassmut: jeder Durchgang wird genau einmal abgerechnet", () => {
+  const { entry, bei, bremse, rundeAb } = dareRoom();
+  bei(0);
+  for (let r = 0; r < DARE_ROUNDS; r += 1) {
+    bremse(r, 1.2);
+    // Mehrfach in der Auswertungsphase ticken — die Punkte duerfen sich
+    // dadurch nicht vervielfachen.
+    bei(rundeAb(r) + DARE_ROLL_MS + 100);
+    bei(rundeAb(r) + DARE_ROLL_MS + 400);
+    bei(rundeAb(r) + DARE_ROLL_MS + 900);
+  }
+  assert.equal(entry.results.length, DARE_ROUNDS,
+    `es muss genau ${DARE_ROUNDS} Ergebnisse geben, waren ${entry.results.length}`);
+  const summe = entry.results.reduce((acc, r) => acc + r.points, 0);
+  assert.equal(entry.points, summe, "die Gesamtpunkte sind die Summe der Durchgaenge");
+});
+
+test("fassmut: ein zweiter Tap im selben Durchgang aendert nichts", () => {
+  const { entry, bei, bremse } = dareRoom();
+  bei(0);
+  bremse(0, 0.8);
+  const ersterTap = entry.brakeAt;
+  bremse(0, 1.6);
+  assert.equal(entry.brakeAt, ersterTap, "der erste Tap zaehlt");
+});
+
+test("fassmut: mehr Punkte gewinnen, bei Gleichstand der dichteste Treffer", () => {
+  const arcade = createArcadeState("fassmut", [player({ id: "dz", name: "DZ", color: "#fff" })], Date.now());
+  assert.ok(arcadeRankingScore(arcade, { points: 500, best: 1.0 })
+    > arcadeRankingScore(arcade, { points: 300, best: 0.1 }));
+  assert.ok(arcadeRankingScore(arcade, { points: 500, best: 0.1 })
+    > arcadeRankingScore(arcade, { points: 500, best: 1.2 }));
 });
 
 test("pump-panik: every tap counts and ranks by taps", () => {
@@ -4192,8 +4349,8 @@ test("README: jedes Minispiel aus dem Katalog steht drin, und keines zu viel", a
   assert.deepEqual(fehlend, [], "Minispiele ohne Eintrag in der README");
 
   // Und andersherum: ein Eintrag, den es nicht mehr gibt. Die Liste steht
-  // zwischen der Überschrift "## 30 Challenges" und "## Sandbox".
-  const start = readme.indexOf("## 30 Challenges");
+  // zwischen der Überschrift "## 31 Challenges" und "## Sandbox".
+  const start = readme.indexOf("## 31 Challenges");
   const ende = readme.indexOf("## Sandbox");
   assert.ok(start > 0 && ende > start, "Challenge-Abschnitt nicht gefunden");
   const titel = [...readme.slice(start, ende).matchAll(/^- \*\*(.+?):\*\*/gm)].map((m) => m[1]);
