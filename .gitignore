@@ -2,3 +2,8 @@ node_modules/
 npm-debug.log*
 pnpm-debug.log*
 .DS_Store
+
+# Der eingecheckte Lockfile ist pnpm-lock.yaml. Die README nennt `npm install`
+# als ersten Weg, und der legt daneben eine package-lock.json an — zwei
+# Lockfiles, die auseinanderlaufen koennen, ist genau ein Fehler zu viel.
+package-lock.json
