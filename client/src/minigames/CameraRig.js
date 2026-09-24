@@ -156,8 +156,8 @@ export class CameraRig {
     const lookGoal = opts.look ? toVector(opts.look, _v).clone() : new THREE.Vector3().fromArray(base.look);
     let frameW = opts.frame?.w ?? base.frame.w;
     let frameH = opts.frame?.h ?? base.frame.h;
-    let yaw = base.yaw;
-    let pitch = base.pitch;
+    let yaw = opts.yaw ?? base.yaw;
+    let pitch = opts.pitch ?? base.pitch;
 
     // Anflug während des Countdowns: aus der Totalen, leicht gedreht.
     const minigame = opts.minigame;

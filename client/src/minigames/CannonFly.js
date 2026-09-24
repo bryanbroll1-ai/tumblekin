@@ -1,369 +1,446 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  applyFinaleMood,
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  syncOwnMarker,
-  teardownStage,
-  fitKinsInView,
-  dressMeadow
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Kanonenflug — one perfectly timed tap fires your Kin out of the cannon.
-// The power gauge swings up and down; tap at the peak to fly the farthest.
-// Enger: bei 1.9 lag die äussere Kanone samt Namensschild knapp ausserhalb.
-const CANNON_GAP = 1.5;
-const FLIGHT_SCALE = 0.16;
-const FLIGHT_MS = 1600;
+// Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
+// fliegt die Figur.
+//
+// Vorher sass die Figur von Anfang an im Rohr, die Kamera stand dahinter, und
+// man sah vier Hinterköpfe. Jetzt steht jeder neben seiner Kanone und schaut
+// in die Kamera, springt beim ersten Tipp hinein, lugt mit dem Kopf aus der
+// Mündung, während das Rohr schwenkt, und fliegt wie ein Superheld hinaus.
+// Nach der Landung ein Purzelbaum, dann dreht man sich um und freut sich —
+// oder zuckt mit den Schultern. Die Kamera fliegt mit der eigenen Figur mit.
+const LANE_GAP = 1.5;
+const CANNON_Z = 1.4;
+// Mit der Verkleinerung der Kanone (0.8) gerechnet.
+const PIVOT_Y = 0.92 * 0.8;
+const BARREL_LEN = 0.9 * 0.8;
+const METER = 0.15;
+const HOP_MS = 420;
+const FACING = 0.5;
 
-export class CannonFly {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
-    this.kins = new Map();
-    this.animators = new Map();
+function flightMs(distance) {
+  return 1000 + Math.min(100, distance || 0) * 8;
+}
+
+export class CannonFly extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.stations = new Map();
-    this.lastLaunched = new Map();
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
+    this.focusId = null;
+    this.focusUntil = 0;
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Kanonenflug", fog: ["#a8e2f4", 22, 55], fov: 50, far: 100 });
+  stage() {
+    return {
+      label: "3D Kanonenflug",
+      background: "#a8e2f4",
+      fog: ["#a8e2f4", 24, 60],
+      lights: { sunPosition: [5, 12, 7], shadow: { left: -10, right: 10, top: 10, bottom: -10 } }
+    };
+  }
 
-    mountHud(this, `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0m</strong></div>
+  hudHtml() {
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>—</strong></div>
       <div class="cannon-phase-label" data-cannon-label>KRAFT</div>
-      <div class="cannon-gauge" data-cannon-gauge><div class="cannon-gauge-fill" data-cannon-fill></div></div>
-    `);
-    this.createScene();
+      <div class="cannon-gauge" data-cannon-gauge><div class="cannon-gauge-fill" data-cannon-fill></div></div>`;
+  }
 
+  build() {
+    const scene = this.scene;
+    const meadow = new THREE.Mesh(new THREE.BoxGeometry(30, 0.5, 48), new THREE.MeshLambertMaterial({ color: "#7fce6f" }));
+    meadow.position.set(0, -0.25, -14);
+    meadow.receiveShadow = true;
+    scene.add(meadow);
+    dressMeadow(scene, {
+      seed: 12,
+      keepOut: { x: 5.2, z: 30 },
+      spread: { x: 19, z: 30 },
+      treeRing: { x: 14, z: 28 },
+      frontCut: 4,
+      trees: 30,
+      patches: 30,
+      grassColor: "#6fbe63",
+      patchColors: ["#7cc86e", "#93d684"],
+      crownColor: "#2f7f5a",
+      crownColor2: "#46996b"
+    });
+
+    // Die Flugbahn: ein gemähter Streifen mit Linien alle zehn Meter und
+    // Schildern alle zwanzig.
+    const lane = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.04, 17), new THREE.MeshLambertMaterial({ color: "#8fda7c" }));
+    lane.position.set(0, 0.02, CANNON_Z - 0.9 - 8.5);
+    lane.receiveShadow = true;
+    scene.add(lane);
+    for (let m = 10; m <= 100; m += 10) {
+      const z = CANNON_Z - 0.9 - m * METER;
+      const big = m % 20 === 0;
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.05, big ? 0.12 : 0.06), new THREE.MeshLambertMaterial({ color: m >= 80 ? "#ffe07a" : "#f2fae8" }));
+      stripe.position.set(0, 0.05, z);
+      scene.add(stripe);
+      if (big) scene.add(this.sign(`${m}`, -4.3, z, m >= 80));
+    }
+
+    [[-7, 5.6, -8, 5], [7, 6.4, -12, 6], [0, 7, -20, 7]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      scene.add(cloud);
+    });
+
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => this.addStation(player, index, players.length));
+  }
+
+  // Ein Schild mit der Meterzahl am linken Rand der Bahn.
+  sign(text, x, z, gold) {
+    const group = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 0.08), new THREE.MeshLambertMaterial({ color: "#6b5238" }));
+    post.position.y = 0.4;
+    group.add(post);
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 64;
+    const pen = canvas.getContext("2d");
+    pen.fillStyle = gold ? "#ffc400" : "#ffffff";
+    pen.fillRect(0, 0, 128, 64);
+    pen.fillStyle = "#28313f";
+    pen.font = "900 40px ui-rounded, system-ui, sans-serif";
+    pen.textAlign = "center";
+    pen.textBaseline = "middle";
+    pen.fillText(`${text}m`, 64, 35);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const board = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.36, 0.05), [
+      new THREE.MeshLambertMaterial({ color: "#6b5238" }),
+      new THREE.MeshLambertMaterial({ color: "#6b5238" }),
+      new THREE.MeshLambertMaterial({ color: "#6b5238" }),
+      new THREE.MeshLambertMaterial({ color: "#6b5238" }),
+      new THREE.MeshLambertMaterial({ map: texture }),
+      new THREE.MeshLambertMaterial({ color: "#6b5238" })
+    ]);
+    board.position.y = 0.86;
+    group.add(board);
+    group.position.set(x, 0, z);
+    group.rotation.y = 0.35;
+    return group;
+  }
+
+  laneX(index, count) {
+    return (index - (count - 1) / 2) * LANE_GAP;
+  }
+
+  addStation(player, index, count) {
+    const x = this.laneX(index, count);
+    const cannon = new THREE.Group();
+    const wood = new THREE.MeshLambertMaterial({ color: "#8a5a3a" });
+    const carriage = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.5, 0.95), wood);
+    carriage.position.set(0, 0.45, 0.05);
+    carriage.castShadow = true;
+    cannon.add(carriage);
+    [-1, 1].forEach((side) => {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.12, 12), new THREE.MeshLambertMaterial({ color: "#5c3d28" }));
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(side * 0.38, 0.36, 0.08);
+      wheel.castShadow = true;
+      cannon.add(wheel);
+      const hub = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshLambertMaterial({ color: player.color }));
+      hub.position.set(side * 0.46, 0.36, 0.08);
+      cannon.add(hub);
+    });
+    // Das Rohr hängt an einem Drehpunkt und zeigt entlang seiner +y-Achse.
+    const pivot = new THREE.Group();
+    pivot.position.set(0, PIVOT_Y, 0);
+    const metal = new THREE.MeshLambertMaterial({ color: "#3a4660" });
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.32, BARREL_LEN + 0.3, 12), metal);
+    barrel.position.y = BARREL_LEN / 2 - 0.15;
+    barrel.castShadow = true;
+    pivot.add(barrel);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.31, 0.12, 12), new THREE.MeshLambertMaterial({ color: player.color }));
+    band.position.y = BARREL_LEN - 0.06;
+    pivot.add(band);
+    const rear = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), metal);
+    rear.position.y = -0.3;
+    pivot.add(rear);
+    const spark = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshBasicMaterial({ color: "#ffd15c" }));
+    spark.position.set(0, -0.5, 0.12);
+    spark.visible = false;
+    pivot.add(spark);
+    cannon.add(pivot);
+    cannon.position.set(x, 0, CANNON_Z);
+    cannon.scale.setScalar(0.8);
+    this.scene.add(cannon);
+
+    // Die Figur wartet rechts neben ihrer Kanone.
+    const standX = x + 0.55;
+    const standZ = CANNON_Z + 0.55;
+    this.addKin(player, index, { x: standX, ground: 0, z: standZ, facing: FACING });
+
+    // Fähnchen für die Landestelle.
+    const pin = new THREE.Group();
+    const stick = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.9, 0.05), new THREE.MeshLambertMaterial({ color: "#f2f2f2" }));
+    stick.position.y = 0.45;
+    pin.add(stick);
+    const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.03), new THREE.MeshLambertMaterial({ color: player.color }));
+    cloth.position.set(0.19, 0.76, 0);
+    pin.add(cloth);
+    pin.visible = false;
+    this.scene.add(pin);
+
+    this.stations.set(player.id, {
+      x,
+      cannon,
+      pivot,
+      spark,
+      pin,
+      stand: new THREE.Vector3(standX, 0, standZ),
+      phase: "wait",
+      hopAt: 0,
+      launched: false,
+      landed: false,
+      landedAt: 0,
+      reacted: false
+    });
+  }
+
+  shot() {
+    const count = Math.max(1, this.stations.size);
+    return {
+      look: [0.3, 0.8, CANNON_Z + 0.3],
+      frame: { w: count * LANE_GAP * 0.82 + 0.8, h: 2.4 },
+      yaw: 0.32,
+      pitch: 0.26,
+      fov: 36,
+      ease: 0.07,
+      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.5 },
+      finale: { pull: 0.75, zoom: 0.6, lift: 0.4, orbit: 0.15 }
+    };
+  }
+
+  bind() {
     this.controls.innerHTML = `
       <button type="button" class="nerve-button" data-cannon-launch>
         <span class="nerve-button-face">FEUER!</span>
-      </button>
-    `;
+      </button>`;
     this.launchButton = this.controls.querySelector("[data-cannon-launch]");
-    this.onLaunchDown = (event) => {
+    this.on(this.launchButton, "pointerdown", (event) => {
       event.preventDefault();
       this.pressLaunch();
-    };
-    this.launchButton.addEventListener("pointerdown", this.onLaunchDown);
-    this.loop();
+    });
   }
 
   pressLaunch() {
     const arcade = (this.update || this.minigame)?.arcade;
     const own = arcade?.players?.[this.getControlledPlayerId()];
     if (!own || own.launchedAt) return;
-    this.feedback?.sound("impact");
-    this.feedback?.vibrate([18, 12, 26]);
-    this.shake = Math.max(this.shake, 0.7);
+    this.feedback?.sound(own.powerAt ? "impact" : "pop");
+    this.feedback?.vibrate(own.powerAt ? [18, 12, 26] : 12);
     this.sendInput({ action: "launch" }).catch(() => {});
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    teardownStage(this);
-    this.kins.clear();
-    this.animators.clear();
-    this.stations.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, { sunPosition: [-4, 12, 6], shadow: { left: -10, right: 10, top: 10, bottom: -10 } });
-
-    // Launch meadow with distance stripes marching away from the cannons.
-    const meadow = new THREE.Mesh(
-      new THREE.BoxGeometry(26, 0.5, 40),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
-    );
-    meadow.position.set(0, -0.25, -12);
-    meadow.receiveShadow = true;
-    this.scene.add(meadow);
-    // Kulisse nur SEITLICH: die Flugbahn läuft geradeaus nach hinten, und ein
-    // Baum darin würde mitten im wichtigsten Teil des Bildes stehen. Mit einem
-    // breiten freien Streifen säumen die Bäume die Bahn, statt sie zuzustellen.
-    dressMeadow(this.scene, {
-      seed: 12,
-      keepOut: { x: 6.5, z: 30 },
-      spread: { x: 19, z: 28 },
-      treeRing: { x: 16, z: 26 },
-      frontCut: 4,
-      trees: 34,
-      patches: 30,
-      grassColor: "#6fbe63", patchColors: ["#7cc86e", "#93d684"], crownColor: "#2f7f5a", crownColor2: "#46996b"
-    });
-    for (let m = 20; m <= 100; m += 20) {
-      const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(9, 0.06, 0.22),
-        new THREE.MeshLambertMaterial({ color: "#e6f2da" })
-      );
-      stripe.position.set(0, 0.05, -m * FLIGHT_SCALE - 2.4);
-      this.scene.add(stripe);
-      const flag = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3, 0.24, 0.06),
-        new THREE.MeshLambertMaterial({ color: m >= 80 ? "#ffc400" : "#ff5c8a" })
-      );
-      flag.position.set(4.8, 0.7, -m * FLIGHT_SCALE - 2.4);
-      this.scene.add(flag);
-      const pole = new THREE.Mesh(
-        new THREE.BoxGeometry(0.07, 0.9, 0.07),
-        new THREE.MeshLambertMaterial({ color: "#5a4a3a" })
-      );
-      pole.position.set(4.65, 0.45, -m * FLIGHT_SCALE - 2.4);
-      this.scene.add(pole);
+  angleOf(entry, arcade, now) {
+    if (entry.launchedAt && entry.angle) return entry.angle;
+    if (entry.powerAt) {
+      const t = Math.abs(Math.sin(((now - entry.powerAt) / (arcade.anglePeriodMs || 1500)) * Math.PI));
+      return 5 + t * 80;
     }
-
-    [[-7, 5.6, -8, 5], [7, 6.4, -12, 6], [0, 7, -18, 7]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
-    });
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    const players = this.getState()?.players || [];
-    players.forEach((player, index) => this.ensureStation(player, index, players.length));
-    this.resizeRenderer();
-    this.camera.position.set(0, 3.6, 7.4);
-    this.camera.lookAt(0, 1.4, -3);
+    return 38;
   }
 
-  stationX(index, count) {
-    return (index - (count - 1) / 2) * CANNON_GAP;
-  }
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale } = f;
+    if (!arcade) return;
+    const elapsed = now - f.minigame.startedAt;
+    const gauge = Math.abs(Math.sin((Math.max(0, elapsed) / (arcade.periodMs || 1300)) * Math.PI));
 
-  ensureStation(player, index, count) {
-    if (this.stations.has(player.id)) return this.stations.get(player.id);
-    const x = this.stationX(index, count);
-
-    // Blocky cannon aiming down-range. The barrel pivots high above a tall
-    // base so its rear end never pokes out the bottom during angle selection.
-    const cannon = new THREE.Group();
-    // Kurz und gedrungen — und das bleibt so. Ein längeres Rohr liest sich von
-    // hinten zwar eher als Kanone, aber die Kamera steht hinter den Kanonen und
-    // das Rohr wächst damit genau vor das GESICHT der Figur, die darin sitzt.
-    // Wen man spielt, ist wichtiger als die Silhouette des Geräts.
-    const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.34, 0.42, 1.2, 8),
-      new THREE.MeshLambertMaterial({ color: "#40506a" })
-    );
-    barrel.rotation.x = Math.PI / 3.2;
-    barrel.position.y = 1.05;
-    barrel.castShadow = true;
-    cannon.add(barrel);
-    // A round trunnion hub the barrel appears to pivot on.
-    const hub = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.5, 0.5, 1.0, 10),
-      new THREE.MeshLambertMaterial({ color: player.color })
-    );
-    hub.rotation.z = Math.PI / 2;
-    hub.position.y = 1.05;
-    cannon.add(hub);
-    const base = new THREE.Mesh(
-      new THREE.BoxGeometry(1.0, 1.1, 1.0),
-      new THREE.MeshLambertMaterial({ color: player.color })
-    );
-    base.position.y = 0.55;
-    base.castShadow = true;
-    base.receiveShadow = true;
-    cannon.add(base);
-    cannon.position.set(x, 0, 2.4);
-    this.scene.add(cannon);
-
-    const kin = createVoxelKin(player.color, index);
-    const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.y = 0.62;
-    kin.add(label);
-    const shadow = createShadowBlob(0.45);
-    this.scene.add(shadow);
-    kin.userData.label = label;
-    kin.userData.shadow = shadow;
-    kin.position.set(x, 1.28, 2.05);
-    this.scene.add(kin);
-    const animator = new KinAnimator(kin);
-    animator.groundY = 1.28;
-    this.kins.set(player.id, kin);
-    this.animators.set(player.id, animator);
-
-    const station = { cannon, barrel, x, flightDone: false, landedShown: false };
-    this.stations.set(player.id, station);
-    return station;
-  }
-
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
-    const elapsed = Math.max(0, now - minigame.startedAt);
-
-    const players = state.players || [];
-    players.forEach((player, index) => {
+    players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      const station = this.ensureStation(player, index, players.length);
+      const st = this.stations.get(player.id);
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
+      if (!entry || !st || !kin || !animator) return;
 
-      if (entry.launchedAt && !this.lastLaunched.get(player.id)) {
-        this.lastLaunched.set(player.id, true);
-        this.bursts.spawn(new THREE.Vector3(station.x, 1.6, 1.9), ["#ffd15c", "#ff8b2e", "#ffffff"], { count: 18, speed: 3.1, up: 2.2, size: 0.1, life: 0.7, drag: 1.6 });
-        this.bursts.ring(new THREE.Vector3(station.x, 1.6, 1.9), "#ffd15c", { radius: 1.4, life: 0.45, opacity: 0.55, tilt: null });
-        this.shake = Math.max(this.shake, 0.6);
-        if (player.id !== controlledId) this.feedback?.sound("whoosh");
+      const deg = this.angleOf(entry, arcade, now);
+      const rad = THREE.MathUtils.degToRad(deg);
+      st.pivot.rotation.x = rad - Math.PI / 2;
+      const dir = new THREE.Vector3(0, Math.sin(rad), -Math.cos(rad));
+      const muzzle = new THREE.Vector3(st.x, PIVOT_Y, CANNON_Z).addScaledVector(dir, BARREL_LEN);
+      // Im Rohr: Körper entlang des Rohrs, nur der Kopf schaut heraus.
+      const seat = muzzle.clone().addScaledVector(dir, -0.36);
+
+      // Erster Tipp: hinein ins Rohr.
+      if (entry.powerAt && st.phase === "wait") {
+        st.phase = "hop";
+        st.hopAt = now;
+        animator.trigger("jump");
+        if (player.id === controlledId) this.feedback?.vibrate(10);
       }
-
-      // Live launch angle (degrees from horizontal), pointing down-range.
-      let deg = 45;
-      const angleActive = entry.powerAt && !entry.launchedAt;
-      if (angleActive) {
-        const angleT = Math.abs(Math.sin(((now - entry.powerAt) / (arcade.anglePeriodMs || 1500)) * Math.PI));
-        deg = 5 + angleT * 80;
-      } else if (entry.launchedAt && entry.angle) {
-        deg = entry.angle;
-      }
-      // Barrel points up-and-forward (toward -z, down-range) at that angle.
-      station.barrel.rotation.x = (deg - 90) * Math.PI / 180;
-
-      // The barrel mouth in world space, where the kin sits before firing.
-      const rad = (deg * Math.PI) / 180;
-      const mouthY = 1.05 + 0.85 * Math.sin(rad);
-      const mouthZ = 2.4 - 0.85 * Math.cos(rad);
-
-      if (entry.launchedAt) {
-        // Real shot: leave the muzzle along the barrel line, then arc down to
-        // the landing distance.
-        const t = Math.min(1, (now - entry.launchedAt) / FLIGHT_MS);
-        const distance = (entry.distance || 10) * FLIGHT_SCALE;
-        const angleRad = ((entry.angle || 45) * Math.PI) / 180;
-        const landZ = mouthZ - (distance + 2.4);
-        kin.position.x = station.x;
-        kin.position.z = THREE.MathUtils.lerp(mouthZ, landZ, t);
-        const peak = 0.9 + Math.sin(angleRad) * (1.5 + (entry.distance || 10) * 0.018);
-        animator.groundY = THREE.MathUtils.lerp(mouthY, 0.62, t) + Math.sin(t * Math.PI) * peak;
-        kin.rotation.x = -t * Math.PI * 1.6;
-        if (t >= 1 && !station.landedShown) {
-          station.landedShown = true;
-          this.bursts.spawn(kin.position.clone(), ["#7fce6f", "#e6f2da", player.color], { count: 14, speed: 2.1, up: 1.8, size: 0.09, life: 0.7, drag: 1.7 });
-          this.bursts.ring(kin.position.clone().setY(0.07), "#e6f2da", { radius: 1.5, life: 0.5 });
-          this.floaters.pop(
-            kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)),
-            `${Math.round(entry.distance || 0)}m`,
-            { color: "#ffe36b", size: 0.42, life: 1.1, rise: 0.9 }
-          );
-          if (player.id === controlledId) {
-            this.feedback?.sound("land");
-            this.feedback?.vibrate(16);
-          }
+      // Zweiter Tipp: Schuss.
+      if (entry.launchedAt && !st.launched) {
+        st.launched = true;
+        st.phase = "fly";
+        st.flightFrom = muzzle.clone();
+        this.burst(muzzle.clone(), ["#ffd15c", "#ff8b2e", "#ffffff", "#9aa6b8"], { count: 22, speed: 3.2, up: 2.2, size: 0.1, life: 0.7, drag: 1.6 });
+        this.bursts.ring(muzzle.clone(), "#ffffff", { radius: 1.3, life: 0.45, opacity: 0.6, tilt: null });
+        if (player.id === controlledId || !this.focusId || now > this.focusUntil) {
+          this.focusId = player.id;
+          this.focusUntil = now + flightMs(entry.distance) + 1800;
         }
-        if (t >= 1) {
-          kin.rotation.x = 0;
-          animator.groundY = 0.62;
-          // Am Ende reagiert jeder Platz eigen, statt nur "Sieger ja/nein".
-          if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], players.length);
-          else animator.set("idle", { base: true });
-        }
-      } else {
-        // Sit tucked in the barrel mouth, tilted with the tube, ready to fire.
-        animator.set("idle", { base: true });
-        kin.position.x = station.x;
-        kin.position.z = mouthZ;
-        animator.groundY = mouthY;
-        kin.rotation.x = (deg - 90) * Math.PI / 180 * 0.6;
+        if (player.id === controlledId) this.rig.shake(0.7);
+        else this.feedback?.sound("whoosh");
+        st.cannon.position.z = CANNON_Z + 0.25;
       }
-      animator.update(now);
-      kin.userData.shadow.position.set(kin.position.x, 0.05, kin.position.z);
-      kin.userData.shadow.material.opacity = Math.max(0.05, 0.22 - (animator.groundY - 0.62) * 0.05);
-      kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
+      st.cannon.position.z += (CANNON_Z - st.cannon.position.z) * frameLerp(0.12, dt);
+      st.spark.visible = st.phase === "aim" && Math.sin(now / 45) > -0.2;
+
+      if (st.phase === "wait") {
+        kin.position.x = st.stand.x;
+        kin.position.z = st.stand.z;
+        kin.rotation.set(0, FACING, 0);
+        animator.groundY = 0.3;
+        if (!finale) {
+          animator.set("ready");
+          if (player.id === controlledId && gauge > 0.88) animator.expression("effort", 120);
+        }
+        return;
+      }
+
+      if (st.phase === "hop") {
+        const u = Math.min(1, (now - st.hopAt) / HOP_MS);
+        kin.position.x = THREE.MathUtils.lerp(st.stand.x, seat.x, u);
+        kin.position.z = THREE.MathUtils.lerp(st.stand.z, seat.z, u);
+        animator.groundY = THREE.MathUtils.lerp(0.3, seat.y, u) + Math.sin(u * Math.PI) * 0.9;
+        kin.rotation.set((rad - Math.PI / 2) * u, FACING * (1 - u), 0);
+        if (u >= 1) st.phase = entry.launchedAt ? "fly" : "aim";
+        return;
+      }
+
+      if (st.phase === "aim") {
+        kin.position.x = seat.x;
+        kin.position.z = seat.z;
+        animator.groundY = seat.y;
+        kin.rotation.set(rad - Math.PI / 2, 0, 0);
+        animator.set("brace");
+        animator.expression(Math.abs(deg - 45) < 8 ? "joy" : "focus", 120);
+        return;
+      }
+
+      // Flug: im Bogen zur Landestelle, danach Purzelbaum und Reaktion.
+      const distance = entry.distance || 10;
+      const range = 0.9 + distance * METER;
+      const landing = new THREE.Vector3(st.x, 0.3, CANNON_Z - range);
+      const from = st.flightFrom || muzzle;
+      const ms = flightMs(distance);
+      const u = Math.min(1, (now - entry.launchedAt) / ms);
+      if (u < 1) {
+        const peak = Math.max(0.8, Math.min(6, (range * Math.tan(THREE.MathUtils.degToRad(entry.angle || 45))) / 4));
+        kin.position.x = st.x;
+        kin.position.z = THREE.MathUtils.lerp(from.z, landing.z, u);
+        animator.groundY = THREE.MathUtils.lerp(from.y, landing.y, u) + 4 * peak * u * (1 - u);
+        // Nase in Flugrichtung: steigt am Anfang, sinkt am Ende.
+        const slope = (1 - 2 * u) * Math.min(1.1, peak / Math.max(0.5, range) * 3);
+        kin.rotation.set(-slope * 0.6, Math.PI, 0);
+        animator.set("fly");
+        if (Math.random() < frameChance(0.35, dt)) this.burst(kin.position.clone(), ["#ffffff", "#dde7f2"], { count: 1, speed: 0.2, up: 0.1, size: 0.08, life: 0.5, gravity: 0 });
+        return;
+      }
+
+      if (!st.landed) {
+        st.landed = true;
+        st.landedAt = now;
+        kin.position.set(landing.x, landing.y, landing.z);
+        animator.groundY = landing.y;
+        animator.trigger("tumble");
+        this.burst(landing.clone().setY(0.2), ["#7fce6f", "#e6f2da", player.color], { count: 16, speed: 2.2, up: 1.8, size: 0.09, life: 0.7, drag: 1.7 });
+        this.bursts.ring(landing.clone().setY(0.07), "#e6f2da", { radius: 1.4, life: 0.5 });
+        this.pop(landing.clone().add(new THREE.Vector3(0, 1.3, 0)), `${Math.round(distance)} m`, { color: "#ffe36b", size: 0.44, life: 1.4, rise: 0.8 });
+        st.pin.position.set(st.x - 0.42, 0, landing.z);
+        st.pin.visible = true;
+        if (player.id === controlledId) {
+          this.feedback?.sound("land");
+          this.feedback?.vibrate(16);
+        }
+      }
+      kin.position.x = st.x;
+      kin.position.z = landing.z;
+      animator.groundY = 0.3;
+      // Aufstehen und zur Kamera drehen.
+      const since = now - st.landedAt;
+      const turn = Math.min(1, Math.max(0, (since - 900) / 500));
+      kin.rotation.set(0, Math.PI + (FACING - Math.PI) * turn, 0);
+      if (!finale && since > 1300 && !st.reacted) {
+        st.reacted = true;
+        animator.set(distance >= 75 ? "celebrate" : distance >= 45 ? "happy" : "shrug");
+      }
     });
 
-    this.bursts.update(dt);
-
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.9, dt);
-    const shakeX = Math.sin(now / 15) * this.shake * 0.22 * shakeScale();
-    const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.6, this.baseCamZ || 7.4);
-    this.camera.position.lerp(desired, frameLerp(0.1, dt));
-    this.camera.lookAt(0, 1.4, -3);
-
-    this.updateHud(minigame, arcade, state, elapsed, now);
-    // A downward arrow marks your own kin so you never lose yourself.
-    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
-    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
-    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
-    // selbst nicht sieht, spielt blind.
-    fitKinsInView(this);
-    this.renderer.render(this.scene, this.camera);
+    this.chooseFocus(f);
   }
 
-  isWinner(arcade, players, entry) {
-    let best = 0;
-    players.forEach((player) => {
-      const candidate = arcade.players[player.id];
-      if (candidate && (candidate.distance || 0) > best) best = candidate.distance || 0;
+  // Wohin die Kamera schaut: der eigenen (oder zuletzt abgeschossenen) Figur
+  // hinterher, sonst auf die Kanonen, am Ende auf alle Landestellen.
+  chooseFocus(f) {
+    const { now, arcade, players, finale } = f;
+    const count = Math.max(1, players.length);
+    const waiting = players.filter((player) => !arcade.players[player.id]?.launchedAt);
+    const followed = this.focusId && now < this.focusUntil ? this.kins.get(this.focusId) : null;
+    if (followed && !finale) {
+      // Vorausschauen: zwischen Figur und Landestelle, damit die Kamera
+      // nicht hinterherhinkt.
+      const entry = arcade.players[this.focusId];
+      const landZ = CANNON_Z - 0.9 - (entry?.distance || 10) * METER;
+      const at = followed.position;
+      const midZ = (at.z + landZ) / 2;
+      const gap = Math.abs(at.z - landZ);
+      this.focus = { look: [at.x * 0.6, Math.max(0.8, at.y * 0.5), midZ], frame: { w: 4.4, h: Math.max(3.2, gap * 0.45 + 2) }, keep: [followed] };
+      return;
+    }
+    if (waiting.length && !finale) {
+      this.focus = { look: [0.3, 0.8, CANNON_Z + 0.3], frame: { w: count * LANE_GAP * 0.82 + 0.8, h: 2.4 }, keep: waiting.map((player) => this.kins.get(player.id)).filter(Boolean) };
+      return;
+    }
+    // Alle gelandet: die Bahn von der kürzesten bis zur weitesten Landung.
+    const landed = players.filter((player) => arcade.players[player.id]?.launchedAt).map((player) => this.kins.get(player.id)).filter(Boolean);
+    if (!landed.length) {
+      this.focus = null;
+      return;
+    }
+    let near = -Infinity;
+    let far = Infinity;
+    landed.forEach((kin) => {
+      near = Math.max(near, kin.position.z);
+      far = Math.min(far, kin.position.z);
     });
-    return (entry.distance || 0) === best && best > 0;
+    const span = near - far;
+    this.focus = {
+      look: [0, 0.7, (near + far) / 2],
+      frame: { w: count * LANE_GAP + 1, h: Math.max(2.6, span * 0.4 + 1.4) },
+      keep: landed
+    };
   }
 
-  updateHud(minigame, arcade, state, elapsed, now) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const own = arcade.players[this.getControlledPlayerId()];
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = own?.launchedAt ? `${own.distance}m` : "—";
+  keepInView() {
+    return this.focus?.keep || [...this.kins.values()];
+  }
 
-    // The live gauge: phase 1 shows power, phase 2 the sweeping angle.
+  rigOptions() {
+    return this.focus ? { look: this.focus.look, frame: this.focus.frame } : {};
+  }
+
+  drawHud(f) {
+    const { arcade, minigame, now } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = own?.launchedAt ? `${own.distance}m` : "—";
     const fill = this.hud.querySelector("[data-cannon-fill]");
     const gauge = this.hud.querySelector("[data-cannon-gauge]");
     const label = this.hud.querySelector("[data-cannon-label]");
+    const elapsed = now - minigame.startedAt;
     if (fill && gauge) {
       if (own?.launchedAt || minigame.finaleAt || elapsed < 0) {
         gauge.classList.add("done");
@@ -372,15 +449,13 @@ export class CannonFly {
       } else if (own?.powerAt) {
         gauge.classList.remove("done");
         gauge.classList.add("angle-phase");
-        const nowT = this.now();
-        const angleT = Math.abs(Math.sin(((nowT - own.powerAt) / (arcade.anglePeriodMs || 1500)) * Math.PI));
-        const deg = Math.round(5 + angleT * 80);
-        fill.style.height = `${Math.round(angleT * 100)}%`;
+        const t = Math.abs(Math.sin(((now - own.powerAt) / (arcade.anglePeriodMs || 1500)) * Math.PI));
+        const deg = Math.round(5 + t * 80);
+        fill.style.height = `${Math.round(t * 100)}%`;
         fill.classList.toggle("hot", Math.abs(deg - 45) < 8);
         if (label) label.textContent = `WINKEL ${deg}°`;
       } else {
-        gauge.classList.remove("done");
-        gauge.classList.remove("angle-phase");
+        gauge.classList.remove("done", "angle-phase");
         const power = Math.abs(Math.sin((elapsed / (arcade.periodMs || 1300)) * Math.PI));
         fill.style.height = `${Math.round(power * 100)}%`;
         fill.classList.toggle("hot", power > 0.85);
@@ -392,22 +467,5 @@ export class CannonFly {
       const face = this.launchButton.querySelector(".nerve-button-face");
       if (face) face.textContent = own?.powerAt && !own?.launchedAt ? "WINKEL!" : "FEUER!";
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      this.baseCamY = portrait ? 4 : 3.6;
-            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
-      // -0.048 über den Bildrand hinaus — meist das Namensschild, das
-      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
-      // schmal, und die Reihe steht quer dazu.
-// Gerechnet: die Kanonen stehen bei z = 2.4, ihre äussere Kante liegt bei
-      // 2.25 + halbe Breite. Sichtbar sind an dieser Stelle 0.245 Einheiten je
-      // Einheit Abstand — für die ganze Reihe braucht es also gut elf, macht mit
-      // dem Versatz der Kanonenebene 13.4. Bei 10.1 waren die beiden äusseren
-      // Kanonen angeschnitten.
-      this.baseCamZ = portrait ? 13.4 : 7.4;
-      camera.fov = portrait ? 56 : 50;
-    });
   }
 }
