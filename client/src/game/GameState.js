@@ -1,37 +1,40 @@
 import { minigameMeta } from "../minigames/catalog.js?v=tumblekin200";
 
-// Calm colours for the filler fields; anything that changes your plan pops in a
-// strong candy hue. Each type also gets a distinct icon (see BoardGame.js) so
-// the board stays readable for colour-blind players.
-export const FIELD_COLORS = {
-  start: "#cfd8d3",
-  normal: "#e9f2da",
-  coin: "#ffd45c",
-  item: "#7bd0ff",
-  luck: "#b98cff",
-  trap: "#5b6b7a",
-  star: "#ffe36b",
-  challenge: "#ff3d7f",
-  gate: "#ffb400"
+// Helfer rund um den Raumzustand, den der Server schickt.
+
+export const MODES = {
+  marathon: {
+    icon: "🏃",
+    name: "Marathon",
+    help: "Eine feste Zahl Minispiele hintereinander. Platz 1 bringt die meisten Punkte — wer am Ende vorn liegt, gewinnt."
+  },
+  hunt: {
+    icon: "🎯",
+    name: "Punktejagd",
+    help: "Kein festes Ende: wer als Erster allein die Zielpunktzahl erreicht, gewinnt. Gleichstand am Ziel heisst Matchball."
+  },
+  knockout: {
+    icon: "💥",
+    name: "K.O.",
+    help: "Jeder hat Leben. Wer ein Spiel als Letzter beendet, verliert eins. Wer zuletzt noch Leben hat, gewinnt."
+  },
+  single: {
+    icon: "🎮",
+    name: "Einzelspiel",
+    help: "Ein Minispiel eurer Wahl — danach geht es zurück in die Lobby."
+  }
 };
 
-// What each field does, in one short line. Shown on the board legend and when
-// a player lands, so nobody has to memorise the rules.
-export const FIELD_LEGEND = {
-  start: { icon: "▶", label: "Start", help: "+2 Münzen." },
-  normal: { icon: "•", label: "Feld", help: "+2 Münzen." },
-  coin: { icon: "◉", label: "Münzader", help: "+6 Münzen." },
-  item: { icon: "?", label: "Itemfeld", help: "Zieh ein Item für deinen nächsten Zug." },
-  luck: { icon: "◆", label: "Glücksfeld", help: "Setze 10 Münzen: 50/50 auf +25." },
-  trap: { icon: "✕", label: "Falle", help: "-8 Münzen, außer du hast ein Schild." },
-  star: { icon: "★", label: "Sternenpodest", help: "Leuchtet es, kaufst du hier einen Stern." },
-  challenge: { icon: "✦", label: "Challenge", help: "Ein Minispiel startet." },
-  gate: { icon: "⌂", label: "Bandtor", help: "Passieren zahlt +5 Münzen." }
-};
+export const MARATHON_LENGTHS = [5, 10, 15];
+export const KNOCKOUT_LIVES = [2, 3, 5];
 
-export function getCurrentPlayer(state) {
-  if (!state) return null;
-  return state.players.find((player) => player.id === state.currentPlayerId) || null;
+export function modeInfo(mode) {
+  return MODES[mode] || MODES.marathon;
+}
+
+// Dieselbe Rechnung wie auf dem Server (server/modes.js huntTarget).
+export function huntTarget(playerCount) {
+  return Math.max(4, 4 * (Math.max(2, playerCount) - 1));
 }
 
 export function getMyPlayer(state, myPlayerId) {
@@ -43,19 +46,16 @@ export function isHost(state, myPlayerId) {
   return Boolean(state && myPlayerId && state.hostId === myPlayerId);
 }
 
-export function isMyTurn(state, myPlayerId) {
-  return Boolean(state?.status === "board" && state?.phase === "waitingRoll" && state.currentPlayerId === myPlayerId);
-}
-
-// STERNE zuerst, Münzen nur als Gleichstandsregel — genau wie compareStanding
-// auf dem Server, der den Sieger bestimmt.
-//
-// Vorher sortierte diese Liste allein nach Münzen. Damit konnte die
-// Schlusstabelle dem Sieger widersprechen, den sie selbst gerade gekrönt hatte:
-// wer drei Sterne und wenig Geld hatte, stand unter jemandem mit null Sternen
-// und vollen Taschen, während das Siegerbanner darüber den Richtigen nannte.
-export function sortByStanding(players) {
-  return [...players].sort((a, b) => ((b.stars || 0) - (a.stars || 0)) || (b.coins - a.coins));
+// Gesamtstand wie auf dem Server (server/modes.js compareStanding): Punkte,
+// dann Rundensiege; im K.O. zuerst die Leben.
+export function sortByStanding(players, mode) {
+  const compare = (a, b) => {
+    if (mode === "knockout") {
+      return ((b.lives || 0) - (a.lives || 0)) || ((b.points || 0) - (a.points || 0)) || ((b.wins || 0) - (a.wins || 0));
+    }
+    return ((b.points || 0) - (a.points || 0)) || ((b.wins || 0) - (a.wins || 0));
+  };
+  return [...players].sort(compare);
 }
 
 export function joinUrlFor(code, baseUrl = window.location.href) {
@@ -71,7 +71,6 @@ export function minigameHelp(type) {
   return minigameMeta(type)?.help || "Sammle Punkte im Minispiel.";
 }
 
-export function boardZoneName(state, position = 0) {
-  const zones = state?.board?.zones || ["Startzone", "Zweite Zone", "Dritte Zone", "Letzte Zone"];
-  return zones[Math.min(zones.length - 1, Math.floor(position / 8))] || zones[0];
+export function minigameTitle(state, type) {
+  return state?.minigameTitles?.find((game) => game.type === type)?.title || minigameMeta(type)?.title || type;
 }

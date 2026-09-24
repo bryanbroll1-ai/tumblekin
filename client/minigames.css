@@ -1,0 +1,1740 @@
+/* Minispiel-Oberflächen: HUD, Knöpfe und Anzeigen der einzelnen Spiele.
+   Aus style.css herausgelöst, damit die Hülle der App (Start, Lobby,
+   Ergebnis) und die Spiele getrennt gepflegt werden können. */
+
+/* Minigames */
+
+.minigame-screen {
+  padding: 0;
+  gap: 0;
+  background: #a8d8ee;
+}
+
+.minigame-screen::after {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 170px;
+  content: "";
+  background: linear-gradient(0deg, rgba(20, 32, 44, 0.35), transparent);
+  pointer-events: none;
+}
+
+/* In-play the 3D scene carries the important info (timers over podiums,
+   gauges, banners); the decorative title bar would only cover it on a tall
+   phone, so it is hidden during a minigame. */
+.minigame-screen .game-hud {
+  display: none;
+}
+
+.minigame-canvas {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #f3f4ef;
+  box-shadow: none;
+}
+
+.minigame-canvas[hidden] {
+  display: none;
+}
+
+.minigame-controls {
+  position: absolute;
+  z-index: 8;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: 50%;
+  display: grid;
+  gap: 8px;
+  width: min(calc(100% - 20px), 820px);
+  margin: 0;
+  transform: translateX(-50%);
+}
+
+.kinetic-hud {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Time + score sit top-LEFT so the top-right stays clear for the ☰ menu. */
+.kinetic-scorebar {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 108px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(11, 20, 25, 0.72);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px);
+}
+
+/* In dev mode the controller row occupies the top band, so drop below it. */
+.kinetic-hud.dev-mode .kinetic-scorebar {
+  top: calc(150px + env(safe-area-inset-top));
+  left: 14px;
+}
+
+.kinetic-scorebar span,
+.kinetic-scorebar strong {
+  display: grid;
+  place-items: center;
+  min-width: 47px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  font-weight: 1000;
+}
+
+.kinetic-scorebar span {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.kinetic-scorebar strong {
+  background: var(--yellow);
+  color: var(--ink);
+}
+
+.kinetic-countdown {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 118px;
+  height: 118px;
+  border: 7px solid #ffffff;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: var(--ink);
+  font-size: 3.2rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow: 0 12px 0 rgba(0, 0, 0, 0.28), 0 20px 54px rgba(0, 0, 0, 0.34);
+  transform: translate(-50%, -50%);
+  animation: countdown-pop 260ms ease-out;
+}
+
+.kinetic-countdown[hidden] {
+  display: none;
+}
+
+.kinetic-countdown.go {
+  background: var(--green);
+  font-size: 2.25rem;
+}
+
+.minigame-screen .dev-controller {
+  position: absolute;
+  z-index: 9;
+  top: calc(82px + env(safe-area-inset-top));
+  right: 12px;
+  left: 12px;
+  width: auto;
+}.minigame-canvas {
+  touch-action: none;
+}.bounce-button.pressed {
+  transform: translateY(3px);
+  background: var(--blue);
+  color: var(--ink);
+  box-shadow: 0 4px 0 #07080c;
+}.flux-button.pressed {
+  transform: translateY(3px);
+  background: var(--blue);
+  color: var(--ink);
+  box-shadow: 0 4px 0 #07080c;
+}.mobile-stick-controls,
+.builder-mobile-controls {
+  display: grid;
+  grid-template-columns: minmax(146px, 0.9fr) minmax(126px, 1.1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 170px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(18, 19, 26, 0.9);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(14px);
+}
+
+.joystick-slot {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+
+.mobile-stick-controls.joystick-only {
+  grid-template-columns: 1fr;
+  width: 190px;
+  min-height: 174px;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.joystick-only .virtual-joystick {
+  width: min(44vw, 174px);
+  height: min(44vw, 174px);
+}.canopy-choice-controls button.pressed:not(:disabled) {
+  transform: translateY(4px);
+  background: #4fb87b;
+  box-shadow: 0 3px 0 rgba(5, 18, 16, 0.88);
+}.runner-lane-controls {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(10, 18, 21, 0.88);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+}
+
+/* Der Schwungbalken. Er ist die einzige Anzeige, die man WÄHREND des Laufens
+   wirklich braucht: er sagt, ob der nächste Sprint noch trägt. Deshalb liegt
+   er direkt über der Hinweiszeile und nicht oben bei der Uhr — der Blick ist
+   auf der Strecke, nicht am oberen Rand. */
+.runner-schwung {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.runner-schwung > span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #b9a2ff, #7f5bff);
+  box-shadow: 0 0 10px rgba(155, 123, 255, 0.55);
+  transition: width 90ms linear;
+}
+
+.runner-schwung > span.leer {
+  background: linear-gradient(90deg, #6b7280, #4b5563);
+  box-shadow: none;
+}
+
+.runner-swipe-hint.sprintet {
+  color: #b9a2ff;
+  font-weight: 900;
+  animation: runner-hint-pop 0.3s ease;
+}
+
+@keyframes runner-hint-pop {
+  0% { transform: scale(0.9); }
+  70% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
+   dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
+   Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
+/* Links und rechts gehoeren NEBENeinander. `.runner-lane-controls` ist ein
+   einspaltiges Raster — richtig fuer die Zielgerade, wo Schwungbalken und
+   Hinweis untereinander stehen, aber bei der Fassrolle standen dadurch ◀ und ▶
+   uebereinander. Zwei Richtungstasten in einer Spalte sind kein Detail: die
+   Hand greift nach links und trifft "vorwaerts". */
+.barrel-run-controls {
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+
+.runner-lane-controls button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 108px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius);
+  background: #203037;
+  color: #fff;
+  font-size: 2.6rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow: 0 7px 0 #071014;
+}
+
+.runner-lane-controls button:first-child {
+  border-color: var(--blue);
+}
+
+.runner-lane-controls button:active {
+  transform: translateY(4px);
+  background: #33474f;
+  box-shadow: 0 3px 0 #071014;
+}
+
+/* Big single-action buttons for the new 3D games. */
+.nerve-button,
+.hold-button,
+.jump-button,
+.pump-button,
+.dare-button,
+.bomb-button {
+  display: grid;
+  place-items: center;
+  width: min(100%, 340px);
+  min-height: 92px;
+  margin: 0 auto;
+  border-radius: 24px;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.nerve-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff4d5e, #d81330);
+  box-shadow: 0 8px 0 #7c0a1c, 0 18px 30px rgba(216, 19, 48, 0.4);
+}
+
+.nerve-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #7c0a1c;
+}
+
+.hold-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #37d96e, #17a84a);
+  box-shadow: 0 8px 0 #0b5a27, 0 18px 30px rgba(23, 168, 74, 0.4);
+}
+
+.hold-button.is-holding,
+.hold-button:active {
+  transform: translateY(6px);
+  background: linear-gradient(180deg, #4bee81, #1fc257);
+  box-shadow: 0 2px 0 #0b5a27;
+}
+
+.jump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #3db2ff, #0f7fd6);
+  box-shadow: 0 8px 0 #084a80, 0 18px 30px rgba(15, 127, 214, 0.4);
+}
+
+.jump-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #084a80;
+}
+
+.pump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff8b2e, #f2600f);
+  box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
+}
+
+/* Fassmut: der Bremsknopf und die laufende Abstandsanzeige. Die Zahl ist der
+   Grund, warum man beim zweiten Fass besser ist als beim ersten — man hat
+   beim ersten gesehen, bei welchem Abstand man getippt hat. */
+.dare-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff5d73, #d81330);
+  box-shadow: 0 8px 0 #7c0a1c, 0 18px 30px rgba(216, 19, 48, 0.4);
+}
+
+.dare-button:active {
+  transform: translateY(6px) scale(0.98);
+  box-shadow: 0 2px 0 #7c0a1c;
+}
+
+.dare-button:disabled {
+  filter: saturate(0.35) brightness(0.7);
+  box-shadow: 0 4px 0 #4a1018;
+}
+
+/* Die Abstandszahl steht MITTIG UNTER der Spielerleiste, nicht oben neben der
+   Rundenanzeige — dort stiess sie mit ihr zusammen (der Prüfer hat es gleich
+   beim ersten Bild gemeldet: 74x26 Pixel Überlappung). Unten hat sie Platz
+   und liegt ausserdem näher an der Bahn, auf die man ohnehin schaut. */
+.dare-distance {
+  position: absolute;
+  top: calc(150px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 18px;
+  border-radius: 999px;
+  background: rgba(10, 18, 21, 0.82);
+  color: #ffffff;
+  font-size: 1.6rem;
+  font-weight: 1000;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.dare-distance.steht { color: #7fe0a8; }
+.dare-distance.ueberrollt { color: #ff6b7f; letter-spacing: 0.16em; }
+
+.pump-button:active {
+  transform: translateY(6px) scale(0.98);
+  box-shadow: 0 2px 0 #833508;
+}
+
+/* Der Taktring läuft auf den Knopf ZU und ist genau auf dem Schlag
+   deckungsgleich mit ihm. Ein Ring, der zuläuft, kündigt den Takt an; ein
+   blosses Blinken meldet ihn nur — und dann tippt man immer zu spät. */
+.pump-beat {
+  position: absolute;
+  inset: -6px;
+  border: 4px solid rgba(255, 255, 255, 0.7);
+  border-radius: 28px;
+  pointer-events: none;
+  transform: scale(2.2);
+  opacity: 0.25;
+  transition: none;
+}
+
+.pump-beat.jetzt {
+  border-color: #7fe0a8;
+  box-shadow: 0 0 16px rgba(127, 224, 168, 0.8);
+}
+
+/* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
+   dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
+   Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
+.runner-lane-controls button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 108px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius);
+  background: #203037;
+  color: #fff;
+  font-size: 2.6rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow: 0 7px 0 #071014;
+}
+
+.runner-lane-controls button:first-child {
+  border-color: var(--blue);
+}
+
+.runner-lane-controls button:active {
+  transform: translateY(4px);
+  background: #33474f;
+  box-shadow: 0 3px 0 #071014;
+}
+
+/* Big single-action buttons for the new 3D games. */
+.nerve-button,
+.hold-button,
+.jump-button,
+.pump-button,
+.dare-button,
+.bomb-button {
+  display: grid;
+  place-items: center;
+  width: min(100%, 340px);
+  min-height: 92px;
+  margin: 0 auto;
+  border-radius: 24px;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.nerve-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff4d5e, #d81330);
+  box-shadow: 0 8px 0 #7c0a1c, 0 18px 30px rgba(216, 19, 48, 0.4);
+}
+
+.nerve-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #7c0a1c;
+}
+
+.hold-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #37d96e, #17a84a);
+  box-shadow: 0 8px 0 #0b5a27, 0 18px 30px rgba(23, 168, 74, 0.4);
+}
+
+.hold-button.is-holding,
+.hold-button:active {
+  transform: translateY(6px);
+  background: linear-gradient(180deg, #4bee81, #1fc257);
+  box-shadow: 0 2px 0 #0b5a27;
+}
+
+.jump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #3db2ff, #0f7fd6);
+  box-shadow: 0 8px 0 #084a80, 0 18px 30px rgba(15, 127, 214, 0.4);
+}
+
+.jump-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #084a80;
+}
+
+.pump-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #ff8b2e, #f2600f);
+  box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
+}
+
+.pump-button:active {
+  transform: translateY(6px) scale(0.98);
+  box-shadow: 0 2px 0 #833508;
+}
+
+/* Der Taktring läuft auf den Knopf ZU und ist genau auf dem Schlag
+   deckungsgleich mit ihm. Ein Ring, der zuläuft, kündigt den Takt an; ein
+   blosses Blinken meldet ihn nur — und dann tippt man immer zu spät. */
+.pump-beat {
+  position: absolute;
+  inset: -6px;
+  border: 4px solid rgba(255, 255, 255, 0.7);
+  border-radius: 28px;
+  pointer-events: none;
+  transform: scale(2.2);
+  opacity: 0.25;
+  transition: none;
+}
+
+.pump-beat.jetzt {
+  border-color: #7fe0a8;
+  box-shadow: 0 0 16px rgba(127, 224, 168, 0.8);
+}
+
+/* Die Druckanzeige IST hier das Spiel. Drei Dinge übereinander, alle ohne
+   Nachdenken lesbar: der Druck als Balken, die wandernde rote Linie als
+   Marke darauf, und die Spannung als dünner Streifen darunter. Danach regelt
+   man im Sekundentakt — sie gehört deshalb direkt über den Knopf und nicht
+   oben zur Uhr. */
+.pump-pad {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.pump-gauge {
+  position: relative;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.pump-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7fe0a8, #ffc400);
+  transition: width 90ms linear;
+}
+
+.pump-fill.ueber {
+  background: linear-gradient(90deg, #ffc400, #ff3b52);
+  animation: pump-alarm 260ms ease-in-out infinite alternate;
+}
+
+@keyframes pump-alarm {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.35); }
+}
+
+/* Die rote Linie. Sie wandert langsam — ohne sie wäre das beste Spiel
+   "einmal einstellen und Finger liegen lassen". */
+.pump-limit {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(255, 59, 82, 0.9);
+  transition: left 120ms linear;
+}
+
+.pump-strain {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 5px;
+  width: 0%;
+  border-radius: 999px;
+  background: #ff8b2e;
+  transition: width 90ms linear;
+}
+
+.pump-strain.kritisch {
+  background: #ff2038;
+  animation: pump-alarm 160ms ease-in-out infinite alternate;
+}
+
+.bomb-button {
+  border: 4px solid #ffffff;
+  background: linear-gradient(180deg, #40506a, #26303f);
+  box-shadow: 0 8px 0 #0d1218, 0 18px 30px rgba(38, 48, 63, 0.5);
+}
+
+.bomb-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #0d1218;
+}
+
+.nerve-button:disabled,
+.hold-button:disabled,
+.jump-button:disabled,
+.pump-button:disabled,
+.bomb-button:disabled {
+  opacity: 0.55;
+  filter: saturate(0.4);
+  transform: none;
+}
+
+/* Blob-Klopfe: 3x3 tap pad mirroring the field of holes. *//* Farbfolge: four fat colour buttons. *//* Kanonenflug: vertical power gauge pinned to the HUD's right edge. */
+/* Nach OBEN gerückt statt in die Bildmitte: dort lag die Anzeige mitten auf der
+   äussersten Kanone und verdeckte einen ganzen Mitspieler. Oben rechts ist der
+   Streifen unter dem Menüknopf ohnehin frei. */
+.cannon-gauge {
+  position: absolute;
+  right: 14px;
+  top: calc(150px + env(safe-area-inset-top));
+  width: 24px;
+  height: 150px;
+  border: 3px solid #ffffff;
+  border-radius: 12px;
+  background: rgba(10, 18, 21, 0.65);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.cannon-gauge-fill {
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(180deg, #ffc400, #ff8b2e);
+  transition: none;
+}
+
+.cannon-gauge-fill.hot {
+  background: linear-gradient(180deg, #2ee86a, #17a84a);
+}
+
+.cannon-gauge.done {
+  opacity: 0.5;
+}
+
+/* Angle phase: blue sweep with a bright 45° marker at the middle. */
+.cannon-gauge.angle-phase .cannon-gauge-fill {
+  background: linear-gradient(180deg, #4bb8ff, #0f7fd6);
+}
+
+.cannon-gauge.angle-phase .cannon-gauge-fill.hot {
+  background: linear-gradient(180deg, #2ee86a, #17a84a);
+}
+
+.cannon-gauge.angle-phase::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 50%;
+  height: 3px;
+  background: #ffffff;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+}
+
+.cannon-phase-label {
+  position: absolute;
+  right: 6px;
+  top: calc(118px + env(safe-area-inset-top));
+  min-width: 44px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(10, 18, 21, 0.75);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.color-banner {
+  position: absolute;
+  top: calc(70px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(88vw, 420px);
+  padding: 9px 20px;
+  border: 4px solid #ffffff;
+  border-radius: 999px;
+  font-size: clamp(1rem, 4.6vw, 1.35rem);
+  font-weight: 1000;
+  letter-spacing: 0.02em;
+  text-align: center;
+  /* Lange Ansagen dürfen umbrechen. Mit nowrap wurde "Dev 2 wirft … 2s · noch
+     4 dabei" am rechten Rand abgeschnitten — der Satz endete mitten im Wort,
+     und die Zahl, um die es ging, stand nicht mehr im Bild. Kurze Ansagen
+     bleiben ohnehin einzeilig. */
+  white-space: normal;
+  text-wrap: balance;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  animation: banner-pop 260ms ease-out;
+}
+
+.kinetic-hud.dev-mode .color-banner {
+  top: calc(200px + env(safe-area-inset-top));
+}
+
+@keyframes banner-pop {
+  0% { transform: translateX(-50%) scale(0.8); opacity: 0; }
+  72% { transform: translateX(-50%) scale(1.06); opacity: 1; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+.color-banner[hidden] {
+  display: none;
+}.virtual-joystick {
+  position: relative;
+  width: min(38vw, 156px);
+  height: min(38vw, 156px);
+  min-width: 132px;
+  min-height: 132px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 12px rgba(0, 0, 0, 0.16), 0 10px 26px rgba(0, 0, 0, 0.26);
+  touch-action: none;
+}
+
+.joystick-axis {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  background: rgba(255, 255, 255, 0.12);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.joystick-axis.horizontal {
+  width: 68%;
+  height: 2px;
+}
+
+.joystick-axis.vertical {
+  width: 2px;
+  height: 68%;
+}
+
+.joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 62px;
+  height: 62px;
+  margin: -31px 0 0 -31px;
+  border: 4px solid rgba(255, 255, 255, 0.82);
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 9px 0 rgba(0, 0, 0, 0.24), 0 0 22px rgba(54, 197, 255, 0.3);
+  transition: transform 70ms ease-out, background 120ms ease;
+  pointer-events: none;
+}
+
+.virtual-joystick.active .joystick-knob {
+  background: var(--yellow);
+  transition: background 120ms ease;
+}.mobile-stick-controls .flux-burst,
+.mobile-stick-controls .bounce-bump {
+  grid-column: auto;
+  grid-row: auto;
+  min-height: 146px;
+}/* Results */
+
+.result-rays {
+  position: fixed;
+  z-index: 0;
+  top: 16%;
+  left: 50%;
+  width: 680px;
+  height: 680px;
+  background:
+    radial-gradient(circle, rgba(255, 209, 92, 0.24), rgba(255, 209, 92, 0.05) 44%, transparent 66%),
+    repeating-conic-gradient(from 0deg, rgba(255, 236, 170, 0.1) 0deg 7deg, transparent 7deg 22deg);
+  transform: translateX(-50%);
+  animation: slow-spin 30s linear infinite;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(circle, #000 30%, transparent 70%);
+  mask-image: radial-gradient(circle, #000 30%, transparent 70%);
+}
+
+.result-rays::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background:
+    radial-gradient(circle 5px at 22% 30%, rgba(255, 93, 115, 0.75) 99%, transparent),
+    radial-gradient(circle 4px at 74% 22%, rgba(113, 217, 123, 0.75) 99%, transparent),
+    radial-gradient(circle 5px at 82% 62%, rgba(40, 199, 217, 0.7) 99%, transparent),
+    radial-gradient(circle 4px at 30% 74%, rgba(155, 131, 217, 0.8) 99%, transparent),
+    radial-gradient(circle 3px at 56% 14%, rgba(255, 209, 92, 0.9) 99%, transparent),
+    radial-gradient(circle 3px at 12% 52%, rgba(255, 209, 92, 0.7) 99%, transparent);
+  animation: confetti-spin 44s linear infinite;
+}
+
+@keyframes confetti-spin {
+  to { transform: rotate(-360deg); }
+}
+
+.final-rays {
+  background:
+    radial-gradient(circle, rgba(255, 122, 140, 0.26), rgba(255, 122, 140, 0.06) 44%, transparent 66%),
+    repeating-conic-gradient(from 0deg, rgba(255, 189, 200, 0.12) 0deg 7deg, transparent 7deg 20deg);
+}
+
+.result-layout {
+  display: grid;
+  align-content: center;
+  gap: 13px;
+  min-height: calc(100dvh - 32px);
+}
+
+.result-layout > h2 {
+  color: #ffffff;
+  font-size: clamp(2.3rem, 10vw, 4rem);
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(31, 90, 110, 0.35), 0 10px 26px rgba(31, 90, 110, 0.3);
+}
+
+.result-winner {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 17px;
+  border: 3px solid #fff;
+  border-radius: var(--radius);
+  background: var(--winner-color, var(--yellow));
+  color: var(--ink);
+  box-shadow: 0 10px 0 rgba(0, 0, 0, 0.35), var(--strong-shadow);
+}
+
+.result-winner[hidden] {
+  display: none;
+}
+
+.result-winner .player-dot {
+  grid-row: 1 / span 2;
+  width: 42px;
+  height: 42px;
+}
+
+.result-winner .player-dot::after {
+  top: 14px;
+  left: 11px;
+  width: 5px;
+  height: 7px;
+  box-shadow: 11px 0 0 #172126;
+}
+
+.result-winner strong {
+  font-size: 1.3rem;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.result-winner span:last-child {
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.ranking-list {
+  gap: 7px;
+  padding: 0;
+}
+
+.result-timer {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: rgba(31, 90, 110, 0.18);
+}
+
+.result-timer span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--yellow);
+  transform-origin: left;
+}
+
+#screen-result.active .result-timer span {
+  animation: result-countdown 6.5s linear forwards;
+}
+
+.ranking-card {
+  min-height: 58px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 6px solid var(--rank-color, var(--blue));
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+}
+
+.ranking-card .player-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking-card .player-meta {
+  min-width: 0;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.rank-number {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 950;
+}
+
+.winner-banner {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.88);
+  border-radius: var(--radius);
+  background: var(--yellow);
+  color: var(--ink);
+  box-shadow: var(--strong-shadow);
+  font-size: 1.04rem;
+  font-weight: 950;
+}
+
+.winner-banner div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+
+/* --- Tiefenrausch: Risiko und Beute ------------------------------------ */
+/* Die Risikozahl ist die Ansage des Spiels — ohne sie wäre jeder Spatenstich
+   geraten statt entschieden. Sie steht deshalb breit und gut lesbar oben. */
+.dig-risk {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(28, 18, 10, 0.9);
+  color: #ffe9c8;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.dig-chips {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.dig-chip {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #1c120a);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.dig-chip.is-own {
+  background: var(--chip);
+  color: #1c120a;
+}
+
+.kinetic-hud .color-banner.dig-banner,
+.kinetic-hud.dev-mode .color-banner.dig-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* --- Nagelbrett und Eisstock: Punktestände ------------------------------ */
+.stock-left {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #bfe6f7;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.peg-chips,
+.stock-chips {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.peg-chips {
+  top: calc(12px + env(safe-area-inset-top));
+}
+
+.peg-chip,
+.stock-chip {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.peg-chip.is-own,
+.stock-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+.kinetic-hud .color-banner.peg-banner,
+.kinetic-hud.dev-mode .color-banner.peg-banner,
+.kinetic-hud .color-banner.stock-banner,
+.kinetic-hud.dev-mode .color-banner.stock-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* --- Leuchtfolge: Runde und Bestleistungen ----------------------------- */
+.simon-round {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffe36b;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.simon-chips,
+.react-rounds {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.simon-chip {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.simon-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* --- Blitzreflex: die drei Läufe --------------------------------------- */
+/* Jeder Lauf bekommt ein eigenes Feld. Man sieht damit auf einen Blick, wie
+   viele noch kommen und wie der letzte ausging — ohne eine Zahl zu lesen. */
+.react-slot {
+  display: grid;
+  place-items: center;
+  min-width: 46px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #8fa4b4;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.react-slot.is-good {
+  background: #7fe06f;
+  color: #14361a;
+}
+
+.react-slot.is-bad {
+  background: #ff6b7f;
+  color: #42101a;
+}
+
+/* Beide Banner nach unten: oben stehen Pilze bzw. Ampel, und genau dorthin
+   schaut man. */
+.kinetic-hud .color-banner.simon-banner,
+.kinetic-hud.dev-mode .color-banner.simon-banner,
+.kinetic-hud .color-banner.react-banner,
+.kinetic-hud.dev-mode .color-banner.react-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* --- Ballonfahrt: Torzähler und Ballonstände --------------------------- */
+.glide-gates {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffe36b;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.glide-chips {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.glide-chip {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.glide-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Nach unten gesetzt: oben liegt die Schachtdecke, und genau dort eckt man an
+   — ein Banner davor verdeckte die Ursache der Meldung. */
+.kinetic-hud .color-banner.glide-banner,
+.kinetic-hud.dev-mode .color-banner.glide-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* --- Sumo-Schubs: Halte-Knopf und Ladebalken ---------------------------- */
+.sumo-button {
+  width: 100%;
+  min-height: var(--touch);
+  border-radius: var(--radius);
+  border: none;
+  background: linear-gradient(180deg, #ff9f4a, #e0663a);
+  color: #ffffff;
+  font-weight: 900;
+  font-size: 1rem;
+  letter-spacing: 0.03em;
+  box-shadow: var(--shadow);
+  touch-action: none;
+  transition: transform 0.08s ease, filter 0.12s ease;
+}
+
+.sumo-button:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: brightness(1.15);
+}
+
+.sumo-button:disabled {
+  filter: grayscale(0.6);
+  opacity: 0.55;
+}
+
+.sumo-charge {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+  min-width: 62%;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.sumo-charge-track {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+
+/* Der sichere Bereich ist hinterlegt; alles rechts davon rutscht aus. */
+.sumo-charge-safe {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(127, 224, 111, 0.22);
+}
+
+.sumo-charge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: #7fe06f;
+  transition: background 0.1s linear;
+}
+
+/* --- Trampolin: Taktanzeige --------------------------------------------- */
+.beat-strip {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+  min-width: 58%;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+/* Der Puls läuft von links nach rechts; getroffen wird am rechten Ende. */
+.beat-pulse {
+  height: 10px;
+  border-radius: 999px;
+  background: #ffe36b;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+/* --- Falschsignal: Legende der echten Anzeige --------------------------- */
+/* Die Regel muss WÄHREND des Spiels lesbar bleiben, nicht nur in der Intro-
+   Karte — sonst rät man beim ersten Signal und ist sofort im Minus. */
+.signal-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: 84%;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.signal-legend strong {
+  color: #7dff9d;
+  font-weight: 900;
+}
+
+.signal-chip {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.signal-chip-real {
+  background: #4dff7a;
+  box-shadow: 0 0 8px rgba(77, 255, 122, 0.7);
+}
+
+.kinetic-hud.dev-mode .signal-legend {
+  font-size: 0.62rem;
+}
+
+/* --- Spurmaler: Rundenzähler und Hinweis ------------------------------- */
+/* Die Rivalen laufen im 3D-Bild nur als Punkte am Rand mit; die Rundenzahl
+   gehört ins HUD, weil sie die eigentliche Wertung ist. */
+/* Neben der Zeit/Punkte-Leiste. Am oberen Rand war der Zähler von der Kopfzeile
+   angeschnitten, eine Zeile darunter lag er hinter dem Hinweisbanner. */
+.trace-lapbar {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+}
+
+.trace-lap-chip {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.trace-lap-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Der Hinweis gehört nach UNTEN, nicht über die Spur: oben deckte er genau das
+   Ende der Kurve ab, auf das man zuziehen soll. */
+.kinetic-hud .color-banner.trace-banner,
+.kinetic-hud.dev-mode .color-banner.trace-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* Kein Knopf, sondern ein Hinweis: die ganze Fläche ist die Steuerung. */
+.trace-hint {
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.82);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* --- Bergsteiger: Höhenleiter am Bildrand ------------------------------ */
+/* Die Kamera bleibt an der eigenen Figur — nach zehn Sekunden liegen zwanzig
+   Welteinheiten zwischen dem Ersten und dem Letzten, und alle vier ins Bild zu
+   holen hiesse, die eigene auf ein paar Pixel zu schrumpfen. Wer wie hoch ist,
+   steht deshalb hier: eine Leiste am Rand, ein Punkt je Spieler. */
+.climb-ladder {
+  position: absolute;
+  top: 22%;
+  right: 10px;
+  bottom: 16%;
+  width: 14px;
+  border-radius: 999px;
+  background: rgba(11, 20, 25, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.kinetic-hud.dev-mode .climb-ladder {
+  top: 34%;
+}
+
+.climb-ladder i {
+  position: absolute;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  transform: translate(-50%, 50%);
+  transition: bottom 140ms linear;
+}
+
+/* Die eigene ist grösser und hat einen vollen weissen Ring — sie muss man im
+   Augenwinkel finden, ohne hinzusehen. */
+.climb-ladder i.is-own {
+  width: 18px;
+  height: 18px;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+
+/* --- Sortierband: Serie und Punktestände ------------------------------- */
+/* Die Serie ist der Grund, warum ein einzelner Fehlgriff wehtut — sie muss
+   sichtbar sein, sonst fühlt sich der Abzug willkürlich an. */
+.belt-streak {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #c6ffb0;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: opacity 0.14s linear;
+}
+
+.belt-chips {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.belt-chip {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.belt-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Nach unten gesetzt: oben deckte der Banner das hintere Bandstück ab, und
+   genau dort schaut man hin, um die nächsten Farben zu lesen. */
+.kinetic-hud .color-banner.belt-banner,
+.kinetic-hud.dev-mode .color-banner.belt-banner {
+  top: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  padding: 7px 16px;
+  font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+}
+
+/* --- Angelduell: Schnurspannung und Fischzähler ------------------------- */
+/* Die Spannung ist die Regel, an der alles hängt — sie muss ohne Nachdenken
+   ablesbar sein, sonst wirkt ein Riss wie Willkür. */
+.fish-gauge {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fish-gauge-track {
+  position: relative;
+  display: block;
+  width: 92px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.fish-gauge-track i {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #7fe06f;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: background 0.1s linear;
+}
+
+.fish-chips {
+  position: absolute;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 132px;
+  display: flex;
+  gap: 6px;
+}
+
+.fish-chip {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 30%, #101a1f);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.fish-chip.is-own {
+  background: var(--chip);
+  color: #10201a;
+}
+
+/* Der Warnruf gehört über den Knopf, nicht über den Fisch — und mit Abstand:
+   bei 96px lag er dem Einholen-Knopf gemessen sechs Pixel auf der Oberkante. */
+.kinetic-hud .color-banner.fish-banner,
+.kinetic-hud.dev-mode .color-banner.fish-banner {
+  top: auto;
+  bottom: calc(116px + env(safe-area-inset-bottom));
+}
+
+/* --- Farbenjagd: Flächenanteile ----------------------------------------- */
+/* Ein Balken, in dem alle vier Anteile nebeneinander liegen. Das IST die
+   Wertung — eine reine Zahl würde nicht zeigen, wer gerade führt. */
+.paint-share {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  right: 74px;
+  display: flex;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.86);
+  overflow: hidden;
+}
+
+.paint-share-part {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  background: var(--chip);
+  color: #10201a;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 900;
+  transition: width 0.18s linear;
+  overflow: hidden;
+}
+
+.paint-share-part.is-own {
+  box-shadow: inset 0 0 0 2px #ffffff;
+}
+
+/* Über das Feld, nicht auf die unteren Reihen: dort verdeckte der Banner genau
+   die Ecke, um die es gerade geht. */
+.kinetic-hud .color-banner.paint-banner,
+.kinetic-hud.dev-mode .color-banner.paint-banner {
+  top: calc(50px + env(safe-area-inset-top));
+  bottom: auto;
+  padding: 7px 16px;
+  font-size: clamp(0.8rem, 3.4vw, 1rem);
+}
+
+/* Zielgerade wird gewischt, nicht geknöpft. Der Hinweis steht dort, wo vorher
+   die Bahnknöpfe waren — er verschwindet nicht, weil die Geste sonst niemand
+   findet, aber er drängt sich auch nicht auf. */
+.runner-swipe-hint {
+  margin: 0;
+  flex: 1;
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* Augenmaß: der Schieberegler ist hier das ganze Spielgerät, also darf er auch
+   so aussehen. Gross genug für den Daumen, mit einer Zahl darüber, die man
+   ohne Hinsehen findet — man schaut ja auf den Schwarm, nicht auf die Hand. */
+/* Eigene Tafel, kein blosser Kasten: .minigame-controls liegt ohne Hintergrund
+   ÜBER der 3D-Szene, und die anderen Spiele stellen dort Knöpfe hin, die ihren
+   Hintergrund selbst mitbringen. Ohne das schwebten Zahl, Regler und Skala
+   direkt auf der Wiese und waren nicht zu lesen. */
+.estimate-pad {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 1rem 0.8rem;
+  border: 3px solid rgba(255, 255, 255, 0.75);
+  border-radius: var(--radius);
+  background: rgba(16, 26, 44, 0.92);
+  box-shadow: var(--strong-shadow);
+}
+
+.estimate-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem;
+  color: #fff;
+}
+
+.estimate-value strong {
+  font-size: 2.4rem;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.estimate-value span {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+.estimate-slider {
+  width: 100%;
+  height: 44px;                 /* volle Daumenfläche, nicht nur der Strich */
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: none;           /* sonst scrollt die Seite beim Ziehen mit */
+}
+
+.estimate-slider:disabled { opacity: 0.35; }
+
+.estimate-slider::-webkit-slider-runnable-track {
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 227, 107, 0.35), rgba(159, 199, 255, 0.35));
+}
+
+.estimate-slider::-moz-range-track {
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 227, 107, 0.35), rgba(159, 199, 255, 0.35));
+}
+
+.estimate-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 38px;
+  height: 38px;
+  margin-top: -13px;
+  border-radius: 50%;
+  border: 4px solid #152436;
+  background: #ffe36b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.estimate-slider::-moz-range-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 4px solid #152436;
+  background: #ffe36b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.estimate-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Eisstock: Kraftanzeige beim Ziehen. Liegt über der Bahn, damit der Blick
+   nicht vom Stein weg muss — man zielt und dosiert in einer Bewegung. */
+.stock-power {
+  position: absolute;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(70vw, 320px);
+  height: 26px;
+  padding: 0 10px;
+  transform: translateX(-50%);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  background: rgba(18, 40, 56, 0.72);
+}
+
+.stock-power span {
+  display: block;
+  height: 12px;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7fe06f, #ffd15c, #ff5d73);
+  transition: width 60ms linear;
+}
+
+.stock-power b {
+  flex: none;
+  min-width: 3.2em;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stock-power[hidden] { display: none; }

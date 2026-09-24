@@ -3,252 +3,182 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#a8ddf5">
+    <meta name="theme-color" content="#8fd6f2">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Tumblekin">
+    <meta name="description" content="Minispiel-Party für bis zu vier Leute im selben WLAN.">
     <title>Tumblekin</title>
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
     <link rel="stylesheet" href="/style.css?v=tumblekin200">
+    <link rel="stylesheet" href="/minigames.css?v=tumblekin200">
   </head>
-  <body>
+  <body data-screen="start">
     <main id="app">
       <div id="toast" role="status" aria-live="polite"></div>
       <div id="connection-banner" class="connection-banner" role="status" aria-live="assertive" hidden></div>
       <div id="scene-transition" class="scene-transition" aria-hidden="true">
-        <span></span>
-        <span></span>
-        <span></span>
-        <span></span>
+        <span></span><span></span><span></span><span></span>
       </div>
 
       <button id="game-menu-button" class="game-menu-button" type="button" aria-label="Menü öffnen" hidden>☰</button>
-      <div id="game-menu" class="game-menu" hidden>
-        <div class="game-menu-card" data-menu-view="main">
+      <div id="game-menu" class="overlay" hidden>
+        <div class="overlay-card" data-menu-view="main">
           <h3>Menü</h3>
-          <div class="menu-toggle-row">
+          <div class="toggle-row">
             <span>🔊 Sound</span>
-            <button id="menu-toggle-sound" class="menu-toggle" type="button" aria-pressed="true">An</button>
+            <button id="menu-toggle-sound" class="toggle" type="button" aria-pressed="true">An</button>
           </div>
-          <div class="menu-toggle-row">
+          <div class="toggle-row">
             <span>📳 Vibration</span>
-            <button id="menu-toggle-vibration" class="menu-toggle" type="button" aria-pressed="true">An</button>
+            <button id="menu-toggle-vibration" class="toggle" type="button" aria-pressed="true">An</button>
           </div>
-          <button id="menu-resume" class="primary-btn" type="button">Weiterspielen</button>
-          <button id="menu-leave" class="menu-danger-btn" type="button">Spiel verlassen</button>
+          <button id="menu-resume" class="btn btn-primary" type="button">Weiterspielen</button>
+          <button id="menu-leave" class="btn btn-danger" type="button">Partie verlassen</button>
         </div>
-        <div class="game-menu-card" data-menu-view="confirm" hidden>
+        <div class="overlay-card" data-menu-view="confirm" hidden>
           <h3>Wirklich verlassen?</h3>
-          <p>Du verlässt den Raum und dein Kin fliegt aus der Partie.</p>
-          <button id="menu-leave-cancel" class="primary-btn" type="button">Abbrechen</button>
-          <button id="menu-leave-confirm" class="menu-danger-btn" type="button">Ja, verlassen</button>
+          <p>Du verlässt den Raum. Deine Figur steht dann nur noch herum.</p>
+          <button id="menu-leave-cancel" class="btn btn-primary" type="button">Bleiben</button>
+          <button id="menu-leave-confirm" class="btn btn-danger" type="button">Ja, verlassen</button>
+        </div>
+      </div>
+
+      <!-- Einladung: Raumcode gross, QR-Code, Link kopieren. -->
+      <div id="invite" class="overlay" hidden>
+        <div class="overlay-card invite-card">
+          <p class="eyebrow">Mitspielen</p>
+          <strong class="invite-code" data-room-code>----</strong>
+          <img id="qr-code" width="200" height="200" alt="QR-Code zum Beitreten">
+          <p class="invite-hint">Mit der Handykamera scannen — oder Raumcode auf dem Startbildschirm eingeben. Alle müssen im selben WLAN sein.</p>
+          <button id="copy-link" class="btn btn-secondary" type="button">Link kopieren</button>
+          <button id="invite-close" class="btn btn-primary" type="button">Fertig</button>
+        </div>
+      </div>
+
+      <!-- Spielauswahl: für die eigene Auswahl (mehrere) und fürs Einzelspiel (eines). -->
+      <div id="picker" class="overlay picker-overlay" hidden>
+        <div class="overlay-card picker-card">
+          <div class="picker-head">
+            <div>
+              <p class="eyebrow" id="picker-eyebrow">Spiele</p>
+              <h3 id="picker-title">Welche Spiele?</h3>
+            </div>
+            <button id="picker-close" class="icon-btn" type="button" aria-label="Schliessen">✕</button>
+          </div>
+          <div class="picker-tools" id="picker-tools">
+            <button type="button" class="chip" data-picker-all>Alle</button>
+            <button type="button" class="chip" data-picker-none>Keine</button>
+            <span id="picker-count" class="picker-count"></span>
+          </div>
+          <div id="picker-grid" class="picker-grid"></div>
+          <button id="picker-done" class="btn btn-primary" type="button">Übernehmen</button>
         </div>
       </div>
 
       <section id="screen-start" class="screen active" aria-labelledby="start-title">
-        <div class="start-stage" aria-hidden="true">
-          <span class="stage-band stage-band-a"></span>
-          <span class="stage-band stage-band-b"></span>
-          <span class="stage-band stage-band-c"></span>
-          <span class="stage-band stage-band-d"></span>
-        </div>
-        <div class="screen-inner start-layout">
-          <div class="intro-copy">
-            <div class="brand-mascot" aria-hidden="true">
-              <span class="mascot-sprout"></span>
-              <span class="mascot-eye mascot-eye-left"></span>
-              <span class="mascot-eye mascot-eye-right"></span>
-              <span class="mascot-cheek mascot-cheek-left"></span>
-              <span class="mascot-cheek mascot-cheek-right"></span>
-              <span class="mascot-smile"></span>
-            </div>
-            <p class="eyebrow">Kleine Crew. Große Kettenreaktion.</p>
-            <h1 id="start-title"><span>Tumble</span><strong>Kin</strong></h1>
-            <p>Jage Sterne, trickse deine Crew aus und bring drei lebendige Welten in Bewegung.</p>
-          </div>
-
-          <form id="start-form" class="panel form-panel">
-            <div class="form-heading">
-              <span class="live-dot"></span>
-              <strong>Neue Runde</strong>
-            </div>
-            <label>
-              Spielername
-              <input id="player-name" maxlength="18" autocomplete="nickname" placeholder="Dein Name">
+        <header class="start-brand">
+          <h1 id="start-title"><span>Tumble</span><strong>kin</strong></h1>
+          <p class="tagline">Minispiele. Vier Freunde. Ein WLAN.</p>
+        </header>
+        <form id="start-form" class="sheet start-sheet" autocomplete="off">
+          <label class="field">
+            <span>Dein Name</span>
+            <input id="player-name" maxlength="18" autocomplete="nickname" placeholder="Wie heisst du?">
+          </label>
+          <button id="create-room" class="btn btn-primary btn-big" type="button">Party starten</button>
+          <div class="divider"><span>oder beitreten</span></div>
+          <div class="join-row">
+            <label class="field">
+              <span>Raumcode</span>
+              <input id="room-code" maxlength="6" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD">
             </label>
-            <button id="create-room" class="primary-btn" type="button">Party starten</button>
-
-            <div class="form-divider"><span>oder beitreten</span></div>
-            <div class="join-row">
-              <label>
-                Raumcode
-                <input id="room-code" maxlength="6" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="KIN">
-              </label>
-              <button id="join-room" class="secondary-btn" type="button">Beitreten</button>
-            </div>
-          </form>
-        </div>
+            <button id="join-room" class="btn btn-secondary" type="button">Beitreten</button>
+          </div>
+        </form>
       </section>
 
       <section id="screen-lobby" class="screen" aria-labelledby="lobby-title">
-        <div class="topbar">
-          <div>
-            <p class="eyebrow">Bereitmachen</p>
-            <h2 id="lobby-title">Tumble Lobby</h2>
+        <header class="lobby-top">
+          <button id="leave-room" class="icon-btn" type="button" aria-label="Raum verlassen">✕</button>
+          <button id="open-invite" class="room-pill" type="button" aria-label="Einladen">
+            <span class="room-pill-label">Raum</span>
+            <strong data-room-code>----</strong>
+            <span class="room-pill-action">Einladen</span>
+          </button>
+        </header>
+        <h2 id="lobby-title" class="sr-only">Lobby</h2>
+        <div class="stage-spacer" data-stage-band></div>
+        <div class="sheet lobby-sheet">
+          <div class="lobby-players">
+            <ul id="lobby-players" class="player-chips"></ul>
+            <button id="add-bot" class="chip chip-add" type="button">+ Bot</button>
           </div>
-          <button id="leave-room" class="icon-btn" type="button" aria-label="Raum verlassen">×</button>
-        </div>
-        <div class="screen-inner lobby-grid">
-          <div class="panel qr-panel">
-            <div class="room-code-lockup">
-              <span>Raumcode</span>
-              <strong data-room-code>----</strong>
-            </div>
-            <img id="qr-code" width="168" height="168" alt="QR-Code zum Beitreten">
-            <button id="copy-link" class="secondary-btn compact-btn" type="button">Einladung kopieren</button>
+          <div class="mode-tabs" id="mode-tabs" role="tablist" aria-label="Spielmodus">
+            <button type="button" role="tab" data-mode="marathon"><b>🏃</b><span>Marathon</span></button>
+            <button type="button" role="tab" data-mode="hunt"><b>🎯</b><span>Punktejagd</span></button>
+            <button type="button" role="tab" data-mode="knockout"><b>💥</b><span>K.O.</span></button>
+            <button type="button" role="tab" data-mode="single"><b>🎮</b><span>Einzel</span></button>
           </div>
-          <div class="panel roster-panel">
-            <div class="panel-heading">
-              <h3>Startaufstellung</h3>
-              <span id="player-count">0/4</span>
-            </div>
-            <ul id="lobby-players" class="player-list"></ul>
-          </div>
-          <div class="panel mode-picker-panel">
-            <div class="panel-heading">
-              <h3>Spielmodus</h3>
-              <span id="selected-mode-label">Brettspiel</span>
-            </div>
-            <div id="mode-options" class="mode-options">
-              <button type="button" data-mode="board" class="mode-option is-active">
-                <strong>🎲 Brettspiel</strong>
-                <span>Würfeln, Felder, Items, Minispiele – die meisten Sterne gewinnen.</span>
-              </button>
-              <button type="button" data-mode="arcade" class="mode-option">
-                <strong>🏆 Minispiel-Marathon</strong>
-                <span>5 Minispiele direkt hintereinander – die meisten Siege gewinnen.</span>
-              </button>
-              <button type="button" data-mode="single" class="mode-option">
-                <strong>🎯 Einzelspiel</strong>
-                <span>Sucht euch EIN Minispiel aus – danach geht's zurück in die Lobby.</span>
-              </button>
-            </div>
-          </div>
-          <div class="panel single-picker-panel" hidden>
-            <div class="panel-heading">
-              <h3>Minispiel</h3>
-              <span id="selected-single-label">Zufällig</span>
-            </div>
-            <div id="single-options" class="single-options"></div>
-          </div>
-          <div class="panel board-picker-panel">
-            <div class="panel-heading">
-              <h3>Spielwelt</h3>
-              <span id="selected-board-label">Wurzelwanderin</span>
-            </div>
-            <div id="board-options" class="board-options"></div>
-          </div>
+          <p id="mode-description" class="mode-description"></p>
+          <div id="mode-options" class="mode-options"></div>
           <div class="lobby-actions">
-            <button id="start-game" class="primary-btn" type="button">Runde starten</button>
-            <button id="add-test-players" class="secondary-btn" type="button">Mit Bots auffüllen</button>
-            <button id="enable-dev-mode" class="secondary-btn" type="button" hidden>Dev-Test: 4 lokal</button>
-          </div>
-        </div>
-      </section>
-
-      <section id="screen-board" class="screen board-screen" aria-labelledby="board-title">
-        <div class="game-hud">
-          <div class="round-lockup">
-            <p class="eyebrow" id="board-zone-label">Moosband</p>
-            <h2 id="board-title"><span id="round-label">1</span><small>/<span id="max-round-label">5</span></small></h2>
-          </div>
-          <div class="turn-pill">
-            <span>Am Zug</span>
-            <strong id="current-player-label">-</strong>
-          </div>
-        </div>
-
-        <div id="board-canvas-wrap" class="board-canvas-wrap" aria-label="3D-Spielbrett"></div>
-
-        <div class="board-bottom">
-          <div id="board-dev-controller" class="dev-controller" hidden></div>
-          <!-- Der Sternzähler stand als schwebende Pille oben in der Mitte und
-               schob sich dort in die "Am Zug"-Anzeige. Drei Dinge passen auf
-               einem hochkanten Handy nicht in denselben Streifen. Er gehört
-               ohnehin hierher: er sagt, wohin man will, und das liest man dort,
-               wo man auch würfelt. -->
-          <div id="star-tracker" class="star-tracker" role="status" aria-live="polite" hidden></div>
-          <div id="score-strip" class="score-strip"></div>
-          <div id="item-bar" class="item-bar" role="group" aria-label="Deine Items" hidden></div>
-          <div class="panel turn-panel">
-            <div class="turn-copy">
-              <p id="board-message">Warte auf den nächsten Zug.</p>
-              <strong id="dice-label">Würfel bereit</strong>
-            </div>
-            <div class="turn-actions">
-              <button id="roll-dice" class="primary-btn dice-btn" type="button">Würfeln</button>
-            </div>
-            <!-- Wegwahl an einer Kreuzung. Liegt bewusst an derselben Stelle wie
-                 der Würfel-Knopf: dort schaut man ohnehin hin, wenn man am Zug
-                 ist. Wird nur eingeblendet, solange die Wahl offen ist. -->
-            <div id="junction-choice" class="junction-choice" hidden>
-              <p class="junction-title" id="junction-title">Welcher Weg?</p>
-              <div class="junction-options" id="junction-options"></div>
-            </div>
+            <button id="start-game" class="btn btn-primary btn-big" type="button">Los geht's</button>
+            <button id="enable-dev-mode" class="btn btn-ghost" type="button" hidden>Dev-Test: 4 lokal</button>
           </div>
         </div>
       </section>
 
       <section id="screen-minigame" class="screen minigame-screen" aria-labelledby="minigame-title">
-        <div class="game-hud">
-          <div>
-            <p class="eyebrow" id="minigame-reason">Tumblekin Challenge</p>
-            <h2 id="minigame-title">Bumper Bloom</h2>
-          </div>
-          <div class="turn-pill">
-            <span>Du</span>
-            <strong id="my-player-label">-</strong>
-          </div>
-        </div>
+        <h2 id="minigame-title" class="sr-only">Minispiel</h2>
         <canvas id="minigame-canvas" class="minigame-canvas"></canvas>
         <div id="minigame-dev-controller" class="dev-controller" hidden></div>
         <div id="minigame-controls" class="minigame-controls"></div>
         <div id="minigame-intro" class="minigame-intro" hidden>
           <div class="intro-card">
-            <p class="eyebrow" id="intro-reason">Gleich geht's los</p>
+            <p class="intro-round" id="intro-reason">Spiel 1</p>
             <h2 id="intro-title">Minispiel</h2>
-            <p id="intro-goal" class="intro-goal">Ziel</p>
             <div class="intro-gesture">
               <span id="intro-gesture-icon" class="intro-gesture-icon">👆</span>
               <strong id="intro-gesture-label">Tippen</strong>
             </div>
+            <p id="intro-goal" class="intro-goal">Ziel</p>
+            <div id="intro-extra" class="intro-extra"></div>
           </div>
           <div id="intro-count" class="intro-count" hidden></div>
         </div>
       </section>
 
       <section id="screen-result" class="screen" aria-labelledby="result-title">
-        <div class="result-rays" aria-hidden="true"></div>
-        <div class="screen-inner result-layout">
-          <p class="eyebrow" id="result-reason">Challenge beendet</p>
-          <h2 id="result-title">Runden-Ranking</h2>
-          <div id="result-winner" class="result-winner"></div>
+        <header class="result-top">
+          <p class="eyebrow" id="result-reason">Spiel 1</p>
+          <h2 id="result-title">Ergebnis</h2>
+        </header>
+        <div class="stage-spacer" data-stage-band></div>
+        <div class="sheet result-sheet">
+          <ol id="result-list" class="result-list"></ol>
+          <div id="standings" class="standings"></div>
+          <div id="result-next" class="result-next"></div>
           <div class="result-timer" aria-hidden="true"><span></span></div>
-          <ol id="result-list" class="ranking-list"></ol>
-          <button id="result-ready" class="primary-btn result-ready" type="button">Weiter</button>
+          <button id="result-ready" class="btn btn-primary" type="button">Weiter</button>
         </div>
       </section>
 
       <section id="screen-end" class="screen" aria-labelledby="end-title">
-        <div class="result-rays final-rays" aria-hidden="true"></div>
-        <div class="screen-inner result-layout">
-          <p class="eyebrow">Spiel beendet</p>
-          <h2 id="end-title">Champion</h2>
+        <header class="result-top end-top">
+          <p class="eyebrow" id="end-mode">Marathon</p>
+          <h2 id="end-title">Siegerehrung</h2>
+        </header>
+        <div class="stage-spacer" data-stage-band></div>
+        <div class="sheet end-sheet">
           <div id="winner-banner" class="winner-banner"></div>
-          <ol id="final-list" class="ranking-list"></ol>
-          <button id="restart-game" class="primary-btn" type="button">Revanche</button>
+          <ol id="final-list" class="final-list"></ol>
+          <div class="end-actions">
+            <button id="rematch" class="btn btn-primary btn-big" type="button">Revanche</button>
+            <button id="restart-game" class="btn btn-secondary" type="button">Zur Lobby</button>
+          </div>
         </div>
       </section>
     </main>

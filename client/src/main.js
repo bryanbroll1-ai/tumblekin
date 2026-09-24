@@ -1,6 +1,7 @@
-import { BoardGame } from "./game/BoardGame.js?v=tumblekin200";
 import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin200";
 import { UIManager } from "./ui/UIManager.js?v=tumblekin200";
+import { MenuStage } from "./ui/MenuStage.js?v=tumblekin200";
+import { Feedback } from "./game/Feedback.js?v=tumblekin200";
 import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin200";
 import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin200";
 import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin200";
@@ -32,31 +33,54 @@ import { IceStock } from "./minigames/IceStock.js?v=tumblekin200";
 import { DeepDig } from "./minigames/DeepDig.js?v=tumblekin200";
 import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin200";
 import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin200";
-import { Feedback } from "./game/Feedback.js?v=tumblekin200";
 
-// socket.io kommt als eigenes Skript vom Server (<script src="/socket.io/…">).
-// Fehlt es, wirft `new ClientNetwork()` beim Laden dieses Moduls — und dann
-// passiert etwas Heimtückisches: der Startbildschirm steht schon im HTML, wird
-// also ganz normal angezeigt, aber KEIN Knopf bekommt je einen Zuhörer. Die App
-// sieht heil aus und tut nichts, ohne ein Wort Erklärung.
-//
-// Genau so sah es aus, als der Server nicht erreichbar war: "Start ist da, aber
-// Button macht nix." Eine Stunde Fehlersuche an der falschen Stelle.
-//
-// Darum hier eine Wache VOR allem anderen. Sie kann die Verbindung nicht
-// retten, aber sie sagt, was los ist — und das ist der ganze Unterschied
-// zwischen "kaputt" und "der Server ist weg".
+// socket.io kommt als eigenes Skript vom Server. Fehlt es, würde
+// `new ClientNetwork()` beim Laden werfen — der Startbildschirm stünde schon im
+// HTML und sähe heil aus, aber kein Knopf bekäme je einen Zuhörer. Darum eine
+// Wache vor allem anderen: sie rettet die Verbindung nicht, sagt aber, was los ist.
 if (typeof window.io !== "function") {
   const banner = document.getElementById("connection-banner");
   if (banner) {
     banner.hidden = false;
     banner.textContent = "Keine Verbindung zum Spielserver. Läuft er noch? Dann Seite neu laden.";
   }
-  document.querySelectorAll("#screen-start button").forEach((button) => {
-    button.disabled = true;
-  });
+  document.querySelectorAll("#screen-start button").forEach((button) => { button.disabled = true; });
   throw new Error("socket.io konnte nicht geladen werden — Spielserver nicht erreichbar.");
 }
+
+const MINIGAMES = {
+  bounceArena: BounceArena,
+  finishRush: RunnerDerby,
+  colorEscape: ColorRush,
+  nervenprobe: Nervenprobe,
+  lichtwaechter: RedLightGate,
+  ballonPump: BalloonPump,
+  fassmut: BarrelDare,
+  fassrolle: BarrelRoll,
+  zuendstoff: BombPass,
+  muenzregen: CoinRain,
+  blobklopfe: WhackBlob,
+  seilspringen: RopeSkip,
+  kanonenflug: CannonFly,
+  messerwurf: KnifeThrow,
+  turmbau: TowerStack,
+  bergsteiger: CliffClimb,
+  ballonfahrt: BalloonGlide,
+  sumoschubs: SumoPush,
+  trampolin: Trampoline,
+  falschsignal: FalseSignal,
+  spurmaler: TracePainter,
+  sortierband: SortBelt,
+  leuchtfolge: LightSequence,
+  blitzreflex: FlashReflex,
+  nagelbrett: PegBoard,
+  eisstock: IceStock,
+  tiefenrausch: DeepDig,
+  angelduell: FishDuel,
+  farbenjagd: ColorHunt,
+  spuersinn: SeekGrid,
+  augenmass: SwarmCount
+};
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
@@ -71,12 +95,11 @@ let previousMinigameId = null;
 let resumeInFlight = false;
 
 const SESSION_KEY = "tumblekin-session";
+const devMode = new URLSearchParams(location.search).has("dev");
 
-const board = new BoardGame(document.getElementById("board-canvas-wrap"), feedback);
-if (new URLSearchParams(location.search).has("dev")) {
-  window.__board = board;
-  window.__state = () => currentState;
-}
+const stage = new MenuStage(document.getElementById("app"));
+const request = (event, payload = {}) => network.request(event, { code: currentState?.code, ...payload });
+
 const ui = new UIManager({
   createRoom: async (name) => {
     const response = await network.request("createRoom", { name });
@@ -96,83 +119,35 @@ const ui = new UIManager({
     myPlayerId = null;
     currentState = null;
     stopMinigame();
-    board.setActive(false);
     ui.render(null, null);
   },
-  addTestPlayers: () => network.request("addTestPlayers", { code: currentState?.code }),
-  enableDevMode: () => network.request("enableDevMode", { code: currentState?.code }),
-  selectBoard: (boardId) => network.request("selectBoard", { code: currentState?.code, boardId }),
-  selectMode: (mode) => network.request("selectMode", { code: currentState?.code, mode }),
-  selectSingleGame: (type) => network.request("selectSingleGame", { code: currentState?.code, type }),
-  startGame: () => network.request("startGame", { code: currentState?.code }),
-  startDevMinigame: (type) => network.request("startDevMinigame", { code: currentState?.code, type }),
-  rollDice: () => network.request("rollDice", { code: currentState?.code, playerId: ui.getControlledPlayerId() }),
-  chooseRoute: (route) => network.request("chooseRoute", { code: currentState?.code, route }),
-  restartGame: () => network.request("restartGame", { code: currentState?.code }),
-  readyForNext: () => network.request("readyForNext", { code: currentState?.code }),
-  useItem: (itemId) => network.request("useItem", {
-    code: currentState?.code,
-    playerId: ui.getControlledPlayerId(),
-    itemId
-  })
-}, feedback);
+  addBot: () => request("addBot"),
+  removeBot: (playerId) => request("removeBot", { playerId }),
+  enableDevMode: () => request("enableDevMode"),
+  selectMode: (mode) => request("selectMode", { mode }),
+  updateSettings: (settings) => request("updateSettings", { settings }),
+  startGame: () => request("startGame"),
+  rematch: () => request("rematch"),
+  restartGame: () => request("restartGame"),
+  readyForNext: () => request("readyForNext")
+}, feedback, stage);
+
+// Griff für die Prüfskripte: mit ?dev=1 lassen sich Räume und Spiele direkt
+// über dieselben Ereignisse steuern, die auch die Knöpfe benutzen.
+if (devMode) {
+  window.__tumblekin = {
+    request,
+    state: () => currentState,
+    stage,
+    ui,
+    activeMinigame: () => activeMinigame
+  };
+  window.__state = () => currentState;
+}
 
 network.on("state", handleState);
-network.on("boardMove", (move) => {
-  feedback.sound("roll");
-  feedback.vibrate([25, 30, 45]);
-  ui.showBoardMove(move);
-  board.animateMove(move);
-});
-// An der Kreuzung: der Würfel ist gefallen, aber der Weg ist noch offen. Ein
-// eigener Ton und ein spürbarer Impuls, weil hier eine Entscheidung ansteht und
-// nicht bloss eine Figur weiterläuft.
-network.on("boardJunction", (junction) => {
-  feedback.sound("select");
-  feedback.vibrate([18, 40, 18]);
-  board.focusField?.(junction.at);
-});
-network.on("boardRouteChosen", (choice) => {
-  feedback.sound(choice.saves > 0 ? "whoosh" : "tap");
-});
-network.on("boardLanded", (landing) => {
-  const effect = landing.fieldEffect || {};
-  const gateBonus = landing.gateEffects?.some((gate) => gate.coins > 0);
-  board.showLanding(landing);
-  ui.showFieldResult(landing);
-  // Der Stern ZUERST. Er kostet Münzen, fiel damit in den Zweig "coins < 0" und
-  // wurde wie ein Missgeschick vertont — der beste Moment des ganzen Spiels
-  // klang nach Falle. Er steht ausserdem in einem eigenen Feld der Meldung,
-  // nicht in der Feldwirkung, und wurde hier deshalb überhaupt nicht gelesen.
-  if (landing.starPass?.starGained) {
-    feedback.sound("core");
-    feedback.vibrate([18, 12, 24, 12, 40]);
-  } else if (gateBonus) {
-    feedback.sound("coin");
-    feedback.vibrate([22, 28, 32, 28, 44]);
-  } else if (effect.type === "challenge") {
-    feedback.sound("impact");
-    feedback.vibrate(28);
-  } else if ((effect.coins || 0) > 0) {
-    feedback.sound("coin");
-    feedback.vibrate(16);
-  } else if ((effect.coins || 0) < 0) {
-    feedback.sound("error");
-    feedback.vibrate([24, 20, 24]);
-  } else {
-    feedback.sound("land");
-    feedback.vibrate(12);
-  }
-});
 network.on("minigameUpdate", (update) => {
-  if (activeMinigameId === update.id) {
-    activeMinigame?.handleUpdate(update);
-  }
-});
-network.on("itemUsed", (event) => {
-  feedback.sound(event.blockedBy ? "error" : "lock");
-  feedback.vibrate(event.blockedBy ? [22, 18, 26] : [14, 10, 20]);
-  ui.showToast(event.message || "Item benutzt.");
+  if (activeMinigameId === update.id) activeMinigame?.handleUpdate(update);
 });
 network.on("roomNotice", (notice) => {
   if (notice?.severity === "error") feedback.sound("error");
@@ -185,7 +160,6 @@ network.on("roomClosed", (notice) => {
   forgetSession();
   currentState = null;
   stopMinigame();
-  board.setActive(false);
   ui.render(null, null);
   ui.setConnectionStatus("error", notice?.message || "Der Raum wurde geschlossen.");
 });
@@ -203,12 +177,10 @@ network.on("connect_error", () => {
 
 function handleState(state) {
   const statusChanged = state.status !== previousStatus;
-  if (statusChanged && previousStatus !== null && ["board", "minigame", "result", "end"].includes(state.status)) {
+  if (statusChanged && previousStatus !== null && ["lobby", "minigame", "result", "end"].includes(state.status)) {
     ui.playSceneTransition(state.status);
   }
-  if (statusChanged && state.status === "minigame") board.prepareMinigame();
   currentState = state;
-  board.setActive(state.status === "board" || state.status === "end");
   network.syncClock(state.serverTime);
   if (state.hostConnected === false) {
     ui.setConnectionStatus("warning", "Host-Verbindung verloren. Keine Host-Aktionen möglich.");
@@ -217,22 +189,17 @@ function handleState(state) {
   }
   ui.render(state, myPlayerId);
 
-  if (state.status === "board" || state.status === "end") {
-    board.resize();
-    board.setState(state);
-    if (previousStatus === "result" && state.status === "board") board.returnToBoard();
-  }
-
   if (state.status === "minigame" && state.currentMinigame) {
     startOrUpdateMinigame(state.currentMinigame);
   } else {
     stopMinigame();
   }
 
-  if (state.status !== previousStatus) {
-    if (state.status === "result" || state.status === "end") {
-      feedback.sound("win");
-      feedback.vibrate([40, 40, 80]);
+  if (statusChanged) {
+    if (state.status === "end") {
+      const won = state.winnerIds?.includes(myPlayerId);
+      feedback.sound(won ? "win" : "success");
+      feedback.vibrate(won ? [40, 40, 80, 40, 120] : [30, 30, 40]);
     }
     previousStatus = state.status;
   }
@@ -245,40 +212,7 @@ function startOrUpdateMinigame(minigame) {
   }
 
   stopMinigame();
-  const MinigameClass = {
-    bounceArena: BounceArena,
-    finishRush: RunnerDerby,
-    colorEscape: ColorRush,
-    nervenprobe: Nervenprobe,
-    lichtwaechter: RedLightGate,
-    ballonPump: BalloonPump,
-    fassmut: BarrelDare,
-    fassrolle: BarrelRoll,
-    zuendstoff: BombPass,
-    muenzregen: CoinRain,
-    blobklopfe: WhackBlob,
-    seilspringen: RopeSkip,
-    kanonenflug: CannonFly,
-    messerwurf: KnifeThrow,
-    turmbau: TowerStack,
-    bergsteiger: CliffClimb,
-    ballonfahrt: BalloonGlide,
-    sumoschubs: SumoPush,
-    trampolin: Trampoline,
-    falschsignal: FalseSignal,
-    spurmaler: TracePainter,
-    sortierband: SortBelt,
-    leuchtfolge: LightSequence,
-    blitzreflex: FlashReflex,
-    nagelbrett: PegBoard,
-    eisstock: IceStock,
-    tiefenrausch: DeepDig,
-    angelduell: FishDuel,
-    farbenjagd: ColorHunt,
-    spuersinn: SeekGrid,
-    augenmass: SwarmCount
-  }[minigame.type] || null;
-
+  const MinigameClass = MINIGAMES[minigame.type] || null;
   if (!MinigameClass) return;
   activeMinigameId = minigame.id;
   activeMinigame = new MinigameClass({
@@ -297,7 +231,7 @@ function startOrUpdateMinigame(minigame) {
     previousMinigameId = minigame.id;
   }
   activeMinigame.start(minigame);
-  if (new URLSearchParams(location.search).has("dev")) window.__activeMinigame = activeMinigame;
+  if (devMode) window.__activeMinigame = activeMinigame;
 }
 
 function stopMinigame() {
@@ -308,11 +242,11 @@ function stopMinigame() {
 }
 
 function rememberSession(code, playerId) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId })); } catch (_error) { /* privat */ }
 }
 
 function forgetSession() {
-  sessionStorage.removeItem(SESSION_KEY);
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (_error) { /* privat */ }
 }
 
 function savedSession() {
@@ -347,7 +281,6 @@ async function resumeSession() {
     myPlayerId = null;
     currentState = null;
     stopMinigame();
-    board.setActive(false);
     ui.render(null, null);
     ui.setConnectionStatus("error", error.message || "Die Sitzung konnte nicht wiederhergestellt werden.");
     return false;

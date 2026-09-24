@@ -1,8 +1,9 @@
-const CACHE_NAME = "tumblekin-living-worlds-v100";
+const CACHE_NAME = "tumblekin-v200";
 const CORE_ASSETS = [
   "/",
   "/index.html",
   "/style.css?v=tumblekin200",
+  "/minigames.css?v=tumblekin200",
   "/manifest.json",
   "/assets/icon.svg",
   "/src/main.js?v=tumblekin200"
