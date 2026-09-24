@@ -17,13 +17,22 @@
 import { chromium } from "playwright";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 
 const GAMES = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const ALL = ["bounceArena","finishRush","colorEscape","nervenprobe","lichtwaechter","ballonPump",
-  "fassrolle","zuendstoff","muenzregen","blobklopfe","seilspringen","kanonenflug","messerwurf",
-  "turmbau","bergsteiger","ballonfahrt","sumoschubs","trampolin","falschsignal","spurmaler",
-  "sortierband","leuchtfolge","blitzreflex","nagelbrett","eisstock","tiefenrausch","angelduell",
-  "farbenjagd","spuersinn","augenmass"];
+// Die Liste kommt aus dem Server, nicht von Hand daneben. Die handgepflegte
+// Fassung hier hatte `fassmut` nie enthalten: das Spiel wurde seit seiner
+// Aufnahme nie geprueft, und weil eine kurze Liste einfach kurz durchlaeuft,
+// hat das nichts gemeldet. Ein Pruefer, der schweigend weniger prueft als er
+// vorgibt, ist schlimmer als keiner.
+const require = createRequire(import.meta.url);
+const ALL = require("../server/server.js").testRules.MINIGAMES.map((m) => m.type);
+const unbekannt = GAMES.filter((g) => !ALL.includes(g));
+if (unbekannt.length) {
+  console.error(`Unbekanntes Minispiel: ${unbekannt.join(", ")}`);
+  console.error(`Bekannt sind: ${ALL.join(", ")}`);
+  process.exit(2);
+}
 const liste = GAMES.length ? GAMES : ALL;
 
 // Szenen, in denen die Figur ABSICHTLICH nicht auf dem Boden steht. Ohne diese

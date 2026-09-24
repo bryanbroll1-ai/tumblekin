@@ -11,15 +11,15 @@ import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const ALL_GAMES = [
-  "bounceArena", "finishRush", "colorEscape", "nervenprobe", "lichtwaechter",
-  "ballonPump", "fassmut", "fassrolle", "zuendstoff", "muenzregen", "blobklopfe",
-  "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger",
-  "ballonfahrt", "sumoschubs", "trampolin", "falschsignal", "spurmaler", "sortierband", "leuchtfolge", "blitzreflex", "nagelbrett", "eisstock", "tiefenrausch", "angelduell", "farbenjagd", "spuersinn", "augenmass"
-];
+// Aus dem Server abgeleitet statt daneben gepflegt. Im Schwesterskript
+// scene-check.mjs stand dieselbe Liste von Hand und war eines kuerzer —
+// `fassmut` fehlte, wurde also nie geprueft und niemand hat es gemerkt.
+const ALL_GAMES = createRequire(import.meta.url)("../server/server.js")
+  .testRules.MINIGAMES.map((m) => m.type);
 
 const argv = process.argv.slice(2);
 const headed = argv.includes("--head");
