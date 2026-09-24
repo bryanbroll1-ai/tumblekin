@@ -8,7 +8,7 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "./VoxelKit.js?v=tumblekin126";
+} from "./VoxelKit.js?v=tumblekin200";
 import {
   mountStage,
   mountHud,
@@ -17,8 +17,8 @@ import {
   syncOwnMarker,
   teardownStage,
   dressMeadow
-} from "./SceneKit.js?v=tumblekin126";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin126";
+} from "./SceneKit.js?v=tumblekin200";
+import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
 
 // Trampolin — ein Takt schlägt gleichmässig; tippt man IM Takt, federt der Kin
 // höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie. Der Takt

@@ -7,15 +7,15 @@ import {
   createNameLabel,
   createVoxelKin,
   createCloud
-} from "./VoxelKit.js?v=tumblekin126";
+} from "./VoxelKit.js?v=tumblekin200";
 import {
   mountStage,
   mountHud,
   addStageLights,
   resizeStage,
   teardownStage
-} from "./SceneKit.js?v=tumblekin126";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin126";
+} from "./SceneKit.js?v=tumblekin200";
+import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin200";
 
 // Tiefenrausch — tippen gräbt eine Stufe tiefer, hochwischen zahlt die Beute
 // ein. Tiefer bringt mehr, aber jeder Stollen kann einstürzen, und dann ist

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tumblekin · Figurenlabor</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #9adcf2; font-family: ui-rounded, system-ui, sans-serif; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #bar { position: fixed; left: 8px; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+      #bar button { padding: 8px 10px; border-radius: 10px; border: 0; background: #ffffffd9; font-weight: 800; }
+    </style>
+  </head>
+  <body>
+    <canvas id="lab"></canvas>
+    <div id="bar"></div>
+    <script type="module">
+      import * as THREE from "/vendor/three/three.module.js";
+      import { createKin, KinAnimator, KIN_STATES, createNameLabel, standOn } from "/src/minigames/VoxelKit.js?v=tumblekin200";
+      import { addStageLights } from "/src/minigames/SceneKit.js?v=tumblekin200";
+
+      // Entwicklerseite: alle Zustände der Figur nebeneinander, zum Anschauen und
+      // für Bildvergleiche. ?states=a,b,c zeigt nur diese; ?t=1500 friert die
+      // Uhr auf diese Millisekunde seit Zustandsbeginn ein.
+      const params = new URLSearchParams(location.search);
+      const only = params.get("states")?.split(",").filter(Boolean);
+      const frozen = params.has("t") ? Number(params.get("t")) : null;
+      const states = only?.length ? only : KIN_STATES;
+      const colors = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
+
+      const canvas = document.getElementById("lab");
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.shadowMap.enabled = true;
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color("#9adcf2");
+      addStageLights(scene, { shadow: { left: -14, right: 14, top: 14, bottom: -14 }, shadowMapSize: 2048 });
+      const ground = new THREE.Mesh(new THREE.BoxGeometry(60, 0.2, 60), new THREE.MeshLambertMaterial({ color: "#8fd17d" }));
+      ground.position.y = -0.1;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      const cols = Math.min(states.length, Number(params.get("cols")) || Math.ceil(Math.sqrt(states.length * 1.6)));
+      const gap = Number(params.get("gap")) || 1.25;
+      const rows = Math.ceil(states.length / cols);
+      const entries = states.map((state, index) => {
+        const kin = createKin(colors[index % 4], index);
+        const x = (index % cols - (cols - 1) / 2) * gap;
+        const z = (Math.floor(index / cols) - (rows - 1) / 2) * gap * 1.15;
+        kin.position.set(x, standOn(0), z);
+        const label = createNameLabel(state, colors[index % 4]);
+        label.position.y = 0.72;
+        label.scale.multiplyScalar(0.9);
+        kin.add(label);
+        scene.add(kin);
+        const animator = new KinAnimator(kin);
+        animator.groundY = standOn(0);
+        animator.set(state);
+        return { kin, animator, state };
+      });
+
+      const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 200);
+      function resize() {
+        const w = innerWidth, h = innerHeight;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        const zoom = Number(params.get("zoom")) || 1;
+        const span = (Math.max(cols * gap / camera.aspect, rows * gap * 1.15) + 1.2) / zoom;
+        const height = Number(params.get("camy") ?? 0.45);
+        camera.position.set(0, 0.2 + span * height, span * 1.6);
+        camera.lookAt(0, 0.12, 0);
+        camera.updateProjectionMatrix();
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      // Einmalige Zustände laufen in Schleife, damit man sie sieht.
+      const t0 = performance.now();
+      function loop() {
+        const real = performance.now();
+        entries.forEach((entry) => {
+          const def = entry.animator;
+          const now = frozen !== null ? t0 + frozen : real;
+          if (frozen === null && def.state !== entry.state) def.trigger(entry.state);
+          def.update(now);
+        });
+        renderer.render(scene, camera);
+        if (frozen === null) requestAnimationFrame(loop);
+      }
+      if (frozen !== null) {
+        // Mit fester Uhr: einmal den Zustand anstossen, dann bis t hochzählen,
+        // damit Überblendungen durch sind.
+        entries.forEach((entry) => {
+          entry.animator.trigger(entry.state);
+          for (let ms = 0; ms <= frozen; ms += 16) entry.animator.update(t0 + ms);
+        });
+        renderer.render(scene, camera);
+      } else {
+        loop();
+      }
+      window.__labReady = true;
+
+      const bar = document.getElementById("bar");
+      if (!params.has("nobar")) {
+        KIN_STATES.forEach((state) => {
+          const button = document.createElement("button");
+          button.textContent = state;
+          button.onclick = () => entries.forEach((entry) => { entry.state = state; entry.animator.trigger(state); entry.animator.set(state); });
+          bar.appendChild(button);
+        });
+      }
+    </script>
+  </body>
+</html>
