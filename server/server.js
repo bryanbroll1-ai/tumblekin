@@ -4,7 +4,7 @@ const os = require("os");
 const path = require("path");
 const { Server } = require("socket.io");
 const QRCode = require("qrcode");
-const { BOARD_DEFINITIONS, BOARD_SIZE, getBoard, publicBoard } = require("./boards");
+const modes = require("./modes");
 
 const PORT = Number(process.env.PORT || 3000);
 // Developer tooling (four local players, launching any challenge on demand) is
@@ -13,92 +13,16 @@ const PORT = Number(process.env.PORT || 3000);
 const DEV_TOOLS_ENABLED = process.env.TUMBLEKIN_DEV_TOOLS === "1";
 const APP_VERSION = require("../package.json").version;
 const MAX_PLAYERS = 4;
-const MAX_ROUNDS = 5;
-const ARCADE_MARATHON_ROUNDS = 5;
-const STARTING_COINS = 10;
-const GATE_COIN_BONUS = 5;
-
-// --- Board economy ---------------------------------------------------------
-// Coins are no longer the goal, they are the means: the goal is stars, and the
-// star only ever sits on ONE of the board's star pads. That gives every roll a
-// target ("can I reach it?") and every coin a purpose ("can I afford it?").
-const STAR_PRICE = 20;
-// Der Preis steigt mit jedem verkauften Stern. Bei festem Preis war das
-// Spätspiel flach: wer vorne lag, kaufte einfach weiter, und für alle anderen
-// war die Partie entschieden, lange bevor sie zu Ende war. Jetzt ist der erste
-// Stern billig und jeder weitere teurer — Vorsprung kostet, und ein Rückstand
-// bleibt aufholbar.
-const STAR_PRICE_STEP = 6;
-const STAR_PRICE_MAX = 44;
-
-function starPrice(room) {
-  const sold = room?.starsSold || 0;
-  return Math.min(STAR_PRICE_MAX, STAR_PRICE + sold * STAR_PRICE_STEP);
-}
-const COIN_FIELD_REWARD = 6;
-const NORMAL_FIELD_REWARD = 2;
-const TRAP_FIELD_COST = 8;
-const LUCK_FIELD_STAKE = 10;
-const LUCK_FIELD_WIN = 25;
-const MAX_ITEMS = 3;
-// Final-round bonus stars keep last place playing: nobody is mathematically
-// out until the very end.
-const BONUS_STAR_COINS = 1;
-const BONUS_STAR_WINS = 1;
-
-const GOLD_DICE_MIN = 6;
-const GOLD_DICE_SPAN = 3;              // 6, 7 oder 8
-
-const ITEM_DEFINITIONS = [
-  {
-    id: "doubleDice",
-    name: "Doppelwürfel",
-    icon: "🎲",
-    help: "Zwei Würfel addiert: 2 bis 12. Die einzige Chance auf mehr als acht — dafür kann es auch danebengehen."
-  },
-  {
-    id: "goldDice",
-    name: "Goldwürfel",
-    icon: "✨",
-    help: "Sicher 6, 7 oder 8. Nie mehr, aber auch nie weniger."
-  },
-  {
-    id: "swapBell",
-    name: "Tauschglocke",
-    icon: "🔔",
-    help: "Tauscht deine Position mit dem Spieler, der dem Stern am nächsten ist."
-  },
-  {
-    id: "stickyTrap",
-    name: "Klebefalle",
-    icon: "🍯",
-    help: "Halbiert den nächsten Wurf des Führenden."
-  },
-  {
-    id: "shield",
-    name: "Schutzschild",
-    icon: "🛡️",
-    help: "Blockt die nächste Falle oder fremde Item-Wirkung."
-  }
-];
-
-function itemDefinition(id) {
-  return ITEM_DEFINITIONS.find((item) => item.id === id) || null;
-}
-
-function randomItemId() {
-  return ITEM_DEFINITIONS[Math.floor(Math.random() * ITEM_DEFINITIONS.length)].id;
-}
-const RESULT_HOLD_MS = 6500;
+// Die Ergebnistafel zeigt erst die Runde, dann den Gesamtstand. Wer tippt,
+// meldet sich bereit; sind alle bereit, geht es sofort weiter.
+const RESULT_HOLD_MS = 9000;
 // When a round is decided early (last one standing, everyone finished), the
 // scene keeps playing for this long — winners celebrate on camera — before
 // the scoreboard appears. No more abrupt cuts.
 const MINIGAME_FINALE_MS = 2600;
-const DICE_REVEAL_MS = 700;
-const BOARD_STEP_MS = 250;
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
-const FIELD_TYPES = BOARD_DEFINITIONS[0].fieldTypes;
+const BOT_NAMES = ["Nova", "Pix", "Sol", "Mo", "Kiki", "Rumo", "Flint", "Bea"];
 
 // Der Signalplan von Falschsignal muss genau so lang sein wie die Runde, sonst
 // endet das Spiel mitten in einem Signal oder läuft am Ende leer weiter. Steht
@@ -1182,21 +1106,12 @@ io.on("connection", (socket) => {
     const room = {
       code,
       hostId: player.id,
-      boardId: BOARD_DEFINITIONS[0].id,
-      mode: "board",
-      arcadePlan: [],
-      arcadeRoundIndex: 0,
-      singleType: null,
+      mode: "marathon",
+      settings: modes.defaultSettings(),
+      match: null,
       status: "lobby",
       phase: "lobby",
       players: [player],
-      round: 1,
-      maxRounds: MAX_ROUNDS,
-      starIndex: null,
-      starsSold: 0,
-      pendingJunction: null,
-      bonusStars: [],
-      currentTurnIndex: 0,
       minigameCounter: 0,
       devMode: false,
       currentMinigame: null,
@@ -1204,12 +1119,9 @@ io.on("connection", (socket) => {
       resultEndsAt: null,
       readyForNext: [],
       lastMessage: "Raum erstellt.",
-      lastMove: null,
       winnerIds: [],
       timers: new Set(),
-      botTurnTimer: null,
       minigameTick: null,
-      skipTurnTimer: null,
       cleanupTimer: null
     };
 
@@ -1230,13 +1142,13 @@ io.on("connection", (socket) => {
     const code = normalizeCode(payload?.code);
     const room = rooms.get(code);
     if (!room) return replyError(reply, "Diesen Raum gibt es nicht.");
-    if (room.status !== "lobby") return replyError(reply, "Das Spiel läuft bereits.");
+    if (room.status !== "lobby") return replyError(reply, "Die Partie läuft bereits.");
     if (room.players.length >= MAX_PLAYERS) return replyError(reply, "Der Raum ist voll.");
 
     const player = createPlayer({
       id: socket.id,
       name: payload?.name,
-      color: COLORS[room.players.length % COLORS.length],
+      color: freeColor(room),
       isHost: false,
       controllerId: socket.id
     });
@@ -1288,26 +1200,42 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
+  // Einen Bot dazu. Die Lobby bekommt so genau die Runde, die man will — vorher
+  // gab es nur "auffüllen bis vier", und wer zu zweit gegen EINEN Bot spielen
+  // wollte, konnte das nicht.
+  on("addBot", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann Bots hinzufügen.");
+    if (room.status !== "lobby") return replyError(reply, "Bots gehen nur in der Lobby.");
+    if (room.players.length >= MAX_PLAYERS) return replyError(reply, "Der Raum ist voll.");
+    addBotTo(room);
+    room.lastMessage = "Ein Bot ist dazugekommen.";
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
+  // Auffüllen bis vier — für die Prüfskripte und für alle, die sofort spielen wollen.
   on("addTestPlayers", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann Bots hinzufügen.");
     if (room.status !== "lobby") return replyError(reply, "Bots können nur in der Lobby hinzugefügt werden.");
-
-    const sampleNames = ["Nova", "Pix", "Sol", "Mo"];
-    while (room.players.length < MAX_PLAYERS) {
-      const index = room.players.length;
-      room.players.push(createPlayer({
-        id: `bot_${room.code}_${index}_${Date.now()}`,
-        name: sampleNames[index] || `Bot ${index + 1}`,
-        color: COLORS[index % COLORS.length],
-        isHost: false,
-        isBot: true,
-        controllerId: null
-      }));
-    }
-
+    while (room.players.length < MAX_PLAYERS) addBotTo(room);
     room.lastMessage = "Bots sind der Runde beigetreten.";
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
+  on("removeBot", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann Bots entfernen.");
+    if (room.status !== "lobby") return replyError(reply, "Bots gehen nur in der Lobby.");
+    const bot = room.players.find((candidate) => candidate.id === payload?.playerId && candidate.isBot);
+    if (!bot) return replyError(reply, "Diesen Bot gibt es nicht.");
+    room.players = room.players.filter((candidate) => candidate.id !== bot.id);
+    room.lastMessage = `${bot.name} ist gegangen.`;
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
   });
@@ -1343,44 +1271,24 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  on("selectBoard", (payload, reply) => {
-    const room = findRoomForSocket(socket, payload?.code);
-    if (!room) return replyError(reply, "Kein Raum gefunden.");
-    if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt das Brett.");
-    if (room.status !== "lobby") return replyError(reply, "Das Brett kann nur in der Lobby gewechselt werden.");
-    const board = BOARD_DEFINITIONS.find((candidate) => candidate.id === payload?.boardId);
-    if (!board) return replyError(reply, "Dieses Brett existiert nicht.");
-    room.boardId = board.id;
-    room.lastMessage = `${board.name} wurde gewählt.`;
-    replyOk(reply, room, socket.data.playerId);
-    emitRoom(room);
-  });
-
   on("selectMode", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt den Modus.");
     if (room.status !== "lobby") return replyError(reply, "Der Modus kann nur in der Lobby gewechselt werden.");
-    const mode = payload?.mode === "arcade" ? "arcade" : (payload?.mode === "single" ? "single" : "board");
-    room.mode = mode;
-    room.lastMessage = mode === "arcade"
-      ? "Minispiel-Marathon gewählt: 5 Runden, die meisten Siege gewinnen."
-      : mode === "single"
-        ? "Einzelspiel gewählt: Sucht euch ein Minispiel aus."
-        : "Brettspiel-Modus gewählt.";
+    if (!modes.MODE_IDS.includes(payload?.mode)) return replyError(reply, "Diesen Modus gibt es nicht.");
+    room.mode = payload.mode;
+    room.lastMessage = `${modes.MODE_INFO[room.mode].name}: ${modes.MODE_INFO[room.mode].short}`;
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
   });
 
-  on("selectSingleGame", (payload, reply) => {
+  on("updateSettings", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
-    if (!isHost(socket, room)) return replyError(reply, "Nur der Host wählt das Minispiel.");
-    if (room.status !== "lobby") return replyError(reply, "Das Minispiel kann nur in der Lobby gewechselt werden.");
-    const template = MINIGAMES.find((candidate) => candidate.type === payload?.type);
-    if (!template) return replyError(reply, "Dieses Minispiel existiert nicht.");
-    room.singleType = template.type;
-    room.lastMessage = `${template.title} ausgewählt.`;
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host ändert die Einstellungen.");
+    if (room.status !== "lobby") return replyError(reply, "Einstellungen gehen nur in der Lobby.");
+    room.settings = modes.mergeSettings(room.settings, payload?.settings, MINIGAMES.map((game) => game.type));
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
   });
@@ -1389,56 +1297,14 @@ io.on("connection", (socket) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann starten.");
+    if (room.status !== "lobby" && room.status !== "end") return replyError(reply, "Die Partie läuft schon.");
     if (!room.devMode && room.players.length < 2) {
-      return replyError(reply, "Es braucht mindestens zwei Spieler. Lade jemanden ein oder fülle mit Bots auf.");
+      return replyError(reply, "Es braucht mindestens zwei Spieler. Lade jemanden ein oder hol dir einen Bot dazu.");
     }
 
     startGame(room);
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
-  });
-
-  on("startDevMinigame", (payload, reply) => {
-    const room = findRoomForSocket(socket, payload?.code);
-    if (!room) return replyError(reply, "Kein Raum gefunden.");
-    if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Challenge ist in dieser Version deaktiviert.");
-    if (!isHost(socket, room) || !room.devMode) return replyError(reply, "Diese Aktion gehört zum lokalen Dev-Testmodus.");
-    if (room.status !== "board" || room.phase !== "waitingRoll") {
-      return replyError(reply, "Die nächste Challenge kann erst auf dem ruhenden Board starten.");
-    }
-    startMinigame(room, "Dev-Challenge", "returnBoard", payload?.type);
-    replyOk(reply, room, socket.data.playerId);
-    emitRoom(room);
-  });
-
-
-  on("rollDice", (payload, reply) => {
-    const room = findRoomForSocket(socket, payload?.code);
-    if (!room) return replyError(reply, "Kein Raum gefunden.");
-    const current = getCurrentPlayer(room);
-    if (!current) return replyError(reply, "Kein aktueller Spieler.");
-    if (payload?.playerId && payload.playerId !== current.id) {
-      return replyError(reply, `${current.name} ist am Zug. Wähle diesen Spieler im Dev-Controller.`);
-    }
-    if (!canControl(socket, current)) return replyError(reply, "Du bist gerade nicht am Zug.");
-
-    const result = performRoll(room, current);
-    if (!result.ok) return replyError(reply, result.error || "Würfeln ist gerade nicht möglich.");
-    reply?.({ ok: true, dice: result.dice });
-  });
-
-  on("chooseRoute", (payload, reply) => {
-    const room = findRoomForSocket(socket, payload?.code);
-    if (!room) return replyError(reply, "Kein Raum gefunden.");
-    const pending = room.pendingJunction;
-    if (!pending) return replyError(reply, "Gerade steht keine Wegwahl an.");
-    const player = room.players.find((candidate) => candidate.id === pending.playerId);
-    if (!player) return replyError(reply, "Spieler nicht gefunden.");
-    if (!canControl(socket, player)) return replyError(reply, "Diese Wahl gehört jemand anderem.");
-
-    const result = chooseJunctionRoute(room, player, payload?.route);
-    if (!result.ok) return replyError(reply, result.error || "Diese Wahl geht gerade nicht.");
-    reply?.({ ok: true });
   });
 
   on("minigameInput", (payload, reply) => {
@@ -1455,38 +1321,7 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
-  on("useItem", (payload, reply) => {
-    const room = findRoomForSocket(socket, payload?.code);
-    if (!room) return replyError(reply, "Kein Raum gefunden.");
-    const player = room.players.find((candidate) => candidate.id === payload?.playerId)
-      || room.players.find((candidate) => candidate.id === socket.data.playerId);
-    if (!player) return replyError(reply, "Spieler nicht gefunden.");
-    if (!canControl(socket, player)) return replyError(reply, "Du steuerst diesen Spieler nicht.");
-    // Items are a pre-roll decision: only on your own turn, before you move.
-    if (room.status !== "board" || room.phase !== "waitingRoll") {
-      return replyError(reply, "Items gehen nur vor dem Würfeln.");
-    }
-    if (getCurrentPlayer(room)?.id !== player.id) {
-      return replyError(reply, "Du bist nicht am Zug.");
-    }
-    if (player.pendingItem) return replyError(reply, "Ein Würfel-Item ist schon aktiv.");
-
-    const result = consumeItem(room, player, String(payload?.itemId || ""));
-    if (!result.ok) return replyError(reply, result.error || "Item konnte nicht benutzt werden.");
-
-    room.lastMessage = result.message;
-    io.to(room.code).emit("itemUsed", {
-      playerId: player.id,
-      name: player.name,
-      item: result.item,
-      targetId: result.targetId || null,
-      blockedBy: result.blockedBy || null,
-      message: result.message
-    });
-    emitRoom(room);
-    reply?.({ ok: true });
-  });
-
+  // Zurück in die Lobby: Modus und Auswahl bleiben, der Spielstand nicht.
   on("restartGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
@@ -1496,11 +1331,21 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  // Weiter, wenn alle es eilig haben. Die Ergebnistafel steht 6.5 Sekunden, die
-  // Auflösung selbst dauert bei vier Personen aber nur 2.5 — danach schaut die
-  // Runde vier Sekunden lang auf ein Bild, in dem nichts mehr passiert. Wer
-  // tippt, meldet sich bereit; sind alle bereit, geht es sofort weiter. Ein
-  // einzelner Ungeduldiger kann damit niemanden überfahren.
+  // Revanche: dieselbe Partie noch einmal, ohne den Umweg über die Lobby.
+  on("rematch", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host startet die Revanche.");
+    if (room.status !== "end") return replyError(reply, "Revanche gibt es erst nach dem Ende.");
+    if (!room.devMode && room.players.length < 2) return replyError(reply, "Es braucht mindestens zwei Spieler.");
+    startGame(room);
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
+  // Weiter, wenn alle es eilig haben. Wer tippt, meldet sich bereit; sind alle
+  // bereit, geht es sofort weiter. Ein einzelner Ungeduldiger kann damit
+  // niemanden überfahren.
   on("readyForNext", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
     if (!room) return replyError(reply, "Kein Raum gefunden.");
@@ -1539,676 +1384,87 @@ function createPlayer({ id, name, color, isHost = false, isBot = false, isLocalD
     isLocalDev,
     controllerId,
     connected: true,
-    coins: STARTING_COINS,
-    stars: 0,
-    items: [],
-    shielded: false,
-    // Halves the next roll (Klebefalle). Kept separate from nextRollPenalty so
-    // a flat penalty and a halving can never silently overwrite each other.
-    nextRollHalved: false,
-    pendingItem: null,
+    // Partie
+    points: 0,
     wins: 0,
-    position: 0,
-    diceValue: null,
-    nextRollBoost: 0,
-    nextRollPenalty: 0,
+    lives: 0,
+    out: false,
+    lastPlace: null,
+    lastPoints: 0,
+    // Über Partien hinweg: gewonnene Partien in dieser Sitzung.
+    sessionWins: 0,
     minigameScore: 0
   };
 }
 
-// Resets everything the board economy tracks. Used on game start and restart so
-// a rematch never inherits stars, items or pending item effects.
-function resetBoardProgress(player) {
-  player.coins = STARTING_COINS;
-  player.stars = 0;
-  player.items = [];
-  player.shielded = false;
-  player.nextRollHalved = false;
-  player.pendingItem = null;
-  player.nextRollBoost = 0;
-  player.nextRollPenalty = 0;
-  player.position = 0;
-  player.diceValue = null;
+// Die erste Farbe, die noch niemand trägt. Nach dem Index vergeben bekamen
+// zwei Leute dieselbe, sobald jemand aus der Mitte gegangen war.
+function freeColor(room) {
+  const used = new Set(room.players.map((player) => player.color));
+  return COLORS.find((color) => !used.has(color)) || COLORS[room.players.length % COLORS.length];
 }
 
-// How far ahead of the pack a freshly lit star pad may sit. A player rolls
-// about 3.5 per turn, so this window is roughly "two to four turns away":
-// close enough to race for, far enough that it is not free.
-const STAR_REACH_MIN = 2;
-const STAR_REACH_MAX = 14;
-
-// The lit star pad. Two rules matter here, and both were learned from watching
-// a full match play out:
-//   1. It must MOVE after a sale, or the board has a static target.
-//   2. It must be REACHABLE. Picking uniformly at random left the star sitting
-//      on a pad the pack could never reach within the round limit, which made
-//      the whole star economy dead weight for an entire game.
-function moveStarPad(room, { avoid = null } = {}) {
-  const board = getBoard(room.boardId);
-  const pads = board.starPads || [];
-  if (!pads.length) {
-    room.starIndex = null;
-    return null;
-  }
-  const size = board.fieldTypes.length;
-  const candidates = pads.filter((pad) => pad !== avoid);
-  const pool = candidates.length ? candidates : pads;
-
-  // Measure from the player who is furthest back, so a trailing player always
-  // has a shot at the star too.
-  const positions = (room.players || []).map((player) => player.position || 0);
-  const anchor = positions.length ? Math.min(...positions) : 0;
-  const reachable = pool.filter((pad) => {
-    const distance = (pad - anchor + size) % size;
-    return distance >= STAR_REACH_MIN && distance <= STAR_REACH_MAX;
+function addBotTo(room) {
+  const used = new Set(room.players.map((player) => player.name));
+  const name = BOT_NAMES.find((candidate) => !used.has(candidate)) || `Bot ${room.players.length + 1}`;
+  const bot = createPlayer({
+    id: `bot_${room.code}_${room.players.length}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    name,
+    color: freeColor(room),
+    isHost: false,
+    isBot: true,
+    controllerId: null
   });
-
-  const finalPool = reachable.length ? reachable : pool;
-  room.starIndex = finalPool[Math.floor(Math.random() * finalPool.length)];
-  return room.starIndex;
+  room.players.push(bot);
+  return bot;
 }
 
 function startGame(room) {
   clearRoomTimers(room);
-  room.round = 1;
-  room.currentTurnIndex = 0;
   room.lastMinigameResult = null;
-  room.lastMove = null;
   room.winnerIds = [];
   room.resultEndsAt = null;
-  room.players.forEach((player, index) => {
+  room.readyForNext = [];
+  room.players.forEach((player) => {
     player.isHost = player.id === room.hostId;
-    resetBoardProgress(player);
-    // Single mode keeps the lobby tally running across games.
-    if (room.mode === "single") {
-      player.coins = STARTING_COINS;
-    } else {
-      player.wins = 0;
-    }
     player.minigameScore = 0;
-    player.color = COLORS[index % COLORS.length];
   });
-
-  if (room.mode === "arcade") {
-    // Minigame marathon: a shuffled plan of rounds, most round wins take it.
-    room.arcadePlan = buildArcadePlan(ARCADE_MARATHON_ROUNDS);
-    room.arcadeRoundIndex = 0;
-    startMinigame(room, `Runde 1 von ${room.arcadePlan.length}`, "nextArcadeRound", room.arcadePlan[0]);
-    return;
-  }
-
-  if (room.mode === "single") {
-    // One chosen minigame, then back to the lobby — wins keep adding up.
-    const type = room.singleType || buildArcadePlan(1)[0];
-    startMinigame(room, "Einzelspiel", "returnLobby", type);
-    return;
-  }
-
-  room.status = "board";
-  room.phase = "waitingRoll";
-  room.bonusStars = [];
-  // Light the first star pad — the board needs a visible target from turn one.
-  moveStarPad(room);
-  room.lastMessage = `${getBoard(room.boardId).name} erwacht. Der Stern leuchtet!`;
+  room.match = modes.createMatch(room.mode, room.settings, room.players, MINIGAMES.map((game) => game.type));
+  startNextRound(room);
 }
 
-// A shuffled selection of distinct minigames for the marathon mode.
-function buildArcadePlan(rounds) {
-  const pool = MINIGAMES.map((game) => game.type);
-  for (let i = pool.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+function startNextRound(room) {
+  const type = modes.nextGame(room.match);
+  if (!type) {
+    finishGame(room, modes.matchOutcome(room.match, room.players).winnerIds);
+    return;
   }
-  return pool.slice(0, Math.min(rounds, pool.length));
+  startMinigame(room, modes.roundLabel(room.match), type);
 }
 
 function resetToLobby(room) {
   clearRoomTimers(room);
   room.status = "lobby";
   room.phase = "lobby";
-  room.round = 1;
-  room.currentTurnIndex = 0;
   room.currentMinigame = null;
   room.lastMinigameResult = null;
-  room.lastMove = null;
   room.winnerIds = [];
   room.resultEndsAt = null;
+  room.readyForNext = [];
+  room.match = null;
   room.lastMessage = "Zurück in der Lobby.";
-  room.arcadePlan = [];
-  room.arcadeRoundIndex = 0;
-  room.players.forEach((player, index) => {
-    resetBoardProgress(player);
+  room.players.forEach((player) => {
+    player.points = 0;
     player.wins = 0;
+    player.lives = 0;
+    player.out = false;
+    player.lastPlace = null;
+    player.lastPoints = 0;
     player.minigameScore = 0;
-    player.color = COLORS[index % COLORS.length];
   });
 }
 
-function performRoll(room, player) {
-  if (room.status !== "board" || room.phase !== "waitingRoll") {
-    return { ok: false, error: "Das Board ist gerade beschäftigt." };
-  }
-  if (player.connected === false) {
-    return { ok: false, error: "Dieser Spieler ist offline." };
-  }
-  if (getCurrentPlayer(room)?.id !== player.id) {
-    return { ok: false, error: "Dieser Spieler ist nicht am Zug." };
-  }
-
-  room.phase = "moving";
-  // Item effects resolve here so the roll itself stays the single source of
-  // truth for how far a player moves.
-  const pending = player.pendingItem;
-  player.pendingItem = null;
-  let baseDice;
-  let diceNote = null;
-  if (pending === "doubleDice") {
-    baseDice = (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6));
-    diceNote = "Doppelwürfel";
-  } else if (pending === "goldDice") {
-    // 6–8, nicht 7–9. Mit 7–9 war der Goldwürfel dem Doppelwürfel bei JEDER
-    // Sternentfernung überlegen, die einer von beiden überhaupt schafft: höherer
-    // Schnitt (8 statt 7), höherer Boden (7 statt 2) und selbst bei neun Feldern
-    // noch die bessere Chance (33 % gegen 28 %). Eines von fünf Items war damit
-    // Ausschuss.
-    //
-    // Bei 6–8 haben beide den Schnitt 7 und tauschen bei acht Feldern die
-    // Rollen: bis sieben ist der Goldwürfel sicherer, ab acht ist der
-    // Doppelwürfel die einzige Chance. Das ist eine echte Wahl.
-    baseDice = GOLD_DICE_MIN + Math.floor(Math.random() * GOLD_DICE_SPAN);
-    diceNote = "Goldwürfel";
-  } else {
-    baseDice = 1 + Math.floor(Math.random() * 6);
-  }
-  const boost = player.nextRollBoost || 0;
-  const penalty = player.nextRollPenalty || 0;
-  player.nextRollBoost = 0;
-  player.nextRollPenalty = 0;
-  let dice = clamp(baseDice + boost - penalty, 1, 12);
-  if (player.nextRollHalved) {
-    player.nextRollHalved = false;
-    dice = Math.max(1, Math.floor(dice / 2));
-    diceNote = diceNote ? `${diceNote}, halbiert` : "halbiert";
-  }
-  const board = getBoard(room.boardId);
-  player.diceValue = dice;
-  room.lastMessage = `${player.name} zieht ${dice} Felder.`;
-
-  const timer = walkLeg(room, player, board, {
-    from: player.position,
-    steps: dice,
-    route: 0,
-    walked: [],
-    diceNote,
-    diceDelayMs: DICE_REVEAL_MS,
-    headline: `${player.name} würfelt ${formatDiceRoll(baseDice, boost, penalty, dice)}${diceNote ? ` (${diceNote})` : ""}.`,
-    dice
-  });
-
-  return { ok: true, dice, timer };
-}
-
-// Eine Etappe: laufen, bis die Schritte alle sind ODER eine Kreuzung kommt.
-// Ein Zug kann so aus mehreren Etappen bestehen — deshalb trägt `walked` alle
-// bisher gelaufenen Felder mit, denn Tore und der Sternplatz zählen über den
-// GANZEN Zug, nicht je Etappe.
-function walkLeg(room, player, board, leg) {
-  const { path, pendingAt, remaining } = buildBoardPath(board, leg.from, leg.steps, leg.route);
-  const to = path[path.length - 1];
-  const walked = [...leg.walked, ...path];
-  const movementDurationMs = Math.max(BOARD_STEP_MS, path.length * BOARD_STEP_MS);
-  const move = {
-    boardId: board.id,
-    playerId: player.id,
-    from: leg.from,
-    to,
-    path,
-    dice: leg.dice,
-    fieldType: board.fieldTypes[to],
-    diceDelayMs: leg.diceDelayMs,
-    stepDurationMs: BOARD_STEP_MS,
-    movementDurationMs,
-    durationMs: leg.diceDelayMs + movementDurationMs,
-    diceNote: leg.diceNote,
-    atJunction: pendingAt !== null,
-    message: leg.headline
-  };
-  room.lastMove = move;
-  io.to(room.code).emit("boardMove", move);
-  emitRoom(room);
-
-  return setTrackedTimeout(room, () => {
-    if (room.status !== "board" || room.phase !== "moving") return;
-    player.position = to;
-
-    if (pendingAt !== null) {
-      // Die Wahl gehört der Person, nicht dem Würfel: hier wird angehalten.
-      const options = junctionOptions(board, pendingAt);
-      room.phase = "junction";
-      room.pendingJunction = {
-        playerId: player.id, at: pendingAt, remaining, options,
-        walked, dice: leg.dice, diceNote: leg.diceNote
-      };
-      room.lastMessage = `${player.name} steht an der Kreuzung — welcher Weg?`;
-      io.to(room.code).emit("boardJunction", { ...room.pendingJunction, playerName: player.name });
-      emitRoom(room);
-      if (player.isBot) {
-        setTrackedTimeout(room, () => chooseJunctionRoute(room, player, botJunctionChoice(room, player, board)), 900);
-      }
-      return;
-    }
-
-    finishMove(room, player, board, move, walked);
-  }, move.durationMs);
-}
-
-// Ankommen: Tore, Stern im Vorbeigehen, Feldwirkung — alles über den ganzen Zug.
-function finishMove(room, player, board, move, walked) {
-  const fieldType = board.fieldTypes[move.to];
-  const gateEffects = resolveGateRewards(player, walked, board);
-  const starPass = resolveStarPurchase(player, walked, room);
-  const fieldEffect = applyFieldEffect(player, fieldType, room);
-  const messages = [
-    ...gateEffects.map((effect) => effect.message),
-    starPass?.message,
-    fieldEffect.message
-  ].filter(Boolean);
-  const landing = { ...move, path: walked, fieldEffect, gateEffects, starPass, message: messages.join(" ") };
-  room.lastMove = landing;
-  room.phase = "fieldResult";
-  room.lastMessage = landing.message;
-  io.to(room.code).emit("boardLanded", landing);
-  emitRoom(room);
-  setTrackedTimeout(room, () => {
-    if (room.status !== "board" || room.phase !== "fieldResult") return;
-    if (fieldType === "challenge") {
-      startMinigame(room, "Challenge-Feld", "advanceTurn");
-      emitRoom(room);
-      return;
-    }
-    advanceTurn(room);
-  }, 950);
-}
-
-// Die getroffene Wahl ausführen und die restlichen Schritte gehen.
-function chooseJunctionRoute(room, player, route) {
-  const pending = room.pendingJunction;
-  if (!pending || room.phase !== "junction") return { ok: false, error: "Gerade steht keine Wegwahl an." };
-  if (pending.playerId !== player.id) return { ok: false, error: "Diese Wahl gehört jemand anderem." };
-  const board = getBoard(room.boardId);
-  const picked = clamp(Math.round(Number(route) || 0), 0, (pending.options.length || 1) - 1);
-  const choice = pending.options[picked];
-  room.pendingJunction = null;
-  room.phase = "moving";
-  room.lastMessage = `${player.name} nimmt ${choice.label}.`;
-  io.to(room.code).emit("boardRouteChosen", { playerId: player.id, ...choice });
-  walkLeg(room, player, board, {
-    from: pending.at,
-    steps: pending.remaining,
-    route: picked,
-    walked: pending.walked,
-    diceNote: pending.diceNote,
-    // Der Würfel wurde schon gezeigt; die zweite Etappe läuft ohne neue Pause an.
-    diceDelayMs: 0,
-    headline: `${player.name} nimmt ${choice.label}.`,
-    dice: pending.dice
-  });
-  return { ok: true };
-}
-
-// Bots entscheiden nach dem, was zählt: Wer den Stern bezahlen kann, nimmt den
-// kürzeren Weg dorthin. Wer ihn nicht bezahlen kann, meidet die Fallen und
-// sammelt lieber auf dem Ring.
-function botJunctionChoice(room, player, board) {
-  const options = room.pendingJunction?.options || [];
-  if (options.length < 2) return 0;
-  const lit = room.starIndex;
-  const size = board.fieldTypes.length;
-  const canAffordStar = player.coins >= starPrice(room);
-  let best = 0;
-  let bestValue = -Infinity;
-  options.forEach((option, index) => {
-    const traps = option.fields.filter((type) => type === "trap").length;
-    const coins = option.fields.filter((type) => type === "coin").length;
-    // Näher am Stern zu sein ist nur etwas wert, wenn man ihn auch zahlen kann.
-    const distance = lit === null || lit === undefined
-      ? 0
-      : (lit - option.next + size) % size;
-    const value = (canAffordStar ? option.saves * 2.2 - distance * 0.12 : 0)
-      + coins * 1.1 - traps * (canAffordStar ? 0.7 : 1.6);
-    if (value > bestValue) { bestValue = value; best = index; }
-  });
-  return best;
-}
-
-// One simple loop forward — no shortcut branches.
-// Läuft `steps` Felder weiter und HÄLT AN, sobald das Feld unter dem Kin mehr
-// als einen Weg anbietet und noch Schritte übrig sind. Vorher nahm die Funktion
-// stumm `routes[cursor][0]` — mit dem Ring von damals war das dasselbe, mit
-// Abzweigungen wäre die zweite Route für immer unerreichbar geblieben.
-//
-// `pendingAt` ist die Kreuzung, `remaining` die Schritte, die nach der Wahl noch
-// zu gehen sind. Ohne Kreuzung ist beides null und das Ergebnis genau wie früher.
-function buildBoardPath(board, from, steps, preferredRoute = 0) {
-  const path = [];
-  let cursor = from;
-  let route = preferredRoute;
-  for (let step = 1; step <= steps; step += 1) {
-    const options = board.routes[cursor];
-    const next = options?.[Math.min(route, (options.length || 1) - 1)]
-      ?? (cursor + 1) % board.fieldTypes.length;
-    route = 0;                                  // die Vorwahl gilt nur für den ersten Schritt
-    path.push(next);
-    cursor = next;
-    const ahead = board.routes[cursor];
-    if (ahead && ahead.length > 1 && step < steps) {
-      return { path, pendingAt: cursor, remaining: steps - step };
-    }
-  }
-  return { path, pendingAt: null, remaining: 0 };
-}
-
-// Die Kreuzung als Angebot: was liegt auf jedem Weg, und was spart er?
-function junctionOptions(board, fieldIndex) {
-  const options = board.routes[fieldIndex] || [];
-  return options.map((next, routeIndex) => {
-    const branch = board.branches?.find((entry) => entry.from === fieldIndex && entry.fields[0] === next);
-    // Auch für den Hauptweg zeigen, was kommt — sonst stünden dort Platzhalter,
-    // und die Wahl wäre einseitig belegt: nur eine Seite verriete ihren Inhalt.
-    const preview = [];
-    if (branch) {
-      branch.fields.forEach((index) => preview.push(board.fieldTypes[index]));
-    } else {
-      let cursor = next;
-      for (let step = 0; step < 3; step += 1) {
-        preview.push(board.fieldTypes[cursor]);
-        cursor = board.routes[cursor]?.[0] ?? cursor;
-      }
-    }
-    return {
-      route: routeIndex,
-      next,
-      label: branch ? branch.label : "Hauptweg",
-      hint: branch ? branch.hint : "ruhig, aber der lange Bogen",
-      saves: branch ? branch.saves : 0,
-      fields: preview
-    };
-  });
-}
-
-// Buying the star by LANDING exactly on the lit pad turned out to be nearly
-// unreachable: five rolls per player cover ~17 of 32 fields, so a whole match
-// could pass without a single star changing hands. Passing over the lit pad
-// buys it too, which makes the star a real target and gives the dice-boosting
-// items an obvious purpose.
-function resolveStarPurchase(player, pathSteps, room) {
-  if (!room) return null;
-  const lit = room.starIndex;
-  if (lit === null || lit === undefined) return null;
-  // The landing field is handled by applyFieldEffect, so only look at the
-  // fields genuinely passed through.
-  const passed = pathSteps.slice(0, -1);
-  if (!passed.includes(lit)) return null;
-  const price = starPrice(room);
-  if (player.coins < price) {
-    return {
-      type: "starPass",
-      fieldIndex: lit,
-      coins: 0,
-      affordable: false,
-      price,
-      message: `Am Stern vorbei — ${price} Münzen nötig, du hast ${player.coins}.`
-    };
-  }
-  player.coins -= price;
-  player.stars += 1;
-  room.starsSold = (room.starsSold || 0) + 1;
-  const movedTo = moveStarPad(room, { avoid: lit });
-  return {
-    type: "starPass",
-    fieldIndex: lit,
-    coins: -price,
-    affordable: true,
-    price,
-    starGained: true,
-    starMovedTo: movedTo,
-    nextPrice: starPrice(room),
-    message: `⭐ Im Vorbeigehen einen Stern geschnappt! (-${price} Münzen) Der nächste kostet ${starPrice(room)}.`
-  };
-}
-
-function resolveGateRewards(player, pathSteps, board = BOARD_DEFINITIONS[0]) {
-  return pathSteps
-    .filter((fieldIndex) => board.fieldTypes[fieldIndex] === "gate")
-    .map((fieldIndex) => {
-      const bandName = board.zones[Math.floor(fieldIndex / 8)] || "Band";
-      player.coins += GATE_COIN_BONUS;
-      return {
-        type: "gate",
-        fieldIndex,
-        coins: GATE_COIN_BONUS,
-        message: `${bandName}-Tor: +${GATE_COIN_BONUS} Münzen.`
-      };
-    });
-}
-
-// Resolves what landing on a field does. `room` is optional so the pure coin
-// fields stay unit-testable without a room; star fields need it for the pad.
-function applyFieldEffect(player, fieldType, room = null) {
-  if (fieldType === "normal" || fieldType === "start") {
-    player.coins += NORMAL_FIELD_REWARD;
-    return { type: fieldType, coins: NORMAL_FIELD_REWARD, message: `+${NORMAL_FIELD_REWARD} Münzen.` };
-  }
-
-  if (fieldType === "coin") {
-    player.coins += COIN_FIELD_REWARD;
-    return { type: fieldType, coins: COIN_FIELD_REWARD, message: `Münzader: +${COIN_FIELD_REWARD} Münzen!` };
-  }
-
-  if (fieldType === "item") {
-    if (player.items.length >= MAX_ITEMS) {
-      player.coins += NORMAL_FIELD_REWARD;
-      return {
-        type: fieldType,
-        coins: NORMAL_FIELD_REWARD,
-        message: `Hände voll — dafür +${NORMAL_FIELD_REWARD} Münzen.`
-      };
-    }
-    const id = randomItemId();
-    player.items.push(id);
-    const item = itemDefinition(id);
-    return { type: fieldType, coins: 0, item: id, message: `${item.icon} ${item.name} erhalten!` };
-  }
-
-  if (fieldType === "trap") {
-    if (player.shielded) {
-      player.shielded = false;
-      return { type: fieldType, coins: 0, blocked: true, message: "🛡️ Schild hält die Falle ab!" };
-    }
-    const lost = Math.min(TRAP_FIELD_COST, player.coins);
-    player.coins -= lost;
-    return { type: fieldType, coins: -lost, message: lost ? `Falle! -${lost} Münzen.` : "Falle – aber die Taschen sind leer." };
-  }
-
-  if (fieldType === "luck") {
-    // Risk/reward: you only gamble what you can cover, and losing still leaves
-    // you on the board — the swing should sting, not eliminate.
-    if (player.coins < LUCK_FIELD_STAKE) {
-      player.coins += NORMAL_FIELD_REWARD;
-      return {
-        type: fieldType,
-        coins: NORMAL_FIELD_REWARD,
-        message: `Zu wenig Einsatz — dafür +${NORMAL_FIELD_REWARD} Münzen.`
-      };
-    }
-    const won = Math.random() < 0.5;
-    if (won) {
-      player.coins += LUCK_FIELD_WIN;
-      return { type: fieldType, coins: LUCK_FIELD_WIN, gamble: "win", message: `Glückstreffer! +${LUCK_FIELD_WIN} Münzen!` };
-    }
-    player.coins -= LUCK_FIELD_STAKE;
-    return { type: fieldType, coins: -LUCK_FIELD_STAKE, gamble: "loss", message: `Danebengesetzt: -${LUCK_FIELD_STAKE} Münzen.` };
-  }
-
-  if (fieldType === "star") {
-    const lit = room ? room.starIndex === player.position : false;
-    if (!lit) {
-      player.coins += NORMAL_FIELD_REWARD;
-      return {
-        type: fieldType,
-        coins: NORMAL_FIELD_REWARD,
-        starLit: false,
-        message: `Sternenpodest ist dunkel — +${NORMAL_FIELD_REWARD} Münzen.`
-      };
-    }
-    const price = starPrice(room);
-    if (player.coins < price) {
-      return {
-        type: fieldType,
-        coins: 0,
-        starLit: true,
-        starAffordable: false,
-        price,
-        message: `Ein Stern kostet ${price} Münzen — dir fehlen ${price - player.coins}.`
-      };
-    }
-    player.coins -= price;
-    player.stars += 1;
-    if (room) room.starsSold = (room.starsSold || 0) + 1;
-    const from = player.position;
-    const to = room ? moveStarPad(room, { avoid: from }) : null;
-    return {
-      type: fieldType,
-      coins: -price,
-      starLit: true,
-      starAffordable: true,
-      starGained: true,
-      starMovedTo: to,
-      price,
-      nextPrice: starPrice(room),
-      message: `⭐ Stern gekauft! (-${price} Münzen) Der nächste kostet ${starPrice(room)}.`
-    };
-  }
-
-  if (fieldType === "gate") {
-    return { type: fieldType, coins: 0, message: "" };
-  }
-  return { type: "challenge", coins: 0, message: "Challenge-Feld: Ein Minispiel startet." };
-}
-
-// --- Items -----------------------------------------------------------------
-// Items are spent BEFORE rolling, which is where the board's only real
-// decisions live: hoard for the star run, or spend now to block a rival?
-function consumeItem(room, player, itemId) {
-  const slot = player.items.indexOf(itemId);
-  if (slot === -1) return { ok: false, error: "Dieses Item hast du nicht." };
-  const definition = itemDefinition(itemId);
-  if (!definition) return { ok: false, error: "Unbekanntes Item." };
-
-  const rivals = room.players.filter((candidate) => candidate.id !== player.id);
-
-  if (itemId === "doubleDice") {
-    player.pendingItem = "doubleDice";
-  } else if (itemId === "goldDice") {
-    player.pendingItem = "goldDice";
-  } else if (itemId === "shield") {
-    player.shielded = true;
-  } else if (itemId === "swapBell") {
-    // Swap with whoever is closest to the lit star — the aggressive play.
-    const target = nearestToStar(room, rivals);
-    if (!target) return { ok: false, error: "Kein Gegner zum Tauschen." };
-    if (target.shielded) {
-      target.shielded = false;
-      player.items.splice(slot, 1);
-      return {
-        ok: true,
-        item: itemId,
-        blockedBy: target.id,
-        message: `${definition.icon} ${target.name} blockt den Tausch mit dem Schild!`
-      };
-    }
-    const mine = player.position;
-    player.position = target.position;
-    target.position = mine;
-    player.items.splice(slot, 1);
-    return {
-      ok: true,
-      item: itemId,
-      targetId: target.id,
-      message: `${definition.icon} Platztausch mit ${target.name}!`
-    };
-  } else if (itemId === "stickyTrap") {
-    const target = standingsLeader(rivals);
-    if (!target) return { ok: false, error: "Kein Gegner zum Bremsen." };
-    if (target.shielded) {
-      target.shielded = false;
-      player.items.splice(slot, 1);
-      return {
-        ok: true,
-        item: itemId,
-        blockedBy: target.id,
-        message: `${definition.icon} ${target.name} blockt die Klebefalle!`
-      };
-    }
-    target.nextRollHalved = true;
-    player.items.splice(slot, 1);
-    return {
-      ok: true,
-      item: itemId,
-      targetId: target.id,
-      message: `${definition.icon} ${target.name} klebt fest — nächster Wurf halbiert.`
-    };
-  }
-
-  player.items.splice(slot, 1);
-  return { ok: true, item: itemId, message: `${definition.icon} ${definition.name} aktiviert.` };
-}
-
-// Closest rival to the lit star, measured forward along the loop.
-function nearestToStar(room, candidates) {
-  if (room.starIndex === null || room.starIndex === undefined) return standingsLeader(candidates);
-  const size = getBoard(room.boardId).fieldTypes.length;
-  let best = null;
-  let bestDistance = Infinity;
-  candidates.forEach((candidate) => {
-    const distance = (room.starIndex - candidate.position + size) % size;
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = candidate;
-    }
-  });
-  return best;
-}
-
-// The player currently ahead on the overall standing (stars, then coins).
-function standingsLeader(candidates) {
-  return [...candidates].sort(compareStanding)[0] || null;
-}
-
-function formatDiceRoll(baseDice, boost, penalty, result) {
-  if (!boost && !penalty) return `eine ${result}`;
-  const boostPart = boost ? `+${boost}` : "";
-  const penaltyPart = penalty ? `-${penalty}` : "";
-  return `${baseDice}${boostPart}${penaltyPart} = ${result}`;
-}
-
-function advanceTurn(room) {
-  if (room.status !== "board") return;
-
-  room.phase = "waitingRoll";
-  const lastIndex = room.players.length - 1;
-  if (room.currentTurnIndex >= lastIndex) {
-    startMinigame(room, "Runden-Minispiel", "completeRound");
-    emitRoom(room);
-    return;
-  }
-
-  room.currentTurnIndex += 1;
-  room.lastMessage = `${getCurrentPlayer(room)?.name || "Nächster Spieler"} ist am Zug.`;
-  emitRoom(room);
-}
-
-function startMinigame(room, reason, afterAction, forcedType = null) {
+function startMinigame(room, reason, forcedType = null) {
   clearRoomTimers(room);
 
   const template = MINIGAMES.find((minigame) => minigame.type === forcedType)
@@ -2216,9 +1472,8 @@ function startMinigame(room, reason, afterAction, forcedType = null) {
   room.minigameCounter += 1;
   room.status = "minigame";
   room.phase = "playingMinigame";
-  room.lastMove = null;
   room.lastMinigameResult = null;
-  room.afterMinigameAction = afterAction;
+  room.readyForNext = [];
 
   const now = Date.now();
   const countdownMs = template.countdownMs || 4200;
@@ -2230,38 +1485,18 @@ function startMinigame(room, reason, afterAction, forcedType = null) {
     startedAt: now + countdownMs,
     duration: template.duration,
     scores: {},
-    stopped: {},
-    lanes: {},
-    hits: {},
     arena: {},
-    flux: {},
-    canopy: {},
     arcade: null,
-    blocks: [],
-    resolvedBlocks: {},
     lastInputAt: {}
   };
 
   room.players.forEach((player) => {
     minigame.scores[player.id] = 0;
-    minigame.stopped[player.id] = false;
-    minigame.lanes[player.id] = 2;
-    minigame.hits[player.id] = 0;
     player.minigameScore = 0;
   });
 
-  if (template.type === "dodgeBlocks") {
-    minigame.blocks = createDodgeBlocks(template.duration);
-  }
   if (template.type === "bounceArena") {
     minigame.arena = createArenaState(room.players, minigame.startedAt);
-  }
-  if (template.type === "fluxFloor") {
-    minigame.flux = createFluxState(room.players, minigame.startedAt);
-    refreshFluxScores(room);
-  }
-  if (template.type === "canopyClimb") {
-    minigame.canopy = createCanopyState(room.players, minigame.startedAt);
   }
   if (template.arcadeFamily) {
     minigame.arcade = createArcadeState(template.type, room.players, minigame.startedAt);
@@ -2272,10 +1507,7 @@ function startMinigame(room, reason, afterAction, forcedType = null) {
 
   scheduleBotMinigameInputs(room);
   room.minigameTick = setInterval(() => {
-    updateDodgeMinigame(room);
     updateBounceArena(room);
-    updateFluxFloor(room);
-    updateCanopyClimb(room);
     updateArcade(room);
     // Finale window elapsed → now actually finish and show the scoreboard.
     const current = room.currentMinigame;
@@ -2308,53 +1540,9 @@ function handleMinigameInput(room, player, rawInput) {
     return { ok: false, error: "Das Minispiel ist vorbei." };
   }
 
-  if (minigame.type === "timingStop") {
-    if (input.action !== "stop") return { ok: false, error: "Ungültiger Timing-Input." };
-    if (minigame.stopped[player.id]) return { ok: true };
-    const score = computeTimingScore(minigame, now);
-    minigame.scores[player.id] = score;
-    minigame.stopped[player.id] = true;
-    player.minigameScore = score;
-    emitMinigameUpdate(room);
-    if (room.players.every((candidate) => minigame.stopped[candidate.id])) {
-      finishMinigame(room);
-    }
-    return { ok: true };
-  }
-
-  if (minigame.type === "dodgeBlocks") {
-    if (input.action !== "left" && input.action !== "right") {
-      return { ok: false, error: "Ungültiger Dodge-Input." };
-    }
-    const last = minigame.lastInputAt[player.id] || 0;
-    if (now - last < 90) return { ok: true };
-    minigame.lastInputAt[player.id] = now;
-    const lane = minigame.lanes[player.id] ?? 2;
-    minigame.lanes[player.id] = clamp(lane + (input.action === "left" ? -1 : 1), 0, 4);
-    emitMinigameUpdate(room);
-    return { ok: true };
-  }
-
   if (minigame.type === "bounceArena") {
     const result = handleArenaInput(room, player, input);
     if (!result.ok) return result;
-    emitMinigameUpdate(room);
-    return { ok: true };
-  }
-
-  if (minigame.type === "fluxFloor") {
-    const result = handleFluxInput(room, player, input);
-    if (!result.ok) return result;
-    refreshFluxScores(room);
-    emitMinigameUpdate(room);
-    return { ok: true };
-  }
-
-  if (minigame.type === "canopyClimb") {
-    const result = handleCanopyInput(room, player, input);
-    if (!result.ok) return result;
-    updateCanopyClimb(room);
-    if (maybeFinishCanopy(room)) return { ok: true };
     emitMinigameUpdate(room);
     return { ok: true };
   }
@@ -2374,55 +1562,11 @@ function scheduleBotMinigameInputs(room) {
   if (!minigame) return;
 
   room.players.filter((player) => player.isBot).forEach((bot) => {
-    if (minigame.type === "timingStop") {
-      const stopDelay = 1600 + Math.floor(Math.random() * (minigame.duration - 1800));
-      setTrackedTimeout(room, () => {
-        if (room.currentMinigame?.id !== minigame.id || minigame.stopped[bot.id]) return;
-        const score = computeTimingScore(minigame, Date.now());
-        minigame.scores[bot.id] = Math.max(score, 20 + Math.floor(Math.random() * 45));
-        minigame.stopped[bot.id] = true;
-        bot.minigameScore = minigame.scores[bot.id];
-        emitMinigameUpdate(room);
-      }, stopDelay);
-    }
-
-    if (minigame.type === "dodgeBlocks") {
-      const timer = setTrackedInterval(room, () => {
-        if (room.currentMinigame?.id !== minigame.id) return;
-        const elapsed = Date.now() - minigame.startedAt;
-        const nextBlock = minigame.blocks.find((block) => block.impactAt > elapsed + 350);
-        if (!nextBlock) return;
-        const currentLane = minigame.lanes[bot.id] ?? 2;
-        if (currentLane === nextBlock.lane) {
-          minigame.lanes[bot.id] = currentLane <= 2 ? currentLane + 1 : currentLane - 1;
-        } else if (Math.random() > 0.72) {
-          minigame.lanes[bot.id] = clamp(currentLane + pick([-1, 1]), 0, 4);
-        }
-      }, 420 + Math.floor(Math.random() * 180));
-      return timer;
-    }
-
     if (minigame.type === "bounceArena") {
       const timer = setTrackedInterval(room, () => {
         if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt) return;
         arenaBotStep(minigame.arena, bot.id);
       }, 180 + Math.floor(Math.random() * 110));
-      return timer;
-    }
-
-    if (minigame.type === "fluxFloor") {
-      const timer = setTrackedInterval(room, () => {
-        if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt) return;
-        fluxBotStep(room, bot);
-      }, 165 + Math.floor(Math.random() * 80));
-      return timer;
-    }
-
-    if (minigame.type === "canopyClimb") {
-      const timer = setTrackedInterval(room, () => {
-        if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt) return;
-        canopyBotStep(room, bot);
-      }, 190 + Math.floor(Math.random() * 100));
       return timer;
     }
 
@@ -2460,21 +1604,6 @@ function scheduleBotMinigameInputs(room) {
     }
 
     return null;
-  });
-}
-
-function updateDodgeMinigame(room) {
-  const minigame = room.currentMinigame;
-  if (!minigame || minigame.type !== "dodgeBlocks") return;
-  const elapsed = Date.now() - minigame.startedAt;
-  minigame.blocks.forEach((block) => {
-    if (minigame.resolvedBlocks[block.id] || elapsed < block.impactAt) return;
-    minigame.resolvedBlocks[block.id] = true;
-    room.players.forEach((player) => {
-      if ((minigame.lanes[player.id] ?? 2) === block.lane) {
-        minigame.hits[player.id] = (minigame.hits[player.id] || 0) + 1;
-      }
-    });
   });
 }
 
@@ -2634,24 +1763,13 @@ function finishMinigame(room) {
   if (!minigame || room.status !== "minigame") return;
   minigame.finishing = true;
 
-  updateDodgeMinigame(room);
-  updateFluxFloor(room);
-  updateCanopyClimb(room);
   updateArcade(room);
   clearRoomTimers(room);
   const finishedAt = Date.now();
 
   room.players.forEach((player) => {
-    if (minigame.type === "dodgeBlocks") {
-      const hits = minigame.hits[player.id] || 0;
-      minigame.scores[player.id] = Math.max(0, 100 - hits * 25);
-    }
     if (minigame.type === "bounceArena") {
-      const arenaPlayer = minigame.arena.players[player.id];
-      minigame.scores[player.id] = bounceResultScore(arenaPlayer);
-    }
-    if (minigame.type === "timingStop" && !minigame.stopped[player.id]) {
-      minigame.scores[player.id] = 0;
+      minigame.scores[player.id] = bounceResultScore(minigame.arena.players[player.id]);
     }
     if (minigame.arcade) {
       minigame.scores[player.id] = arcadeRankingScore(minigame.arcade, minigame.arcade.players[player.id]);
@@ -2659,44 +1777,38 @@ function finishMinigame(room) {
     player.minigameScore = minigame.scores[player.id] || 0;
   });
 
+  // Eine Partie gibt es immer — ein Minispiel ohne Partie ist nur im Test
+  // denkbar, und auch dort soll die Wertung laufen statt zu werfen.
+  if (!room.match) {
+    room.match = { mode: "single", round: 1, playlist: [minigame.type], pool: [], target: null, history: [] };
+  }
+  const outcome = modes.scoreRound(room.match, room.players, room.players.map((player) => ({
+    playerId: player.id,
+    score: minigame.scores[player.id] || 0
+  })));
+
   const ranking = room.players
-    .map((player) => ({
-      playerId: player.id,
-      name: player.name,
-      color: player.color,
-      score: minigame.scores[player.id] || 0,
-      hits: minigame.hits[player.id] || 0,
-      detail: minigameResultDetail(minigame, player.id, finishedAt),
-      award: 0
-    }))
-    .sort((a, b) => b.score - a.score);
+    .map((player) => {
+      const result = outcome.get(player.id);
+      return {
+        playerId: player.id,
+        name: player.name,
+        color: player.color,
+        score: minigame.scores[player.id] || 0,
+        detail: minigameResultDetail(minigame, player.id, finishedAt),
+        place: result.place,
+        points: result.points,
+        total: result.total,
+        roundWin: result.roundWin,
+        lifeLost: result.lifeLost,
+        lives: result.lives,
+        out: result.out
+      };
+    })
+    .sort((a, b) => (a.place - b.place) || (b.score - a.score));
 
-  const awards = [10, 6, 3, 1];
-  let rankIndex = 0;
-  while (rankIndex < ranking.length) {
-    let tieEnd = rankIndex + 1;
-    while (tieEnd < ranking.length && ranking[tieEnd].score === ranking[rankIndex].score) tieEnd += 1;
-    const occupiedAwards = awards.slice(rankIndex, tieEnd);
-    const sharedAward = Math.round(occupiedAwards.reduce((sum, award) => sum + award, 0) / occupiedAwards.length);
-    ranking.slice(rankIndex, tieEnd).forEach((entry) => {
-      const player = room.players.find((candidate) => candidate.id === entry.playerId);
-      entry.award = sharedAward;
-      if (player) player.coins += sharedAward;
-    });
-    rankIndex = tieEnd;
-  }
-
-  // Marathon/single mode: every round winner banks a win (ties share it).
-  if ((room.mode === "arcade" || room.mode === "single") && ranking.length > 0) {
-    const topScore = ranking[0].score;
-    ranking.forEach((entry) => {
-      if (entry.score !== topScore) return;
-      entry.roundWin = true;
-      const player = room.players.find((candidate) => candidate.id === entry.playerId);
-      if (player) player.wins = (player.wins || 0) + 1;
-    });
-  }
-
+  const verdict = modes.matchOutcome(room.match, room.players);
+  if (!verdict.over) modes.ensureUpcoming(room.match);
   room.status = "result";
   room.phase = "minigameResult";
   room.lastMinigameResult = {
@@ -2704,12 +1816,15 @@ function finishMinigame(room) {
     type: minigame.type,
     title: minigame.title,
     reason: minigame.reason,
-    ranking
+    ranking,
+    matchOver: verdict.over,
+    next: verdict.over ? null : modes.upcomingGame(room.match)
   };
   room.resultEndsAt = Date.now() + RESULT_HOLD_MS;
   room.readyForNext = [];
   room.currentMinigame = null;
-  room.lastMessage = `${minigame.title}: ${ranking[0]?.name || "Niemand"} gewinnt.`;
+  const winners = ranking.filter((entry) => entry.place === 1).map((entry) => entry.name);
+  room.lastMessage = `${minigame.title}: ${winners.join(" & ") || "Niemand"} gewinnt.`;
   emitRoom(room);
 
   setTrackedTimeout(room, () => continueAfterResult(room), RESULT_HOLD_MS);
@@ -2735,21 +1850,6 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   const score = Math.max(0, Math.round(arcadePlayer.score || 0));
   const successes = arcadePlayer.successes || 0;
   const mistakes = arcadePlayer.mistakes || 0;
-  if (arcade.mode === "sweep" || arcade.mode === "collect") {
-    return Math.max(0, 50000 + successes * 100000 - mistakes * 1000 + score);
-  }
-  if (arcade.mode === "course" || arcade.mode === "avoid") {
-    return Math.max(0, 10000000 - mistakes * 100000 + Math.round(arcadePlayer.activeMs || 0));
-  }
-  if (arcade.mode === "catch") {
-    return Math.max(0, 50000 + successes * 100000 - mistakes * 1000 + score);
-  }
-  if (arcade.mode === "balance" || arcade.mode === "chase" || arcade.mode === "stay") {
-    return Math.max(0, Math.round(arcadePlayer.activeMs || 0));
-  }
-  if (arcade.family === "choice" || arcade.family === "target") {
-    return Math.max(0, 50000 + successes * 100000 - mistakes * 100 + score);
-  }
   if (arcade.family === "plinko") {
     return Math.max(0, score * 1000 + successes);
   }
@@ -2892,16 +1992,7 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   return score;
 }
 
-function minigameResultDetail(minigame, playerId, finishedAt) {
-  if (minigame.type === "canopyClimb") {
-    const climber = minigame.canopy.players[playerId];
-    return climber?.finishedAt
-      ? { kind: "time", value: climber.finishMs, label: "Zielzeit" }
-      : { kind: "progress", value: climber?.level || 0, total: minigame.canopy.goal, label: "Blätter" };
-  }
-  if (minigame.type === "fluxFloor") {
-    return { kind: "territory", value: minigame.flux.players[playerId]?.territory || 0, label: "Felder" };
-  }
+function minigameResultDetail(minigame, playerId, _finishedAt) {
   if (minigame.type === "bounceArena") {
     const arenaPlayer = minigame.arena.players[playerId];
     // Zuerst steht da, ob man noch oben ist — genau so wird auch gewertet.
@@ -2909,36 +2000,12 @@ function minigameResultDetail(minigame, playerId, finishedAt) {
       ? { kind: "points", value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" }
       : { kind: "out", survived: false, value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" };
   }
-  if (minigame.type === "dodgeBlocks") {
-    return { kind: "hits", value: minigame.hits[playerId] || 0, label: "Treffer" };
-  }
   if (minigame.arcade) return arcadeResultDetail(minigame.arcade, minigame.arcade.players[playerId]);
   return null;
 }
 
 function arcadeResultDetail(arcade, arcadePlayer) {
   if (!arcadePlayer) return null;
-  if (arcade.mode === "sweep" || arcade.mode === "collect") {
-    return { kind: "coins", value: arcadePlayer.successes || 0, label: "Münzen" };
-  }
-  if (arcade.mode === "course" || arcade.mode === "avoid") {
-    return { kind: "hits", value: arcadePlayer.mistakes || 0, label: "Treffer" };
-  }
-  if (arcade.mode === "catch") {
-    return { kind: "catches", value: arcadePlayer.successes || 0, label: "Lichter" };
-  }
-  if (arcade.mode === "balance" || arcade.mode === "chase" || arcade.mode === "stay") {
-    return { kind: "zoneTime", value: Math.round(arcadePlayer.activeMs || 0), label: "Im Ziel" };
-  }
-  if (arcade.family === "choice") {
-    return { kind: "correct", value: arcadePlayer.successes || 0, label: "Richtig" };
-  }
-  if (arcade.family === "timing") {
-    return { kind: "precision", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Präzision" };
-  }
-  if (arcade.family === "target") {
-    return { kind: "targets", value: arcadePlayer.successes || 0, label: "Treffer" };
-  }
   if (arcade.family === "plinko") {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
@@ -3131,456 +2198,46 @@ function humansInRoom(room) {
 
 function continueAfterResult(room) {
   if (room.status !== "result") return;
+  const verdict = modes.matchOutcome(room.match, room.players);
 
-  if (room.afterMinigameAction === "returnLobby") {
+  if (verdict.over && room.match?.mode === "single") {
+    // Einzelspiel: kein Endbildschirm — die Ergebnistafel hat den Sieger
+    // schon gezeigt. Zurück in die Lobby, der Sitzungszähler läuft weiter.
+    creditSessionWins(room, verdict.winnerIds);
     room.status = "lobby";
     room.phase = "lobby";
-    room.afterMinigameAction = null;
     room.currentMinigame = null;
+    room.match = null;
     room.lastMessage = "Zurück in der Lobby — sucht euch das nächste Minispiel aus.";
     emitRoom(room);
     return;
   }
 
-  if (room.afterMinigameAction === "nextArcadeRound") {
-    room.arcadeRoundIndex += 1;
-    if (room.arcadeRoundIndex >= room.arcadePlan.length) {
-      finishGame(room);
-      emitRoom(room);
-      return;
-    }
-    const nextType = room.arcadePlan[room.arcadeRoundIndex];
-    startMinigame(room, `Runde ${room.arcadeRoundIndex + 1} von ${room.arcadePlan.length}`, "nextArcadeRound", nextType);
+  if (verdict.over) {
+    finishGame(room, verdict.winnerIds);
     emitRoom(room);
     return;
   }
 
-  if (room.afterMinigameAction === "returnBoard") {
-    room.status = "board";
-    room.phase = "waitingRoll";
-    room.afterMinigameAction = null;
-    room.lastMessage = `${getCurrentPlayer(room)?.name || "Nächster Spieler"} ist am Zug.`;
-    emitRoom(room);
-    return;
-  }
-
-  if (room.afterMinigameAction === "completeRound") {
-    if (room.round >= room.maxRounds) {
-      finishGame(room);
-      emitRoom(room);
-      return;
-    }
-    room.round += 1;
-    room.currentTurnIndex = 0;
-    room.status = "board";
-    room.phase = "waitingRoll";
-    room.lastMessage = `Runde ${room.round} startet.`;
-    emitRoom(room);
-    return;
-  }
-
-  room.status = "board";
-  room.phase = "waitingRoll";
-  room.afterMinigameAction = null;
-  advanceTurn(room);
+  startNextRound(room);
+  emitRoom(room);
 }
 
-function finishGame(room) {
+function creditSessionWins(room, winnerIds) {
+  room.players
+    .filter((player) => winnerIds.includes(player.id))
+    .forEach((player) => { player.sessionWins = (player.sessionWins || 0) + 1; });
+}
+
+function finishGame(room, winnerIds) {
+  clearRoomTimers(room);
   room.status = "end";
   room.phase = "finished";
-  if (room.mode === "arcade") {
-    const standings = [...room.players].sort((a, b) => (b.wins - a.wins) || (b.coins - a.coins));
-    const leader = standings[0];
-    room.winnerIds = room.players
-      .filter((player) => player.wins === leader?.wins)
-      .map((player) => player.id);
-    room.lastMessage = "Die meisten Siege gewinnen den Marathon.";
-    return;
-  }
-  awardBonusStars(room);
-  const standings = [...room.players].sort(compareStanding);
-  const leader = standings[0];
-  room.winnerIds = room.players
-    .filter((player) => player.stars === leader?.stars && player.coins === leader?.coins)
-    .map((player) => player.id);
-  room.lastMessage = "Die meisten Sterne gewinnen.";
-}
-
-// Stars decide the game; coins only break ties. This is what turns coins from
-// a score into a currency you spend.
-function compareStanding(a, b) {
-  return (b.stars - a.stars) || (b.coins - a.coins);
-}
-
-// End-of-game bonus stars. Two categories so a player who never reached a star
-// pad still has something to play for right to the last roll — and so a runaway
-// leader can still be caught on the final reveal.
-function awardBonusStars(room) {
-  const bonuses = [];
-  const award = (player, stars, label) => {
-    if (!player || stars <= 0) return;
-    player.stars += stars;
-    bonuses.push({ playerId: player.id, name: player.name, stars, label });
-  };
-
-  const richest = Math.max(...room.players.map((player) => player.coins));
-  if (richest > 0) {
-    room.players
-      .filter((player) => player.coins === richest)
-      .forEach((player) => award(player, BONUS_STAR_COINS, "Meiste Münzen"));
-  }
-
-  const mostWins = Math.max(...room.players.map((player) => player.wins || 0));
-  if (mostWins > 0) {
-    room.players
-      .filter((player) => (player.wins || 0) === mostWins)
-      .forEach((player) => award(player, BONUS_STAR_WINS, "Meiste Challenge-Siege"));
-  }
-
-  room.bonusStars = bonuses;
-  return bonuses;
-}
-
-function createCanopyState(players, startedAt) {
-  const leaves = [{ level: 0, side: "center", bend: 0 }];
-  let previousSide = Math.random() > 0.5 ? "left" : "right";
-  let runLength = 0;
-  for (let level = 1; level <= 18; level += 1) {
-    let side = Math.random() > 0.5 ? "left" : "right";
-    if (side === previousSide) runLength += 1;
-    else runLength = 1;
-    if (runLength > 2) {
-      side = previousSide === "left" ? "right" : "left";
-      runLength = 1;
-    }
-    leaves.push({
-      level,
-      side,
-      bend: Number((Math.random() * 0.34 - 0.17).toFixed(3))
-    });
-    previousSide = side;
-  }
-
-  const canopy = {
-    goal: leaves.length - 1,
-    leaves,
-    players: {},
-    actionCounter: 0,
-    lastMistake: null
-  };
-  players.forEach((player) => {
-    canopy.players[player.id] = {
-      level: 0,
-      maxLevel: 0,
-      correct: 0,
-      mistakes: 0,
-      score: 0,
-      motion: null,
-      finishedAt: null,
-      finishMs: null
-    };
-  });
-  return canopy;
-}
-
-function handleCanopyInput(room, player, input) {
-  const minigame = room.currentMinigame;
-  const canopy = minigame?.canopy;
-  const climber = canopy?.players?.[player.id];
-  if (!canopy || !climber) return { ok: false, error: "Vine-Vault-Zustand fehlt." };
-  if (input.action !== "left" && input.action !== "right") {
-    return { ok: false, error: "Wähle links oder rechts." };
-  }
-  const now = Date.now();
-  if (climber.finishedAt) return { ok: true };
-  const lastInput = minigame.lastInputAt[player.id] || 0;
-  if (now - lastInput < 45) return { ok: true };
-  minigame.lastInputAt[player.id] = now;
-  const nextLevel = Math.min(canopy.goal, climber.level + 1);
-  const expectedSide = canopy.leaves[nextLevel]?.side;
-  canopy.actionCounter += 1;
-
-  if (input.action === expectedSide) {
-    const from = climber.level;
-    climber.level = nextLevel;
-    climber.maxLevel = Math.max(climber.maxLevel, nextLevel);
-    climber.correct += 1;
-    if (nextLevel >= canopy.goal) {
-      climber.finishedAt = now;
-      climber.finishMs = Math.max(0, now - minigame.startedAt);
-    }
-    climber.motion = {
-      id: canopy.actionCounter,
-      type: "jump",
-      from,
-      to: nextLevel,
-      side: input.action,
-      startedAt: now,
-      duration: 170
-    };
-    return { ok: true, correct: true };
-  }
-
-  const from = climber.level;
-  const fallback = nearestLowerCanopyLeaf(canopy, from, input.action);
-  const distance = Math.max(1, from - fallback);
-  const duration = Math.min(430, 170 + distance * 48);
-  climber.level = fallback;
-  climber.motion = {
-    id: canopy.actionCounter,
-    type: "fall",
-    from,
-    to: fallback,
-    side: input.action,
-    startedAt: now,
-    duration
-  };
-  climber.mistakes += 1;
-  canopy.lastMistake = { playerId: player.id, side: input.action, at: now, id: canopy.actionCounter };
-  return { ok: true, correct: false };
-}
-
-function nearestLowerCanopyLeaf(canopy, fromLevel, side) {
-  for (let level = Math.max(0, fromLevel - 1); level > 0; level -= 1) {
-    if (canopy.leaves[level]?.side === side) return level;
-  }
-  return 0;
-}
-
-function updateCanopyClimb(room) {
-  const minigame = room.currentMinigame;
-  const canopy = minigame?.canopy;
-  if (!canopy || minigame.type !== "canopyClimb") return;
-  const now = Date.now();
-
-  room.players.forEach((player) => {
-    const climber = canopy.players[player.id];
-    if (!climber) return;
-    if (climber.motion && now >= climber.motion.startedAt + climber.motion.duration) {
-      climber.motion = null;
-    }
-    climber.score = canopyRaceScore(climber);
-    minigame.scores[player.id] = climber.score;
-    player.minigameScore = climber.score;
-  });
-}
-
-function canopyRaceScore(climber) {
-  if (climber.finishedAt) return 100000 - Math.min(99999, climber.finishMs || 0);
-  return Math.max(0, climber.level * 1000 + climber.maxLevel * 10 - climber.mistakes);
-}
-
-function maybeFinishCanopy(room) {
-  const canopy = room.currentMinigame?.canopy;
-  if (!canopy || room.currentMinigame?.type !== "canopyClimb") return false;
-  if (!room.players.length || !room.players.every((player) => canopy.players[player.id]?.finishedAt)) return false;
-  finishMinigame(room);
-  return true;
-}
-
-function canopyBotStep(room, bot) {
-  const canopy = room.currentMinigame?.canopy;
-  const climber = canopy?.players?.[bot.id];
-  if (!canopy || !climber || climber.finishedAt) return;
-  const expected = canopy.leaves[Math.min(canopy.goal, climber.level + 1)]?.side || "left";
-  const action = Math.random() > 0.12 ? expected : (expected === "left" ? "right" : "left");
-  handleCanopyInput(room, bot, { action });
-  updateCanopyClimb(room);
-  maybeFinishCanopy(room);
-}
-
-function createFluxState(players, startedAt) {
-  const starts = [[1, 1], [7, 7], [7, 1], [1, 7]];
-  const flux = {
-    size: FLUX_SIZE,
-    blocked: FLUX_BLOCKED.map((cell) => [...cell]),
-    grid: Array.from({ length: FLUX_SIZE }, () => Array(FLUX_SIZE).fill(null)),
-    players: {},
-    actionCounter: 0,
-    lastAction: null
-  };
-
-  players.forEach((player, index) => {
-    const [x, y] = starts[index % starts.length];
-    flux.players[player.id] = {
-      x,
-      y,
-      territory: 0,
-      bumps: 0,
-      bursts: 0,
-      nextBurstAt: startedAt + 650,
-      lastMoveAt: startedAt
-    };
-    paintFluxCell(flux, player.id, x, y);
-    [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dx, dy]) => {
-      paintFluxCell(flux, player.id, x + dx, y + dy);
-    });
-  });
-  return flux;
-}
-
-function handleFluxInput(room, player, input) {
-  const minigame = room.currentMinigame;
-  const flux = minigame?.flux;
-  const fluxPlayer = flux?.players?.[player.id];
-  if (!flux || !fluxPlayer) return { ok: false, error: "Flux-Spieler nicht gefunden." };
-
-  const action = input.action;
-  const directions = {
-    up: [0, -1],
-    down: [0, 1],
-    left: [-1, 0],
-    right: [1, 0]
-  };
-  const now = Date.now();
-
-  if (action === "burst") {
-    if (now < fluxPlayer.nextBurstAt) return { ok: true };
-    for (let dy = -1; dy <= 1; dy += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
-        paintFluxCell(flux, player.id, fluxPlayer.x + dx, fluxPlayer.y + dy);
-      }
-    }
-
-    Object.entries(flux.players).forEach(([otherId, other]) => {
-      if (otherId === player.id) return;
-      const deltaX = other.x - fluxPlayer.x;
-      const deltaY = other.y - fluxPlayer.y;
-      if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 1) return;
-      const pushX = other.x + Math.sign(deltaX || (Math.random() > 0.5 ? 1 : -1));
-      const pushY = other.y + Math.sign(deltaY);
-      if (!isFluxBlocked(flux, pushX, pushY) && !fluxPlayerAt(flux, pushX, pushY, otherId)) {
-        other.x = pushX;
-        other.y = pushY;
-        paintFluxCell(flux, otherId, pushX, pushY);
-      }
-      fluxPlayer.bumps += 1;
-    });
-
-    fluxPlayer.bursts += 1;
-    fluxPlayer.nextBurstAt = now + FLUX_BURST_COOLDOWN;
-    markFluxAction(flux, player.id, action, fluxPlayer.x, fluxPlayer.y, now);
-    return { ok: true };
-  }
-
-  const direction = directions[action];
-  if (!direction) return { ok: false, error: "Ungültiger Flux-Floor-Input." };
-  if (now - fluxPlayer.lastMoveAt < FLUX_MOVE_COOLDOWN) return { ok: true };
-  fluxPlayer.lastMoveAt = now;
-
-  const [dx, dy] = direction;
-  const targetX = fluxPlayer.x + dx;
-  const targetY = fluxPlayer.y + dy;
-  if (isFluxBlocked(flux, targetX, targetY)) return { ok: true };
-
-  const occupantEntry = Object.entries(flux.players)
-    .find(([otherId, other]) => otherId !== player.id && other.x === targetX && other.y === targetY);
-  if (occupantEntry) {
-    const [otherId, other] = occupantEntry;
-    const pushX = targetX + dx;
-    const pushY = targetY + dy;
-    if (!isFluxBlocked(flux, pushX, pushY) && !fluxPlayerAt(flux, pushX, pushY, otherId)) {
-      other.x = pushX;
-      other.y = pushY;
-    } else {
-      other.x = fluxPlayer.x;
-      other.y = fluxPlayer.y;
-    }
-    paintFluxCell(flux, otherId, other.x, other.y);
-    fluxPlayer.bumps += 1;
-  }
-
-  fluxPlayer.x = targetX;
-  fluxPlayer.y = targetY;
-  paintFluxCell(flux, player.id, targetX, targetY);
-  markFluxAction(flux, player.id, action, targetX, targetY, now);
-  return { ok: true };
-}
-
-function updateFluxFloor(room) {
-  const minigame = room.currentMinigame;
-  if (!minigame || minigame.type !== "fluxFloor") return;
-  refreshFluxScores(room);
-}
-
-function refreshFluxScores(room) {
-  const minigame = room.currentMinigame;
-  const flux = minigame?.flux;
-  if (!flux || minigame.type !== "fluxFloor") return;
-
-  const territory = {};
-  flux.grid.forEach((row) => row.forEach((ownerId) => {
-    if (ownerId) territory[ownerId] = (territory[ownerId] || 0) + 1;
-  }));
-
-  room.players.forEach((player) => {
-    const fluxPlayer = flux.players[player.id];
-    if (!fluxPlayer) return;
-    fluxPlayer.territory = territory[player.id] || 0;
-    minigame.scores[player.id] = fluxPlayer.territory;
-    player.minigameScore = minigame.scores[player.id];
-  });
-}
-
-function fluxBotStep(room, bot) {
-  const minigame = room.currentMinigame;
-  const flux = minigame?.flux;
-  const fluxPlayer = flux?.players?.[bot.id];
-  if (!fluxPlayer) return;
-
-  const now = Date.now();
-  const nearbyRival = Object.entries(flux.players).some(([id, other]) => (
-    id !== bot.id && Math.max(Math.abs(other.x - fluxPlayer.x), Math.abs(other.y - fluxPlayer.y)) <= 1
-  ));
-  if (now >= fluxPlayer.nextBurstAt && (nearbyRival || Math.random() > 0.72)) {
-    handleFluxInput(room, bot, { action: "burst" });
-    refreshFluxScores(room);
-    return;
-  }
-
-  let target = null;
-  let bestDistance = Infinity;
-  flux.grid.forEach((row, y) => row.forEach((ownerId, x) => {
-    if (ownerId === bot.id || isFluxBlocked(flux, x, y)) return;
-    const distance = Math.abs(x - fluxPlayer.x) + Math.abs(y - fluxPlayer.y);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      target = { x, y };
-    }
-  }));
-
-  let action = pick(["up", "down", "left", "right"]);
-  if (target && Math.random() > 0.18) {
-    const dx = target.x - fluxPlayer.x;
-    const dy = target.y - fluxPlayer.y;
-    if (Math.abs(dx) > Math.abs(dy)) action = dx < 0 ? "left" : "right";
-    else if (dy !== 0) action = dy < 0 ? "up" : "down";
-  }
-  handleFluxInput(room, bot, { action });
-  refreshFluxScores(room);
-}
-
-function paintFluxCell(flux, playerId, x, y) {
-  if (isFluxBlocked(flux, x, y)) return false;
-  const previousOwner = flux.grid[y][x];
-  if (previousOwner === playerId) return false;
-  flux.grid[y][x] = playerId;
-  return true;
-}
-
-function fluxPlayerAt(flux, x, y, ignoredId = null) {
-  return Object.entries(flux.players)
-    .some(([playerId, player]) => playerId !== ignoredId && player.x === x && player.y === y);
-}
-
-function isFluxBlocked(flux, x, y) {
-  if (x < 0 || x >= flux.size || y < 0 || y >= flux.size) return true;
-  return flux.blocked.some(([blockedX, blockedY]) => blockedX === x && blockedY === y);
-}
-
-function markFluxAction(flux, playerId, action, x, y, at) {
-  flux.actionCounter += 1;
-  flux.lastAction = { id: flux.actionCounter, playerId, action, x, y, at };
+  room.currentMinigame = null;
+  room.winnerIds = winnerIds || [];
+  creditSessionWins(room, room.winnerIds);
+  const names = room.players.filter((player) => room.winnerIds.includes(player.id)).map((player) => player.name);
+  room.lastMessage = names.length ? `${names.join(" & ")} ${names.length > 1 ? "gewinnen" : "gewinnt"} die Partie!` : "Partie beendet.";
 }
 
 function createArenaState(players, startedAt) {
@@ -3783,7 +2440,6 @@ function createArcadeState(type, players, startedAt) {
     // Startzeitpunkt am Zustand: einige Ergebnisse rechnen in Sekunden ab
     // Rundenbeginn, und die kennen das Minispiel-Objekt nicht.
     startedAt,
-    mode: config.steerMode || config.targetMode || config.kineticMode || config.directMode || null,
     seed: config.seed,
     beatMs: config.beatMs || null,
     choiceDelay: config.choiceDelay || 0,
@@ -3832,44 +2488,6 @@ function createArcadeState(type, players, startedAt) {
     };
   });
 
-  if (config.steerMode === "collect") relocateArcadeTarget(arcade);
-  if (config.steerMode === "avoid") {
-    arcade.hazards = Array.from({ length: 4 }, (_, index) => ({
-      id: index,
-      x: 0.2 + arcadeNoise(config.seed + index * 7) * 0.6,
-      y: 0.18 + arcadeNoise(config.seed + index * 11 + 3) * 0.58,
-      vx: (arcadeNoise(config.seed + index * 13 + 5) - 0.5) * 0.34,
-      vy: (arcadeNoise(config.seed + index * 17 + 9) - 0.5) * 0.34,
-      radius: 0.055 + (index % 2) * 0.012
-    }));
-  }
-  if (config.kineticMode === "sweep") {
-    players.forEach((player, index) => {
-      const entry = arcade.players[player.id];
-      const angle = index / Math.max(1, players.length) * Math.PI * 2 - Math.PI / 2;
-      entry.x = 0.5 + Math.cos(angle) * 0.23;
-      entry.y = 0.5 + Math.sin(angle) * 0.23;
-    });
-    relocateArcadeTarget(arcade);
-  }
-  if (config.kineticMode === "course") {
-    arcade.hazards = Array.from({ length: 7 }, (_, index) => ({
-      id: index,
-      x: 0.12 + arcadeNoise(config.seed + index * 19) * 0.76,
-      y: -0.08 + index * 0.17,
-      speed: 0.15 + arcadeNoise(config.seed + index * 31 + 7) * 0.12,
-      radius: 0.055 + (index % 3) * 0.009,
-      wraps: 0
-    }));
-  }
-  if (config.directMode) {
-    players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      entry.x = 0.5;
-      entry.y = 0.78;
-      entry.desiredX = 0.5;
-    });
-  }
   if (config.family === "plinko") {
     // Logical space is 1 wide and PLINKO_FLOOR_Y tall so client pixels can
     // use one uniform scale on both axes (collisions look exact on screen).
@@ -5742,99 +4360,6 @@ function handleArcadeInput(room, player, rawInput) {
     return { ok: true };
   }
 
-  if (arcade.family === "choice") {
-    if (input.action !== "left" && input.action !== "right") {
-      return { ok: false, error: "Wähle links oder rechts." };
-    }
-    const cueIndex = Math.max(0, Math.floor((now - minigame.startedAt) / arcade.beatMs));
-    const answerIndex = cueIndex - (arcade.choiceDelay || 0);
-    if (answerIndex < 0) return { ok: true };
-    const expected = arcadeChoice(arcade, answerIndex);
-    if (arcadePlayer.lastCueIndex === cueIndex) return { ok: true };
-    arcadePlayer.lastCueIndex = cueIndex;
-    const correct = input.action === expected;
-    if (correct) arcadePlayer.successes += 1;
-    else arcadePlayer.mistakes += 1;
-    arcadePlayer.streak = correct ? arcadePlayer.streak + 1 : 0;
-    arcadePlayer.score = Math.max(0, arcadePlayer.score + (correct ? 8 + Math.min(8, arcadePlayer.streak) : -4));
-    arcadePlayer.flash = correct ? "good" : "bad";
-    arcadePlayer.lastHitAt = now;
-    syncArcadeScore(minigame, player, arcadePlayer);
-    return { ok: true };
-  }
-
-  if (arcade.family === "timing") {
-    if (input.action !== "tap") return { ok: false, error: "Tippe im richtigen Moment." };
-    const cycle = Math.max(0, Math.floor((now - minigame.startedAt) / arcade.periodMs));
-    if (arcadePlayer.lastTimingCycle === cycle) return { ok: true };
-    arcadePlayer.lastTimingCycle = cycle;
-    if (arcade.dynamicTiming) arcade.timingTarget = arcadeDynamicTimingTarget(arcade, cycle);
-    const phase = arcadeTimingPhase(arcade, minigame.startedAt, now);
-    const distance = circularDistance(phase, arcade.timingTarget);
-    const timingWindow = arcade.timingWindow || 0.27;
-    const points = Math.round(Math.max(0, 24 * (1 - distance / timingWindow)));
-    if (points > 0) arcadePlayer.successes += 1;
-    else arcadePlayer.mistakes += 1;
-    arcadePlayer.score = Math.max(0, arcadePlayer.score + (points > 0 ? points : -4));
-    arcadePlayer.streak = points >= 12 ? arcadePlayer.streak + 1 : 0;
-    arcadePlayer.flash = points >= 12 ? "good" : "bad";
-    arcadePlayer.lastHitAt = now;
-    syncArcadeScore(minigame, player, arcadePlayer);
-    return { ok: true };
-  }
-
-  if (arcade.family === "steer" || arcade.family === "kinetic") {
-    const directions = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-    const direction = directions[input.action];
-    if (!direction) return { ok: false, error: "Ungültige Richtung." };
-    const impulse = arcade.family === "kinetic" ? (arcade.mode === "sweep" ? 0.38 : 0.31) : (arcade.mode === "avoid" ? 0.28 : 0.34);
-    arcadePlayer.hasMoved = true;
-    arcadePlayer.vx = clamp(arcadePlayer.vx + direction[0] * impulse, -0.9, 0.9);
-    arcadePlayer.vy = clamp(arcadePlayer.vy + direction[1] * impulse, -0.9, 0.9);
-    return { ok: true };
-  }
-
-  if (arcade.family === "direct") {
-    if (input.action !== "move") return { ok: false, error: "Ziehe horizontal über das Spielfeld." };
-    const x = clamp(inputNumber(input.x) || 0, 0.06, 0.94);
-    arcadePlayer.hasMoved = true;
-    arcadePlayer.desiredX = x;
-    if (arcade.mode === "catch") arcadePlayer.x = x;
-    return { ok: true };
-  }
-
-  if (arcade.family === "target") {
-    if (input.action !== "target") return { ok: false, error: "Tippe ein Ziel an." };
-    const x = clamp(inputNumber(input.x) || 0, 0, 1);
-    const y = clamp(inputNumber(input.y) || 0, 0, 1);
-    const active = arcade.targets
-      .filter((target) => now >= target.spawnAt && now <= target.expiresAt && !arcadePlayer.hitTargets[target.id])
-      .map((target) => ({ target, position: arcadeTargetPosition(arcade, target, now) }))
-      .sort((a, b) => Math.hypot(a.position.x - x, a.position.y - y) - Math.hypot(b.position.x - x, b.position.y - y));
-    const nearest = active[0];
-    if (!nearest || Math.hypot(nearest.position.x - x, nearest.position.y - y) > nearest.target.radius * 1.35) {
-      arcadePlayer.mistakes += 1;
-      arcadePlayer.score = Math.max(0, arcadePlayer.score - 2);
-      arcadePlayer.flash = "bad";
-      arcadePlayer.lastHitAt = now;
-      syncArcadeScore(minigame, player, arcadePlayer);
-      return { ok: true };
-    }
-
-    const target = nearest.target;
-    const correct = target.kind !== "bad";
-    arcadePlayer.hitTargets[target.id] = true;
-    const base = target.kind === "gold" ? 22 : 12;
-    if (correct) arcadePlayer.successes += 1;
-    else arcadePlayer.mistakes += 1;
-    arcadePlayer.streak = correct ? arcadePlayer.streak + 1 : 0;
-    arcadePlayer.score = Math.max(0, arcadePlayer.score + (correct ? base + Math.min(5, arcadePlayer.streak) : -9));
-    arcadePlayer.flash = correct ? "good" : "bad";
-    arcadePlayer.lastHitAt = now;
-    syncArcadeScore(minigame, player, arcadePlayer);
-    return { ok: true };
-  }
-
   return { ok: false, error: "Unbekannte Arcade-Steuerung." };
 }
 
@@ -5847,19 +4372,6 @@ function updateArcade(room) {
     arcade.lastUpdateAt = now;
     return;
   }
-
-  if (arcade.family === "choice") {
-    arcade.cueIndex = Math.max(0, Math.floor((now - minigame.startedAt) / arcade.beatMs));
-    arcade.cue = arcadeChoice(arcade, arcade.cueIndex);
-    const echoIndex = arcade.cueIndex - (arcade.choiceDelay || 0);
-    arcade.echoCue = echoIndex >= 0 ? arcadeChoice(arcade, echoIndex) : null;
-    arcade.cueAt = minigame.startedAt + arcade.cueIndex * arcade.beatMs;
-  }
-  if (arcade.family === "timing" && arcade.dynamicTiming) {
-    const cycle = Math.max(0, Math.floor((now - minigame.startedAt) / arcade.periodMs));
-    arcade.timingTarget = arcadeDynamicTimingTarget(arcade, cycle);
-  }
-  if (arcade.family === "target") updateArcadeTargets(arcade, now);
 
   if (arcade.family === "sumo") {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
@@ -6167,50 +4679,6 @@ function updateArcade(room) {
       syncArcadeScore(minigame, player, entry);
     });
     return;
-  }
-
-  if (arcade.family === "steer") {
-    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
-    const elapsed = Math.max(0, now - minigame.startedAt);
-    arcade.lastUpdateAt = now;
-    updateArcadeWorld(arcade, elapsed, dt, now);
-    room.players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      if (!entry) return;
-      entry.vx *= Math.pow(0.82, dt * 10);
-      entry.vy *= Math.pow(0.82, dt * 10);
-      entry.x += entry.vx * dt;
-      entry.y += entry.vy * dt;
-      bounceArcadePlayer(entry);
-      scoreArcadeSteerPlayer(arcade, entry, dt, now);
-      syncArcadeScore(minigame, player, entry);
-    });
-  }
-
-  if (arcade.family === "kinetic") {
-    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
-    const elapsed = Math.max(0, now - minigame.startedAt);
-    arcade.lastUpdateAt = now;
-    updateKineticWorld(arcade, elapsed, dt, now);
-    room.players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      if (!entry) return;
-      entry.vx *= Math.pow(0.8, dt * 10);
-      entry.vy *= Math.pow(0.8, dt * 10);
-      entry.x += entry.vx * dt;
-      entry.y += entry.vy * dt;
-      if (arcade.mode === "sweep") containKineticPlayer(entry);
-      else bounceArcadePlayer(entry);
-      scoreKineticPlayer(arcade, entry, dt, now);
-      syncArcadeScore(minigame, player, entry);
-    });
-  }
-
-  if (arcade.family === "direct") {
-    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
-    const elapsed = Math.max(0, now - minigame.startedAt);
-    arcade.lastUpdateAt = now;
-    updateDirectWorld(room, minigame, arcade, elapsed, dt, now);
   }
 
   if (arcade.family === "plinko") {
@@ -7104,173 +5572,6 @@ function updateCurling(room, minigame, arcade, dt, now) {
   });
 }
 
-function arcadeTargetPosition(arcade, target, now) {
-  if (arcade.mode !== "bubble") return { x: target.x, y: target.y };
-  const seconds = Math.max(0, now - target.spawnAt) / 1000;
-  return {
-    x: clamp(target.x + Math.sin(seconds * 2.2 + target.id) * 0.045, 0.05, 0.95),
-    y: target.y - (target.rise || 0.2) * seconds
-  };
-}
-
-function updateKineticWorld(arcade, elapsed, dt, now) {
-  if (arcade.mode === "sweep") {
-    arcade.sweepAngle = (elapsed / 940) % (Math.PI * 2);
-    if (now - arcade.target.changedAt > 4300) relocateArcadeTarget(arcade);
-    return;
-  }
-
-  if (arcade.mode === "course") {
-    arcade.hazards.forEach((hazard) => {
-      hazard.y += hazard.speed * dt;
-      if (hazard.y <= 1.08) return;
-      hazard.wraps += 1;
-      hazard.y = -0.08;
-      hazard.x = 0.1 + arcadeNoise(arcade.seed + hazard.id * 37 + hazard.wraps * 53) * 0.8;
-      hazard.speed = 0.16 + arcadeNoise(arcade.seed + hazard.id * 17 + hazard.wraps * 29) * 0.13;
-    });
-  }
-}
-
-function containKineticPlayer(player) {
-  const dx = player.x - 0.5;
-  const dy = player.y - 0.5;
-  const distance = Math.hypot(dx, dy);
-  if (distance <= 0.43) return;
-  const nx = dx / Math.max(0.001, distance);
-  const ny = dy / Math.max(0.001, distance);
-  player.x = 0.5 + nx * 0.43;
-  player.y = 0.5 + ny * 0.43;
-  const outward = player.vx * nx + player.vy * ny;
-  if (outward > 0) {
-    player.vx -= nx * outward * 1.72;
-    player.vy -= ny * outward * 1.72;
-  }
-}
-
-function scoreKineticPlayer(arcade, player, dt, now) {
-  player.activeMs += dt * 1000;
-  player.score += dt * 5;
-
-  if (arcade.mode === "sweep") {
-    const targetDistance = Math.hypot(player.x - arcade.target.x, player.y - arcade.target.y);
-    if (targetDistance < 0.095 && now - arcade.target.changedAt > 330) {
-      player.successes += 1;
-      player.score += 18 + Math.min(6, player.streak);
-      player.streak += 1;
-      player.flash = "good";
-      player.lastHitAt = now;
-      relocateArcadeTarget(arcade);
-    }
-
-    if (now < player.collisionUntil) return;
-    const dx = player.x - 0.5;
-    const dy = player.y - 0.5;
-    const cos = Math.cos(arcade.sweepAngle);
-    const sin = Math.sin(arcade.sweepAngle);
-    const along = Math.abs(dx * cos + dy * sin);
-    const signedAcross = dx * -sin + dy * cos;
-    if (along < 0.42 && Math.abs(signedAcross) < 0.055) {
-      const side = Math.sign(signedAcross) || 1;
-      player.vx += -sin * side * 0.78;
-      player.vy += cos * side * 0.78;
-      player.mistakes += 1;
-      player.score = Math.max(0, player.score - 8);
-      player.streak = 0;
-      player.flash = "bad";
-      player.lastHitAt = now;
-      player.collisionUntil = now + 720;
-    }
-    return;
-  }
-
-  if (arcade.mode === "course" && now >= player.collisionUntil) {
-    const hazard = arcade.hazards.find((candidate) => Math.hypot(player.x - candidate.x, player.y - candidate.y) < candidate.radius + 0.06);
-    if (!hazard) return;
-    const dx = player.x - hazard.x || 0.01;
-    const dy = player.y - hazard.y || -0.01;
-    const distance = Math.max(0.01, Math.hypot(dx, dy));
-    player.vx += dx / distance * 0.72;
-    player.vy += dy / distance * 0.72;
-    player.mistakes += 1;
-    player.score = Math.max(0, player.score - 10);
-    player.streak = 0;
-    player.flash = "bad";
-    player.lastHitAt = now;
-    player.collisionUntil = now + 620;
-  }
-}
-
-function updateDirectWorld(room, minigame, arcade, elapsed, dt, now) {
-  if (arcade.mode === "catch") {
-    while (now - arcade.lastSpawnAt >= arcade.spawnMs && arcade.drops.length < 12) {
-      arcade.lastSpawnAt += arcade.spawnMs;
-      const id = arcade.nextTargetId;
-      arcade.nextTargetId += 1;
-      const spawnAt = Math.max(minigame.startedAt, arcade.lastSpawnAt);
-      arcade.drops.push({
-        id,
-        x: 0.1 + arcadeNoise(arcade.seed + id * 41) * 0.8,
-        kind: arcadeNoise(arcade.seed + id * 67 + 9) < 0.22 ? "storm" : "glow",
-        tone: id % 4,
-        spawnAt,
-        impactAt: spawnAt + 1800,
-        expiresAt: spawnAt + 2250
-      });
-    }
-    arcade.drops = arcade.drops.filter((drop) => now < drop.expiresAt + 500);
-    room.players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      if (!entry) return;
-      arcade.drops.forEach((drop) => {
-        if (now < drop.impactAt || entry.hitTargets[drop.id]) return;
-        entry.hitTargets[drop.id] = true;
-        const caught = Math.abs(entry.x - drop.x) < 0.135;
-        if (caught && drop.kind === "glow") {
-          entry.successes += 1;
-          entry.streak += 1;
-          entry.score += 11 + Math.min(6, entry.streak);
-          entry.flash = "good";
-          entry.lastHitAt = now;
-        } else if (caught) {
-          entry.mistakes += 1;
-          entry.streak = 0;
-          entry.score = Math.max(0, entry.score - 10);
-          entry.flash = "bad";
-          entry.lastHitAt = now;
-        } else if (drop.kind === "glow") {
-          entry.streak = 0;
-        }
-      });
-      syncArcadeScore(minigame, player, entry);
-    });
-    return;
-  }
-
-  if (arcade.mode === "balance") {
-    arcade.target.x = clamp(0.5 + Math.sin(elapsed / 710) * 0.25 + Math.sin(elapsed / 260 + 1.4) * 0.055, 0.15, 0.85);
-    arcade.wind = Math.sin(elapsed / 840 + arcade.seed) * 0.5 + Math.sin(elapsed / 310) * 0.5;
-    room.players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      if (!entry) return;
-      const response = Math.min(1, dt * 8.5);
-      entry.x += (entry.desiredX - entry.x) * response;
-      entry.x = clamp(entry.x + arcade.wind * dt * 0.018, 0.06, 0.94);
-      const wasInside = entry.inside;
-      entry.inside = Math.abs(entry.x - arcade.target.x) <= arcade.zoneWidth;
-      if (entry.hasMoved) {
-        if (entry.inside) entry.activeMs += dt * 1000;
-        entry.score = Math.max(0, entry.score + (entry.inside ? dt * 14 : -dt * 2));
-        if (entry.inside !== wasInside) {
-          entry.flash = entry.inside ? "good" : "bad";
-          entry.lastHitAt = now;
-        }
-      }
-      syncArcadeScore(minigame, player, entry);
-    });
-  }
-}
-
 // Ringplan für Falschsignal. Aus dem Seed erzeugt, damit alle Clients dieselbe
 // Folge sehen und der Server sie autoritativ auswerten kann.
 function buildFeintSignals(seed, durationMs) {
@@ -7921,175 +6222,11 @@ function updateSumoStone(room, minigame, arcade, dt, now) {
   });
 }
 
-function updateArcadeWorld(arcade, elapsed, dt, now) {
-  if (arcade.mode === "chase") {
-    arcade.target.x = 0.5 + Math.sin(elapsed / 880) * 0.3;
-    arcade.target.y = 0.48 + Math.cos(elapsed / 1160) * 0.27;
-  } else if (arcade.mode === "stay") {
-    arcade.target.x = 0.5 + Math.sin(elapsed / 1320) * 0.24;
-    arcade.target.y = 0.48 + Math.sin(elapsed / 920 + 1.3) * 0.22;
-  } else if (arcade.mode === "avoid") {
-    arcade.hazards.forEach((hazard) => {
-      hazard.x += hazard.vx * dt;
-      hazard.y += hazard.vy * dt;
-      if (hazard.x < 0.08 || hazard.x > 0.92) hazard.vx *= -1;
-      if (hazard.y < 0.1 || hazard.y > 0.9) hazard.vy *= -1;
-      hazard.x = clamp(hazard.x, 0.08, 0.92);
-      hazard.y = clamp(hazard.y, 0.1, 0.9);
-    });
-  }
-  if (arcade.mode === "collect" && now - arcade.target.changedAt > 3300) relocateArcadeTarget(arcade);
-}
-
-function scoreArcadeSteerPlayer(arcade, player, dt, now) {
-  if (!player.hasMoved && arcade.mode !== "avoid") return;
-  const distance = Math.hypot(player.x - arcade.target.x, player.y - arcade.target.y);
-  if (arcade.mode === "collect" && now - arcade.target.changedAt > 450 && distance < 0.105) {
-    player.successes += 1;
-    player.score += 14;
-    player.streak += 1;
-    player.flash = "good";
-    player.lastHitAt = now;
-    relocateArcadeTarget(arcade);
-  } else if (arcade.mode === "chase") {
-    if (distance < 0.16) {
-      player.activeMs += dt * 1000;
-      player.score += dt * 12;
-    }
-  } else if (arcade.mode === "stay") {
-    if (distance < 0.22) {
-      player.activeMs += dt * 1000;
-      player.score += dt * 10;
-    }
-    else if (distance > 0.38) player.score = Math.max(0, player.score - dt * 2);
-  } else if (arcade.mode === "avoid") {
-    player.activeMs += dt * 1000;
-    player.score += dt * 5;
-    if (now >= player.collisionUntil) {
-      const hazard = arcade.hazards.find((candidate) => Math.hypot(player.x - candidate.x, player.y - candidate.y) < candidate.radius + 0.06);
-      if (hazard) {
-        const dx = player.x - hazard.x || 0.01;
-        const dy = player.y - hazard.y || 0.01;
-        const distanceToHazard = Math.max(0.01, Math.hypot(dx, dy));
-        player.vx += dx / distanceToHazard * 0.7;
-        player.vy += dy / distanceToHazard * 0.7;
-        player.mistakes += 1;
-        player.score = Math.max(0, player.score - 10);
-        player.flash = "bad";
-        player.lastHitAt = now;
-        player.collisionUntil = now + 650;
-      }
-    }
-  }
-}
-
-function updateArcadeTargets(arcade, now) {
-  arcade.targets = arcade.targets.filter((target) => now < target.expiresAt + 900);
-  if (now - arcade.lastSpawnAt < arcade.spawnMs) return;
-  arcade.lastSpawnAt = now;
-  const id = arcade.nextTargetId;
-  arcade.nextTargetId += 1;
-
-  if (arcade.mode === "bubble") {
-    const rise = 0.17 + arcadeNoise(arcade.seed + id * 23) * 0.09;
-    arcade.targets.push({
-      id,
-      x: 0.14 + arcadeNoise(arcade.seed + id * 13) * 0.72,
-      y: 1.04,
-      rise,
-      radius: 0.06 + arcadeNoise(id * 5) * 0.03,
-      kind: arcadeNoise(arcade.seed + id * 29) < 0.24 ? "gold" : "good",
-      order: id,
-      spawnAt: now,
-      expiresAt: now + Math.round((1.16 / rise) * 1000)
-    });
-    return;
-  }
-
-  const badChance = arcade.mode === "sort" ? 0.32 : 0;
-  arcade.targets.push({
-    id,
-    x: 0.12 + arcadeNoise(arcade.seed + id * 13) * 0.76,
-    y: 0.19 + arcadeNoise(arcade.seed + id * 19 + 7) * 0.62,
-    radius: 0.065 + arcadeNoise(id * 5) * 0.025,
-    kind: arcadeNoise(arcade.seed + id * 29) < badChance ? "bad" : "good",
-    order: id,
-    spawnAt: now,
-    expiresAt: now + 1900
-  });
-}
-
 function arcadeBotStep(room, bot) {
   const minigame = room.currentMinigame;
   const arcade = minigame?.arcade;
   const player = arcade?.players?.[bot.id];
   if (!arcade || !player) return;
-  if (arcade.family === "choice") {
-    const cueIndex = Math.max(0, Math.floor((Date.now() - minigame.startedAt) / arcade.beatMs));
-    const answerIndex = cueIndex - (arcade.choiceDelay || 0);
-    if (answerIndex < 0) return;
-    const expected = arcadeChoice(arcade, answerIndex);
-    handleArcadeInput(room, bot, { action: Math.random() > 0.18 ? expected : (expected === "left" ? "right" : "left") });
-    return;
-  }
-  if (arcade.family === "timing") {
-    if (Math.random() > 0.44) handleArcadeInput(room, bot, { action: "tap" });
-    return;
-  }
-  if (arcade.family === "kinetic") {
-    let target = arcade.target;
-    if (arcade.mode === "course") {
-      const nearest = [...arcade.hazards]
-        .sort((a, b) => Math.hypot(player.x - a.x, player.y - a.y) - Math.hypot(player.x - b.x, player.y - b.y))[0];
-      target = nearest && Math.hypot(player.x - nearest.x, player.y - nearest.y) < 0.3
-        ? { x: nearest.x < 0.5 ? 0.82 : 0.18, y: clamp(player.y - 0.08, 0.18, 0.82) }
-        : { x: 0.5, y: 0.52 };
-    }
-    const dx = target.x - player.x;
-    const dy = target.y - player.y;
-    const action = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
-    handleArcadeInput(room, bot, { action });
-    return;
-  }
-  if (arcade.family === "direct") {
-    let targetX = arcade.target.x;
-    if (arcade.mode === "catch") {
-      const now = Date.now();
-      const nextGlow = arcade.drops
-        .filter((drop) => drop.kind === "glow" && !player.hitTargets[drop.id] && drop.impactAt >= now)
-        .sort((a, b) => a.impactAt - b.impactAt)[0];
-      const nextStorm = arcade.drops
-        .filter((drop) => drop.kind === "storm" && !player.hitTargets[drop.id] && Math.abs(drop.x - player.x) < 0.16)
-        .sort((a, b) => a.impactAt - b.impactAt)[0];
-      targetX = nextGlow?.x ?? (nextStorm ? (nextStorm.x < 0.5 ? 0.82 : 0.18) : 0.5);
-    }
-    const wobble = (Math.random() - 0.5) * 0.08;
-    handleArcadeInput(room, bot, { action: "move", x: clamp(targetX + wobble, 0.08, 0.92) });
-    return;
-  }
-  if (arcade.family === "steer") {
-    let target = arcade.target;
-    if (arcade.mode === "avoid") {
-      const nearest = [...arcade.hazards].sort((a, b) => Math.hypot(player.x - a.x, player.y - a.y) - Math.hypot(player.x - b.x, player.y - b.y))[0];
-      target = { x: clamp(player.x + (player.x - nearest.x), 0.1, 0.9), y: clamp(player.y + (player.y - nearest.y), 0.1, 0.9) };
-    }
-    const dx = target.x - player.x;
-    const dy = target.y - player.y;
-    const action = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
-    handleArcadeInput(room, bot, { action });
-    return;
-  }
-  if (arcade.family === "target") {
-    const now = Date.now();
-    const active = arcade.targets
-      .filter((target) => target.kind !== "bad" && !player.hitTargets[target.id] && now <= target.expiresAt)
-      .sort((a, b) => a.order - b.order)[0];
-    if (active && Math.random() > 0.24) {
-      const position = arcadeTargetPosition(arcade, active, now);
-      handleArcadeInput(room, bot, { action: "target", x: position.x, y: position.y });
-    }
-    return;
-  }
   if (arcade.family === "plinko") {
     const profile = botProfile(player);
     const mine = arcade.balls.find((ball) => ball.playerId === bot.id);
@@ -9170,60 +7307,6 @@ function arcadeBotStep(room, bot) {
   }
 }
 
-function arcadeChoice(arcade, cueIndex) {
-  return arcadeNoise(arcade.seed + cueIndex * 17) > 0.5 ? "right" : "left";
-}
-
-function arcadeTimingPhase(arcade, startedAt, now) {
-  return ((now - startedAt) / arcade.periodMs) % 1;
-}
-
-function arcadeDynamicTimingTarget(arcade, cycle) {
-  return arcadeNoise(arcade.seed + cycle * 43) > 0.5 ? 0.25 : 0.75;
-}
-
-function circularDistance(a, b) {
-  const distance = Math.abs(a - b);
-  return Math.min(distance, 1 - distance);
-}
-
-function relocateArcadeTarget(arcade) {
-  arcade.target.index += 1;
-  const candidates = Array.from({ length: 6 }, (_, index) => ({
-    x: 0.14 + arcadeNoise(arcade.seed + arcade.target.index * 31 + index * 17) * 0.72,
-    y: 0.2 + arcadeNoise(arcade.seed + arcade.target.index * 37 + index * 23 + 4) * 0.58
-  }));
-  const playerPositions = Object.values(arcade.players || {});
-  let destination = candidates
-    .map((candidate) => ({
-      ...candidate,
-      clearance: Math.min(...playerPositions.map((player) => Math.hypot(player.x - candidate.x, player.y - candidate.y)))
-    }))
-    .sort((a, b) => b.clearance - a.clearance)[0] || candidates[0];
-  if (arcade.mode === "sweep") {
-    const dx = destination.x - 0.5;
-    const dy = destination.y - 0.5;
-    const distance = Math.hypot(dx, dy);
-    if (distance > 0.34) {
-      destination = {
-        ...destination,
-        x: 0.5 + dx / distance * 0.34,
-        y: 0.5 + dy / distance * 0.34
-      };
-    }
-  }
-  arcade.target.x = destination.x;
-  arcade.target.y = destination.y;
-  arcade.target.changedAt = Date.now();
-}
-
-function bounceArcadePlayer(player) {
-  if (player.x < 0.06 || player.x > 0.94) player.vx *= -0.72;
-  if (player.y < 0.08 || player.y > 0.92) player.vy *= -0.72;
-  player.x = clamp(player.x, 0.06, 0.94);
-  player.y = clamp(player.y, 0.08, 0.92);
-}
-
 function syncArcadeScore(minigame, player, arcadePlayer) {
   const score = Math.max(0, Math.round(arcadePlayer.score));
   minigame.scores[player.id] = score;
@@ -9235,33 +7318,6 @@ function arcadeNoise(seed) {
   return value - Math.floor(value);
 }
 
-function createDodgeBlocks(duration) {
-  const blocks = [];
-  let time = 350;
-  let id = 0;
-  while (time < duration - 850) {
-    const lane = Math.floor(Math.random() * 5);
-    blocks.push({
-      id: `block_${id}`,
-      lane,
-      spawnAt: time,
-      impactAt: time + 980
-    });
-    id += 1;
-    time += Math.max(430, 800 - id * 18);
-  }
-  return blocks;
-}
-
-function computeTimingScore(minigame, now) {
-  const period = 1450;
-  const elapsed = Math.max(0, now - minigame.startedAt);
-  const phase = (elapsed % period) / period;
-  const position = phase < 0.5 ? phase * 2 : 2 - phase * 2;
-  const distance = Math.abs(position - 0.5) * 2;
-  return Math.max(0, Math.round((1 - distance) * 100));
-}
-
 function emitMinigameUpdate(room) {
   if (!room.currentMinigame) return;
   io.to(room.code).emit("minigameUpdate", serializeMinigame(room.currentMinigame));
@@ -9269,71 +7325,30 @@ function emitMinigameUpdate(room) {
 
 function emitRoom(room) {
   io.to(room.code).emit("state", serializeRoom(room));
-  scheduleBotTurn(room);
-  scheduleDisconnectedTurnSkip(room);
-}
-
-function scheduleBotTurn(room) {
-  if (room.status !== "board" || room.phase !== "waitingRoll") return;
-  if (room.botTurnTimer) return;
-  const current = getCurrentPlayer(room);
-  if (!current?.isBot) return;
-
-  room.botTurnTimer = setTimeout(() => {
-    room.botTurnTimer = null;
-    if (room.status !== "board" || getCurrentPlayer(room)?.id !== current.id) return;
-    performRoll(room, current);
-  }, 900 + Math.floor(Math.random() * 900));
-}
-
-function scheduleDisconnectedTurnSkip(room) {
-  if (room.status !== "board" || room.phase !== "waitingRoll") return;
-  if (room.skipTurnTimer) return;
-  const current = getCurrentPlayer(room);
-  if (!current || current.connected !== false || current.isBot) return;
-
-  room.skipTurnTimer = setTimeout(() => {
-    room.skipTurnTimer = null;
-    if (room.status !== "board" || room.phase !== "waitingRoll") return;
-    const stillCurrent = getCurrentPlayer(room);
-    if (!stillCurrent || stillCurrent.id !== current.id || stillCurrent.connected !== false) return;
-    room.lastMessage = `${stillCurrent.name} ist offline. Zug übersprungen.`;
-    io.to(room.code).emit("roomNotice", { severity: "warning", message: room.lastMessage });
-    advanceTurn(room);
-  }, 1400);
 }
 
 function serializeRoom(room) {
-  const board = getBoard(room.boardId);
+  const match = room.match;
   return {
     code: room.code,
     hostId: room.hostId,
-    boardId: board.id,
-    board: publicBoard(board),
-    availableBoards: BOARD_DEFINITIONS.map((candidate) => ({
-      id: candidate.id,
-      name: candidate.name,
-      shortName: candidate.shortName,
-      subtitle: candidate.subtitle,
-      badge: candidate.badge,
-      feature: candidate.feature,
-      swatches: candidate.swatches
-    })),
     status: room.status,
     phase: room.phase,
-    boardSize: board.fieldTypes.length,
-    fieldTypes: board.fieldTypes,
-    round: room.round,
-    maxRounds: room.maxRounds,
-    mode: room.mode || "board",
-    arcadeRound: room.mode === "arcade" ? Math.min(room.arcadeRoundIndex + 1, room.arcadePlan.length || 1) : null,
-    arcadeTotalRounds: room.mode === "arcade" ? (room.arcadePlan.length || ARCADE_MARATHON_ROUNDS) : null,
-    singleType: room.singleType,
+    mode: room.mode,
+    settings: room.settings,
+    match: match ? {
+      mode: match.mode,
+      round: match.round,
+      total: modes.totalRounds(match),
+      target: match.target,
+      upcoming: room.status === "minigame" ? null : modes.upcomingGame(match),
+      matchPoint: modes.matchPoint(match, room.players),
+      history: match.history
+    } : null,
+    standings: match ? modes.standings(match.mode, room.players) : [],
     minigameTitles: MINIGAMES.map((game) => ({ type: game.type, title: game.title })),
     devMode: room.devMode,
     hostConnected: room.players.some((player) => player.id === room.hostId && player.connected),
-    currentTurnIndex: room.currentTurnIndex,
-    currentPlayerId: getCurrentPlayer(room)?.id || null,
     players: room.players.map((player) => ({
       id: player.id,
       name: player.name,
@@ -9342,17 +7357,13 @@ function serializeRoom(room) {
       isBot: player.isBot,
       isLocalDev: player.isLocalDev,
       connected: player.connected,
-      coins: player.coins,
-      stars: player.stars || 0,
-      items: [...(player.items || [])],
-      shielded: Boolean(player.shielded),
-      pendingItem: player.pendingItem || null,
-      nextRollHalved: Boolean(player.nextRollHalved),
+      points: player.points || 0,
       wins: player.wins || 0,
-      position: player.position,
-      diceValue: player.diceValue,
-      nextRollBoost: player.nextRollBoost || 0,
-      nextRollPenalty: player.nextRollPenalty || 0,
+      lives: player.lives || 0,
+      out: Boolean(player.out),
+      lastPlace: player.lastPlace,
+      lastPoints: player.lastPoints || 0,
+      sessionWins: player.sessionWins || 0,
       minigameScore: player.minigameScore
     })),
     currentMinigame: room.currentMinigame ? serializeMinigame(room.currentMinigame) : null,
@@ -9360,15 +7371,8 @@ function serializeRoom(room) {
     resultEndsAt: room.resultEndsAt,
     readyForNext: room.readyForNext || [],
     readyNeeded: humansInRoom(room).length,
-    lastMove: room.lastMove,
     lastMessage: room.lastMessage,
     winnerIds: room.winnerIds,
-    starIndex: room.starIndex ?? null,
-    starPrice: starPrice(room),
-    starsSold: room.starsSold || 0,
-    pendingJunction: room.pendingJunction || null,
-    bonusStars: room.bonusStars || [],
-    itemCatalog: ITEM_DEFINITIONS,
     serverTime: Date.now()
   };
 }
@@ -9400,14 +7404,8 @@ function serializeMinigame(minigame) {
     duration: minigame.duration,
     finaleAt: minigame.finaleAt || null,
     scores: minigame.scores,
-    stopped: minigame.stopped,
-    lanes: minigame.lanes,
-    hits: minigame.hits,
     arena: minigame.arena,
-    flux: minigame.flux,
-    canopy: minigame.canopy,
-    arcade: publicArcade(minigame.arcade),
-    blocks: minigame.blocks
+    arcade: publicArcade(minigame.arcade)
   };
 }
 
@@ -9468,7 +7466,6 @@ function leaveCurrentRoom(socket, notify, intentional = false) {
         message: room.lastMessage
       });
       emitRoom(room);
-      scheduleDisconnectedTurnSkip(room);
     }
   }
 }
@@ -9478,10 +7475,6 @@ function findRoomForSocket(socket, code) {
   const room = rooms.get(normalized);
   if (!room) return null;
   return room;
-}
-
-function getCurrentPlayer(room) {
-  return room.players[room.currentTurnIndex] || null;
 }
 
 function canControl(socket, player) {
@@ -9551,14 +7544,6 @@ function clearMinigameTimers(room) {
 }
 
 function clearRoomTimers(room) {
-  if (room.botTurnTimer) {
-    clearTimeout(room.botTurnTimer);
-    room.botTurnTimer = null;
-  }
-  if (room.skipTurnTimer) {
-    clearTimeout(room.skipTurnTimer);
-    room.skipTurnTimer = null;
-  }
   clearMinigameTimers(room);
   room.timers.forEach((timer) => {
     clearTimeout(timer);
@@ -9628,15 +7613,20 @@ if (require.main === module) {
 
 module.exports = {
   testRules: {
+    startGame,
+    finishMinigame,
+    continueAfterResult,
+    resetToLobby,
+    clearRoomTimers,
+    createPlayer,
+    addBotTo,
+    serializeRoom,
     updateCurling,
     CURLING_SHEET_Y,
     CURLING_STONE_RADIUS,
     updatePlinko,
     PLINKO_BALL_R,
     PLINKO_MAX_PLINKS,
-    BOARD_DEFINITIONS,
-    FIELD_TYPES,
-    GATE_COIN_BONUS,
     MINIGAMES,
     SEEK_SIZE,
     publicArcade,
@@ -9648,26 +7638,6 @@ module.exports = {
     seekSteps,
     seekGemFor,
     seekFindValue,
-    ITEM_DEFINITIONS,
-    GOLD_DICE_MIN,
-    GOLD_DICE_SPAN,
-    applyFieldEffect,
-    STAR_PRICE,
-    COIN_FIELD_REWARD,
-    NORMAL_FIELD_REWARD,
-    TRAP_FIELD_COST,
-    LUCK_FIELD_STAKE,
-    LUCK_FIELD_WIN,
-    MAX_ITEMS,
-    ITEM_DEFINITIONS,
-    itemDefinition,
-    consumeItem,
-    moveStarPad,
-    awardBonusStars,
-    resetBoardProgress,
-    nearestToStar,
-    standingsLeader,
-
     arcadeRankingScore,
     beginMinigameFinale,
     humansInRoom,
@@ -9676,15 +7646,8 @@ module.exports = {
     minigameResultDetail,
     RUNNER_ATTACK_RANGE,
     RUNNER_ATTACKS_PER_RACE,
-    buildBoardPath,
-    canopyRaceScore,
-    compareStanding,
     createArcadeState,
-    createCanopyState,
-    getBoard,
     handleArcadeInput,
-    handleCanopyInput,
-    arcadeTargetPosition,
     arcadeResultDetail,
     createArenaState,
     handleArenaInput,
@@ -9706,8 +7669,6 @@ module.exports = {
     runnerSegmentAt,
     runnerLaneFactor,
     advanceColorRound,
-    nearestLowerCanopyLeaf,
-    refreshFluxScores,
     updateArcade,
     updateRedlight,
     updateWave,
@@ -9724,7 +7685,6 @@ module.exports = {
     buildBarrelPhases,
     barrelPhaseAt,
     bombFuseMs,
-    buildArcadePlan,
     BARREL_LIMIT,
     BOMB_PASS_LOCK_MS,
     KNIFE_MIN_GAP_DEG,
@@ -9732,8 +7692,6 @@ module.exports = {
     knifeRoundsFor,
     STACK_BLOCKS,
     CLIMB_HEIGHT,
-    resolveGateRewards,
-    resolveStarPurchase,
     roomCreateBlockedReason,
     MAX_ROOMS_PER_ADDRESS,
     GLIDE_DURATION_MS,
