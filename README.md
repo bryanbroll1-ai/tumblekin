@@ -1,6 +1,6 @@
 # Tumblekin
 
-Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 30 touch-optimierten Challenges gegeneinander an.
+Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN. Vier eigenständige Tumblekin erkunden drei lebendige 3D-Spielwelten und treten in 31 touch-optimierten Challenges gegeneinander an.
 
 ## Start
 
@@ -55,21 +55,19 @@ Web Audio). Jede läuft als eigene Three.js-Szene mit den gemeinsamen Voxel-Figu
 
 Diese Liste stammt Wort für Wort aus `client/src/minigames/catalog.js` — dieselbe
 Kurzhilfe, die im Spiel auf der Startkarte steht. Sie von Hand nachzuführen ging
-zweimal schief: hier standen zuletzt zwei längst gelöschte Minispiele, und drei
-neue fehlten. Ein Test hält jetzt fest, dass jeder Katalogeintrag auch hier auftaucht.
+dreimal schief: erst standen hier zwei längst gelöschte Minispiele und drei neue
+fehlten, danach blieben bei drei Spielen die Hilfetexte und bei zweien die
+Gestengruppe auf einem alten Stand stehen. Ein Test vergleicht den Abschnitt
+darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️ Stick ziehen
 
 - **Bumper Bloom:** Drängen, rammen, auf der Platte bleiben.
 - **Farbenjagd:** Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal.
 
-### 👆↔️ Links/Rechts wischen
-
-- **Zielgerade:** Wisch nach links oder rechts, um die Bahn zu wechseln. Weich den Hürden aus, sammle Boosts — und wenn du eine Stachelkugel hast, tippe, um sie auf die Läufer vor dir zu werfen.
-- **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang die goldenen Münzen und weich den schwarzen Bomben aus.
-
 ### 👆✳️ In jede Richtung wischen
 
+- **Zielgerade:** Weiche Hürden aus (hoch wischen zum Springen) und such dir die schnelle Bahn (links/rechts wischen): Violett ist Tempo, Braun ist Sand. Nach unten wischen ist ein Angriff — er trifft nur, wer in DEINER Bahn dicht vor dir läuft, und wer gerade springt, weicht aus. Du hast drei davon.
 - **Farbflucht:** Wisch in die Richtung, in der die angesagte Farbe liegt, und steh darauf, bevor der Boden wegbricht.
 
 ### 👆 Tippen
@@ -84,15 +82,19 @@ neue fehlten. Ein Test hält jetzt fest, dass jeder Katalogeintrag auch hier auf
 ### 👆⏺️ Knopf gedrückt halten
 
 - **Lichtwächter:** Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!
-- **Fassmut:** Ein Fass rollt auf dich zu und wird dabei immer schneller. EIN Tap bremst es. Wer es am dichtesten vor der roten Linie zum Stehen bringt, gewinnt — wer zu spät bremst, wird überrollt.
-- **Fassrolle:** Das Riesenfass rollt immer schneller. Halte ◀ oder ▶ und lauf dagegen an – wer abrutscht, platscht ins Wasser.
+- **Fassrolle:** Das Riesenfass rollt immer schneller. Halte ◀ oder ▶ und lauf dagegen an. Gezählt wird die Zeit im grünen Streifen OBEN — am Rand bist du sicher, verdienst aber nichts. Wer abrutscht, platscht ins Wasser.
 - **Ballonfahrt:** Halte den Finger auf dem Bild, dann steigt dein Ballon — loslassen lässt ihn sinken. Flieg durch die Tore, mittig durch bringt mehr, und Boden oder Decke schalten den Brenner kurz ab.
 
 ### 👆👆 Schnell tippen
 
 - **Pump-Panik:** Tippe so schnell du kannst! Jeder Tap pumpt deinen Ballon größer – der dickste Ballon gewinnt.
+- **Fassmut:** Ein Fass rollt auf dich zu und wird dabei immer schneller. EIN Tap bremst es. Wer es am dichtesten vor der roten Linie zum Stehen bringt, gewinnt — wer zu spät bremst, wird überrollt.
 - **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Abschusswinkel. Volle Power bei 45° fliegt am weitesten!
 - **Bergsteiger:** Tippe abwechselnd auf die linke und die rechte Bildhälfte — jede Seite ist eine Hand. Die falsche Seite kostet den Griff. Wer am höchsten kommt, gewinnt.
+
+### 👆↔️ Links/Rechts wischen
+
+- **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang die goldenen Münzen und weich den schwarzen Bomben aus.
 
 ### 👆💪 Halten und loslassen
 
@@ -129,7 +131,7 @@ neue fehlten. Ein Test hält jetzt fest, dass jeder Katalogeintrag auch hier auf
 
 ### 👆➡️ Nach vorne wischen
 
-- **Eisstock:** Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine pro Person, und je näher an der Mitte, desto mehr – ganz am Knopf zählt mehr als am Ringrand. Rempeln ist erlaubt, nimmt aber meist beide Steine aus dem Haus: lohnt sich nur, wenn du sowieso hinten liegst.
+- **Eisstock:** Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine, aber immer nur einer unterwegs: der nächste geht erst, wenn deiner liegt. Gezählt wird der Abstand zum Knopf, stufenlos — jeder Zentimeter näher ist mehr wert. Steine prallen nicht ab, sie schieben sich: du kannst jemanden vom Knopf drängen, aber niemand wird quer durchs Haus geschossen.
 
 ### 👆⛏️ Graben oder aufhören
 

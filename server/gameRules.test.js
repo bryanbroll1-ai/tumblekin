@@ -4364,32 +4364,71 @@ test("Spürsinn: das Versteck verlässt den Server nicht", () => {
 });
 
 // --- Die README darf dem Katalog nicht davonlaufen ------------------------
-// Die Liste im README wurde von Hand gepflegt und ist zweimal abgedriftet: sie
-// führte zuletzt zwei längst gelöschte Minispiele und kannte drei neue nicht.
-// Wer sie liest, glaubt sie — das ist die erste Seite des Projekts.
-test("README: jedes Minispiel aus dem Katalog steht drin, und keines zu viel", async () => {
+// Die Liste im README wurde von Hand gepflegt und ist dreimal abgedriftet: sie
+// führte zuletzt zwei längst gelöschte Minispiele und kannte drei neue nicht,
+// und danach blieben bei drei Spielen die Hilfetexte und bei zweien die
+// Gestenüberschrift auf einem alten Stand stehen — die Zielgerade stand unter
+// "Links/Rechts wischen", obwohl sie längst in jede Richtung gewischt wird.
+// Wer die README liest, glaubt sie; das ist die erste Seite des Projekts.
+//
+// Der erste Anlauf prüfte nur die TITEL, und genau daran ist er vorbeigelaufen.
+// Geprüft wird darum jetzt der ganze Abschnitt Zeichen für Zeichen gegen den
+// Katalog: Reihenfolge, Gruppen, Überschriften und Hilfetexte.
+test("README: der Challenge-Abschnitt steht Wort für Wort im Katalog", async () => {
   const fs = require("node:fs");
   const path = require("node:path");
-  const { MINIGAME_CATALOG } = await import("../client/src/minigames/catalog.js");
+  const { MINIGAME_CATALOG, GESTURES } = await import("../client/src/minigames/catalog.js");
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
-  const fehlend = MINIGAME_CATALOG
-    .map((game) => game.title)
-    .filter((title) => !readme.includes(`**${title}:**`));
-  assert.deepEqual(fehlend, [], "Minispiele ohne Eintrag in der README");
+  // Gruppiert nach Geste, in der Reihenfolge, in der die Gesten im Katalog
+  // zum ersten Mal vorkommen — damit die README aus dem Katalog FOLGT und
+  // nicht umgekehrt.
+  const gruppen = new Map();
+  for (const game of MINIGAME_CATALOG) {
+    if (!gruppen.has(game.gesture)) gruppen.set(game.gesture, []);
+    gruppen.get(game.gesture).push(game);
+  }
+  const erwartet = [...gruppen.entries()]
+    .map(([gesture, games]) => {
+      const geste = GESTURES[gesture];
+      return `### ${geste.icon} ${geste.label}\n\n`
+        + games.map((game) => `- **${game.title}:** ${game.help}`).join("\n");
+    })
+    .join("\n\n") + "\n\n";
 
-  // Und andersherum: ein Eintrag, den es nicht mehr gibt. Die Liste steht
-  // zwischen der Überschrift "## 31 Challenges" und "## Sandbox".
-  const start = readme.indexOf("## 31 Challenges");
+  // Der Abschnitt steht zwischen der Challenge-Überschrift und "## Sandbox".
+  const start = readme.indexOf("### ", readme.indexOf(`## ${MINIGAME_CATALOG.length} Challenges`));
   const ende = readme.indexOf("## Sandbox");
   assert.ok(start > 0 && ende > start, "Challenge-Abschnitt nicht gefunden");
-  const titel = [...readme.slice(start, ende).matchAll(/^- \*\*(.+?):\*\*/gm)].map((m) => m[1]);
-  const bekannt = new Set(MINIGAME_CATALOG.map((game) => game.title));
-  assert.deepEqual(titel.filter((t) => !bekannt.has(t)), [],
-    "README nennt Minispiele, die es nicht mehr gibt");
-  assert.equal(titel.length, MINIGAME_CATALOG.length, "Anzahl stimmt nicht");
+  assert.equal(readme.slice(start, ende), erwartet,
+    "Die Challenge-Liste im README weicht vom Katalog ab — sie wird aus ihm erzeugt, nicht daneben gepflegt");
 
   // Die Überschrift trägt die Zahl — auch die läuft sonst davon.
   assert.ok(readme.includes(`## ${MINIGAME_CATALOG.length} Challenges`),
     `Überschrift muss "## ${MINIGAME_CATALOG.length} Challenges" lauten`);
+});
+
+// Dieselbe Zahl steht an vier weiteren Stellen, und alle vier waren auf einem
+// anderen Stand: die README sprach von 30, die package.json von 28, das
+// Manifest von 18 — und das Manifest ist der Text, den das Handy beim
+// Installieren anzeigt. Eine Zahl, fünf Orte, keiner davon geprüft.
+test("Die Anzahl der Challenges stimmt überall, wo sie genannt wird", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { MINIGAME_CATALOG } = await import("../client/src/minigames/catalog.js");
+  const wurzel = path.join(__dirname, "..");
+  const anzahl = MINIGAME_CATALOG.length;
+
+  const stellen = [
+    ["README.md", `${anzahl} touch-optimierten Challenges`],
+    ["README.md", `## ${anzahl} Challenges`],
+    ["TESTEN-AUF-DEM-HANDY.md", `Alle ${anzahl} Minispiele`],
+    ["package.json", `${anzahl} touch-first challenges`],
+    ["client/manifest.json", `${anzahl} Touch-Challenges`]
+  ];
+  for (const [datei, text] of stellen) {
+    const inhalt = fs.readFileSync(path.join(wurzel, datei), "utf8");
+    assert.ok(inhalt.includes(text),
+      `${datei} nennt nicht ${anzahl} Challenges — erwartet: "${text}"`);
+  }
 });
