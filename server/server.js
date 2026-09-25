@@ -67,7 +67,7 @@ const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_LEAD_SPREAD_MS + DARE_ROUNDS * (
 
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
-  { type: "bounceArena", title: "Bumper Pool", duration: 18000 },
+  { type: "bounceArena", title: "Bumper Pool", duration: 45000 },
   { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
   { type: "colorEscape", title: "Farbflucht", duration: 31000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
@@ -607,11 +607,26 @@ const COLORGRID_ROUNDS = COLORGRID_ANNOUNCE_MS.length;
 const COLORGRID_DROP_MS = 1300;           // Felder weg, wer falsch steht, fällt
 
 // Lichtwächter — red light, green light: hold to run, freeze on red.
-const REDLIGHT_GOAL = 30;             // metres to the guard's gate
-const REDLIGHT_SPEED = 4.6;           // run speed while holding on green
-const REDLIGHT_PENALTY = 7;           // metres lost when caught moving on red
-const REDLIGHT_GRACE_MS = 300;        // reaction grace after the light flips red
-const REDLIGHT_HOLD_FRESH_MS = 220;   // "holding" = a run ping this recent
+// Lichtwächter — "Ochs am Berg". Vorher sprang das Licht ohne Vorwarnung auf
+// Rot, und "Halten" hiess "ein Lauf-Ping in den letzten 220 ms". Zusammen mit
+// 300 ms Gnade blieben nach dem Umspringen gerade 80 ms zum Loslassen —
+// weniger, als ein Mensch zum Sehen braucht. Gemessen standen am Ende drei von
+// vier Läufern auf 0 m, und wer vorn lag, hatte Glück gehabt.
+//
+// Jetzt dreht sich der Wächter SICHTBAR um: eine Drehphase kündigt jedes Rot
+// an, man darf in ihr noch laufen und muss bis zu ihrem Ende losgelassen
+// haben. Die Drehung wird im Lauf der Runde kürzer, und manchmal täuscht er
+// nur an und dreht sich wieder weg — wer dann stehen bleibt, verliert Zeit,
+// nicht Boden. Halten ist ein echter Zustand (Drücken/Loslassen), kein Ping.
+// Erwischt heisst: ein Stück zurück und kurz benommen, nicht zurück auf Null.
+const REDLIGHT_GOAL = 52;             // metres to the guard's gate
+const REDLIGHT_SPEED = 3.8;           // run speed while holding
+const REDLIGHT_PENALTY = 5;           // metres lost when caught moving on red
+const REDLIGHT_STUN_MS = 1200;        // so lange steht man nach dem Erwischen
+const REDLIGHT_GRACE_MS = 160;        // Netz und Finger — mehr braucht es nach der Drehphase nicht
+const REDLIGHT_HOLD_FRESH_MS = 450;   // ohne Loslass-Meldung gilt man so lange noch als haltend
+const REDLIGHT_TURN_FIRST_MS = 700;   // die erste Drehung ist langsam
+const REDLIGHT_TURN_LAST_MS = 360;    // gegen Ende dreht er sich schnell um
 
 // Seilspringen — spring über das Seil; wer es einmal nicht schafft, ist raus.
 //
@@ -1051,8 +1066,18 @@ const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel
 // stick, ramming is pure momentum. The rim ALWAYS bounces you back — unless a
 // bumper hit was hard enough to "launch" you (a short window), so you can never
 // drive yourself off but a solid ram sends a rival flying over the edge.
-// Falling is a timed respawn, never elimination, so every player is in for the
-// whole round and the score is survival time + knockouts.
+//
+// Drei Leben. Wer ins Becken fliegt, verliert eines und springt nach kurzer
+// Pause zurück auf die Insel; erst mit dem letzten ist man raus. Vorher war
+// schon der erste Sturz das Aus: die Runde war nach rund neun Sekunden vorbei,
+// und wer im ersten Gedränge stand, hatte das Spiel nie gespielt. Der Hilfetext
+// versprach dabei längst das Zurückpaddeln.
+//
+// Damit es trotzdem ein Ende findet, schrumpft die Insel in den letzten
+// fünfzehn Sekunden — der Platz wird eng, und jeder Stoss sitzt.
+const ARENA_LIVES = 3;
+const ARENA_SHRINK_MS = 15000;        // so lange vor Schluss beginnt die Insel zu schrumpfen
+const ARENA_SHRINK_TO = 0.62;         // auf diesen Anteil ihres Radius
 const ARENA_RADIUS = 1.0;             // plate disk radius (logical units)
 const ARENA_BALL_RADIUS = 0.11;       // kin collision radius
 const ARENA_ACCEL = 3.8;              // stick thrust acceleration (snappy, responsive)
@@ -1450,6 +1475,16 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
+  // Nur für die Prüfskripte: auch die Menschen im Raum spielen wie Bots.
+  on("devAutopilot", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Werkzeuge sind in dieser Version deaktiviert.");
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann das.");
+    room.autopilot = payload?.on !== false;
+    replyOk(reply, room, socket.data.playerId);
+  });
+
   // Zurück in die Lobby: Modus und Auswahl bleiben, der Spielstand nicht.
   on("restartGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);
@@ -1625,7 +1660,7 @@ function startMinigame(room, reason, forcedType = null) {
   });
 
   if (template.type === "bounceArena") {
-    minigame.arena = createArenaState(room.players, minigame.startedAt);
+    minigame.arena = createArenaState(room.players, minigame.startedAt, template.duration);
   }
   if (template.arcadeFamily) {
     minigame.arcade = createArcadeState(template.type, room.players, minigame.startedAt);
@@ -1690,10 +1725,12 @@ function scheduleBotMinigameInputs(room) {
   const minigame = room.currentMinigame;
   if (!minigame) return;
 
-  room.players.filter((player) => player.isBot).forEach((bot) => {
+  // Mit dem Dev-Autopiloten spielen auch die Menschen im Raum wie Bots —
+  // für Bildreihen und Durchläufe, in denen die eigene Figur etwas tun soll.
+  room.players.filter((player) => player.isBot || (DEV_TOOLS_ENABLED && room.autopilot)).forEach((bot) => {
     if (minigame.type === "bounceArena") {
       const timer = setTrackedInterval(room, () => {
-        if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt) return;
+        if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt || minigameFrozen(minigame, Date.now())) return;
         arenaBotStep(minigame.arena, bot.id);
       }, 180 + Math.floor(Math.random() * 110));
       return timer;
@@ -1726,7 +1763,7 @@ function scheduleBotMinigameInputs(room) {
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
       const timer = setTrackedInterval(room, () => {
-        if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt) return;
+        if (room.currentMinigame?.id !== minigame.id || Date.now() < minigame.startedAt || minigameFrozen(minigame, Date.now())) return;
         arcadeBotStep(room, bot);
       }, every);
       return timer;
@@ -1741,7 +1778,7 @@ function updateBounceArena(room) {
   if (!minigame || minigame.type !== "bounceArena") return;
   const arena = minigame.arena;
   const now = Date.now();
-  if (now < minigame.startedAt) {
+  if (now < minigame.startedAt || minigameFrozen(minigame, now)) {
     arena.lastUpdateAt = now;
     return;
   }
@@ -1752,9 +1789,29 @@ function updateBounceArena(room) {
 
   const players = Object.values(arena.players);
 
+  // Die Insel schrumpft zum Schluss — gleichmässig, damit man es kommen sieht.
+  const shrink = clamp((now - arena.shrinkFrom) / Math.max(1, arena.shrinkUntil - arena.shrinkFrom), 0, 1);
+  arena.radius = ARENA_RADIUS * (1 - (1 - arena.shrinkTo) * shrink);
+  arena.shrinking = shrink > 0;
+
+  // Zurück auf die Insel, wer noch Leben hat und lange genug im Wasser war.
+  players.forEach((ap) => {
+    if (ap.inPlay || ap.lives <= 0 || now < ap.outUntil) return;
+    const spot = arenaSpawnPoint(arena, ap);
+    ap.x = spot.x;
+    ap.y = spot.y;
+    ap.vx = 0;
+    ap.vy = 0;
+    ap.inPlay = true;
+    ap.ejecting = false;
+    ap.launchedUntil = 0;
+    ap.invulnUntil = now + ARENA_INVULN_MS;
+    ap.spawnedAt = now;
+  });
+
   const sub = ARENA_SUBSTEPS;
   const dt = frameDt / sub;
-  const limit = ARENA_RADIUS - ARENA_BALL_RADIUS;
+  const limit = arena.radius - ARENA_BALL_RADIUS;
 
   for (let step = 0; step < sub; step += 1) {
     // Integrate: thrust while the stick intent is fresh, then damping, then move.
@@ -1801,7 +1858,7 @@ function updateBounceArena(room) {
       } else {
         ap.ejecting = true;
       }
-      if (ap.ejecting && dist > ARENA_RADIUS + ARENA_BALL_RADIUS) {
+      if (ap.ejecting && dist > arena.radius + ARENA_BALL_RADIUS) {
         knockArenaPlayerOff(arena, ap, now);
       }
     });
@@ -1811,27 +1868,31 @@ function updateBounceArena(room) {
   room.players.forEach((player) => {
     const ap = arena.players[player.id];
     if (!ap) return;
-    if (ap.inPlay) aliveCount += 1;
+    // Im Spiel ist, wer auf der Insel steht ODER noch zurückspringen darf.
+    if (ap.inPlay || ap.lives > 0) aliveCount += 1;
     minigame.scores[player.id] = Math.max(0, Math.round(ap.score));
     player.minigameScore = minigame.scores[player.id];
   });
 
-  // Single elimination: once only one (or none) is left on the plate, play a
-  // short finale (survivor celebrates on camera), then the scoreboard.
+  // Ist nur noch einer (oder keiner) übrig, der Leben hat: kurzes Finale, dann
+  // die Tafel.
   const elapsed = now - minigame.startedAt;
   if (aliveCount <= 1 && elapsed > 2000 && room.players.length > 1) {
     beginMinigameFinale(room, minigame);
   }
 }
 
-// Falling off is permanent — one knock-off and you are out for the round.
+// Ins Becken: ein Leben weniger. Mit Leben übrig geht es nach
+// ARENA_RESPAWN_MS zurück auf die Insel, ohne ist man raus.
 function knockArenaPlayerOff(arena, ap, now) {
   if (!ap.inPlay) return;
   ap.inPlay = false;
   ap.ejecting = false;
-  ap.outAt = now;
   ap.knockedAt = now;
   ap.falls += 1;
+  ap.lives = Math.max(0, (ap.lives ?? 1) - 1);
+  if (ap.lives > 0) ap.outUntil = now + ARENA_RESPAWN_MS;
+  else ap.outAt = now;
   ap.vx = 0;
   ap.vy = 0;
   // Credit a recent hitter with the knockout.
@@ -1961,17 +2022,39 @@ function finishMinigame(room) {
 
 function bounceResultScore(arenaPlayer) {
   if (!arenaPlayer) return 0;
-  // "Draengen, rammen, auf der Platte bleiben" — in dieser Reihenfolge steht es
-  // im Hinweis, und in dieser Reihenfolge wird jetzt auch gewertet: oben bleiben
-  // zuerst, dann die Rauswuerfe, dann die Zeit.
+  // Übrige Leben zuerst, dann die Rauswürfe, dann die Zeit auf der Insel —
+  // genau das steht auch auf der Ergebniskarte ("2 Leben · 1 Rauswurf").
   //
   // Vorher war die Schlagzeile `score`, in dem Ueberlebenszeit und Rauswuerfe
   // vermischt waren, waehrend das Ergebnisbild NUR die Rauswuerfe zeigte. Ein
   // Ueberlebender mit null Rauswuerfen stand damit vor einem Rausgeworfenen mit
   // zwei — und auf der Karte stand "0" ueber "2".
-  return (arenaPlayer.inPlay ? 100000000 : 0)
-    + (arenaPlayer.knockouts || 0) * 100000
-    + Math.round(arenaPlayer.playMs || 0);
+  const lives = arenaPlayer.lives ?? (arenaPlayer.inPlay ? 1 : 0);
+  return lives * 1000000000
+    + (arenaPlayer.knockouts || 0) * 1000000
+    + Math.min(999999, Math.round(arenaPlayer.playMs || 0));
+}
+
+// Wo man nach einem Sturz wieder auf die Insel kommt: innen, und dort, wo
+// gerade niemand steht — sonst landete man direkt vor dem, der einen eben
+// hinausgestossen hat.
+function arenaSpawnPoint(arena, self) {
+  let best = { x: 0, y: 0 };
+  let bestGap = -1;
+  const r = 0.38 * (arena.radius || ARENA_RADIUS);
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (i / 12) * Math.PI * 2;
+    const x = Math.cos(angle) * r;
+    const y = Math.sin(angle) * r;
+    const gap = Object.values(arena.players)
+      .filter((other) => other !== self && other.inPlay)
+      .reduce((near, other) => Math.min(near, Math.hypot(other.x - x, other.y - y)), 9);
+    if (gap > bestGap) {
+      bestGap = gap;
+      best = { x, y };
+    }
+  }
+  return best;
 }
 
 function arcadeRankingScore(arcade, arcadePlayer) {
@@ -2105,9 +2188,10 @@ function arcadeRankingScore(arcade, arcadePlayer) {
 function minigameResultDetail(minigame, playerId, _finishedAt) {
   if (minigame.type === "bounceArena") {
     const arenaPlayer = minigame.arena.players[playerId];
-    // Zuerst steht da, ob man noch oben ist — genau so wird auch gewertet.
-    return arenaPlayer?.inPlay
-      ? { kind: "points", value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" }
+    // Zuerst die Leben, dann die Rauswürfe — genau so wird auch gewertet.
+    const lives = arenaPlayer?.lives ?? (arenaPlayer?.inPlay ? 1 : 0);
+    return lives > 0
+      ? { kind: "lives", value: lives, knockouts: arenaPlayer?.knockouts || 0, label: "Leben" }
       : { kind: "out", survived: false, value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" };
   }
   if (minigame.arcade) return arcadeResultDetail(minigame.arcade, minigame.arcade.players[playerId]);
@@ -2335,10 +2419,14 @@ function finishGame(room, winnerIds) {
   room.lastMessage = names.length ? `${names.join(" & ")} ${names.length > 1 ? "gewinnen" : "gewinnt"} die Partie!` : "Partie beendet.";
 }
 
-function createArenaState(players, startedAt) {
+function createArenaState(players, startedAt, duration = 45000) {
   const arena = {
     radius: ARENA_RADIUS,
     ballRadius: ARENA_BALL_RADIUS,
+    lives: ARENA_LIVES,
+    shrinkFrom: startedAt + Math.max(0, duration - ARENA_SHRINK_MS),
+    shrinkUntil: startedAt + duration,
+    shrinkTo: ARENA_SHRINK_TO,
     lastUpdateAt: startedAt,
     tick: 0,
     players: {}
@@ -2354,6 +2442,7 @@ function createArenaState(players, startedAt) {
       thrustY: 0,
       lastThrustAt: 0,
       inPlay: true,          // on the plate and collidable
+      lives: ARENA_LIVES,    // bei null ist man raus
       ejecting: false,       // cleared the rim, tumbling off
       launchedUntil: 0,      // recently rammed hard -> rim lets you fly off
       outUntil: 0,           // respawns when now passes this
@@ -2470,7 +2559,7 @@ function arenaBotStep(arena, playerId) {
   if (!bot?.inPlay) return;
 
   const now = Date.now();
-  const distanceFromCenter = Math.hypot(bot.x, bot.y);
+  const distanceFromCenter = Math.hypot(bot.x, bot.y) / (arena.radius || ARENA_RADIUS);
   // Im Ergebnis zählt Überleben (+100000) weit mehr als Abschüsse. Wer bis kurz
   // vor den Rand jagt, verliert damit — gemessen gewann die „aggressivste"
   // Einstellung nur 9 % der Partien, die vorsichtigste 49 %. Die Rollen standen
@@ -2487,7 +2576,7 @@ function arenaBotStep(arena, playerId) {
   let targetX = -bot.x;
   let targetY = -bot.y;
 
-  if (distanceFromCenter < ARENA_RADIUS * profile.edge) {
+  if (distanceFromCenter < profile.edge) {
     const opponents = Object.entries(arena.players)
       .filter(([id, candidate]) => id !== playerId && candidate.inPlay && now >= candidate.invulnUntil)
       .map(([_id, candidate]) => candidate);
@@ -2683,6 +2772,10 @@ function createArcadeState(type, players, startedAt) {
       const entry = arcade.players[player.id];
       entry.progress = 0;
       entry.lastRunAt = 0;
+      entry.holding = false;
+      entry.running = false;
+      entry.stunUntil = 0;
+      entry.caughtAt = 0;
       entry.caught = 0;
       entry.penalizedPhase = -1;
       entry.finishedAt = null;
@@ -3343,20 +3436,35 @@ function buildReactRounds(seed) {
   }));
 }
 
-// Alternating green/red windows, deterministic per seed. Index 0 is green.
+// Grün, Drehung, Rot — und ab und zu eine Finte: er dreht an und wieder weg.
+// Deterministisch je Startwert, für alle gleich. Index 0 ist Grün.
 function buildRedlightPhases(seed, totalMs) {
   const phases = [];
   let at = 0;
   let index = 0;
+  const push = (kind, length) => {
+    phases.push({ kind, from: at, until: at + length });
+    at += length;
+  };
   while (at < totalMs) {
-    const green = 1500 + arcadeNoise(seed + index * 13) * 1300;
-    const red = 1000 + arcadeNoise(seed + index * 19) * 900;
-    phases.push({ kind: "green", from: at, until: at + green });
-    phases.push({ kind: "red", from: at + green, until: at + green + red });
-    at += green + red;
+    const late = Math.min(1, at / 30000);
+    const turn = Math.round(REDLIGHT_TURN_FIRST_MS - (REDLIGHT_TURN_FIRST_MS - REDLIGHT_TURN_LAST_MS) * late);
+    push("green", Math.round(1400 + arcadeNoise(seed + index * 13) * 1800));
+    // Ab der dritten Runde gelegentlich eine Finte vor der echten Drehung.
+    if (index >= 2 && arcadeNoise(seed + index * 29) < 0.3) {
+      push("feint", Math.round(turn * 0.7));
+      push("green", Math.round(700 + arcadeNoise(seed + index * 37) * 900));
+    }
+    push("turn", turn);
+    push("red", Math.round(1100 + arcadeNoise(seed + index * 19) * 1000));
     index += 1;
   }
   return phases;
+}
+
+// Darf man in dieser Phase laufen? Alles ausser Rot.
+function redlightMayRun(kind) {
+  return kind !== "red";
 }
 
 function redlightPhaseAt(arcade, elapsed) {
@@ -3544,7 +3652,13 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "redlight") {
     if (input.action !== "run") return { ok: false, error: "Halte den Knopf, um zu laufen." };
     if (arcadePlayer.finishedAt) return { ok: true };
-    // Holding = a run ping this recent; the tick does the movement.
+    // Drücken und Loslassen kommen als eigene Meldung; dazwischen hält der
+    // Client mit Pings wach. Ohne `hold` (alte Clients, Bots) ist es ein Ping.
+    if (input.hold === false) {
+      arcadePlayer.holding = false;
+      return { ok: true };
+    }
+    arcadePlayer.holding = true;
     arcadePlayer.lastRunAt = now;
     arcadePlayer.hasMoved = true;
     return { ok: true };
@@ -3579,7 +3693,7 @@ function handleArcadeInput(room, player, rawInput) {
     // Bot die Tickrate statt das Zielen — gemessen wurde der beste Bot dadurch
     // regelmässig überrollt und der schlechteste gewann. Was den Bot unterscheiden
     // SOLL, ist sein Zielabstand und dessen Streuung, nicht sein Taktgeber.
-    const t = player.isBot && typeof input.at === "number" && Number.isFinite(input.at)
+    const t = (player.isBot || (DEV_TOOLS_ENABLED && room.autopilot)) && typeof input.at === "number" && Number.isFinite(input.at)
       ? clamp(input.at, 0, jetzt)
       : jetzt;
     // Frisches Fass, falls dieser Tap der erste Kontakt mit der Runde ist.
@@ -4428,12 +4542,22 @@ function handleArcadeInput(room, player, rawInput) {
   return { ok: false, error: "Unbekannte Arcade-Steuerung." };
 }
 
+// Nach Ablauf der Spielzeit — oder sobald das Finale läuft — steht alles
+// still. Vorher liefen Bots und gehaltene Knöpfe im Finale weiter, während
+// Menschen schon abgewiesen wurden: beim Lichtwächter kam ein Bot 2,5 s nach
+// Schluss noch ins Ziel und wurde genau so gewertet.
+function minigameFrozen(minigame, now) {
+  if (!minigame) return true;
+  if (minigame.finaleAt) return true;
+  return Number.isFinite(minigame.duration) && now > minigame.startedAt + minigame.duration;
+}
+
 function updateArcade(room) {
   const minigame = room.currentMinigame;
   const arcade = minigame?.arcade;
   if (!arcade) return;
   const now = Date.now();
-  if (now < minigame.startedAt) {
+  if (now < minigame.startedAt || minigameFrozen(minigame, now)) {
     arcade.lastUpdateAt = now;
     return;
   }
@@ -4981,9 +5105,10 @@ function updateRedlight(room, minigame, arcade, dt, now) {
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
     if (!entry || entry.finishedAt) return;
-    const holding = now - (entry.lastRunAt || 0) <= REDLIGHT_HOLD_FRESH_MS;
+    const holding = entry.holding !== false && now - (entry.lastRunAt || 0) <= REDLIGHT_HOLD_FRESH_MS;
+    entry.running = holding && redlightMayRun(phase.kind) && now >= (entry.stunUntil || 0);
 
-    if (holding && phase.kind === "green") {
+    if (entry.running) {
       entry.progress = Math.min(arcade.goal, entry.progress + REDLIGHT_SPEED * dt);
       if (entry.progress >= arcade.goal) {
         entry.finishedAt = now;
@@ -4994,13 +5119,15 @@ function updateRedlight(room, minigame, arcade, dt, now) {
       return;
     }
 
-    // Caught sprinting during red — a short grace right after the switch is forgiven.
+    // Bei Rot noch gehalten — nach der Drehphase und einer kurzen Gnade.
     if (holding && phase.kind === "red" && entry.penalizedPhase !== phase.index) {
       const intoRed = elapsed - phase.from;
       if (intoRed > REDLIGHT_GRACE_MS) {
         entry.penalizedPhase = phase.index;
         entry.caught += 1;
         entry.progress = Math.max(0, entry.progress - REDLIGHT_PENALTY);
+        entry.stunUntil = now + REDLIGHT_STUN_MS;
+        entry.caughtAt = now;
         entry.flash = "bad";
         entry.lastHitAt = now;
       }
@@ -6419,17 +6546,33 @@ function arcadeBotStep(room, bot) {
     const elapsed = now - minigame.startedAt;
     const phase = redlightPhaseAt(arcade, elapsed);
     const intoPhase = elapsed - phase.from;
+    const release = () => {
+      if (player.holding) handleArcadeInput(room, bot, { action: "run", hold: false });
+    };
     if (phase.kind === "green") {
-      // Bots react late to green and occasionally hesitate.
-      if (intoPhase >= profile.reactionMs && Math.random() > 0.08) {
+      // Nach einer Drehung reagiert der Bot verzögert wieder auf Grün.
+      if (intoPhase >= profile.reactionMs * 0.6 && Math.random() > 0.05) {
         handleArcadeInput(room, bot, { action: "run" });
       }
       return;
     }
-    // Red: sloppy bots keep running a moment too long.
-    if (intoPhase < profile.reactionMs * 0.6 || Math.random() < profile.mistake * 0.25) {
-      handleArcadeInput(room, bot, { action: "run" });
+    if (phase.kind === "turn" || phase.kind === "feint") {
+      // Er sieht die Drehung und lässt nach seiner Reaktionszeit los. Bei
+      // einer Finte lässt er genauso los — er weiss es ja nicht besser; der
+      // Unterschied ist nur, dass es ihn dann bloss Zeit kostet.
+      if (player.botTurnPhase !== phase.index) {
+        player.botTurnPhase = phase.index;
+        player.botReleaseAfter = profile.reactionMs * (0.7 + Math.random() * 0.6);
+        // Gierige Fehler: hin und wieder läuft er einfach weiter.
+        player.botGreedy = Math.random() < profile.mistake * 0.6;
+      }
+      if (intoPhase >= player.botReleaseAfter && !player.botGreedy) release();
+      else handleArcadeInput(room, bot, { action: "run" });
+      return;
     }
+    // Rot: wer gierig war, hält noch einen Moment zu lang.
+    if (player.botGreedy && intoPhase < 400) handleArcadeInput(room, bot, { action: "run" });
+    else release();
     return;
   }
   if (arcade.family === "wave") {

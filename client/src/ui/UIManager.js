@@ -974,6 +974,7 @@ export function formatResultMetric(entry) {
     return detail.alive ? "Bis zuletzt dabei" : `${formatMilliseconds(detail.value)} überlebt`;
   }
   if (detail.kind === "out") return `Raus · ${countNoun(detail.value, detail.label)}`;
+  if (detail.kind === "lives") return `${countNoun(detail.value, "Leben")} · ${countNoun(detail.knockouts, "Rauswürfe")}`;
   if (detail.kind === "strikes") return countNoun(detail.value, "Treffer");
   if (detail.kind === "fit") return `${detail.value}/${detail.total} ${detail.label}`;
   if (detail.value !== undefined && detail.label) return countNoun(detail.value, detail.label);

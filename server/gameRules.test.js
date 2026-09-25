@@ -223,7 +223,7 @@ test("bumper: you cannot drive yourself off the plate", () => {
   assert.ok(Math.hypot(entry.x, entry.y) <= ARENA_RADIUS, "stays on the plate");
 });
 
-test("bumper: a hard ram knocks a rival off for good (single elimination)", () => {
+test("bumper: a hard ram costs a life, the rival springs back — the last life is final", () => {
   const attacker = player({ id: "atk", name: "Atk", color: "#f00" });
   const victim = player({ id: "vic", name: "Vic", color: "#00f" });
   const third = player({ id: "third", name: "Third", color: "#0f0" });
@@ -247,12 +247,57 @@ test("bumper: a hard ram knocks a rival off for good (single elimination)", () =
   }
   assert.ok(knocked, "the rammed rival is knocked off the plate");
   assert.equal(atk.knockouts, 1, "the attacker is credited the knockout");
+  assert.equal(vic.lives, 2, "ein Sturz kostet ein Leben");
 
-  // No respawn — the victim stays out for the rest of the round.
+  // Noch im Wasser: kein Zurück vor der Pause.
+  arena.lastUpdateAt = Date.now() - 90;
+  updateBounceArena(room);
+  assert.equal(vic.inPlay, false, "direkt nach dem Sturz ist man noch im Becken");
+
+  // Nach der Pause springt man zurück — innen und kurz unverwundbar.
   vic.outUntil = Date.now() - 1;
   arena.lastUpdateAt = Date.now() - 90;
   updateBounceArena(room);
-  assert.equal(vic.inPlay, false, "a knocked-off player never comes back");
+  assert.equal(vic.inPlay, true, "mit Leben übrig geht es zurück auf die Insel");
+  assert.ok(Math.hypot(vic.x, vic.y) < arena.radius * 0.5, "zurück nach innen, nicht an den Rand");
+  assert.ok(vic.invulnUntil > Date.now(), "und kurz geschützt, damit niemand am Einstieg wartet");
+
+  // Der letzte Sturz ist endgültig.
+  vic.lives = 1;
+  vic.invulnUntil = 0;
+  vic.ejecting = true;
+  vic.x = arena.radius + ARENA_BALL_RADIUS + 0.05;
+  arena.lastUpdateAt = Date.now() - 90;
+  updateBounceArena(room);
+  assert.equal(vic.lives, 0);
+  vic.outUntil = Date.now() - 1;
+  arena.lastUpdateAt = Date.now() - 90;
+  updateBounceArena(room);
+  assert.equal(vic.inPlay, false, "ohne Leben kommt niemand zurück");
+});
+
+test("bumper: in the last fifteen seconds the island shrinks", () => {
+  const one = player({ id: "s1", name: "S1", color: "#f00" });
+  const two = player({ id: "s2", name: "S2", color: "#00f" });
+  const duration = 45000;
+  const startedAt = Date.now() - 10000;
+  const arena = createArenaState([one, two], startedAt, duration);
+  const minigame = { type: "bounceArena", arena, scores: {}, startedAt, duration, lastInputAt: {}, finishing: false };
+  const room = { currentMinigame: minigame, players: [one, two] };
+  arena.lastUpdateAt = Date.now() - 90;
+  updateBounceArena(room);
+  assert.equal(arena.radius, ARENA_RADIUS, "vorher bleibt die Insel ganz");
+  // Kurz vor Schluss: deutlich kleiner, aber nicht weg.
+  arena.shrinkFrom = Date.now() - 14000;
+  arena.shrinkUntil = Date.now() + 1000;
+  arena.lastUpdateAt = Date.now() - 90;
+  updateBounceArena(room);
+  assert.ok(arena.radius < ARENA_RADIUS * 0.7 && arena.radius > ARENA_RADIUS * 0.5, `Radius ${arena.radius}`);
+  assert.equal(arena.shrinking, true);
+  // Wer ausserhalb steht, wird zurückgeschoben, nicht hinausgeworfen.
+  Object.values(arena.players).forEach((ap) => {
+    assert.ok(Math.hypot(ap.x, ap.y) <= arena.radius, "niemand fällt, nur weil die Insel kleiner wird");
+  });
 });
 
 test("bumper: deciding the round starts a finale window instead of an abrupt cut", () => {
@@ -263,8 +308,9 @@ test("bumper: deciding the round starts a finale window instead of an abrupt cut
   const minigame = { type: "bounceArena", arena, scores: {}, startedAt, duration: 18000, lastInputAt: {}, finishing: false };
   const room = { currentMinigame: minigame, players: [one, two] };
 
-  // Two is already off the plate → the round is decided.
+  // Two is already off the plate with no lives left → the round is decided.
   arena.players[two.id].inPlay = false;
+  arena.players[two.id].lives = 0;
   arena.lastUpdateAt = Date.now() - 90;
   updateBounceArena(room);
 
@@ -273,10 +319,16 @@ test("bumper: deciding the round starts a finale window instead of an abrupt cut
   assert.ok(!minigame.finishing, "the round is not finished during the finale");
 });
 
-test("bumper: a survivor still on the plate outranks anyone eliminated", () => {
-  const survivor = bounceResultScore({ score: 90, knockouts: 0, inPlay: true });
-  const eliminated = bounceResultScore({ score: 240, knockouts: 3, inPlay: false });
-  assert.ok(survivor > eliminated, "last one standing wins");
+test("bumper: lives rank first, then knockouts, then time on the island", () => {
+  const survivor = bounceResultScore({ lives: 1, knockouts: 0, inPlay: true, playMs: 9000 });
+  const eliminated = bounceResultScore({ lives: 0, knockouts: 3, inPlay: false, playMs: 40000 });
+  assert.ok(survivor > eliminated, "wer noch Leben hat, steht vor jedem, der raus ist");
+  const moreLives = bounceResultScore({ lives: 3, knockouts: 0, playMs: 1000 });
+  const fewerLives = bounceResultScore({ lives: 2, knockouts: 5, playMs: 45000 });
+  assert.ok(moreLives > fewerLives, "Leben zählen vor Rauswürfen");
+  const hitter = bounceResultScore({ lives: 2, knockouts: 2, playMs: 1000 });
+  const passive = bounceResultScore({ lives: 2, knockouts: 1, playMs: 45000 });
+  assert.ok(hitter > passive, "bei gleichen Leben zählen die Rauswürfe");
   assert.equal(bounceResultScore(null), 0);
 });
 
@@ -526,37 +578,79 @@ test("Platzierung: Gleichstand teilt sich den Platz", () => {
   assert.equal(places.d, 4);
 });
 
-test("lichtwaechter: running on green moves, running on red costs progress", () => {
+test("lichtwaechter: every red is announced by a visible turn, and running stays allowed in it", () => {
   const sprinter = player({ id: "rl", name: "RL", color: "#fff" });
   const startedAt = Date.now();
   const arcade = createArcadeState("lichtwaechter", [sprinter], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
-  const room = { currentMinigame: minigame, players: [sprinter] };
-  const entry = arcade.players[sprinter.id];
-
-  // Phases alternate strictly green/red starting on green.
+  // Jede Rotphase hat direkt davor eine Drehung — nie springt es ohne Warnung um.
+  arcade.phases.forEach((phase, index) => {
+    if (phase.kind === "red") assert.equal(arcade.phases[index - 1].kind, "turn", `Rot bei ${phase.from} ohne Drehung davor`);
+  });
   assert.equal(arcade.phases[0].kind, "green");
-  assert.equal(arcade.phases[1].kind, "red");
+  // Die Drehung wird im Lauf der Runde kürzer, bleibt aber menschlich.
+  const turns = arcade.phases.filter((phase) => phase.kind === "turn");
+  assert.ok(turns[0].until - turns[0].from > turns[turns.length - 1].until - turns[turns.length - 1].from);
+  turns.forEach((turn) => assert.ok(turn.until - turn.from >= 300, "eine Drehung muss sichtbar sein"));
+  // Finten gibt es, aber nicht gleich zu Beginn.
+  assert.ok(arcade.phases.some((phase) => phase.kind === "feint"), "ohne Finte ist das Loslassen reines Mitzählen");
+  assert.ok(arcade.phases.slice(0, 4).every((phase) => phase.kind !== "feint"));
+});
 
-  // Hold the button in the middle of the first green phase.
-  const greenNow = startedAt + Math.floor((arcade.phases[0].from + arcade.phases[0].until) / 2);
-  entry.lastRunAt = greenNow;
+test("lichtwaechter: holding on red costs ground and a moment, letting go in the turn is safe", () => {
+  const sprinter = player({ id: "rl", name: "RL", color: "#fff" });
+  const careful = player({ id: "rc", name: "RC", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("lichtwaechter", [sprinter, careful], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [sprinter, careful] };
+  const greedy = arcade.players[sprinter.id];
+  const calm = arcade.players[careful.id];
+  const [green, turn, red] = arcade.phases;
+  assert.deepEqual([green.kind, turn.kind, red.kind], ["green", "turn", "red"]);
+
+  // Beide laufen bei Grün.
+  const greenNow = startedAt + Math.floor((green.from + green.until) / 2);
+  [sprinter, careful].forEach((p) => {
+    arcade.players[p.id].lastInputAt = 0;
+    handleArcadeInput(room, p, { action: "run" });
+    arcade.players[p.id].lastRunAt = greenNow;
+  });
   testRules.updateRedlight(room, minigame, arcade, 0.1, greenNow);
-  assert.ok(entry.progress > 0, "green light lets the runner move");
-  const afterGreen = entry.progress;
+  assert.ok(greedy.progress > 0 && calm.progress > 0, "Grün lässt laufen");
 
-  // Keep holding well into the red phase (past the grace window).
-  const redPhase = arcade.phases[1];
-  const redNow = startedAt + redPhase.from + 800;
-  entry.lastRunAt = redNow;
+  // In der Drehung laufen beide noch.
+  const turnNow = startedAt + turn.from + 50;
+  greedy.lastRunAt = turnNow;
+  calm.lastRunAt = turnNow;
+  const beforeTurn = calm.progress;
+  testRules.updateRedlight(room, minigame, arcade, 0.1, turnNow);
+  assert.ok(calm.progress > beforeTurn, "in der Drehung darf man noch laufen");
+
+  // Der Vorsichtige lässt los, der Gierige hält weiter bis ins Rot.
+  greedy.progress = 12;
+  calm.lastInputAt = 0;
+  handleArcadeInput(room, careful, { action: "run", hold: false });
+  const redNow = startedAt + red.from + 400;
+  greedy.lastRunAt = redNow;
+  const held = greedy.progress;
   testRules.updateRedlight(room, minigame, arcade, 0.1, redNow);
-  assert.equal(entry.caught, 1, "sprinting on red gets caught");
-  assert.ok(entry.progress < afterGreen, "getting caught costs progress");
+  assert.equal(greedy.caught, 1, "bei Rot gehalten heisst erwischt");
+  assert.ok(greedy.progress < held && greedy.progress > 0, "ein Stück zurück, nicht auf Null");
+  assert.ok(greedy.stunUntil > redNow, "und kurz benommen");
+  assert.equal(calm.caught, 0, "wer in der Drehung losgelassen hat, ist sicher");
 
-  // The same red phase only punishes once.
-  entry.lastRunAt = redNow + 100;
+  // Dieselbe Rotphase straft nur einmal.
+  greedy.lastRunAt = redNow + 100;
   testRules.updateRedlight(room, minigame, arcade, 0.1, redNow + 100);
-  assert.equal(entry.caught, 1);
+  assert.equal(greedy.caught, 1);
+
+  // Benommen läuft man auch bei Grün nicht los.
+  const next = arcade.phases[3];
+  greedy.stunUntil = startedAt + next.from + 5000;
+  const stunned = greedy.progress;
+  greedy.lastRunAt = startedAt + next.from + 100;
+  testRules.updateRedlight(room, minigame, arcade, 0.1, startedAt + next.from + 100);
+  assert.equal(greedy.progress, stunned);
 });
 
 test("lichtwaechter: reaching the gate finishes the run and ranks by time", () => {
@@ -569,6 +663,7 @@ test("lichtwaechter: reaching the gate finishes the run and ranks by time", () =
 
   entry.progress = arcade.goal - 0.01;
   const greenNow = startedAt + Math.floor((arcade.phases[0].from + arcade.phases[0].until) / 2);
+  entry.holding = true;
   entry.lastRunAt = greenNow;
   testRules.updateRedlight(room, minigame, arcade, 0.1, greenNow);
   assert.ok(entry.finishedAt, "crossing the goal line finishes");

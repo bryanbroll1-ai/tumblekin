@@ -1723,3 +1723,92 @@ canvas.is-stunned {
   background: #ff5c6e;
   color: #ffffff;
 }
+
+/* --- Bumper Pool: Leben aller Spieler ------------------------------------ */
+/* Je Spieler ein Chip mit drei Punkten in seiner Farbe. Das IST die Wertung:
+   wer die meisten Punkte übrig hat, gewinnt. */
+.arena-lives {
+  position: absolute;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.arena-life {
+  display: inline-flex;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.82);
+  box-shadow: inset 0 0 0 2px var(--chip);
+}
+
+.arena-life i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.arena-life i.on {
+  background: var(--chip);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+}
+
+.arena-life.is-own {
+  box-shadow: inset 0 0 0 2px #ffffff;
+}
+
+.arena-life.is-out {
+  opacity: 0.45;
+}
+
+.kinetic-hud .color-banner.arena-banner {
+  top: calc(98px + env(safe-area-inset-top));
+  bottom: auto;
+  background: #ffd15c;
+  color: #4a3400;
+}
+
+.kinetic-hud .color-banner.arena-banner[data-tone="out"] {
+  background: #ff6b7f;
+  color: #42101a;
+}
+
+/* --- Lichtwächter: Stand aller Läufer ----------------------------------- */
+/* Die Kamera folgt der eigenen Figur; wer wo steht, zeigt diese Leiste. */
+.redlight-race {
+  position: absolute;
+  top: calc(128px + env(safe-area-inset-top));
+  left: 24px;
+  right: 24px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(21, 33, 38, 0.72), rgba(21, 33, 38, 0.72) 96%, #ffc400 96%);
+  pointer-events: none;
+}
+
+.redlight-dot {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  background: var(--chip);
+  box-shadow: 0 0 0 2px rgba(21, 33, 38, 0.85);
+  transition: left 0.15s linear;
+}
+
+.redlight-dot.is-own {
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  box-shadow: 0 0 0 3px #ffffff;
+  z-index: 1;
+}

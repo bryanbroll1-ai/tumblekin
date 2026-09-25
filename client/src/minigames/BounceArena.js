@@ -5,7 +5,10 @@ import { frameDecay, frameLerp } from "./Quality.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 
 // Bumper Pool: jede Figur sitzt in einem gestreiften Schwimmring auf einer
-// Badeinsel mitten im Freibad und rempelt die anderen ins Becken.
+// Badeinsel mitten im Freibad und rempelt die anderen ins Becken. Drei Leben:
+// wer hineinfliegt, treibt kurz neben der Insel und springt dann zurück; erst
+// mit dem letzten Sturz paddelt man nach vorn und schaut zu. In den letzten
+// fünfzehn Sekunden schrumpft die Insel.
 //
 // Vorher war es eine Blütenscheibe über einem See, und die Figuren standen in
 // Blütenringen. Die Physik ist dieselbe geblieben — nur passt das Bild jetzt
@@ -22,6 +25,8 @@ const BLOOM_R = 0.11 * SCALE * 1.12;
 const WATER_Y = -0.12;
 const FLOAT_R = 3.75;
 const FLY_MS = 900;
+const CLIMB_MS = 520;           // Sprung aus dem Wasser zurück auf die Insel
+const LIVES = 3;
 const POOL_W = 13;
 const POOL_D = 10.5;
 
@@ -91,7 +96,7 @@ export class BounceArena extends MinigameScene {
       const z = (entry?.y || 0) * SCALE;
       this.addKin(player, index, { x, ground: DECK_Y + 0.06, z, facing: 0, scale: 0.92 });
       this.addBloom(player);
-      this.state.set(player.id, { inPlay: true, facing: 0, squash: 0, fly: null, float: null, index });
+      this.state.set(player.id, { inPlay: true, facing: 0, squash: 0, fly: null, float: null, climb: null, final: false, index });
       this.animators.get(player.id).set("ready");
     });
   }
@@ -238,7 +243,11 @@ export class BounceArena extends MinigameScene {
   // Die Badeinsel: weiche Matte, rundherum ein dicker rot-weisser Wulst — der
   // Rand, über den man fliegt, wenn man zu hart gerammt wird.
   buildIsland() {
-    const scene = this.scene;
+    // Alles, was zur Insel gehört, hängt an einer Gruppe: so schrumpft sie zum
+    // Schluss als Ganzes, Stern und Wulst eingeschlossen.
+    const scene = new THREE.Group();
+    this.island = scene;
+    this.scene.add(scene);
     const mat = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R + 0.06, 0.44, 40), new THREE.MeshLambertMaterial({ color: "#d6c6ff" }));
     mat.position.y = DECK_Y - 0.22;
     mat.receiveShadow = true;
@@ -280,6 +289,11 @@ export class BounceArena extends MinigameScene {
     scene.add(this.rim);
   }
 
+  // Der aktuelle Inselradius in Weltmass.
+  plateR() {
+    return PLATE_R * ((this.update || this.minigame)?.arena?.radius ?? 1);
+  }
+
   // Was sonst im Becken treibt: ein Wasserball, eine Quietscheente.
   buildToys() {
     const scene = this.scene;
@@ -308,7 +322,10 @@ export class BounceArena extends MinigameScene {
   }
 
   hudHtml() {
-    return `<div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>`;
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="arena-lives" data-arena-lives></div>
+      <div class="color-banner arena-banner" data-arena-banner hidden></div>`;
   }
 
   shot() {
@@ -381,34 +398,84 @@ export class BounceArena extends MinigameScene {
       // Hinausgeflogen: Bogen nach aussen, Überschlag, Platsch.
       if (s.inPlay && !entry.inPlay) {
         s.inPlay = false;
-        // Für die Prüfwerkzeuge: diese Figur ist raus und treibt im Wasser —
-        // sie muss weder auf dem Boden stehen noch im Bild sein.
+        s.climb = null;
+        s.final = (entry.lives ?? 0) <= 0;
+        // Für die Prüfwerkzeuge: diese Figur ist gerade nicht im Spiel — sie
+        // muss weder auf dem Boden stehen noch im Bild sein.
         kin.userData.outOfPlay = true;
         const from = bloom.position.clone();
         const dir = new THREE.Vector3(from.x, 0, from.z);
         if (dir.lengthSq() < 0.01) dir.set(0, 0, 1);
         dir.normalize();
-        const to = dir.clone().multiplyScalar(FLOAT_R + noise(player.id.length) * 0.4);
+        // Mit Leben übrig landet man gleich neben der Insel und springt von
+        // dort zurück; wer raus ist, fliegt weiter hinaus und paddelt nach vorn.
+        const reach = s.final ? FLOAT_R + noise(player.id.length) * 0.4 : this.plateR() + 0.75;
+        const to = dir.clone().multiplyScalar(reach);
         to.y = WATER_Y + 0.02;
         s.fly = { from, to, start: now, spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 3) };
-        // Im Wasser paddelt man dann nach vorn, wo die Kamera einen sieht —
-        // jeder an seinen eigenen Platz, damit keiner hinter dem anderen treibt.
         const count = Math.max(1, players.length);
-        const home = Math.PI / 2 + (s.index - (count - 1) / 2) * 0.32;
-        s.float = { angle: Math.atan2(to.z, to.x), home, x: to.x, z: to.z, phase: Math.random() * 6 };
+        const angle = Math.atan2(to.z, to.x);
+        const home = s.final ? Math.PI / 2 + (s.index - (count - 1) / 2) * 0.32 : angle;
+        s.float = { angle, home, reach, x: to.x, z: to.z, phase: Math.random() * 6 };
         animator.trigger("tumble");
         animator.expression("scared", 900);
         this.burst(from.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#ffffff", player.color], { count: 12, speed: 2.2, up: 2.2, size: 0.08, life: 0.6 });
-        this.pop(from.clone().add(new THREE.Vector3(0, 1.1, 0)), "RAUS!", { color: player.color, size: 0.36, life: 0.9 });
+        this.pop(from.clone().add(new THREE.Vector3(0, 1.1, 0)), s.final ? "RAUS!" : "−1 ♥", { color: player.color, size: 0.36, life: 0.9 });
         if (player.id === controlledId) {
           this.feedback?.sound("fall");
           this.feedback?.vibrate([35, 35, 48]);
-          this.ownInView = false;
+          if (s.final) {
+            this.ownInView = false;
+            this.flash = { text: "Raus! Schau zu, wer übrig bleibt.", until: now + 2600, tone: "out" };
+          } else {
+            const left = entry.lives ?? 0;
+            this.flash = { text: left === 1 ? "Letztes Leben!" : `Noch ${left} Leben`, until: now + 1600, tone: left === 1 ? "out" : "warn" };
+          }
+        }
+      }
+
+      // Zurück aus dem Wasser: ein Sprung auf die Stelle, die der Server
+      // freigegeben hat.
+      if (!s.inPlay && entry.inPlay) {
+        s.inPlay = true;
+        s.fly = null;
+        s.float = null;
+        s.climb = { from: bloom.position.clone(), start: now };
+        kin.userData.outOfPlay = false;
+        kin.rotation.set(0, s.facing, 0);
+        animator.trigger("jump");
+        animator.expression("effort", 500);
+        if (kin.userData.label) kin.userData.label.material.opacity = 1;
+        if (player.id === controlledId) {
+          this.ownInView = true;
+          this.feedback?.sound("whoosh");
         }
       }
 
       if (!s.inPlay) {
         this.tickOut(player, entry, s, kin, bloom, animator, shadow, f);
+        return;
+      }
+
+      if (s.climb) {
+        const u = Math.min(1, (now - s.climb.start) / CLIMB_MS);
+        const tx = entry.x * SCALE;
+        const tz = entry.y * SCALE;
+        bloom.position.set(
+          THREE.MathUtils.lerp(s.climb.from.x, tx, u),
+          THREE.MathUtils.lerp(s.climb.from.y, DECK_Y, u) + Math.sin(u * Math.PI) * 1.1,
+          THREE.MathUtils.lerp(s.climb.from.z, tz, u)
+        );
+        bloom.rotation.set(0, bloom.rotation.y, 0);
+        kin.position.x = bloom.position.x;
+        kin.position.z = bloom.position.z;
+        animator.groundY = bloom.position.y + 0.36;
+        if (shadow) shadow.visible = false;
+        if (u >= 1) {
+          s.climb = null;
+          animator.groundY = DECK_Y + 0.36;
+          this.bursts.ring(new THREE.Vector3(tx, DECK_Y + 0.03, tz), player.color, { radius: 1, life: 0.45, y: DECK_Y + 0.03 });
+        }
         return;
       }
 
@@ -464,7 +531,7 @@ export class BounceArena extends MinigameScene {
       // Wie nah am Rand, und rutscht man darauf zu?
       const dist = Math.hypot(entry.x, entry.y);
       const outward = dist > 0.01 ? ((entry.vx || 0) * entry.x + (entry.vy || 0) * entry.y) / dist : 0;
-      const edge = Math.max(0, (dist - 0.62) / 0.3);
+      const edge = Math.max(0, (dist / (arena.radius || 1) - 0.62) / 0.3);
       danger = Math.max(danger, Math.min(1, edge));
       const invulnerable = now < (entry.invulnUntil || 0);
       this.fade(player.id, invulnerable ? 0.5 + Math.abs(Math.sin(now / 120)) * 0.4 : 1);
@@ -504,7 +571,11 @@ export class BounceArena extends MinigameScene {
     });
 
     this.pulse *= frameDecay(0.85, dt);
-    this.rim.material.emissiveIntensity = 0.35 + Math.sin(now / 190) * 0.15 + danger * 0.9 + this.pulse;
+    const radius = arena.radius ?? 1;
+    this.island.scale.set(radius, 1, radius);
+    // Schrumpft die Insel, glüht der Wulst rhythmisch — man soll es merken.
+    const shrinkGlow = arena.shrinking ? 0.5 + Math.sin(now / 110) * 0.35 : 0;
+    this.rim.material.emissiveIntensity = 0.35 + Math.sin(now / 190) * 0.15 + danger * 0.9 + this.pulse + shrinkGlow;
     this.shimmer?.forEach((patch) => {
       const d = patch.userData;
       patch.position.x = d.x + Math.sin(now / 1700 + d.phase) * 0.4;
@@ -564,8 +635,12 @@ export class BounceArena extends MinigameScene {
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     const paddling = Math.abs(diff) > 0.04;
     s.float.angle += Math.sign(diff) * Math.min(Math.abs(diff), dt * 0.55);
-    s.float.x = Math.cos(s.float.angle) * FLOAT_R;
-    s.float.z = Math.sin(s.float.angle) * FLOAT_R;
+    // Nicht raus, nur nass: neben der Insel treiben, zur Mitte schauen und
+    // auf den Sprung zurück warten. Die Insel schrumpft womöglich — der Platz
+    // im Wasser rückt mit.
+    if (!s.final) s.float.reach = Math.min(s.float.reach, this.plateR() + 0.75);
+    s.float.x = Math.cos(s.float.angle) * (s.float.reach ?? FLOAT_R);
+    s.float.z = Math.sin(s.float.angle) * (s.float.reach ?? FLOAT_R);
     const bob = Math.sin(now / 520 + s.float.phase) * 0.05;
     bloom.position.set(s.float.x, WATER_Y - 0.2 + bob, s.float.z);
     bloom.rotation.set(Math.sin(now / 700 + s.float.phase) * 0.06, bloom.rotation.y + dt * 0.2, Math.cos(now / 800 + s.float.phase) * 0.06);
@@ -591,14 +666,19 @@ export class BounceArena extends MinigameScene {
     return false;
   }
 
+  // Im Bild: wer auf der Insel ist oder gleich zurückspringt. Wer endgültig
+  // raus ist, paddelt vorn am Rand und ist Zuschauer.
   keepInView(f) {
-    return f.players.filter((player) => this.state.get(player.id)?.inPlay).map((player) => this.kins.get(player.id)).filter(Boolean);
+    return f.players.filter((player) => {
+      const s = this.state.get(player.id);
+      return s && (s.inPlay || !s.final);
+    }).map((player) => this.kins.get(player.id)).filter(Boolean);
   }
 
   // Die Kamera rückt näher, wenn das Gedränge eng wird, und zeigt die ganze
   // Scheibe, wenn sich alle verteilen.
   rigOptions() {
-    const inPlay = [...this.state.entries()].filter(([, s]) => s.inPlay).map(([id]) => this.blooms.get(id)).filter(Boolean);
+    const inPlay = [...this.state.entries()].filter(([, s]) => s.inPlay || !s.final).map(([id]) => this.blooms.get(id)).filter(Boolean);
     if (!inPlay.length) return {};
     let minX = Infinity;
     let maxX = -Infinity;
@@ -612,15 +692,46 @@ export class BounceArena extends MinigameScene {
     });
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const w = Math.min(PLATE_R * 2 + 0.5, Math.max(4.6, maxX - minX + 3));
+    const w = Math.min(this.plateR() * 2 + 0.9, Math.max(4.6, maxX - minX + 3));
     const h = Math.min(4.4, Math.max(3.2, (maxZ - minZ) * 0.7 + 2.2));
     const finale = Boolean((this.update || this.minigame)?.finaleAt);
     return { look: [cx * 0.75, 0.25, cz * 0.75 + 0.2], frame: { w, h }, pitch: finale ? 0.42 : undefined };
   }
 
   drawHud(f) {
-    const entry = f.minigame.arena?.players?.[f.controlledId];
+    const arena = f.minigame.arena;
+    const entry = arena?.players?.[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    if (this.scoreNode) this.scoreNode.textContent = String(Math.round(entry?.score || 0));
+    // Oben die eigenen Leben — danach wird gewertet, nicht nach einer
+    // Punktzahl, die nirgends sonst auftaucht.
+    if (this.scoreNode) this.scoreNode.textContent = `${entry?.lives ?? 0}♥`;
+    const lives = this.hud.querySelector("[data-arena-lives]");
+    if (lives && arena?.players) {
+      const html = f.players.map((player) => {
+        const ap = arena.players[player.id];
+        const left = ap?.lives ?? 0;
+        const dots = Array.from({ length: LIVES }, (_, i) => `<i class="${i < left ? "on" : ""}"></i>`).join("");
+        const cls = `arena-life${left <= 0 ? " is-out" : ""}${player.id === f.controlledId ? " is-own" : ""}`;
+        return `<span class="${cls}" style="--chip:${player.color}">${dots}</span>`;
+      }).join("");
+      if (html !== this.livesHtml) {
+        this.livesHtml = html;
+        lives.innerHTML = html;
+      }
+    }
+    const banner = this.hud.querySelector("[data-arena-banner]");
+    if (!banner) return;
+    if (arena?.shrinking && !this.shrinkAnnounced && !f.finale) {
+      this.shrinkAnnounced = true;
+      this.flash = { text: "Die Insel schrumpft!", until: f.now + 2400, tone: "warn" };
+      this.feedback?.sound("countdown");
+    }
+    if (this.flash && f.now < this.flash.until && !f.finale) {
+      banner.hidden = false;
+      banner.textContent = this.flash.text;
+      banner.dataset.tone = this.flash.tone;
+    } else {
+      banner.hidden = true;
+    }
   }
 }
