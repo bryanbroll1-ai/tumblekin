@@ -3,8 +3,14 @@ import { createCloud, createShadowBlob } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Sortierband: Pakete laufen auf dem Band heran; wischen oder tippen wirft
-// das vorderste in eine Rutsche. Die Rutschen tauschen ab und zu die Farben.
+// Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
+// wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt
+// ein Schild mit ihrer Kategorie, und ab und zu tauschen die Schilder.
+//
+// Die Kisten auf dem Band sind neutral: nur das Symbol darauf sagt, wohin sie
+// gehören. Mit farbigen Paketen war das reine Farberkennung; jetzt muss man
+// kurz hinschauen und überlegen — besonders bei den Verwechslern (Orange oder
+// Basketball?).
 //
 // Vorher stand die Figur daneben und schaute zu, während die Pakete von
 // allein flogen. Jetzt greift sie nach dem Paket, das in Reichweite kommt,
@@ -29,9 +35,16 @@ const CHUTE_X = 1.45;
 const GROUND_Y = -0.5;         // Oberkante des Bodens
 const BELT_TOP_Y = 0.32;       // Oberkante des Bandes
 const CHUTE_MOUTH_Y = 0.30;    // Trichterrand, knapp UNTER der Bandkante
-const COLOURS = ["#ff5d73", "#3fc5e8", "#ffd15c"];
-const COLOUR_DARK = ["#8e2233", "#12586b", "#8a6410"];
-const COLOUR_NAMES = ["Rot", "Blau", "Gelb"];
+// Je Kategorie eine Farbe für Rutsche und Schild (Obst, Müll, Spielzeug).
+const COLOURS = ["#ff5d73", "#8a9aab", "#ffd15c"];
+const COLOUR_DARK = ["#8e2233", "#3d4a58", "#8a6410"];
+const CATEGORIES = [
+  { name: "OBST", icon: "🍎" },
+  { name: "MÜLL", icon: "🗑️" },
+  { name: "SPIELZEUG", icon: "🧸" }
+];
+const CRATE_COLOUR = "#c9a26f";
+const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -227,8 +240,15 @@ export class SortBelt extends MinigameScene {
       shadow.position.set(x, GROUND_Y + 0.02, BELT_NEAR_Z + 1.15);
       this.scene.add(shadow);
 
+      // Das Schild über der Rutsche: Symbol und Name der Kategorie. Es sitzt
+      // in der Gruppe und dreht sich beim Tausch mit.
+      const sign = makeCanvasSprite(256, 96);
+      sign.scale.set(1.3, 0.49, 1);
+      sign.position.set(0, CHUTE_MOUTH_Y + 0.62, 0.05);
+      group.add(sign);
+
       this.chutes.push({
-        index, group, body, lip, glow,
+        index, group, body, lip, glow, sign,
         colour: index,
         shownColour: index,
         flash: 0,
@@ -245,7 +265,7 @@ export class SortBelt extends MinigameScene {
     const geo = new THREE.BoxGeometry(1, 1, 1);
     for (let i = 0; i < 5; i += 1) {
       const group = new THREE.Group();
-      const box = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: COLOURS[0] }));
+      const box = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: CRATE_COLOUR }));
       box.castShadow = true;
       group.add(box);
       // Zwei helle Bänder über das Paket: sie zeigen die Drehung und machen die
@@ -257,12 +277,18 @@ export class SortBelt extends MinigameScene {
       const tapeB = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 1.04), tapeMat);
       tapeB.position.y = 0.02;
       group.add(tapeB);
+      // Das Ding in der Kiste: ein grosses Symbol auf weissem Teller, das
+      // immer zur Kamera zeigt.
+      const item = makeCanvasSprite(128, 128);
+      item.position.y = 1.25;
+      item.scale.set(1.8, 1.8, 1);
+      group.add(item);
       this.scene.add(group);
 
       const shadow = createShadowBlob(0.42);
       this.scene.add(shadow);
 
-      this.parcels.push({ group, box, shadow, wobble: Math.random() * 6.28 });
+      this.parcels.push({ group, box, item, shadow, wobble: Math.random() * 6.28, shownId: null });
     }
   }
 
@@ -277,7 +303,7 @@ export class SortBelt extends MinigameScene {
   }
 
   bind() {
-    this.controls.innerHTML = `<p class="trace-hint">Wisch das Paket in die Rutsche mit seiner Farbe</p>`;
+    this.controls.innerHTML = `<p class="trace-hint">Wisch jedes Teil in die passende Rutsche</p>`;
     this.controls.style.pointerEvents = "none";
     this.bindGestures();
   }
@@ -374,14 +400,17 @@ export class SortBelt extends MinigameScene {
     }
     this.swapPulse = Math.max(0, this.swapPulse - dt * 1.6);
 
+    const categories = arcade.categories || CATEGORIES;
     this.chutes.forEach((chute) => {
       const colour = wanted[chute.index] ?? chute.index;
-      if (colour !== chute.shownColour) {
-        // Der Wechsel dreht den Trichter einmal um sich selbst. Eine Farbe, die
+      if (colour !== chute.shownColour || !chute.signPainted) {
+        // Der Wechsel dreht den Trichter einmal um sich selbst. Ein Schild, das
         // ohne Bewegung umspringt, übersieht man im Augenwinkel.
+        if (chute.signPainted) chute.swapSpin = Math.PI * 2;
         chute.shownColour = colour;
-        chute.swapSpin = Math.PI * 2;
+        chute.signPainted = true;
         chute.base.set(COLOURS[colour]);
+        paintSign(chute.sign, categories[colour] || CATEGORIES[colour], COLOURS[colour], colour === 2 ? "#4a3405" : "#ffffff");
       }
       chute.swapSpin = Math.max(0, chute.swapSpin - dt * 9);
       chute.group.rotation.y = chute.swapSpin;
@@ -440,7 +469,12 @@ export class SortBelt extends MinigameScene {
       visual.group.rotation.z = Math.sin(visual.wobble) * 0.035;
       visual.group.rotation.y = Math.sin(visual.wobble * 0.4) * 0.05;
 
-      visual.box.material.color.set(COLOURS[parcel.colour] || COLOURS[0]);
+      if (visual.shownId !== parcel.id) {
+        visual.shownId = parcel.id;
+        paintIcon(visual.item, parcel.icon || CATEGORIES[parcel.colour]?.icon || "📦");
+      }
+      // Das Symbol bleibt gleich gross, egal wie gross die Kiste ist.
+      visual.item.scale.setScalar(1.8 / Math.max(0.5, parcel.size || 1));
 
       // Das vorderste Paket hebt sich ab, sobald es greifbar ist: es wippt
       // stärker und steht einen Hauch höher.
@@ -458,12 +492,12 @@ export class SortBelt extends MinigameScene {
   // Sortierte Pakete fliegen sichtbar in ihre Rutsche. Sie einfach verschwinden
   // zu lassen liest sich wie ein Aussetzer des Spiels — man will sehen, wohin
   // die eigene Entscheidung geführt hat.
-  spawnFlight(colour, chuteIndex, good) {
-    const proxy = new THREE.Mesh(
-      new THREE.BoxGeometry(0.62, 0.62, 0.62),
-      new THREE.MeshLambertMaterial({ color: COLOURS[colour] || COLOURS[0] })
-    );
-    proxy.position.set(0, BELT_TOP_Y + 0.31, beltZ(0.55));
+  spawnFlight(icon, chuteIndex, good) {
+    const proxy = makeCanvasSprite(128, 128);
+    paintIcon(proxy, icon || "📦");
+    proxy.scale.setScalar(0.85);
+    proxy.userData.base = 0.85;
+    proxy.position.set(0, BELT_TOP_Y + 0.6, beltZ(0.55));
     this.scene.add(proxy);
     const target = this.chutes[chuteIndex]?.group.position || new THREE.Vector3(0, 0, BELT_NEAR_Z);
     this.flying.push({
@@ -486,12 +520,11 @@ export class SortBelt extends MinigameScene {
       const ease = fly.good ? t * t : t;
       fly.mesh.position.lerpVectors(fly.from, fly.to, ease);
       fly.mesh.position.y += Math.sin(t * Math.PI) * (fly.good ? 0.9 : 1.5);
-      fly.mesh.rotation.x += fly.spin * dt;
-      fly.mesh.rotation.z += fly.spin * dt * 0.6;
-      fly.mesh.scale.setScalar(fly.good ? 1 - t * 0.7 : 1 - t * 0.3);
+      fly.mesh.material.rotation += fly.spin * dt * 0.5;
+      fly.mesh.scale.setScalar((fly.mesh.userData.base || 1) * (fly.good ? 1 - t * 0.7 : 1 - t * 0.3));
       if (t >= 1) {
         this.scene.remove(fly.mesh);
-        fly.mesh.geometry.dispose();
+        fly.mesh.material.map?.dispose();
         fly.mesh.material.dispose();
         this.flying.splice(i, 1);
       }
@@ -503,8 +536,9 @@ export class SortBelt extends MinigameScene {
     if (!verdict || verdict.at === this.lastVerdictAt) return;
     this.lastVerdictAt = verdict.at;
 
+    const categories = arcade.categories || CATEGORIES;
     if (verdict.kind === "good") {
-      this.spawnFlight(verdict.colour, verdict.chute, true);
+      this.spawnFlight(verdict.icon, verdict.chute, true);
       const chute = this.chutes[verdict.chute];
       if (chute) chute.flash = 1;
       const at = new THREE.Vector3(chute?.group.position.x || 0, 1.7, BELT_NEAR_Z);
@@ -516,8 +550,11 @@ export class SortBelt extends MinigameScene {
       this.feedback?.vibrate(10);
       this.workerAct("good", verdict.chute);
     } else if (verdict.kind === "wrong") {
-      this.spawnFlight(verdict.colour, verdict.chute, false);
-      this.pop(new THREE.Vector3(0, 2.4, BELT_NEAR_Z - 1), "FALSCH", { color: "#ff9aa8", size: 0.38, life: 0.8 });
+      this.spawnFlight(verdict.icon, verdict.chute, false);
+      // Sagen, wohin es gehört hätte — beim Verwechsler lernt man daraus.
+      const right = categories[verdict.colour]?.name || "";
+      this.pop(new THREE.Vector3(0, 2.4, BELT_NEAR_Z - 1), "FALSCH", { color: "#ff9aa8", size: 0.38, life: 0.9 });
+      if (verdict.name && right) this.pop(new THREE.Vector3(0, 1.95, BELT_NEAR_Z - 1), `${verdict.name} → ${right}`, { color: "#ffffff", size: 0.26, life: 1.3, rise: 0.3 });
       this.feedback?.sound("error");
       this.feedback?.vibrate(26);
       this.rig.shake(0.45);
@@ -613,17 +650,88 @@ export class SortBelt extends MinigameScene {
     const soon = arcade.nextChutes;
     if (soon) {
       banner.hidden = false;
-      banner.textContent = "Rutschen tauschen gleich!";
+      banner.textContent = "Schilder tauschen gleich!";
       banner.style.background = "#ffd15c";
       banner.style.color = "#4a3405";
     } else if (own && !own.reachable) {
       const parcel = own.queue?.[0];
       banner.hidden = false;
-      banner.textContent = parcel ? `Nächstes: ${COLOUR_NAMES[parcel.colour] || "?"}` : "Band läuft an";
-      banner.style.background = COLOUR_DARK[own.queue?.[0]?.colour ?? 0];
+      banner.textContent = parcel ? `Gleich: ${parcel.icon || ""} ${parcel.name || ""}` : "Band läuft an";
+      banner.style.background = "#2b3a45";
       banner.style.color = "#ffffff";
     } else {
       banner.hidden = true;
     }
   }
+}
+
+// Ein Sprite mit eigener Leinwand, die sich neu bemalen lässt.
+function makeCanvasSprite(width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, toneMapped: false }));
+  sprite.userData.canvas = canvas;
+  return sprite;
+}
+
+// Symbol auf weissem Teller — auf dem Band und im Flug gut lesbar, auch
+// klein am Horizont.
+function paintIcon(sprite, icon) {
+  const canvas = sprite.userData.canvas;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  ctx.clearRect(0, 0, w, w);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+  ctx.beginPath();
+  ctx.arc(w / 2, w / 2, w * 0.46, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = w * 0.04;
+  ctx.strokeStyle = "rgba(43, 58, 69, 0.35)";
+  ctx.stroke();
+  ctx.font = `${Math.floor(w * 0.6)}px ${EMOJI_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(icon, w / 2, w / 2 + w * 0.04);
+  sprite.material.map.needsUpdate = true;
+}
+
+// Rutschenschild: farbige Pille mit Symbol und Namen.
+function paintSign(sprite, category, background, color) {
+  const canvas = sprite.userData.canvas;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const r = h / 2 - 4;
+  const pill = (x, y, width, height, radius) => {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, radius);
+    ctx.arcTo(x + width, y + height, x, y + height, radius);
+    ctx.arcTo(x, y + height, x, y, radius);
+    ctx.arcTo(x, y, x + width, y, radius);
+    ctx.closePath();
+  };
+  ctx.fillStyle = "#ffffff";
+  pill(2, 2, w - 4, h - 4, r);
+  ctx.fill();
+  ctx.fillStyle = background;
+  pill(8, 8, w - 16, h - 16, r - 6);
+  ctx.fill();
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.font = `${Math.floor(h * 0.5)}px ${EMOJI_FONT}`;
+  ctx.fillText(category.icon, 20, h / 2 + 3);
+  let size = Math.floor(h * 0.4);
+  ctx.font = `900 ${size}px ui-rounded, system-ui, sans-serif`;
+  while (size > 18 && ctx.measureText(category.name).width > w - 100) {
+    size -= 2;
+    ctx.font = `900 ${size}px ui-rounded, system-ui, sans-serif`;
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(category.name, 78, h / 2 + 2);
+  sprite.material.map.needsUpdate = true;
 }

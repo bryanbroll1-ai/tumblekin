@@ -117,7 +117,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆↔️ Ins Fach wischen
 
-- **Sortierband:** Wisch jedes Paket in die Rutsche mit seiner Farbe — links, unten oder rechts. Die Rutschen tauschen zwischendurch die Farben, also nicht auswendig lernen, sondern hinschauen. Eine Serie ohne Fehler bringt Zusatzpunkte.
+- **Sortierband:** Obst, Müll oder Spielzeug? Wisch jedes Teil vom Band in die passende Rutsche — links, unten oder rechts. Die Schilder tauschen zwischendurch die Plätze, also hinschauen statt auswendig lernen, und Vorsicht bei Verwechslern wie Orange und Basketball. Anfangs läuft das Band gemächlich, dann immer schneller. Eine Serie ohne Fehler bringt Zusatzpunkte.
 
 ### 👆🎣 Halten und im Schub loslassen
 

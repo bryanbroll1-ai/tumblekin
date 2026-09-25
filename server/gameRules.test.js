@@ -1363,6 +1363,25 @@ test("blitzreflex: Best of 3 — die beste Einzelzeit zählt, Fehlstarts nicht",
   assert.equal(arcadeResultDetail(arcade2, arcade2.players.r3).value, null);
 });
 
+test("sortierband: jedes Symbol gehört zu genau einer Kategorie, Verwechsler erst später", () => {
+  const owner = new Map();
+  for (let seed = 1; seed < 40; seed += 1) {
+    for (let index = 0; index < 60; index += 1) {
+      const parcel = testRules.makeBeltParcel({}, seed * 1000, index);
+      assert.ok(parcel.colour >= 0 && parcel.colour < 3);
+      assert.ok(parcel.icon && parcel.name, "jedes Teil hat Symbol und Namen");
+      if (index < 5) assert.equal(parcel.tricky, false, "die ersten Teile sind nie knifflig");
+      const known = owner.get(parcel.icon);
+      assert.ok(known === undefined || known === parcel.colour, `${parcel.icon} darf nicht in zwei Kategorien stehen`);
+      owner.set(parcel.icon, parcel.colour);
+    }
+  }
+  // Langsamer Anfang, schneller Schluss.
+  assert.ok(testRules.beltSpeed(0) < 0.25);
+  assert.ok(testRules.beltSpeed(17000) < (testRules.beltSpeed(0) + testRules.beltSpeed(34000)) / 2, "die Kurve zieht erst spät an");
+  assert.ok(testRules.beltSpeed(34000) > 0.75);
+});
+
 test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () => {
   const one = player({ id: "za", name: "ZA", color: "#fff" });
   const two = player({ id: "zb", name: "ZB", color: "#0ff" });

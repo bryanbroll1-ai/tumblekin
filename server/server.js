@@ -316,17 +316,44 @@ const BELT_COLOURS = 3;                // Farben — genau so viele wie Rutschen
 const BELT_CHUTES = 3;                 // so viele Rutschen stehen zur Wahl
 const BELT_QUEUE = 3;                  // so weit sieht man voraus
 const BELT_GAP = 0.34;                 // Abstand der Pakete auf dem Band
-const BELT_SPEED_START = 0.30;         // Bandanteil pro Sekunde
-const BELT_SPEED_END = 0.86;           // am Ende der Runde
+// Langsamer Anfang, dann zieht es an: im ersten Drittel hat man drei
+// Sekunden je Teil zum Hinschauen, am Ende knapp eine.
+const BELT_SPEED_START = 0.22;         // Bandanteil pro Sekunde
+const BELT_SPEED_END = 0.82;           // am Ende der Runde
+const BELT_SPEED_CURVE = 1.5;          // >1: erst gemächlich, gegen Ende steiler
 const BELT_REACH_AT = 0.34;            // ab hier ist das vorderste Paket greifbar
-const BELT_SWAP_FIRST_MS = 7000;       // erster Farbtausch der Rutschen
-const BELT_SWAP_EVERY_MS = 6500;
+const BELT_SWAP_FIRST_MS = 11000;      // erster Tausch der Rutschen
+const BELT_SWAP_EVERY_MS = 7000;
 const BELT_SWAP_WARN_MS = 1200;        // so lange vorher wird der Tausch angekündigt
 const BELT_POINTS = 100;               // richtig einsortiert
 const BELT_STREAK_BONUS = 12;          // je Paket in Folge, gedeckelt
 const BELT_STREAK_MAX = 8;
 const BELT_WRONG_COST = 60;            // falsche Rutsche
 const BELT_MISS_COST = 40;             // Paket durchgelassen
+// Was auf dem Band liegt: Dinge aus drei Kategorien statt farbiger Pakete.
+// Vorher sortierte man Rot, Blau, Gelb — das ist Farberkennung, kein
+// Nachdenken. Jetzt liegt eine Banane, eine Dose oder ein Teddy auf dem Band,
+// und man muss kurz überlegen, wohin es gehört. Ab und zu kommt ein
+// Verwechsler: Orange oder Basketball, Zitrone oder Tennisball, Kirschen oder
+// Jo-Jo — die Antwort ist eindeutig, aber man muss hinschauen.
+const BELT_CATEGORIES = [
+  { name: "OBST", icon: "🍎" },
+  { name: "MÜLL", icon: "🗑️" },
+  { name: "SPIELZEUG", icon: "🧸" }
+];
+const BELT_ITEMS = [
+  [["🍌", "Banane"], ["🍐", "Birne"], ["🍇", "Trauben"], ["🍓", "Erdbeere"], ["🍉", "Melone"], ["🍍", "Ananas"], ["🍎", "Apfel"], ["🍑", "Pfirsich"]],
+  [["🥫", "Dose"], ["🥤", "Becher"], ["🗞️", "Zeitung"], ["🪫", "leere Batterie"], ["🥡", "Schachtel"], ["🦴", "Knochen"], ["🧦", "Socke mit Loch"], ["🍾", "leere Flasche"]],
+  [["🧸", "Teddy"], ["🪁", "Drachen"], ["🎲", "Würfel"], ["🧩", "Puzzle"], ["🎈", "Ballon"], ["⚽", "Fussball"], ["🚂", "Spielzeugzug"], ["🪆", "Puppe"]]
+];
+// Verwechsler: sehen aus wie etwas aus einer anderen Kategorie.
+const BELT_TRICKS = [
+  [0, "🍊", "Orange"], [2, "🏀", "Basketball"],
+  [0, "🍋", "Zitrone"], [2, "🎾", "Tennisball"],
+  [0, "🍒", "Kirschen"], [2, "🪀", "Jo-Jo"]
+];
+const BELT_TRICK_FROM = 5;             // die ersten Teile sind nie knifflig
+const BELT_TRICK_SHARE = 0.18;
 
 // Angelduell: der Fisch hängt, jetzt geht es um die Schnur. Halten holt ein und
 // baut Spannung auf, Loslassen lässt sie sinken. Der Fisch wehrt sich in
@@ -3154,6 +3181,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
   if (config.family === "belt") {
     arcade.chuteCount = BELT_CHUTES;
     arcade.colourCount = BELT_COLOURS;
+    arcade.categories = BELT_CATEGORIES;
     arcade.queueLength = BELT_QUEUE;
     arcade.parcelGap = BELT_GAP;
     // Der Farbplan der Rutschen gilt für ALLE gleich und steht von Anfang an
@@ -4411,12 +4439,12 @@ function handleArcadeInput(room, player, rawInput) {
       const bonus = Math.min(arcadePlayer.streak, BELT_STREAK_MAX) * BELT_STREAK_BONUS;
       arcadePlayer.score += BELT_POINTS + bonus;
       arcadePlayer.sorted += 1;
-      arcadePlayer.lastVerdict = { kind: "good", chute, colour: parcel.colour, at: now, bonus };
+      arcadePlayer.lastVerdict = { kind: "good", chute, colour: parcel.colour, icon: parcel.icon, name: parcel.name, at: now, bonus };
     } else {
       arcadePlayer.streak = 0;
       arcadePlayer.score = Math.max(0, arcadePlayer.score - BELT_WRONG_COST);
       arcadePlayer.wrong += 1;
-      arcadePlayer.lastVerdict = { kind: "wrong", chute, colour: parcel.colour, at: now, bonus: 0 };
+      arcadePlayer.lastVerdict = { kind: "wrong", chute, colour: parcel.colour, icon: parcel.icon, name: parcel.name, at: now, bonus: 0 };
     }
     arcadePlayer.lastSortAt = now;
     advanceBeltQueue(arcade, arcadePlayer);
@@ -4905,7 +4933,7 @@ function updateArcade(room) {
         entry.missed += 1;
         entry.streak = 0;
         entry.score = Math.max(0, entry.score - BELT_MISS_COST);
-        entry.lastVerdict = { kind: "missed", chute: -1, colour: entry.queue[0] ? entry.queue[0].colour : 0, at: now, bonus: 0 };
+        entry.lastVerdict = { kind: "missed", chute: -1, colour: entry.queue[0] ? entry.queue[0].colour : 0, icon: entry.queue[0]?.icon, name: entry.queue[0]?.name, at: now, bonus: 0 };
         advanceBeltQueue(arcade, entry, true);
       }
       entry.reachable = entry.beltPos >= BELT_REACH_AT;
@@ -6636,7 +6664,7 @@ function updateDiveEntry(arcade, entry, dt, now, elapsed, entries) {
 // Lernen da, das Ende zum Schwitzen.
 function beltSpeed(elapsed, durationMs = BELT_DURATION_MS) {
   const share = clamp(elapsed / Math.max(1, durationMs), 0, 1);
-  return BELT_SPEED_START + (BELT_SPEED_END - BELT_SPEED_START) * share;
+  return BELT_SPEED_START + (BELT_SPEED_END - BELT_SPEED_START) * Math.pow(share, BELT_SPEED_CURVE);
 }
 
 // Stabiler Startwert je Spieler-ID, damit jede Person ihre eigene Paketfolge
@@ -6687,13 +6715,21 @@ function buildBeltChutePlan(seed, durationMs = BELT_DURATION_MS) {
 // Ein Paket. Die Farbe haengt nur an Startwert und laufender Nummer, nie am
 // Zeitpunkt — sonst laege dieselbe Runde bei jedem anders.
 function makeBeltParcel(arcade, seed, index) {
+  const size = 0.8 + arcadeNoise(seed + index * 613 + 7) * 0.45;
+  // Ab und zu ein Verwechsler, später etwas öfter.
+  const trickRoll = arcadeNoise(seed + index * 613 + 29);
+  const trickShare = index < BELT_TRICK_FROM ? 0 : BELT_TRICK_SHARE * (index > 20 ? 1.4 : 1);
+  if (trickRoll < trickShare) {
+    const [colour, icon, name] = BELT_TRICKS[Math.floor(arcadeNoise(seed + index * 613 + 41) * BELT_TRICKS.length) % BELT_TRICKS.length];
+    return { id: index, colour, icon, name, tricky: true, size };
+  }
   const r = arcadeNoise(seed + index * 613);
-  return {
-    id: index,
-    colour: Math.floor(r * BELT_COLOURS) % BELT_COLOURS,
-    // Groesse ist reine Optik, aber sie macht das Band lebendig statt gleichfoermig.
-    size: 0.8 + arcadeNoise(seed + index * 613 + 7) * 0.45
-  };
+  // "colour" ist die Kategorie (0 Obst, 1 Müll, 2 Spielzeug). Der Name blieb,
+  // weil Rutschenplan, Wertung und Anzeige ihn so kennen.
+  const colour = Math.floor(r * BELT_COLOURS) % BELT_COLOURS;
+  const items = BELT_ITEMS[colour];
+  const [icon, name] = items[Math.floor(arcadeNoise(seed + index * 613 + 13) * items.length) % items.length];
+  return { id: index, colour, icon, name, tricky: false, size };
 }
 
 // Naechstes Paket nachruecken. Das Band springt NICHT auf 0 zurueck: die Pakete
@@ -7445,7 +7481,8 @@ function arcadeBotStep(room, bot) {
     if (player.botParcelId !== parcel.id) {
       player.botParcelId = parcel.id;
       const rightChance = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.78 : 0.55;
-      player.botRight = Math.random() < rightChance;
+      // Verwechsler erwischen auch Bots öfter.
+      player.botRight = Math.random() < rightChance * (parcel.tricky ? 0.82 : 1);
       // Wo auf dem Band gegriffen wird. Der schwache Bot laesst sich Zeit, und
       // sein Band reicht ueber 1 hinaus — dann rutscht das Paket durch.
       const band = profile.level === "hard" ? [0.40, 0.62]
@@ -8324,6 +8361,8 @@ module.exports = {
     traceCombo,
     traceScore,
     BELT_COLOURS,
+    makeBeltParcel,
+    beltSpeed,
     BELT_CHUTES,
     BELT_QUEUE,
     BELT_SPEED_START,
