@@ -79,6 +79,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 👆 Tippen
 
 - **Nervenprobe:** Die Zielzeit liegt zwischen 4 und 8 Sekunden. Nach 2 Sekunden verschwindet jede Uhr — zähl im Kopf weiter und drück so nah wie möglich an der Zielzeit.
+- **Pump-Panik:** Tippen pumpt deinen Ballon auf — kurz warten bindet ihn zu, dann fliegt er davon und seine Luft zählt. Aber jeder Ballon hat eine Grenze: wird er rot, zittert und quietscht, wird es eng. Pumpst du zu weit, platzt er und die Luft ist weg. Knapp vor der Grenze zugebunden gibt es einen Mut-Bonus.
 - **Fassmut:** Über dir hängt ein Fass am Seil. Irgendwann wird es losgelassen und fällt — EIN Tipp spannt das Seil und fängt es ab. Wer es am dichtesten über dem Kopf zum Stehen bringt, gewinnt. Zu spät gezogen gibt eine Beule.
 - **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus.
 - **Blob-Klopfe:** Blobs poppen aus den Löchern — tipp drauf, bevor sie abtauchen. Je schneller, desto mehr: 3, 2 oder 1 Punkt, der goldene bringt 5. Finger weg von den dunkelroten mit Stachelkrone: zwei Punkte weg und kurz benommen.
@@ -91,10 +92,6 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Lichtwächter:** Halte den Knopf, um zu laufen. Wenn die Lampe gelb blinkt, dreht sich der Wächter um — lass bis dahin los. Wer bei Rot noch läuft, fliegt fünf Meter zurück und ist kurz benommen. Manchmal täuscht er nur an. Wer zuerst am Tor ist, gewinnt.
 - **Fassrolle:** Alle stehen auf einem Riesenfass über dem Fluss. Halte ◀ oder ▶ und lauf gegen die Drehung an — aber wer läuft, dreht das Fass auch unter den anderen. So rollst du sie ins Wasser, musst dann aber selbst mithalten. Wer fällt, schwimmt zurück und verliert die Zeit im Wasser. Gezählt wird die Zeit im grünen Streifen oben.
 - **Ballonfahrt:** Halte den Finger auf dem Bild, dann heizt der Brenner und du steigst — loslassen lässt sinken. Mit ABWURF fällt ein Sandsack: er fliegt mit, während er fällt, also je höher, desto früher werfen. Triff die Zielscheiben auf den Feldern und sammle unterwegs Sterne.
-
-### 👈👉 Links/rechts im Wechsel
-
-- **Pump-Panik:** Drück die beiden Pumpknöpfe abwechselnd — links, rechts, links … so schnell du kannst. Nur der Wechsel pumpt, zweimal dieselbe Seite bewegt den Kolben nicht. Der dickste Ballon gewinnt.
 
 ### 👆↔️ Links/Rechts wischen
 

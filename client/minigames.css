@@ -1938,32 +1938,52 @@ canvas.is-stunned {
   z-index: 1;
 }
 
-/* --- Pump-Panik: zwei Knöpfe im Wechsel --------------------------------- */
-.pump-pair {
+/* --- Pump-Panik: ein Knopf mit Zubinde-Ring ----------------------------- */
+/* Ein grosser Knopf. Nach jedem Stoss läuft ein Ring um ihn herum voll —
+   so lange muss man warten, bis der Ballon zugebunden ist. Wer das einmal
+   gesehen hat, versteht das Spiel ohne Erklärung. */
+.pump-single {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  justify-items: center;
+  gap: 6px;
   width: min(100%, 420px);
   margin: 0 auto;
 }
 
-.pump-pair .pump-button {
+.pump-single .pump-button {
+  position: relative;
   width: 100%;
-  min-height: 96px;
-  font-size: 1.25rem;
-  opacity: 0.72;
-  transition: opacity 0.08s linear, transform 0.08s linear;
+  min-height: 104px;
+  font-size: 1.5rem;
 }
 
-/* Der Knopf, der als Nächstes dran ist, leuchtet. */
-.pump-pair .pump-button.is-next {
-  opacity: 1;
-  box-shadow: 0 8px 0 #833508, 0 0 0 4px #ffe36b, 0 18px 30px rgba(242, 96, 15, 0.45);
+.pump-tie {
+  position: absolute;
+  inset: -8px;
+  border-radius: calc(var(--radius) + 8px);
+  background: conic-gradient(#ffe36b var(--tie, 0%), transparent 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 5px;
+  pointer-events: none;
 }
 
-.pump-pair .pump-button.is-stuck {
-  transform: translateX(4px);
-  filter: grayscale(0.6);
+.pump-tie[hidden] {
+  display: none;
+}
+
+.pump-hint.is-urgent {
+  color: #ffe36b;
+  font-size: 0.9rem;
+}
+
+.pump-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 /* --- Allgemein: Chip-Leiste mit dem Stand aller ------------------------- */

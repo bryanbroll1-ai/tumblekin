@@ -72,7 +72,7 @@ const MINIGAMES = [
   { type: "colorEscape", title: "Farbflucht", duration: 31000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
-  { type: "ballonPump", title: "Pump-Panik", duration: 12000, arcadeFamily: "pump" },
+  { type: "ballonPump", title: "Pump-Panik", duration: 20000, arcadeFamily: "pump" },
   { type: "fassrolle", title: "Fassrolle", duration: 32000, arcadeFamily: "barrel" },
   { type: "fassmut", title: "Fassmut", duration: DARE_DURATION_MS, arcadeFamily: "daredevil" },
   { type: "zuendstoff", title: "Zündstoff", duration: 45000, arcadeFamily: "bomb" },
@@ -963,6 +963,23 @@ function climbSideFor(arcade, rung) {
   if (!Array.isArray(sides) || sides.length === 0) return 1;
   return sides[((rung % sides.length) + sides.length) % sides.length];
 }
+
+// Pump-Panik — EIN Knopf: Tippen pumpt, kurz nicht tippen bindet zu.
+//
+// Zwischendurch drückte man zwei Knöpfe im Wechsel; davor zählte jeder Tipp,
+// und wer am schnellsten hämmerte, gewann — ohne jede Spannung. Jetzt hat
+// jeder Ballon eine Platzgrenze, die man nicht kennt, aber kommen sieht: ab
+// zwei Dritteln wird er rot, zittert und quietscht. Wer zu weit pumpt, dem
+// platzt er, und die Luft ist weg. Wer kurz innehält, bindet ihn zu — er
+// fliegt davon, seine Luft zählt, und der nächste Ballon hängt dran. Tempo
+// bringt mehr Ballons, Nerven bringen grössere.
+const PUMP_TIE_MS = 850;               // so lange nicht tippen, dann wird zugebunden
+const PUMP_SWAP_MS = 450;              // bis der nächste Ballon dran ist
+const PUMP_MIN = 11;                   // Platzgrenzen liegen zwischen …
+const PUMP_MAX = 24;                   // … diesen Pumpstössen
+const PUMP_WARN = 0.65;                // ab hier sieht man die Gefahr
+const PUMP_CLOSE = 0.85;               // ab hier gibt es den Mut-Bonus
+const PUMP_CLOSE_BONUS = 4;
 
 // Blob-Klopfe — Blobs kommen aus 3 x 4 Löchern. Hochkant wie das Handy: das
 // quadratische 3 x 3 füllte nur die Bildmitte, darunter lag leere Wiese.
@@ -2163,7 +2180,7 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.round((arcadePlayer.points || 0) * 1000) + nah;
   }
   if (arcade.family === "pump") {
-    return arcadePlayer.pumps || 0;
+    return arcadePlayer.banked || 0;
   }
   if (arcade.family === "dive") {
     return Math.max(0, arcadePlayer.banked || 0);
@@ -2298,7 +2315,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: Math.round(arcadePlayer.points || 0), label: "Punkte" };
   }
   if (arcade.family === "pump") {
-    return { kind: "points", value: arcadePlayer.pumps || 0, label: "Pumps" };
+    return { kind: "points", value: arcadePlayer.banked || 0, label: "Luft" };
   }
   if (arcade.family === "barrel") {
     // Die Zahl, nach der auch sortiert wird: wie lange man MITTIG oben stand.
@@ -2881,11 +2898,24 @@ function createArcadeState(type, players, startedAt, options = {}) {
     });
   }
   if (config.family === "pump") {
+    // Die Platzgrenzen gelten für alle gleich, Ballon für Ballon — dieselbe
+    // Folge, dieselbe Chance.
+    arcade.limits = Array.from({ length: 40 }, (_, i) => pumpLimit(arcade.seed, i));
+    arcade.tieMs = PUMP_TIE_MS;
+    arcade.warnShare = PUMP_WARN;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
-      entry.pumps = 0;
-      entry.lastSide = null;
-      entry.slips = 0;
+      entry.pumps = 0;                 // alle Stösse, auch geplatzte
+      entry.balloon = 0;               // Luft im aktuellen Ballon
+      entry.balloonIndex = 0;
+      entry.banked = 0;                // Luft in zugebundenen Ballons (+ Bonus)
+      entry.balloonsDone = 0;
+      entry.bursts = 0;
+      entry.lastPumpAt = 0;
+      entry.readyAt = 0;
+      entry.lastTie = null;            // { air, bonus, at }
+      entry.lastBurst = null;          // { air, at }
+      entry.score = 0;
     });
   }
   if (config.family === "barrel") {
@@ -3853,21 +3883,21 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "pump") {
-    if (input.action !== "pump") return { ok: false, error: "Tippe so schnell du kannst." };
-    // Pumpen heisst hoch UND runter: links und rechts im Wechsel. Zweimal
-    // dieselbe Seite bewegt den Kolben nicht. Vorher zählte jeder Tipp —
-    // ein zitternder Finger auf einem Knopf schlug zwei ehrliche Daumen.
-    const side = input.side === "left" || input.side === "right" ? input.side : null;
-    if (side && side === arcadePlayer.lastSide) {
-      arcadePlayer.slips = (arcadePlayer.slips || 0) + 1;
-      return { ok: true };
-    }
-    if (side) arcadePlayer.lastSide = side;
+    if (input.action !== "pump") return { ok: false, error: "Tippe zum Pumpen." };
+    if (now < arcadePlayer.readyAt) return { ok: true };      // der neue Ballon hängt noch nicht
     arcadePlayer.pumps += 1;
-    arcadePlayer.score = arcadePlayer.pumps;
+    arcadePlayer.balloon += 1;
+    arcadePlayer.lastPumpAt = now;
     arcadePlayer.hasMoved = true;
-    if (arcadePlayer.pumps % 10 === 0) {
-      arcadePlayer.flash = "good";
+    const limit = arcade.limits[arcadePlayer.balloonIndex % arcade.limits.length];
+    if (arcadePlayer.balloon > limit) {
+      // Zu viel: der Ballon platzt, die Luft ist weg.
+      arcadePlayer.lastBurst = { air: arcadePlayer.balloon, at: now, index: arcadePlayer.balloonIndex };
+      arcadePlayer.bursts += 1;
+      arcadePlayer.balloon = 0;
+      arcadePlayer.balloonIndex += 1;
+      arcadePlayer.readyAt = now + PUMP_SWAP_MS;
+      arcadePlayer.flash = "bad";
       arcadePlayer.lastHitAt = now;
     }
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
@@ -4664,6 +4694,17 @@ function updateArcade(room) {
 
     paintRefresh(arcade);
     active.forEach((player) => syncArcadeScore(minigame, player, arcade.players[player.id]));
+    return;
+  }
+
+  if (arcade.family === "pump") {
+    // Zubinden: wer kurz nicht pumpt, sichert seinen Ballon.
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry || entry.balloon <= 0 || now - entry.lastPumpAt < PUMP_TIE_MS) return;
+      pumpTie(arcade, entry, now);
+      syncArcadeScore(minigame, player, entry);
+    });
     return;
   }
 
@@ -5997,6 +6038,29 @@ function traceOffset(seed, lap, x, y) {
   return Math.abs(x - tracePathX(seed, lap, clamp(y, 0, 1)));
 }
 
+// Platzgrenze des Ballons Nummer i. Früh eher gutmütig, später streuend.
+function pumpLimit(seed, index) {
+  const spread = Math.min(1, 0.55 + index * 0.08);
+  const mid = (PUMP_MIN + PUMP_MAX) / 2;
+  const half = ((PUMP_MAX - PUMP_MIN) / 2) * spread;
+  return Math.round(mid - half + arcadeNoise(seed + index * 211) * half * 2);
+}
+
+// Einen Ballon zubinden: seine Luft zählt, knapp vor der Grenze gibt es mehr.
+function pumpTie(arcade, entry, now) {
+  const limit = arcade.limits[entry.balloonIndex % arcade.limits.length];
+  const bonus = entry.balloon >= limit * PUMP_CLOSE ? PUMP_CLOSE_BONUS : 0;
+  entry.banked += entry.balloon + bonus;
+  entry.lastTie = { air: entry.balloon, bonus, at: now, index: entry.balloonIndex };
+  entry.balloonsDone += 1;
+  entry.balloon = 0;
+  entry.balloonIndex += 1;
+  entry.readyAt = now + PUMP_SWAP_MS;
+  entry.score = entry.banked;
+  entry.flash = "good";
+  entry.lastHitAt = now;
+}
+
 function traceSpeed(lap) {
   return Math.min(TRACE_SPEED_MAX, TRACE_SPEED_BASE + TRACE_SPEED_STEP * lap);
 }
@@ -6936,15 +7000,23 @@ function arcadeBotStep(room, bot) {
   }
 
   if (arcade.family === "pump") {
+    const now = Date.now();
     const profile = botProfile(player);
-    // Tap rate scales with skill; the input cooldown caps the maximum. Wer
-    // schwächer ist, erwischt öfter zweimal dieselbe Seite.
-    const chance = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.7 : 0.5;
-    if (Math.random() < chance) {
-      const next = player.lastSide === "left" ? "right" : "left";
-      const side = Math.random() < profile.mistake * 0.5 ? (player.lastSide || "left") : next;
-      handleArcadeInput(room, bot, { action: "pump", side });
+    if (now < player.readyAt) return;
+    // Je Ballon EINMAL entscheiden, wann der Bot aufhört: er liest die
+    // Warnzeichen mehr oder weniger gut. Der starke hört knapp vor der Grenze
+    // auf, der schwache verschätzt sich in beide Richtungen.
+    if (player.botBalloon !== player.balloonIndex) {
+      player.botBalloon = player.balloonIndex;
+      const limit = arcade.limits[player.balloonIndex % arcade.limits.length];
+      const aim = profile.level === "hard" ? 0.86 + Math.random() * 0.12
+        : profile.level === "normal" ? 0.74 + Math.random() * 0.3
+          : 0.6 + Math.random() * 0.5;
+      player.botStopAt = Math.max(3, Math.floor(limit * aim));
     }
+    if (player.balloon >= player.botStopAt) return;       // warten = zubinden
+    const chance = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.75 : 0.55;
+    if (Math.random() < chance) handleArcadeInput(room, bot, { action: "pump" });
     return;
   }
   if (arcade.family === "barrel") {
@@ -8016,6 +8088,13 @@ module.exports = {
     cannonPoints,
     cannonTri,
     WHACK_STUN_MS,
+    PUMP_TIE_MS,
+    PUMP_SWAP_MS,
+    PUMP_MIN,
+    PUMP_MAX,
+    PUMP_CLOSE,
+    PUMP_CLOSE_BONUS,
+    pumpLimit,
     WHACK_BAD_COST,
     WHACK_FAST_MS,
     WHACK_OK_MS,

@@ -4,8 +4,10 @@ import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Pump-Panik — links und rechts im Wechsel drücken pumpt den eigenen Ballon
-// grösser; zweimal dieselbe Seite bewegt den Kolben nicht.
+// Pump-Panik — EIN Knopf. Tippen pumpt den Ballon auf; wer kurz innehält,
+// bindet ihn zu, er fliegt davon und seine Luft zählt. Jeder Ballon hat eine
+// Platzgrenze: je näher man ihr kommt, desto röter wird er, zittert und
+// quietscht — wer weiterpumpt, dem platzt er.
 //
 // Das Schönste daran ist, alle vier Ballons live wachsen zu sehen. Die Figur
 // stampft dabei bei jedem Pumpen auf die Pumpe; eine Krone schwebt über dem
@@ -16,16 +18,20 @@ import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 const STATION_GAP = 1.2;
 // Grösser als vorher (1.6): der Ballon IST die Anzeige, und bei 35 Pumps sah
 // man den Unterschied zwischen erstem und letztem Platz kaum.
-const BALLOON_MAX = 2.4;
-const BALLOON_GROW = 45;   // Pumps bis gut zwei Drittel der Endgrösse
+const BALLOON_MIN = 0.42;
+const BALLOON_STEP = 0.07;  // so viel grösser je Pumpstoss
 const DECK_Y = 0.3;
+const _red = new THREE.Color("#ff2a3a");
 
 export class BalloonPump extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.stations = new Map();
-    this.localPumps = 0;
+    this.localAir = 0;         // eigene Stösse, bevor der Server sie bestätigt
+    this.localIndex = 0;
+    this.localLastPump = 0;
     this.leaderId = null;
+    this.flyers = [];
   }
 
   stage() {
@@ -104,41 +110,45 @@ export class BalloonPump extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <div class="pump-pair">
-        <button type="button" class="pump-button is-next" data-pump="left"><span class="pump-button-face">◀ PUMP</span></button>
-        <button type="button" class="pump-button" data-pump="right"><span class="pump-button-face">PUMP ▶</span></button>
+      <div class="pump-single">
+        <button type="button" class="pump-button" data-pump>
+          <span class="pump-tie" data-pump-tie></span>
+          <span class="pump-button-face">PUMPEN</span>
+        </button>
+        <p class="pump-hint">Tippen = pumpen · kurz warten = zubinden</p>
       </div>`;
-    this.pumpButtons = [...this.controls.querySelectorAll("[data-pump]")];
-    this.pumpButton = this.pumpButtons[0];
-    this.pumpButtons.forEach((button) => {
-      this.on(button, "pointerdown", (event) => {
-        event.preventDefault();
-        this.pressPump(button.dataset.pump);
-      });
+    this.pumpButton = this.controls.querySelector("[data-pump]");
+    this.tieRing = this.controls.querySelector("[data-pump-tie]");
+    this.hintNode = this.controls.querySelector(".pump-hint");
+    this.on(this.pumpButton, "pointerdown", (event) => {
+      event.preventDefault();
+      this.pressPump();
     });
-    this.lastSide = null;
   }
 
-  pressPump(side) {
+  pressPump() {
     const minigame = this.update || this.minigame;
     if (!minigame || minigame.finaleAt || this.now() < minigame.startedAt) return;
-    if (side === this.lastSide) {
-      // Dieselbe Seite: der Kolben rührt sich nicht. Ein kurzes Stocken im
-      // Knopf sagt es, ohne zu bestrafen.
-      this.feedback?.sound("tap");
-      this.pumpButtons.find((button) => button.dataset.pump === side)?.classList.add("is-stuck");
-      setTimeout(() => this.pumpButtons?.forEach((button) => button.classList.remove("is-stuck")), 140);
-      this.sendInput({ action: "pump", side }).catch(() => {});
-      return;
+    const own = minigame.arcade?.players?.[this.getControlledPlayerId()];
+    if (own && this.now() < (own.readyAt || 0)) return;   // der neue Ballon hängt noch nicht
+    if (own && own.balloonIndex !== this.localIndex) {
+      this.localIndex = own.balloonIndex;
+      this.localAir = 0;
     }
-    this.lastSide = side;
-    this.pumpButtons.forEach((button) => button.classList.toggle("is-next", button.dataset.pump !== side));
-    this.localPumps += 1;
-    this.feedback?.sound("pop");
-    this.feedback?.vibrate(6);
+    this.localAir += 1;
+    this.localLastPump = this.now();
+    const share = own ? this.localAir / Math.max(1, this.limitFor(minigame.arcade, own.balloonIndex)) : 0;
+    // Je enger es wird, desto höher und gequetschter der Ton.
+    this.feedback?.sound(share >= 0.65 ? "plink" : "pop");
+    this.feedback?.vibrate(share >= 0.85 ? 14 : 6);
     // Die eigene Figur reagiert sofort, nicht erst mit der Antwort des Servers.
     this.stationPumped(this.getControlledPlayerId());
-    this.sendInput({ action: "pump", side }).catch(() => {});
+    this.sendInput({ action: "pump" }).catch(() => {});
+  }
+
+  limitFor(arcade, index) {
+    const limits = arcade?.limits || [];
+    return limits.length ? limits[index % limits.length] : 20;
   }
 
   stationX(index, count) {
@@ -183,6 +193,7 @@ export class BalloonPump extends MinigameScene {
     this.scene.add(hoseA);
 
     const balloon = buildBalloon(player.color);
+    const balloonMat = balloon.userData.material;
     // Abwechselnd höher und weiter hinten: grosse Ballons stehen wie ein
     // Strauss gestaffelt, statt sich gegenseitig zu verdecken.
     const back = index % 2 === 1;
@@ -195,7 +206,10 @@ export class BalloonPump extends MinigameScene {
     this.scene.add(string);
 
     this.addKin(player, index, { x, ground: DECK_Y, z: kinZ });
-    const station = { pump, plunger, balloon, string, peg, x, pulse: 0, lastPumps: 0, lift: 0 };
+    const station = {
+      pump, plunger, balloon, string, peg, x, pulse: 0, lastPumps: 0, lift: 0,
+      mat: balloonMat, baseColor: new THREE.Color(player.color), tint: new THREE.Color(player.color)
+    };
     this.stations.set(player.id, station);
     return station;
   }
@@ -216,9 +230,9 @@ export class BalloonPump extends MinigameScene {
     let best = -1;
     let leader = null;
     players.forEach((player) => {
-      const pumps = arcade.players[player.id]?.pumps || 0;
-      if (pumps > best) { best = pumps; leader = player.id; }
-      else if (pumps === best) leader = null;
+      const banked = arcade.players[player.id]?.banked || 0;
+      if (banked > best) { best = banked; leader = player.id; }
+      else if (banked === best) leader = null;
     });
 
     players.forEach((player, index) => {
@@ -228,32 +242,44 @@ export class BalloonPump extends MinigameScene {
       const animator = this.animators.get(player.id);
       const kin = this.kins.get(player.id);
       const mine = player.id === controlledId;
-      const pumps = mine ? Math.max(entry.pumps || 0, this.localPumps) : (entry.pumps || 0);
-
+      const pumps = entry.pumps || 0;
       if (pumps > station.lastPumps) {
         if (!mine) this.stationPumped(player.id);
         station.lastPumps = pumps;
-        // Alle zehn Pumps ein kleiner Knall — man hört, wer gut dabei ist.
-        if (pumps % 10 === 0 && pumps > 0) {
-          const at = station.balloon.position.clone();
-          this.burst(at, [player.color, "#ffffff"], { count: 6, speed: 1.2, up: 1, size: 0.06, life: 0.5 });
-          if (mine) this.feedback?.sound("sparkle");
-        }
       }
+      // Die Luft im aktuellen Ballon; die eigene sofort, nicht erst nach der
+      // Antwort des Servers.
+      if (mine && entry.balloonIndex !== this.localIndex) {
+        this.localIndex = entry.balloonIndex;
+        this.localAir = 0;
+      }
+      const air = mine ? Math.max(entry.balloon || 0, this.localAir) : (entry.balloon || 0);
+      const limit = this.limitFor(arcade, entry.balloonIndex || 0);
+      const share = air / Math.max(1, limit);
+      this.reactToBalloon(player, entry, station, mine, now);
       station.pulse *= Math.pow(0.001, dt);
       station.plunger.position.y += (0.34 - station.plunger.position.y) * frameLerp(0.22, dt);
 
-      // Wächst schnell an und flacht dann ab: auch bei sehr schnellen Daumen
-      // bleibt ein Unterschied sichtbar, statt dass alle am Deckel kleben.
-      const size = 0.42 + (BALLOON_MAX - 0.42) * (1 - Math.exp(-pumps / BALLOON_GROW));
-      const wobble = 1 + station.pulse * 0.14 + Math.sin(now / 300 + index) * 0.012;
+      // Grösse nach Luft; ab zwei Dritteln der Grenze wird es rot, zittert und
+      // spannt — man SIEHT die Gefahr kommen, ohne die Zahl zu kennen.
+      const size = BALLOON_MIN + air * BALLOON_STEP;
+      const danger = Math.max(0, (share - 0.65) / 0.35);
+      station.tint.copy(station.baseColor).lerp(_red, Math.min(1, danger) * 0.85);
+      station.mat.color.copy(station.tint);
+      station.mat.emissive?.copy(station.tint).multiplyScalar(danger * 0.25);
+      const shake = danger > 0 ? Math.sin(now / (danger > 0.55 ? 22 : 45)) * 0.05 * danger : 0;
+      const wobble = 1 + station.pulse * 0.14 + Math.sin(now / 300 + index) * 0.012 + shake;
+      station.balloon.visible = !station.swapping || now > station.swapUntil;
       let balloonScale = size;
+      station.balloon.position.x = station.x + shake * 0.6;
       if (finale && !station.popped) {
         const place = f.places?.[player.id];
         const since = Math.max(0, now - (f.minigame.finaleAt - 2600));
         if (place === 1) {
           // Überblasen, hochheben — und PENG.
-          balloonScale = size * (1 + Math.min(0.9, since / 1100)) + Math.sin(now / 55) * 0.03;
+          // Der Sieger bekommt einen grossen Ballon, auch wenn sein letzter
+          // gerade zugebunden davongeflogen ist.
+          balloonScale = Math.max(size, 1.4) * (1 + Math.min(0.9, since / 1100)) + Math.sin(now / 55) * 0.03;
           station.lift = Math.min(1.1, since / 900);
           if (since > 1250) this.popBalloon(player, station, mine);
           station.balloon.position.x = station.x;
@@ -277,6 +303,7 @@ export class BalloonPump extends MinigameScene {
       this.setGround(player.id, kinGround);
       if (station.lift > 0 && !station.popped) animator.set("hang");
       else if (!finale) animator.set(pumps > 0 && now - (station.lastAt || 0) < 400 ? "focus" : "idle");
+      if (!finale && danger > 0.5) animator.expression("scared", 150);
       if (pumps !== station.seen) { station.seen = pumps; station.lastAt = now; }
 
       const balloonBottom = station.balloon.position.y - balloonScale * 0.45;
@@ -309,6 +336,66 @@ export class BalloonPump extends MinigameScene {
     this.leaderId = leader;
 
     this.flags.forEach((flag) => { flag.rotation.z = Math.sin(now / 320 + flag.userData.phase) * 0.18; });
+    this.updateFlyers(now, dt);
+  }
+
+  // Zugebunden oder geplatzt: der Server sagt es, das Bild zeigt es.
+  reactToBalloon(player, entry, station, mine, now) {
+    if (entry.lastTie && entry.lastTie.at !== station.tieAt) {
+      const first = station.tieAt === undefined && now - entry.lastTie.at > 1500;
+      station.tieAt = entry.lastTie.at;
+      if (!first) {
+        // Ein Abbild steigt davon, der Pflock bekommt einen neuen Ballon.
+        const flyer = station.balloon.clone();
+        flyer.traverse((part) => { if (part.isMesh) part.material = part.material.clone(); });
+        this.scene.add(flyer);
+        this.flyers.push({ mesh: flyer, at: now, vx: (Math.random() - 0.5) * 0.6 });
+        station.swapping = true;
+        station.swapUntil = now + 350;
+        const at = station.balloon.position.clone().add(new THREE.Vector3(0, 0.6, 0));
+        const bonus = entry.lastTie.bonus ? ` · MUT +${entry.lastTie.bonus}` : "";
+        this.pop(at, `+${entry.lastTie.air}${bonus}`, { color: entry.lastTie.bonus ? "#ffe36b" : player.color, size: mine ? 0.42 : 0.28, life: 0.9 });
+        this.burst(at, [player.color, "#ffffff", "#ffe36b"], { count: entry.lastTie.bonus ? 18 : 8, speed: 1.4, up: 1.2, size: 0.07, life: 0.6 });
+        if (mine) {
+          this.feedback?.sound(entry.lastTie.bonus ? "perfect" : "coin");
+          this.feedback?.vibrate(entry.lastTie.bonus ? [10, 14, 18] : 10);
+        }
+      }
+    }
+    if (entry.lastBurst && entry.lastBurst.at !== station.burstAt) {
+      const first = station.burstAt === undefined && now - entry.lastBurst.at > 1500;
+      station.burstAt = entry.lastBurst.at;
+      if (!first) {
+        const at = station.balloon.position.clone();
+        this.burst(at, [player.color, "#ff2a3a", "#ffffff"], { count: 26, speed: 3.6, up: 2.2, size: 0.1, life: 0.8, drag: 1.2 });
+        this.bursts.ring(at, "#ffffff", { radius: 1.8, life: 0.4, opacity: 0.6, tilt: null });
+        this.pop(at.clone().add(new THREE.Vector3(0, 0.4, 0)), mine ? `PENG! −${entry.lastBurst.air}` : "PENG!", { color: "#ff6b7f", size: mine ? 0.5 : 0.32, life: 0.9 });
+        this.animators.get(player.id)?.trigger("flinch");
+        this.animators.get(player.id)?.expression("surprised", 900);
+        station.swapping = true;
+        station.swapUntil = now + 350;
+        if (mine) {
+          this.rig.shake(0.7);
+          this.feedback?.sound("impact");
+          this.feedback?.vibrate([30, 20, 40]);
+        }
+      }
+    }
+  }
+
+  updateFlyers(now, dt) {
+    this.flyers = this.flyers.filter((flyer) => {
+      const age = (now - flyer.at) / 1000;
+      flyer.mesh.position.y += dt * (1.6 + age * 1.5);
+      flyer.mesh.position.x += flyer.vx * dt;
+      flyer.mesh.rotation.z = Math.sin(age * 4) * 0.2;
+      if (age > 2.2) {
+        this.scene.remove(flyer.mesh);
+        flyer.mesh.traverse((part) => { if (part.isMesh) part.material.dispose(); });
+        return false;
+      }
+      return true;
+    });
   }
 
   popBalloon(player, station, mine) {
@@ -335,17 +422,36 @@ export class BalloonPump extends MinigameScene {
 
   drawHud(f) {
     const own = f.arcade?.players?.[f.controlledId];
-    const shown = Math.max(own?.pumps || 0, this.localPumps);
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    if (this.scoreNode) this.scoreNode.textContent = String(shown);
-    this.pumpButtons?.forEach((button) => { button.disabled = Boolean(f.minigame.finaleAt); });
+    if (this.scoreNode) this.scoreNode.textContent = String(own?.banked || 0);
+    if (this.pumpButton) this.pumpButton.disabled = Boolean(f.minigame.finaleAt);
+    // Was bei Schluss noch nicht zugebunden ist, zählt nicht — das muss man
+    // vorher wissen, nicht auf der Ergebnistafel lernen.
+    if (this.hintNode) {
+      const hint = f.started && f.remaining <= 3 && !f.minigame.finaleAt
+        ? "Letzte Sekunden — jetzt zubinden!"
+        : "Tippen = pumpen · kurz warten = zubinden";
+      if (this.hintNode.textContent !== hint) this.hintNode.textContent = hint;
+      this.hintNode.classList.toggle("is-urgent", hint.startsWith("Letzte"));
+    }
+    // Der Zubinde-Ring läuft nach dem letzten Stoss voll: so sieht man, dass
+    // Warten den Ballon sichert — und wie lange noch.
+    if (this.tieRing && own) {
+      const air = Math.max(own.balloon || 0, own.balloonIndex === this.localIndex ? this.localAir : 0);
+      const last = Math.max(own.lastPumpAt || 0, this.localLastPump || 0);
+      const tieMs = f.arcade.tieMs || 850;
+      const t = air > 0 ? Math.min(1, (f.now - last) / tieMs) : 0;
+      this.tieRing.style.setProperty("--tie", `${Math.round(t * 100)}%`);
+      this.tieRing.hidden = !(air > 0 && t < 1);
+    }
   }
 }
 
 // Ein Ballon aus Klötzen: dicker Kern, Wölbungen, Knoten.
 function buildBalloon(color) {
   const balloon = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color });
+  const mat = new THREE.MeshLambertMaterial({ color, emissive: "#000000" });
+  balloon.userData.material = mat;
   const core = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.62), mat);
   core.castShadow = true;
   balloon.add(core);
