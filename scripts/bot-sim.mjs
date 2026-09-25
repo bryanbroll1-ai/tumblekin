@@ -37,7 +37,7 @@ const ONLY = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : nu
 
 // Vier Bots, einer je Stufe plus ein zweiter „normal" — vier ist die echte
 // Tischgrösse, und mit nur drei Spielern verhalten sich Verdrängungsspiele
-// (Sumo, Bumper) anders als im Spiel.
+// (Bumper Bloom) anders als im Spiel.
 // Tischgrösse. Vier ist der Normalfall, aber ein Partyspiel wird auch zu zweit
 // und zu dritt gespielt — und genau dort brechen Spiele gern, weil überall
 // stillschweigend vier Plätze angenommen werden.

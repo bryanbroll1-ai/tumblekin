@@ -82,7 +82,7 @@ laufenden Kosten entstehen sollen.
 
 **Wichtig, nicht blockierend**
 
-- Inhaltsumfang: 31 Minispiele. Offene Ideen stehen im Fahrplan unten.
+- Inhaltsumfang: 30 Minispiele. Offene Ideen stehen im Fahrplan unten.
 - Nur eine Sprache (Deutsch). Store-Reichweite verlangt praktisch Englisch.
 - Kein Onboarding-Tutorial für die erste Partie.
 - Keine Fehlerberichterstattung; ein Absturz beim Spieler bleibt unsichtbar.
@@ -110,7 +110,7 @@ Aufmerksamkeit teilen, Widerstand ausspielen und Flächenkontrolle.
 | 19 | Eierlauf | Balance halten (inverses Pendel) | Mikro-Kippen | Pendelphysik am Löffel |
 | ~~20~~ | ~~Tellerdreher~~ | Mehrere Objekte gleichzeitig halten | tippen (statt wischen) | **fertig** — Handvorrat serverseitig; Tippen statt Wischen, weil sechs Ziele auf dem Handy gezielt getroffen werden müssen |
 | ~~21~~ | ~~Angelduell~~ | Widerstand ausspielen | halten + im Schub loslassen | **fertig** — Schnurspannung und Kampfplan serverseitig, Gier gegen Riss |
-| ~~22~~ | ~~Sumo-Schubs~~ | Aufladen und stossen | halten + loslassen | **fertig** — Steinphysik serverseitig, Überladen rutscht aus |
+| 22 | Sumo-Schubs | Aufladen und stossen | halten + loslassen | vorerst entfernt — war fertig, überzeugte im Spiel aber nicht |
 | ~~23~~ | ~~Trampolin~~ | Rhythmus-Timing | Takt-Tippen | **fertig** — Taktplan serverseitig, Resonanz und Taktanzeige |
 | 24 | Kranstapler | Trägheit zähmen | tippen + ziehen | Pendelnde Last am Seil |
 | 25 | Dominofall | Planen, dann Kettenreaktion | tippen-platzieren | Dominoketten-Physik |

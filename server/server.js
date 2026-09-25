@@ -77,7 +77,6 @@ const MINIGAMES = [
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
   { type: "ballonfahrt", title: "Ballonfahrt", duration: GLIDE_DURATION_MS, arcadeFamily: "glide" },
-  { type: "sumoschubs", title: "Sumo-Schubs", duration: 40000, arcadeFamily: "sumo" },
   { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" },
   { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
   { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" },
@@ -110,7 +109,6 @@ const ARCADE_CONFIGS = {
   turmbau: { family: "stack", seed: 461 },
   bergsteiger: { family: "climb", seed: 463 },
   ballonfahrt: { family: "glide", seed: 467 },
-  sumoschubs: { family: "sumo", seed: 479 },
   trampolin: { family: "bounce", seed: 487 },
   falschsignal: { family: "feint", seed: 491 },
   spurmaler: { family: "trace", seed: 499 },
@@ -160,54 +158,6 @@ const GLIDE_GATE_MAX_STEP = 0.62;
 const GLIDE_GATE_POINTS = 100;
 const GLIDE_CENTRE_BONUS = 50;         // volle Zugabe für die Tormitte
 const GLIDE_STALL_MS = 420;            // nach Boden- oder Deckenberührung
-
-// Sumo-Schubs — ein Stein rollt im Ring umher und ist immer auf jemanden
-// gerichtet. Wer ihn nicht rechtzeitig zurückschlägt, kassiert einen Treffer.
-//
-// Das Spiel hatte drei Fehler im Aufbau, die sich nicht wegtunen liessen, und
-// alle drei sind hier repariert:
-//
-//  1. Jeder Stoss schob den Stein vom eigenen Platz weg — er war damit Angriff
-//     UND Verteidigung in einem, ohne Zielkonflikt. Die beste Strategie war
-//     schlicht Dauerdrücken, und gemessen kassierte genau der Bot, der am
-//     wenigsten überlegte, die wenigsten Treffer. Jetzt greift ein Stoss nur im
-//     eigenen Viertel; daneben ist er ein Fehlgriff und kostet die Ausholzeit.
-//  2. Bei festen Plätzen zeigt die Summe der Stossrichtungen von drei Leuten
-//     zwangsläufig auf den vierten. Ohne Absicht wirkte das wie Absicht — „die
-//     Bots zielen auf mich" stimmte sogar. Der Ring läuft jetzt um, jede Person
-//     unterschiedlich schnell, damit es diese eine Senke nicht gibt.
-//  3. Jeder Austritt kostete zwangsläufig jemanden einen Treffer. Treffer waren
-//     damit eine Erhaltungsgrösse: bei vier Leuten und drei Treffern bis zum Aus
-//     flogen ALLE VIER jede Runde raus, egal wie gut sie spielten. Jetzt kann
-//     man jeden Angriff abwehren — wenn man rechtzeitig geladen hat.
-const SUMO_RING_RADIUS = 1.0;          // normiert: Stein ausserhalb = Treffer
-const SUMO_CHARGE_MS = 900;           // volle Kraft nach dieser Haltezeit
-const SUMO_MIN_CHARGE_MS = 120;        // darunter zählt es als Antippen
-const SUMO_MAX_IMPULSE = 1.35;          // Geschwindigkeitsänderung bei Vollkraft
-const SUMO_FRICTION = 0.25;             // pro Sekunde
-const SUMO_SERVE_SPEED = 0.5;         // Tempo, mit dem der Stein neu anrollt
-// Ein Stoss greift NUR, wenn der Stein im eigenen Viertel schon weit genug
-// draussen ist. Das Fenster von hier bis zum Rand ist die eigentliche Aufgabe:
-// bei mittlerem Steintempo sind das gut vier Zehntelsekunden.
-const SUMO_ZONE = 0.30;                // ab diesem Anteil des Radius erreichbar
-// Nach einem Fehlgriff holt man aus und kann so lange nicht laden. Ohne diese
-// Pause wäre Dauerdrücken wieder kostenlos.
-const SUMO_RECOVER_MS = 600;
-// Einen Stein, der auf einen zurollt, schlägt man wuchtiger zurück als einen,
-// der ohnehin schon wegrollt.
-//
-// Eine reine Reichweitengrenze (Stoss wird schwächer, je weiter der Stein weg
-// ist) war der falsche Weg und steht hier als Warnung: sie STABILISIERT den
-// Ring, weil immer genau die Person am kräftigsten schieben kann, auf die der
-// Stein zuläuft. Gemessen kam der Stein danach nie über die Hälfte des Radius
-// hinaus und in 20 Partien fiel kein einziger Treffer.
-const SUMO_MEET_MIN = 0.5;             // Stein rollt weg — halbherziger Stoss
-const SUMO_MEET_MAX = 2.2;             // Stein kommt entgegen — voller Konter
-const SUMO_HITS_OUT = 5;               // so viele Treffer und man ist raus
-// Alle laufen langsam um den Ring, und zwar jede Person unterschiedlich schnell
-// — siehe Punkt 2 oben.
-const SUMO_ORBIT_BASE = 0.26;          // Bogenmass pro Sekunde
-const SUMO_ORBIT_SPREAD = 0.075;       // Unterschied je Platz
 
 // Trampolin: ein Takt schlägt gleichmässig, Tippen IM Takt federt höher.
 // Aufeinanderfolgende Treffer bauen Resonanz auf — daneben tippen bricht sie.
@@ -931,7 +881,7 @@ const CURLING_RESTITUTION = 0;      // Steine schieben sich, sie prallen nicht a
 const CURLING_BUTTON_FACTOR = 1.6;    // Wert am Knopf, gemessen am inneren Ring
 const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel through
 
-// Bumper Bloom — a sumo bumper arena on a round plate.
+// Bumper Bloom — Schwimmringe rempeln sich im Becken.
 // Physics live in a unit disk (radius 1). One analog gesture: steer with the
 // stick, ramming is pure momentum. The rim ALWAYS bounces you back — unless a
 // bumper hit was hard enough to "launch" you (a short window), so you can never
@@ -1606,7 +1556,7 @@ function scheduleBotMinigameInputs(room) {
       // glide ebenso: der Brenner ist eine gehaltene Hand, keine Entscheidung. Bei
       // ~300 ms Takt kaeme der Ballon zwischen zwei Bot-Ticks um 0.2 Hoehenanteile
       // vom Kurs ab — mehr als die lichte Weite eines spaeten Tores.
-      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "sumo", "bomb", "stopclock", "cannon", "wave", "barrel"].includes(minigame.arcade.family);
+      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel"].includes(minigame.arcade.family);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
@@ -1911,16 +1861,6 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   if (arcade.family === "dive") {
     return Math.max(0, arcadePlayer.banked || 0);
   }
-  if (arcade.family === "sumo") {
-    // Ausgeschiedene ganz unten, dort zählt der spätere Abgang. Oben entscheidet
-    // erst die Zahl der Treffer, dann die Abwehr — beides ist genau das, was das
-    // Spiel übt.
-    if (arcadePlayer.eliminated) return Math.max(1, Math.round(arcadePlayer.eliminatedMs || 1));
-    // Gewertet wird, was man abgewehrt hat — genau die Zahl, die auch angezeigt
-    // wird. Die Treffer entscheiden nur, ob man überhaupt noch dabei ist.
-    return 100000000 + (arcadePlayer.blocks || 0) * 1000
-      + Math.max(0, arcade.hitsOut - (arcadePlayer.hits || 0)) * 50;
-  }
   if (arcade.family === "barrel") {
     // Oben geblieben zaehlt zuerst — darunter entscheidet, wer wie lange MITTIG
     // oben war. Vorher rangierten die Ueberlebenden nach `score`, und da steckte
@@ -2163,14 +2103,6 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       value: Math.max(0, Math.round(arcadePlayer.score || 0)),
       label: "Punkte"
     };
-  }
-  if (arcade.family === "sumo") {
-    // Zuerst entscheidet, ob man noch drin ist — also steht das auch da. Eine
-    // reine Abwehrzahl behauptete das Gegenteil der Rangfolge: gemessen zeigte
-    // ein Ausgeschiedener 11 und stand hinter einem Ueberlebenden mit 0.
-    return arcadePlayer.eliminated
-      ? { kind: "out", survived: false, value: arcadePlayer.blocks || 0, label: "Abgewehrt" }
-      : { kind: "points", value: arcadePlayer.blocks || 0, label: "Abgewehrt" };
   }
   if (arcade.family === "dive") {
     // Eine Zahl: das eingezahlte Gold. Was noch im Schacht hängt, zählt bewusst
@@ -2959,40 +2891,6 @@ function createArcadeState(type, players, startedAt) {
       entry.lastTap = null;            // { beat, offsetMs, grade, at }
     });
   }
-  if (config.family === "sumo") {
-    arcade.stone = { x: 0, y: 0, vx: 0, vy: 0 };
-    arcade.ringRadius = SUMO_RING_RADIUS;
-    arcade.hitsOut = SUMO_HITS_OUT;
-    arcade.chargeMs = SUMO_CHARGE_MS;
-    arcade.zone = SUMO_ZONE;
-    arcade.recoverMs = SUMO_RECOVER_MS;
-    // Der Stein steht nie still. Lag er in der Mitte, hatte niemand ihn im
-    // Viertel, also stiess niemand, also blieb er liegen — gemessen kam eine
-    // ganze Runde ohne einen einzigen Stoss zustande.
-    serveSumoStone(arcade, config.seed);
-    players.forEach((player, index) => {
-      const entry = arcade.players[player.id];
-      // Gleichmässig im Kreis; der Winkel ist auch die Stossrichtung.
-      const angle = (index / Math.max(1, players.length)) * Math.PI * 2 - Math.PI / 2;
-      entry.angle = angle;
-      // Jede Person läuft ein bisschen anders schnell um den Ring. Liefen alle
-      // gleich schnell, drehte sich nur die ganze Welt und die Abstände blieben
-      // gleich — dann bliebe auch die Senke, wo sie war.
-      entry.orbit = SUMO_ORBIT_BASE + index * SUMO_ORBIT_SPREAD;
-      entry.spotX = Math.cos(angle);
-      entry.spotY = Math.sin(angle);
-      entry.chargeStart = null;        // Zeitpunkt des Drückens
-      entry.lastShove = null;          // { power, at, slipped }
-      entry.shoves = 0;
-      entry.recoverUntil = 0;
-      entry.whiffs = 0;
-      entry.eliminatedMs = 0;
-      entry.hits = 0;
-      entry.blocks = 0;
-      entry.lastBlockAt = 0;
-      entry.eliminated = false;
-    });
-  }
   if (config.family === "dive") {
     arcade.baseGain = DIVE_BASE_GAIN;
     arcade.stepGain = DIVE_STEP_GAIN;
@@ -3388,12 +3286,8 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 90, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, sumo: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
-  // sumo bewusst ohne Cooldown: Aufladen und Stossen sind ein Paar aus zwei
-  // dicht aufeinanderfolgenden Ereignissen. Ein Cooldown blockte das `shove`
-  // und liess den Ladezeitstempel hängen, wodurch der nächste, saubere Halt als
-  // Überladen galt. Die Mechanik begrenzt sich selbst — man muss halten.
-  // bounce und feint ebenso ohne Cooldown: dort IST der Tippzeitpunkt die
+  const cooldowns = { daredevil: 200, dive: 90, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
   // belt mit kurzem Cooldown: ein Wisch darf nur EIN Paket einsortieren. Ohne
@@ -4057,76 +3951,6 @@ function handleArcadeInput(room, player, rawInput) {
     return { ok: true };
   }
 
-  if (arcade.family === "sumo") {
-    if (arcadePlayer.eliminated) return { ok: true };
-    if (input.action === "charge") {
-      // Solange man noch ausholt, lässt sich nicht laden. Das ist der Preis für
-      // den letzten Stoss und der Grund, warum Dauerdrücken hier nicht mehr die
-      // beste Antwort auf alles ist.
-      if (now < arcadePlayer.recoverUntil) return { ok: true };
-      // Ein laufender Ladevorgang wird nicht zurückgesetzt, damit ein doppeltes
-      // Drücken den Balken nicht zurückwirft. Ein VERALTETER Ladevorgang schon:
-      // bei einem kurzen Antippen können `shove` und `charge` in vertauschter
-      // Reihenfolge eintreffen, wodurch ein Zeitstempel hängen blieb und der
-      // nächste Halt mit Sekunden Vorlauf sofort als Überladen galt.
-      if (arcadePlayer.chargeStart === null) arcadePlayer.chargeStart = now;
-      arcadePlayer.hasMoved = true;
-      return { ok: true };
-    }
-    if (input.action !== "shove") return { ok: false, error: "Halten zum Aufladen, loslassen zum Stossen." };
-    if (arcadePlayer.chargeStart === null) return { ok: true };
-
-    const held = now - arcadePlayer.chargeStart;
-    arcadePlayer.chargeStart = null;
-    if (held < SUMO_MIN_CHARGE_MS) return { ok: true };       // nur angetippt
-
-    // Kein Überladen mehr. Halten IST die Verteidigung: wer geladen dasteht, kann
-    // im richtigen Moment zurückschlagen. Eine Strafe fürs Halten machte
-    // Abwarten unmöglich und zwang alle in einen Dauertakt aus Laden und
-    // Danebenstossen.
-
-    const power = Math.min(1, held / SUMO_CHARGE_MS);
-
-    // Reichweite: der Stein muss in der eigenen Richtung schon weit genug
-    // draussen sein. Ins Leere gestossen kostet es Ladung und Ausholzeit.
-    const reach = (arcade.stone.x * arcadePlayer.spotX + arcade.stone.y * arcadePlayer.spotY)
-      / Math.max(1e-6, arcade.ringRadius);
-    if (reach < SUMO_ZONE) {
-      arcadePlayer.whiffs = (arcadePlayer.whiffs || 0) + 1;
-      arcadePlayer.recoverUntil = now + SUMO_RECOVER_MS;
-      arcadePlayer.lastShove = { power, meet: 0, at: now, slipped: false, whiffed: true };
-      arcadePlayer.flash = "bad";
-      arcadePlayer.lastHitAt = now;
-      arcadePlayer.hasMoved = true;
-      return { ok: true };
-    }
-
-    // Konter: läuft der Stein gerade auf meinen Platz zu, trifft der Stoss ihn
-    // frontal und trägt weiter.
-    const speed = Math.hypot(arcade.stone.vx, arcade.stone.vy);
-    const closing = speed < 1e-4
-      ? 0
-      : (arcade.stone.vx * arcadePlayer.spotX + arcade.stone.vy * arcadePlayer.spotY) / speed;
-    const meet = SUMO_MEET_MIN + (SUMO_MEET_MAX - SUMO_MEET_MIN) * (closing + 1) / 2;
-    // Stoss zeigt vom eigenen Platz zur Mitte und weiter — der Stein fliegt
-    // also vom Stossenden weg.
-    const impulse = power * meet * SUMO_MAX_IMPULSE;
-    arcade.stone.vx += -arcadePlayer.spotX * impulse;
-    arcade.stone.vy += -arcadePlayer.spotY * impulse;
-    arcadePlayer.shoves += 1;
-    // Ein Schlag, der den Stein wirklich erwischt hat. Das ist die Zahl, die das
-    // Können misst: Fehlgriffe kosten, also kann man sie nicht hochdrücken.
-    arcadePlayer.blocks = (arcadePlayer.blocks || 0) + 1;
-    arcadePlayer.lastBlockAt = now;
-    // Gewertet wird die geleistete Schubarbeit, nicht die Zahl der Knopfdrücke.
-    arcadePlayer.pushWork = (arcadePlayer.pushWork || 0) + power * meet;
-    arcadePlayer.recoverUntil = now + SUMO_RECOVER_MS;
-    arcadePlayer.lastShove = { power, meet, at: now, slipped: false };
-    arcadePlayer.flash = power * meet > 1.1 ? "good" : null;
-    arcadePlayer.lastHitAt = now;
-    arcadePlayer.hasMoved = true;
-    return { ok: true };
-  }
 
   if (arcade.family === "dive") {
     if (now < arcadePlayer.busyUntil) return { ok: true };   // noch unterwegs
@@ -4387,12 +4211,6 @@ function updateArcade(room) {
     return;
   }
 
-  if (arcade.family === "sumo") {
-    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
-    arcade.lastUpdateAt = now;
-    updateSumoStone(room, minigame, arcade, dt, now);
-    return;
-  }
 
   if (arcade.family === "paint") {
     const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
@@ -5265,9 +5083,6 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = Boolean(letzte) && now - minigame.startedAt >= letzte.until;
   } else if (arcade.family === "climb") {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
-  } else if (arcade.family === "sumo") {
-    const alive = room.players.filter((player) => !arcade.players[player.id]?.eliminated);
-    done = room.players.length > 1 && alive.length <= 1;
   }
   // Allgemeine Regel über ALLE Familien: kann niemand mehr etwas tun, ist die
   // Runde vorbei. Vorher lief die Uhr in manchen Spielen weiter, obwohl längst
@@ -6140,101 +5955,7 @@ function bounceNearestBeat(elapsed) {
   return { index: bestIndex, offsetMs: elapsed - bounceBeatTime(bestIndex) };
 }
 
-// Neuer Anrollwinkel für den Stein. Der Stein steht nie still: läge er in der
-// Mitte, hätte ihn niemand im eigenen Viertel, also stiesse niemand, also bliebe
-// er liegen — gemessen kam so eine ganze Runde ohne einen einzigen Stoss
-// zustande. Er startet leicht aus der Mitte versetzt, damit sofort sichtbar ist,
-// auf wen er zuläuft.
-function serveSumoStone(arcade, seed) {
-  const angle = arcadeNoise(seed * 7 + 13) * Math.PI * 2;
-  arcade.stone.x = Math.cos(angle) * arcade.ringRadius * 0.14;
-  arcade.stone.y = Math.sin(angle) * arcade.ringRadius * 0.14;
-  arcade.stone.vx = Math.cos(angle) * SUMO_SERVE_SPEED;
-  arcade.stone.vy = Math.sin(angle) * SUMO_SERVE_SPEED;
-}
 
-// Steinphysik für Sumo-Schubs: Reibung, Rand-Check, Treffer und Ausscheiden.
-// Bewusst schlicht gehalten (ein Körper, keine Kollisionen), damit die Wertung
-// serverautoritativ bleibt, ohne den 90-ms-Tick zu belasten.
-function updateSumoStone(room, minigame, arcade, dt, now) {
-  const stone = arcade.stone;
-  if (!stone) return;
-
-  // Erst laufen alle ein Stück weiter um den Ring, dann wird gestossen. Wer
-  // ausgeschieden ist, bleibt stehen — sonst liefe ein leerer Platz mit und
-  // verschöbe die Wertung des Austritts.
-  room.players.forEach((player) => {
-    const entry = arcade.players[player.id];
-    if (!entry || entry.eliminated) return;
-    entry.angle += (entry.orbit || SUMO_ORBIT_BASE) * dt;
-    if (entry.angle > Math.PI) entry.angle -= Math.PI * 2;
-    entry.spotX = Math.cos(entry.angle);
-    entry.spotY = Math.sin(entry.angle);
-  });
-
-  // Reibung bremst den Stein, sonst kreist er endlos.
-  const damp = Math.max(0, 1 - SUMO_FRICTION * dt);
-  stone.vx *= damp;
-  stone.vy *= damp;
-  stone.x += stone.vx * dt;
-  stone.y += stone.vy * dt;
-
-  const distance = Math.hypot(stone.x, stone.y);
-  if (distance > arcade.ringRadius) {
-    // Der Stein hat den Ring verlassen: der Spieler, dessen Platz am nächsten
-    // an der Austrittsrichtung liegt, kassiert den Treffer.
-    let victim = null;
-    let best = -Infinity;
-    const nx = stone.x / (distance || 1);
-    const ny = stone.y / (distance || 1);
-    room.players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      if (!entry || entry.eliminated) return;
-      // Skalarprodukt: grösster Wert = Platz liegt in Austrittsrichtung.
-      const alignment = entry.spotX * nx + entry.spotY * ny;
-      if (alignment > best) {
-        best = alignment;
-        victim = { player, entry };
-      }
-    });
-
-    if (victim) {
-      victim.entry.hits += 1;
-      victim.entry.flash = "bad";
-      victim.entry.lastHitAt = now;
-      victim.entry.lastHitFrom = { x: stone.x, y: stone.y, at: now };
-      if (victim.entry.hits >= arcade.hitsOut) {
-        victim.entry.eliminated = true;
-        victim.entry.eliminatedAt = now;
-        // Für die Rangfolge zählt die Zeit IN der Runde, nicht der Zeitstempel
-        // der Uhr: ein Epochenwert (1.7e12) überholt jede Punktzahl.
-        victim.entry.eliminatedMs = Math.max(1, now - minigame.startedAt);
-      }
-    }
-
-    // Der Stein rollt sofort wieder los, auf jemand anderen zu. Blieb er in der
-    // Mitte liegen, hatte ihn niemand im Viertel und das Spiel stand still.
-    serveSumoStone(arcade, Math.round(now));
-    arcade.resetAt = now;
-  }
-
-  // Punkte: was man NICHT abbekommen hat, plus die Abwehr.
-  //
-  // Hier stand die geleistete Schubarbeit (Kraft mal Konterbonus, aufsummiert).
-  // Das war eine Belohnung fürs Drücken: gemessen stiess der schwächste Bot am
-  // häufigsten und gewann dadurch die Runde, obwohl er am wenigsten konnte.
-  // Gewertet wird jetzt das, worum das Spiel geht — nicht getroffen werden und
-  // im richtigen Moment geladen dastehen.
-  room.players.forEach((player) => {
-    const entry = arcade.players[player.id];
-    if (!entry) return;
-    const survived = entry.eliminated ? 0 : 1000;
-    entry.score = survived
-      + Math.max(0, arcade.hitsOut - entry.hits) * 120
-      + (entry.blocks || 0) * 45;
-    syncArcadeScore(minigame, player, entry);
-  });
-}
 
 function arcadeBotStep(room, bot) {
   const minigame = room.currentMinigame;
@@ -7063,66 +6784,6 @@ function arcadeBotStep(room, bot) {
     }
     return;
   }
-  if (arcade.family === "sumo") {
-    if (player.eliminated) return;
-    const now = Date.now();
-    const profile = botProfile(player);
-    const stone = arcade.stone;
-
-    // Immer nachladen, sobald die Ausholzeit vorbei ist: eine leere Hand kann
-    // weder stossen noch abwehren. Der Server weist ein zu frühes Laden ohnehin
-    // ab, das kostet hier nichts.
-    if (player.chargeStart === null) {
-      handleArcadeInput(room, bot, { action: "charge" });
-      return;
-    }
-    const held = now - player.chargeStart;
-    if (held < SUMO_CHARGE_MS) return;            // noch nicht auf voller Kraft
-
-    // Wie weit der Stein in der eigenen Richtung schon draussen ist. Unter
-    // SUMO_ZONE geht der Stoss ins Leere und kostet Ladung wie Ausholzeit — für
-    // Bot wie Mensch ist das der teuerste Fehler im Spiel.
-    const reach = stone
-      ? (stone.x * player.spotX + stone.y * player.spotY) / Math.max(1e-6, arcade.ringRadius)
-      : -1;
-    const speed = stone ? Math.hypot(stone.vx, stone.vy) : 0;
-    const closing = !stone || speed < 1e-4
-      ? 0
-      : (stone.vx * player.spotX + stone.vy * player.spotY) / speed;
-
-    // Das Können steckt darin, den Schlag ÜBERHAUPT zu treffen, nicht darin, ihn
-    // besonders spät zu setzen. Spät zu schlagen bringt zwar mehr Wucht, aber
-    // Wucht verhindert keinen Treffer — nur der Schlag selbst tut das. Umgekehrt
-    // gesetzt (starker Bot wartet am längsten) verpasste ausgerechnet er das
-    // Fenster am häufigsten und kassierte die meisten Treffer.
-    //
-    // `zone` ist deshalb beim starken Bot FRÜH: er schlägt zu, sobald der Stein
-    // erreichbar ist. Der schwache wartet zu lange und lässt ihn durch.
-    const zone = profile.level === "hard" ? arcade.zone + 0.03
-      : profile.level === "normal" ? arcade.zone + 0.14
-      : arcade.zone + 0.34;
-    const wanted = profile.level === "hard" ? -0.1 : profile.level === "normal" ? 0.1 : 0.35;
-
-    // Ob dieser Anflug überhaupt bemerkt wird, entscheidet sich EINMAL je Anflug.
-    // Pro Tick gewürfelt liefe jede Wahrscheinlichkeit über die vielen Ticks
-    // eines Anflugs gegen Gewissheit — dieselbe Falle wie anderswo schon
-    // mehrfach.
-    const approach = arcade.resetAt || 0;
-    if (player.botApproach !== approach) {
-      player.botApproach = approach;
-      const notices = profile.level === "hard" ? 0.97 : profile.level === "normal" ? 0.82 : 0.55;
-      player.botAwake = Math.random() < notices;
-    }
-    if (!player.botAwake) return;
-
-    // Halten kostet nichts, also wird NICHT auf Verdacht gestossen. Ein
-    // Fehlgriff ist der teuerste Fehler im Spiel: er kostet die Ladung und
-    // dreiviertel Sekunde Ausholzeit, und in der Zeit ist man wehrlos.
-    if (reach >= zone && reach <= 0.99 && closing >= wanted) {
-      handleArcadeInput(room, bot, { action: "shove" });
-    }
-    return;
-  }
   if (arcade.family === "dive") {
     const now = Date.now();
     if (now < player.busyUntil) return;
@@ -7734,14 +7395,6 @@ module.exports = {
     GLIDE_STALL_MS,
     buildGlideGates,
     glideGateGap,
-    SUMO_RING_RADIUS,
-    SUMO_CHARGE_MS,
-    SUMO_ZONE,
-    SUMO_RECOVER_MS,
-    SUMO_MIN_CHARGE_MS,
-    SUMO_MAX_IMPULSE,
-    SUMO_HITS_OUT,
-    updateSumoStone,
     BOUNCE_BEAT_START_MS,
     BOUNCE_BEAT_MIN_MS,
     BOUNCE_BAR_BEATS,

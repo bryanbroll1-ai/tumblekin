@@ -19,7 +19,6 @@ import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin200";
 import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin200";
 import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin200";
 import { BalloonGlide } from "./minigames/BalloonGlide.js?v=tumblekin200";
-import { SumoPush } from "./minigames/SumoPush.js?v=tumblekin200";
 import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin200";
 import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin200";
 import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin200";
@@ -66,7 +65,6 @@ const MINIGAMES = {
   turmbau: TowerStack,
   bergsteiger: CliffClimb,
   ballonfahrt: BalloonGlide,
-  sumoschubs: SumoPush,
   trampolin: Trampoline,
   falschsignal: FalseSignal,
   spurmaler: TracePainter,

@@ -47,12 +47,11 @@ const NUR_EIGENE = {
   tiefenrausch: "die Kamera folgt dem eigenen Schacht, die anderen Stände zeigt die Anzeige"
 };
 // Szenen, in denen EINZELNE Figuren mitten in der Runde den Boden verlassen —
-// beim Sumo fliegt, wer hinausgeschubst wird. Die ganze Szene deshalb von der
+// etwa wer aus dem Ring geschubst wird. Die ganze Szene deshalb von der
 // Bodenprüfung auszunehmen wäre zu grob: die drei, die noch im Ring stehen,
 // sollen weiter geprüft werden. Ignoriert wird nur, wer WEIT weg ist; ein
 // falsch gesetzter Fuss liegt um Zehntel daneben, ein Flug um Meter.
 const FLIEGT_EINZELN = {
-  sumoschubs: "wer rausgeschubst wird, fliegt"
 };
 const FLUG_AB = 1.0;
 // Szenen, in denen Figuren ABSICHTLICH aus dem Bild fliegen. Beim Kanonenflug
