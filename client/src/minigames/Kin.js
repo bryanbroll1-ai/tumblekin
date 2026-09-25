@@ -1036,6 +1036,23 @@ const STATES = {
       face(p, "happy");
     }
   },
+  // Tauchen: gestreckt, die Arme ziehen im Brustzug nach aussen, die Beine
+  // schlagen. Die Richtung des Körpers dreht die Szene (Kopf voran).
+  swim: {
+    blend: 0.2,
+    pose(p, t, a) {
+      const n = a.now + a.phase;
+      const stroke = sin(n * 6.5);
+      p.aLs = 2.7 + stroke * 0.35;
+      p.aRs = 2.7 + stroke * 0.35;
+      p.aLr = 0.25 + Math.max(0, stroke) * 0.9;
+      p.aRr = 0.25 + Math.max(0, stroke) * 0.9;
+      p.lL = sin(n * 9) * 0.45;
+      p.lR = -sin(n * 9) * 0.45;
+      p.y = 0;
+      face(p, "focus");
+    }
+  },
   fly: {
     blend: 0.2,
     pose(p, t, a) {

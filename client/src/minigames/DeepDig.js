@@ -1,408 +1,485 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
+import { frameChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
-// Tiefenrausch: Tippen gräbt eine Stufe tiefer, jede Stufe bringt mehr Gold
-// und mehr Einsturzgefahr. Nach oben wischen zieht einen hoch und zahlt ein.
+// Tiefenrausch: tauchen mit dem Stick. Gold liegt im ganzen Schacht, je tiefer
+// desto wertvoller, ganz unten eine Truhe. Die Luft sinkt — unten schneller —,
+// an der Oberfläche füllt sie sich und das getragene Gold ist eingezahlt.
+// Quallen kosten Luft und etwas Gold; wem die Luft ausgeht, der wird
+// ohnmächtig, verliert, was er trägt, und treibt nach oben.
 //
-// Vorher sah man nur die eigene Figur in einem Loch unter einem grossen
-// leeren Himmel; die anderen standen als Zahlen in der Anzeige. Jetzt ist es
-// ein Querschnitt durch den Boden, alle Schächte nebeneinander: über jedem
-// eine Winde mit Seil, die Erde in Schichten mit eingeschlossenen Steinen, die
-// beim Graben aufbrechen. Man sieht, wie tief die anderen sich trauen, wer
-// verschüttet wird und wer sich mit vollen Taschen hochziehen lässt.
-const COL_W = 1.12;
-const LEVEL_H = 0.62;
-const MAX_LEVELS = 12;
-const SURFACE_Y = 0;
-const LAYER_COLORS = ["#8a6242", "#7d573a", "#704d33", "#62432c", "#553a27", "#4a3222"];
-const GEM_COLORS = ["#ffd15c", "#ffd15c", "#7fe0ff", "#ffd15c", "#ff7fb0", "#b58cff"];
+// Die alte Fassung war ein Würfelspiel mit Spaten: Tippen grub, eine
+// Zufallszahl entschied über den Einsturz. Jetzt steuert man selbst, sieht die
+// Gefahr kommen und entscheidet mit Blick auf die Luftanzeige, wie gierig man
+// ist. Alle tauchen im selben Schacht, man sieht die anderen um dieselbe
+// Truhe schwimmen.
+const S = 0.36;                  // Welteinheiten je Meter
+const WALL = 1.2;                // Dicke der Felswände (Welt)
+const SURFACE_COLOR = new THREE.Color("#63c7ec");
+const DEEP_COLOR = new THREE.Color("#0c2748");
+const _c = new THREE.Color();
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+// Muss der Serverfunktion diveJellyAt entsprechen.
+function jellyAt(jelly, width, elapsedMs) {
+  const t = elapsedMs / 1000;
+  return {
+    x: width / 2 + Math.sin(t * jelly.speed + jelly.phase) * jelly.span,
+    y: jelly.y + Math.sin(t * 1.7 + jelly.phase * 2) * 0.6
+  };
+}
 
 export class DeepDig extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.columns = new Map();
-    this.lastEventAt = new Map();
-    this.shown = new Map();
-    this.drag = null;
+    this.coinMeshes = new Map();
+    this.jellyMeshes = [];
+    this.seen = new Map();       // je Spieler: zuletzt gesehene Ereignisse
     this.labelY = 0.72;
   }
 
   stage() {
     return {
       label: "3D Tiefenrausch",
-      background: "#9adcf2",
-      fog: ["#9adcf2", 20, 44],
-      lights: { sunPosition: [-3, 9, 7], sunIntensity: 2.2, groundColor: 0x5a3f2a }
+      background: "#63c7ec",
+      fog: ["#63c7ec", 10, 30],
+      lights: { sunPosition: [-3, 12, 8], sunIntensity: 2.0, hemiIntensity: 2.2 }
     };
   }
 
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-      <div class="dig-risk" data-dig-risk>Risiko –</div>
+      <div class="dive-panel">
+        <div class="dive-air" data-dive-air><span class="dive-air-label">LUFT</span><span class="dive-air-bar"><i data-dive-air-fill></i></span></div>
+        <div class="dive-info"><span data-dive-depth>0 m</span><span data-dive-carried>🪙 0 dabei</span></div>
+      </div>
       <div class="dig-chips" data-dig-chips></div>
       <div class="color-banner dig-banner" data-dig-banner hidden></div>`;
   }
 
-  colX(index, count) {
-    return (index - (count - 1) / 2) * COL_W;
+  // Meter → Welt.
+  wx(x) {
+    return (x - this.width / 2) * S;
   }
 
-  levelY(level) {
-    return SURFACE_Y - level * LEVEL_H;
+  wy(depth) {
+    return -depth * S;
   }
 
-  build() {
+  build(f) {
     const scene = this.scene;
-    const players = this.getState()?.players || [];
-    const count = Math.max(1, players.length);
-    const width = count * COL_W + 6;
+    const arcade = (this.update || this.minigame)?.arcade || {};
+    this.width = arcade.width || 12;
+    this.depth = arcade.depth || 48;
+    const halfW = (this.width / 2) * S;
+    const bottom = this.wy(this.depth);
+    void f;
 
-    // Wiese oben, Erdreich darunter als Rückwand des Querschnitts.
-    const lawn = new THREE.Mesh(new THREE.BoxGeometry(width + 20, 0.3, 8), new THREE.MeshLambertMaterial({ color: "#7bbf5e" }));
-    lawn.position.set(0, SURFACE_Y - 0.15, -3.4);
-    lawn.receiveShadow = true;
-    scene.add(lawn);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(width + 20, MAX_LEVELS * LEVEL_H + 8, 0.4), new THREE.MeshLambertMaterial({ color: "#3a281b" }));
-    back.position.set(0, SURFACE_Y - (MAX_LEVELS * LEVEL_H + 8) / 2, -0.7);
-    scene.add(back);
-    // Die Erde neben den Schächten, in Schichten.
-    for (let level = 0; level < MAX_LEVELS + 4; level += 1) {
-      const color = LAYER_COLORS[Math.min(LAYER_COLORS.length - 1, Math.floor(level / 2.5))];
+    // Rückwand: dunkelt nach unten ab, damit man die Tiefe sieht.
+    const back = new THREE.PlaneGeometry(halfW * 2 + WALL * 2, -bottom + 2, 1, 24);
+    const colors = [];
+    const pos = back.attributes.position;
+    for (let i = 0; i < pos.count; i += 1) {
+      const y = pos.getY(i);
+      const u = clamp((-(y + (bottom - 2) / 2)) / (-bottom), 0, 1);
+      _c.copy(SURFACE_COLOR).lerp(DEEP_COLOR, u).multiplyScalar(0.8);
+      colors.push(_c.r, _c.g, _c.b);
+    }
+    back.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    const backMesh = new THREE.Mesh(back, new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
+    backMesh.position.set(0, (bottom - 2) / 2 + 1, -1.6);
+    scene.add(backMesh);
+
+    // Felswände links und rechts, gestuft wie Voxel, nach unten dunkler.
+    const rockMat = (u) => new THREE.MeshLambertMaterial({ color: _c.set("#8a7a6a").lerp(new THREE.Color("#3b3430"), u).getHex() });
+    for (let d = 0; d < this.depth + 2; d += 3) {
+      const u = d / this.depth;
       [-1, 1].forEach((side) => {
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(10, LEVEL_H, 1.1), new THREE.MeshLambertMaterial({ color }));
-        slab.position.set(side * (count * COL_W / 2 + 5), this.levelY(level) - LEVEL_H / 2, 0);
-        scene.add(slab);
+        const bulge = 0.15 + ((d * 7 + (side > 0 ? 3 : 0)) % 5) * 0.08;
+        const rock = new THREE.Mesh(new THREE.BoxGeometry(WALL + bulge, 3 * S + 0.02, 2.4), rockMat(u));
+        rock.position.set(side * (halfW + WALL / 2 - bulge / 2 + 0.02), this.wy(d + 1.5), -0.4);
+        scene.add(rock);
       });
     }
-    [-1, 1].forEach((side) => {
-      const lip = new THREE.Mesh(new THREE.BoxGeometry(10, 0.14, 1.2), new THREE.MeshLambertMaterial({ color: "#6fb455" }));
-      lip.position.set(side * (count * COL_W / 2 + 5), SURFACE_Y + 0.02, 0);
-      scene.add(lip);
-    });
+    // Grund: Sand, Steine, Seegras.
+    const sand = new THREE.Mesh(new THREE.BoxGeometry(halfW * 2 + WALL * 2, 0.5, 2.4), new THREE.MeshLambertMaterial({ color: "#c9a46a" }));
+    sand.position.set(0, bottom - 0.25, -0.4);
+    scene.add(sand);
+    this.weeds = [];
+    for (let i = 0; i < 9; i += 1) {
+      const x = -halfW + 0.3 + (i / 8) * (halfW * 2 - 0.6);
+      const weed = new THREE.Group();
+      for (let k = 0; k < 4; k += 1) {
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.28, 0.06), new THREE.MeshLambertMaterial({ color: k % 2 ? "#3fae62" : "#57c77a" }));
+        leaf.position.y = 0.14 + k * 0.26;
+        weed.add(leaf);
+      }
+      weed.position.set(x, bottom, -0.9 + (i % 3) * 0.2);
+      weed.userData.phase = i * 1.3;
+      scene.add(weed);
+      this.weeds.push(weed);
+    }
 
-    [[-4.2, 3.2, -6, 4], [3.8, 3.8, -7, 7]].forEach(([x, y, z, seed]) => {
+    // Wasseroberfläche von der Seite: ein heller Streifen, darüber Himmel und
+    // ein Steg — dort landet das Gold.
+    const surface = new THREE.Mesh(
+      new THREE.BoxGeometry(halfW * 2 + WALL * 2 + 4, 0.08, 2.6),
+      new THREE.MeshBasicMaterial({ color: "#bff0ff", transparent: true, opacity: 0.7, toneMapped: false, depthWrite: false })
+    );
+    surface.position.set(0, 0.02, -0.4);
+    scene.add(surface);
+    this.surface = surface;
+    const sky = new THREE.Mesh(new THREE.PlaneGeometry(40, 12), new THREE.MeshBasicMaterial({ color: "#9adcf2", toneMapped: false }));
+    sky.position.set(0, 6.05, -1.7);
+    scene.add(sky);
+    const dock = new THREE.Mesh(new THREE.BoxGeometry(halfW * 2 + WALL * 2 + 0.6, 0.16, 0.9), new THREE.MeshLambertMaterial({ color: "#a47449" }));
+    dock.position.set(0, 0.34, -1.05);
+    scene.add(dock);
+    [-1, 1].forEach((side) => {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.2, 0.14), new THREE.MeshLambertMaterial({ color: "#7d5536" }));
+      post.position.set(side * (halfW + 0.5), -0.2, -1.05);
+      scene.add(post);
+    });
+    // Die Schatzkiste auf dem Steg: hier klimpert es beim Einzahlen.
+    const bank = new THREE.Group();
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.36, 0.42), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
+    box.position.y = 0.18;
+    bank.add(box);
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.12, 0.46), new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#a8741a", emissiveIntensity: 0.3 }));
+    lid.position.y = 0.42;
+    bank.add(lid);
+    bank.position.set(0, 0.42, -1.05);
+    scene.add(bank);
+    this.bank = bank;
+    [[-4, 3.2, -6, 2], [3.6, 4.2, -7, 5]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
       scene.add(cloud);
     });
 
-    players.forEach((player, index) => this.addColumn(player, index, count));
-  }
-
-  addColumn(player, index, count) {
-    const x = this.colX(index, count);
-    const scene = this.scene;
-    // Erdblöcke, einer je Stufe. Gegrabene werden unsichtbar.
-    const blocks = [];
-    for (let level = 1; level <= MAX_LEVELS; level += 1) {
-      const color = LAYER_COLORS[Math.min(LAYER_COLORS.length - 1, Math.floor(level / 2.5))];
-      const block = new THREE.Group();
-      const dirt = new THREE.Mesh(new THREE.BoxGeometry(COL_W - 0.06, LEVEL_H - 0.03, 1.1), new THREE.MeshLambertMaterial({ color }));
-      block.add(dirt);
-      // Eingeschlossene Steine auf der Schnittfläche.
-      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.1 + level * 0.006), new THREE.MeshLambertMaterial({ color: GEM_COLORS[level % GEM_COLORS.length], emissive: GEM_COLORS[level % GEM_COLORS.length], emissiveIntensity: 0.35 }));
-      gem.position.set(((level * 37) % 7) / 7 * 0.5 - 0.25, ((level * 13) % 5) / 5 * 0.2 - 0.1, 0.56);
-      block.add(gem);
-      const pebble = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.04), new THREE.MeshLambertMaterial({ color: "#8f8a80" }));
-      pebble.position.set(-gem.position.x * 0.8, -gem.position.y - 0.05, 0.56);
-      block.add(pebble);
-      block.position.set(x, this.levelY(level - 1) - LEVEL_H / 2, 0);
-      scene.add(block);
-      blocks.push(block);
-    }
-    // Stützbalken im gegrabenen Schacht, damit er nach Stollen aussieht.
-    const beams = [];
-    for (let level = 1; level <= MAX_LEVELS; level += 1) {
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(COL_W, 0.08, 0.14), new THREE.MeshLambertMaterial({ color: "#8a6a45" }));
-      beam.position.set(x, this.levelY(level - 1) - 0.04, -0.35);
-      beam.visible = false;
-      scene.add(beam);
-      beams.push(beam);
+    // Lichtstrahlen von oben — zart, nur in den oberen Metern.
+    this.rays = [];
+    for (let i = 0; i < 4; i += 1) {
+      const ray = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.5 + i * 0.12, 7),
+        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.08, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending })
+      );
+      ray.position.set(-halfW + 0.6 + i * (halfW * 0.6), -3.2, -1.2);
+      ray.rotation.z = 0.18;
+      scene.add(ray);
+      this.rays.push(ray);
     }
 
-    // Die Winde über dem Schacht, mit Seil nach unten.
-    const frame = new THREE.Group();
-    const wood = new THREE.MeshLambertMaterial({ color: "#8a5a3a" });
-    [-1, 1].forEach((side) => {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.35, 0.08), wood);
-      post.position.set(side * (COL_W / 2 - 0.1), 0.66, -0.25);
-      post.rotation.z = side * 0.12;
-      frame.add(post);
+    // Münzen und Truhe.
+    const coinGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.06, 14);
+    (arcade.coins || []).forEach((coin) => {
+      let mesh;
+      if (coin.chest) {
+        mesh = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.4, 0.42), new THREE.MeshLambertMaterial({ color: "#7a4c24" }));
+        body.position.y = 0.2;
+        mesh.add(body);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.16, 0.46), new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#c48a1a", emissiveIntensity: 0.5 }));
+        top.position.y = 0.46;
+        mesh.add(top);
+        const glow = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.18, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending }));
+        glow.position.y = 0.3;
+        mesh.add(glow);
+      } else {
+        // Tiefer = wertvoller = grösser und wärmer in der Farbe.
+        const u = clamp(coin.y / this.depth, 0, 1);
+        const color = u > 0.66 ? "#ff9d4d" : u > 0.33 ? "#ffc64a" : "#ffe36b";
+        mesh = new THREE.Mesh(coinGeo, new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35 }));
+        mesh.rotation.x = Math.PI / 2;
+        mesh.scale.setScalar(0.9 + u * 0.7);
+      }
+      mesh.position.set(this.wx(coin.x), this.wy(coin.y), 0);
+      mesh.userData = { coin, base: mesh.position.y };
+      scene.add(mesh);
+      this.coinMeshes.set(coin.id, mesh);
     });
-    const top = new THREE.Mesh(new THREE.BoxGeometry(COL_W - 0.05, 0.1, 0.12), wood);
-    top.position.set(0, 1.32, -0.25);
-    frame.add(top);
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.34, 10), new THREE.MeshLambertMaterial({ color: player.color }));
-    drum.rotation.z = Math.PI / 2;
-    drum.position.set(0, 1.2, -0.2);
-    frame.add(drum);
-    frame.position.set(x, SURFACE_Y, 0);
-    scene.add(frame);
-    const rope = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1, 0.03), new THREE.MeshLambertMaterial({ color: "#d9c79a" }));
-    scene.add(rope);
 
-    // Schatzkiste hinter dem Schacht, wächst mit dem eingezahlten Gold.
-    const chest = new THREE.Group();
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, 0.3), new THREE.MeshLambertMaterial({ color: "#9a6a3a" }));
-    box.position.y = 0.14;
-    chest.add(box);
-    const band = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.32), new THREE.MeshLambertMaterial({ color: player.color }));
-    band.position.y = 0.2;
-    chest.add(band);
-    const gold = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.22), new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#c98f1e", emissiveIntensity: 0.3 }));
-    gold.position.y = 0.3;
-    gold.scale.y = 0.01;
-    chest.add(gold);
-    chest.position.set(x + 0.28, SURFACE_Y, -1.1);
-    scene.add(chest);
+    // Quallen: halbe Kuppel, darunter wabernde Fäden.
+    (arcade.jellies || []).forEach(() => {
+      const jelly = new THREE.Group();
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.34, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshLambertMaterial({ color: "#ff8fd0", emissive: "#e0409a", emissiveIntensity: 0.45, transparent: true, opacity: 0.82 })
+      );
+      jelly.add(dome);
+      const tentacles = [];
+      for (let k = 0; k < 5; k += 1) {
+        const t = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.42, 0.04), new THREE.MeshBasicMaterial({ color: "#ffc2e6", transparent: true, opacity: 0.8 }));
+        t.position.set(-0.2 + k * 0.1, -0.22, 0);
+        jelly.add(t);
+        tentacles.push(t);
+      }
+      jelly.userData.tentacles = tentacles;
+      jelly.userData.dome = dome;
+      scene.add(jelly);
+      this.jellyMeshes.push(jelly);
+    });
 
-    // Die Figur mit Spitzhacke in der rechten Hand.
-    const kin = this.addKin(player, index, { x, ground: SURFACE_Y, z: 0.05, facing: 0, scale: 0.92 });
-    const pick = new THREE.Group();
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.42), new THREE.MeshLambertMaterial({ color: "#7a5330" }));
-    handle.position.z = 0.16;
-    pick.add(handle);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.06), new THREE.MeshLambertMaterial({ color: "#9aa3b0" }));
-    head.position.set(0, 0.02, 0.36);
-    head.rotation.x = 0.3;
-    pick.add(head);
-    pick.position.set(0, -0.17, 0.02);
-    kin.userData.arms?.[1]?.add(pick);
-    const lamp = new THREE.PointLight("#ffd8a0", 1.6, 3.2);
-    lamp.position.set(0, 0.6, 0.5);
-    kin.add(lamp);
-
-    this.columns.set(player.id, { x, blocks, beams, frame, rope, chest, gold, drum, kin, pick, liftFrom: null });
+    // Taucher: die Figuren mit Taucherglocke.
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => {
+      const entry = arcade.players?.[player.id];
+      const kin = this.addKin(player, index, { x: this.wx(entry?.x ?? this.width / 2), ground: 0, z: 0.15, facing: 0, scale: 0.74 });
+      const helmet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.42, 16, 12),
+        new THREE.MeshLambertMaterial({ color: "#dff6ff", transparent: true, opacity: 0.28, depthWrite: false })
+      );
+      helmet.position.y = 0.66;
+      kin.add(helmet);
+    });
   }
 
   shot() {
-    const count = Math.max(1, this.columns.size);
     return {
-      look: [0, SURFACE_Y - 0.6, 0],
-      frame: { w: Math.min(count * COL_W + 0.5, 3.4), h: 3.6 },
-      pitch: 0.06,
+      look: [0, -1.5, 0],
+      frame: { w: (this.width || 12) * S + 1.4, h: 5.2 },
+      yaw: 0,
+      pitch: 0.05,
       fov: 38,
-      ease: 0.1,
-      intro: { yaw: 0.4, pitch: 0.25, zoom: 1.3 }
+      intro: { yaw: 0.35, pitch: 0.15, zoom: 1.25 },
+      finale: { pull: 0.9, zoom: 0.7, lift: 0.2, orbit: 0.08 }
     };
   }
 
   bind() {
-    this.controls.innerHTML = `<p class="trace-hint" data-dig-hint>Tippen gräbt · nach oben wischen zahlt ein</p>`;
-    this.controls.style.pointerEvents = "none";
-    this.on(this.webglCanvas, "pointerdown", (event) => {
-      event.preventDefault();
-      this.drag = { x: event.clientX, y: event.clientY, at: performance.now() };
-    });
-    this.on(window, "pointerup", (event) => {
-      if (!this.drag) return;
-      const dx = event.clientX - this.drag.x;
-      const dy = event.clientY - this.drag.y;
-      const held = performance.now() - this.drag.at;
-      this.drag = null;
-      const minigame = this.update || this.minigame;
-      if (!minigame || minigame.finaleAt) return;
-      if (dy < -36 && Math.abs(dy) > Math.abs(dx)) {
-        this.feedback?.sound("whoosh");
-        this.feedback?.vibrate(14);
-        this.sendInput({ action: "bank" }).catch(() => {});
-        return;
-      }
-      if (Math.hypot(dx, dy) < 26 && held < 500) {
-        this.feedback?.sound("clack");
-        this.sendInput({ action: "dig" }).catch(() => {});
-      }
-    });
-    this.on(window, "pointercancel", () => {
-      this.drag = null;
+    this.controls.innerHTML = `
+      <div class="mobile-stick-controls joystick-only">
+        <div class="joystick-slot"></div>
+      </div>`;
+    this.joystick = new VirtualJoystick({
+      root: this.controls.querySelector(".joystick-slot"),
+      label: "Tiefenrausch: tauchen",
+      intervalMs: 70,
+      feedback: this.feedback,
+      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onEngage: () => this.feedback?.vibrate(8)
     });
   }
 
   unbind() {
-    this.controls.style.pointerEvents = "";
+    this.joystick?.destroy?.();
+    this.joystick = null;
+    this.coinMeshes.clear();
+    this.jellyMeshes.length = 0;
   }
 
-  tick(f) {
-    const { now, dt, arcade, players, controlledId, finale } = f;
-    if (!arcade) return;
-    players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      const col = this.columns.get(player.id);
-      const animator = this.animators.get(player.id);
-      if (!entry || !col || !animator) return;
-      const { kin } = col;
-      const depth = entry.depth || 0;
-      const busy = now < (entry.busyUntil || 0) ? entry.busyKind : null;
-
-      this.syncEvent(player, entry, col, animator, now, controlledId);
-
-      // Gegrabene Stufen öffnen, sonst Erde. Nach dem Einzahlen oder einem
-      // Einsturz schüttet sich der Schacht wieder zu.
-      col.blocks.forEach((block, i) => {
-        block.visible = i + 1 > depth;
-      });
-      col.beams.forEach((beam, i) => {
-        beam.visible = i + 1 <= depth;
-      });
-
-      // Wie tief steht die Figur gerade? Beim Hochziehen fährt sie am Seil.
-      let shown = this.shown.get(player.id) ?? 0;
-      if (busy === "surfacing" || busy === "collapsed") {
-        const total = busy === "surfacing" ? 1300 : 1500;
-        const u = Math.min(1, 1 - (entry.busyUntil - now) / total);
-        const from = col.liftFrom ?? shown;
-        shown = busy === "collapsed" && u < 0.45 ? from : from * (1 - Math.min(1, (u - (busy === "collapsed" ? 0.45 : 0)) / 0.55));
-      } else {
-        col.liftFrom = null;
-        shown += (depth - shown) * frameLerp(0.14, dt);
-      }
-      this.shown.set(player.id, shown);
-      const floorY = this.levelY(shown);
-      animator.groundY = floorY + 0.3 * 0.92;
-      kin.position.x = col.x;
-
-      // Seil von der Winde bis zur Figur.
-      const ropeTop = SURFACE_Y + 1.2;
-      const ropeBottom = floorY + 0.75;
-      const len = Math.max(0.05, ropeTop - ropeBottom);
-      col.rope.scale.y = len;
-      col.rope.position.set(col.x, ropeBottom + len / 2, -0.12);
-      col.drum.rotation.x = -shown * 2.4;
-
-      // Kiste füllt sich.
-      const banked = entry.banked || 0;
-      col.gold.scale.y = Math.max(0.01, Math.min(2.6, banked / 120));
-      col.gold.position.y = 0.26 + col.gold.scale.y * 0.05;
-
-      if (finale) {
-        col.pick.visible = false;
-        return;
-      }
-      col.pick.visible = busy !== "surfacing";
-      if (busy === "surfacing") {
-        animator.set("hang");
-        animator.expression("joy", 200);
-      } else if (busy === "collapsed") {
-        animator.set("sit");
-        animator.expression("ko", 200);
-      } else if (depth > 0) {
-        // Unten und unentschlossen: je riskanter, desto ängstlicher.
-        animator.set("focus");
-        animator.look(0, 1);
-        if ((entry.nextRisk || 0) > 0.35) animator.expression("scared", 200);
-        else if ((entry.nextRisk || 0) > 0.2) animator.expression("effort", 200);
-      } else {
-        animator.set("ready");
-        animator.look(0, -1);
-      }
-    });
+  // Die Kamera folgt der eigenen Figur in die Tiefe.
+  rigOptions(f) {
+    const own = f.arcade?.players?.[f.controlledId];
+    if (!own) return {};
+    const y = clamp(this.wy(own.y) - 0.6, this.wy(this.depth) + 2.2, -1.4);
+    return { look: [0, y, 0] };
   }
 
-  syncEvent(player, entry, col, animator, now, controlledId) {
-    const event = entry.lastDive;
-    if (!event || event.at === this.lastEventAt.get(player.id)) return;
-    this.lastEventAt.set(player.id, event.at);
-    const own = player.id === controlledId;
-    const at = new THREE.Vector3(col.x, this.levelY(event.depth || 0) + 0.2, 0.6);
-    if (event.kind === "dug") {
-      animator.trigger("dig");
-      this.burst(at, ["#8a6242", "#5e422c", GEM_COLORS[(event.depth || 0) % GEM_COLORS.length]], { count: 10 * fxScale(), speed: 1.6, up: 1.2, size: 0.07, life: 0.5, drag: 2 });
-      this.pop(at.clone().add(new THREE.Vector3(0, 0.7, 0)), `+${event.gold}`, { color: "#ffe36b", size: own ? 0.3 : 0.22, life: 0.6 });
-      if (own) {
-        this.feedback?.sound("drop");
-        this.feedback?.vibrate(6);
-      }
-    } else if (event.kind === "banked") {
-      col.liftFrom = this.shown.get(player.id) ?? event.depth ?? 0;
-      animator.trigger("fistpump");
-      const top = new THREE.Vector3(col.x, SURFACE_Y + 0.9, 0.3);
-      this.burst(top, ["#ffd15c", "#ffffff"], { count: 16 * fxScale(), speed: 2, up: 2.2, size: 0.08, life: 0.8, drag: 1.5 });
-      this.pop(top.clone().add(new THREE.Vector3(0, 0.5, 0)), `${event.gold} SICHER!`, { color: "#ffe36b", size: own ? 0.36 : 0.26, life: 1 });
-      if (own) {
-        this.feedback?.sound("win");
-        this.feedback?.vibrate([12, 10, 20]);
-      }
-    } else {
-      // Einsturz: Brocken fallen von oben auf die Figur.
-      col.liftFrom = this.shown.get(player.id) ?? event.depth ?? 0;
-      animator.trigger("knockback");
-      animator.expression("ko", 1500);
-      const top = new THREE.Vector3(col.x, this.levelY(Math.max(0, (event.depth || 0) - 2)), 0.3);
-      this.burst(top, ["#5e422c", "#3c2a1e", "#8a6a45", "#8f8a80"], { count: 26 * fxScale(), speed: 1.4, up: 0.2, size: 0.13, life: 1.1, gravity: 6, drag: 0.6 });
-      this.pop(at.clone().add(new THREE.Vector3(0, 0.9, 0)), `EINSTURZ! −${event.gold}`, { color: "#ff9aa8", size: own ? 0.4 : 0.26, life: 1.2 });
-      if (own) {
-        this.rig.shake(0.9);
-        this.feedback?.sound("impact");
-        this.feedback?.vibrate([26, 18, 30]);
-      }
-    }
-  }
-
-  // Die Kamera folgt der eigenen Tiefe; wer weiter oben oder unten ist, darf
-  // aus dem Bild — die Anzeige nennt alle Stände.
   keepInView(f) {
     const own = this.kins.get(f.controlledId);
     return own ? [own] : [];
   }
 
-  rigOptions(f) {
-    const col = this.columns.get(f.controlledId);
-    const shown = this.shown.get(f.controlledId) ?? 0;
-    const y = Math.min(SURFACE_Y - 0.4, this.levelY(shown) + 0.9);
-    return { look: [(col?.x || 0) * 0.6, y, 0] };
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (!arcade?.coins) return;
+    const elapsed = Math.max(0, now - (minigame?.startedAt || now));
+
+    // Farbe des Wassers nach der Tiefe der Kamera.
+    const own = arcade.players[controlledId];
+    const camDepth = clamp((own?.y || 0) / this.depth, 0, 1);
+    _c.copy(SURFACE_COLOR).lerp(DEEP_COLOR, camDepth);
+    if (this.scene.background?.isColor) this.scene.background.copy(_c);
+    if (this.scene.fog) this.scene.fog.color.copy(_c);
+    this.rays.forEach((ray, i) => {
+      ray.material.opacity = 0.07 + Math.sin(now / 900 + i * 1.7) * 0.03;
+    });
+    this.weeds?.forEach((weed) => { weed.rotation.z = Math.sin(now / 700 + weed.userData.phase) * 0.18; });
+    this.surface.position.y = 0.02 + Math.sin(now / 500) * 0.02;
+
+    // Münzen: drehen, wippen, verschwinden, wenn geholt.
+    const serverNow = now;
+    (arcade.coins || []).forEach((coin) => {
+      const mesh = this.coinMeshes.get(coin.id);
+      if (!mesh) return;
+      const taken = coin.takenUntil && serverNow < coin.takenUntil;
+      mesh.visible = !taken;
+      if (taken) return;
+      mesh.position.y = mesh.userData.base + Math.sin(now / 400 + coin.id) * 0.05;
+      if (coin.chest) mesh.rotation.y = Math.sin(now / 800) * 0.3;
+      else mesh.rotation.z = now / 300 + coin.id;
+    });
+
+    // Quallen: dieselbe Bahn wie auf dem Server.
+    (arcade.jellies || []).forEach((jelly, i) => {
+      const mesh = this.jellyMeshes[i];
+      if (!mesh) return;
+      const at = jellyAt(jelly, this.width, elapsed);
+      mesh.position.set(this.wx(at.x), this.wy(at.y), 0.1);
+      const pulse = Math.sin(now / 260 + i);
+      mesh.userData.dome.scale.set(1 + pulse * 0.08, 1 - pulse * 0.1, 1 + pulse * 0.08);
+      mesh.userData.tentacles.forEach((t, k) => { t.rotation.z = Math.sin(now / 200 + k + i) * 0.35; });
+    });
+
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const kin = this.kins.get(player.id);
+      const animator = this.animators.get(player.id);
+      if (!entry || !kin || !animator) return;
+      const isOwn = player.id === controlledId;
+      const tx = this.wx(entry.x);
+      const ty = this.wy(entry.y) - 0.3;
+      kin.position.x += (tx - kin.position.x) * frameLerp(0.35, dt);
+      kin.position.z = 0.15;
+      animator.groundY = kin.position.y + (ty - kin.position.y) * frameLerp(0.35, dt);
+
+      // Kopf voran in Schwimmrichtung; ohne Tempo aufrecht.
+      const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
+      let wantZ = 0;
+      if (entry.fainted) wantZ = Math.PI * 0.5;
+      else if (speed > 1.2) wantZ = -Math.atan2(entry.vx || 0, -(entry.vy || 0));
+      const diff = Math.atan2(Math.sin(wantZ - kin.rotation.z), Math.cos(wantZ - kin.rotation.z));
+      if (!finale) kin.rotation.z += diff * frameLerp(0.15, dt);
+      if (!finale) {
+        if (entry.fainted) {
+          animator.set("float");
+          animator.expression("ko", 150);
+        } else if (speed > 1.2) {
+          animator.set("swim");
+          animator.rate = 0.7 + speed / 7;
+        } else {
+          animator.set("float");
+        }
+        if (!entry.fainted && entry.o2 < 25 && entry.y > 1.5) animator.expression("scared", 150);
+      }
+      // Unverwundbar nach einem Stich: kurz blinken.
+      kin.visible = !(now < (entry.safeUntil || 0) && !entry.fainted && Math.floor(now / 110) % 2 === 0);
+      // Luftblasen, mehr wenn man hektisch ist.
+      if (entry.y > 1.3 && Math.random() < frameChance(speed > 1.2 ? 2.2 : 0.9, dt)) {
+        this.burst(new THREE.Vector3(kin.position.x, kin.position.y + 0.55, 0.3), ["#dff6ff", "#ffffff"], { count: 1, speed: 0.2, up: 1.2, size: 0.05, life: 0.9, gravity: -1.2, drag: 1.0 });
+      }
+      this.react(player, entry, kin, animator, isOwn, now);
+    });
+  }
+
+  react(player, entry, kin, animator, isOwn, now) {
+    const seen = this.seen.get(player.id) || {};
+    const at = () => kin.position.clone().add(new THREE.Vector3(0, 0.9, 0.3));
+    if (entry.lastPick && entry.lastPick.at !== seen.pick) {
+      seen.pick = entry.lastPick.at;
+      if (isOwn) {
+        const mesh = this.coinMeshes.get(entry.lastPick.id);
+        const p = mesh ? mesh.position.clone() : at();
+        this.burst(p, ["#ffe36b", "#ffffff"], { count: Math.round((entry.lastPick.chest ? 30 : 10) * fxScale()), speed: 1.6, up: 1.2, size: 0.06, life: 0.5, gravity: 0 });
+        this.pop(p.add(new THREE.Vector3(0, 0.4, 0)), entry.lastPick.chest ? `TRUHE! +${entry.lastPick.value}` : `+${entry.lastPick.value}`, { color: "#ffe36b", size: entry.lastPick.chest ? 0.42 : 0.28, life: 0.7 });
+        this.feedback?.sound(entry.lastPick.chest ? "win" : "coin");
+        this.feedback?.vibrate(entry.lastPick.chest ? [12, 20, 12] : 6);
+      }
+    }
+    if (entry.lastSting && entry.lastSting.at !== seen.sting) {
+      seen.sting = entry.lastSting.at;
+      animator.trigger("flinch");
+      animator.expression("surprised", 800);
+      this.burst(at(), ["#ff8fd0", "#ffffff"], { count: 14, speed: 2.0, up: 0.6, size: 0.06, life: 0.5, gravity: 0 });
+      const text = entry.lastSting.gold > 0 ? `AUA! −${entry.lastSting.o2} % Luft · −${entry.lastSting.gold} 🪙` : `AUA! −${entry.lastSting.o2} % Luft`;
+      this.pop(at(), isOwn ? text : "AUA!", { color: "#ff9ad0", size: isOwn ? 0.3 : 0.24, life: 0.9 });
+      if (isOwn) {
+        this.rig.shake(0.6);
+        this.feedback?.sound("error");
+        this.feedback?.vibrate([30, 30, 30]);
+      }
+    }
+    if (entry.lastBank && entry.lastBank.at !== seen.bank) {
+      seen.bank = entry.lastBank.at;
+      animator.trigger("celebrate");
+      animator.expression("joy", 900);
+      const p = this.bank.position.clone().add(new THREE.Vector3(0, 0.5, 0.4));
+      this.burst(p, ["#ffe36b", player.color, "#ffffff"], { count: Math.round(18 * fxScale()), speed: 1.8, up: 2.2, size: 0.07, life: 0.7 });
+      if (isOwn) {
+        this.pop(p.add(new THREE.Vector3(0, 0.3, 0)), `+${entry.lastBank.gold} 🪙 sicher!`, { color: "#ffe36b", size: 0.38, life: 1.0 });
+        this.feedback?.sound("perfect");
+        this.feedback?.vibrate([10, 14, 18]);
+      }
+    }
+    if (entry.lastFaintAt && entry.lastFaintAt !== seen.faint) {
+      seen.faint = entry.lastFaintAt;
+      animator.trigger("hit");
+      this.pop(at(), isOwn ? `OHNMÄCHTIG! −${entry.lastFaint?.gold || 0} 🪙` : "OHNMÄCHTIG!", { color: "#ff9aa8", size: isOwn ? 0.34 : 0.24, life: 1.1 });
+      if (isOwn) {
+        this.rig.shake(0.8);
+        this.feedback?.sound("fall");
+        this.feedback?.vibrate([40, 40, 60]);
+      }
+    }
+    this.seen.set(player.id, seen);
+    void now;
   }
 
   drawHud(f) {
-    const { arcade, state, now } = f;
-    if (!arcade) return;
+    const { arcade, state } = f;
+    if (!arcade?.coins) return;
     const own = arcade.players[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.banked || 0);
-
-    const risk = this.hud.querySelector("[data-dig-risk]");
-    if (risk && own) {
-      const percent = Math.round((own.nextRisk || 0) * 100);
-      risk.textContent = `Nächste Stufe: ${percent}% Einsturz · +${own.nextGain || 0}`;
-      risk.style.color = percent >= 40 ? "#ff9aa8" : percent >= 22 ? "#ffd15c" : "#c6ffb0";
+    const fill = this.hud.querySelector("[data-dive-air-fill]");
+    const air = this.hud.querySelector("[data-dive-air]");
+    if (fill && own) {
+      const o2 = clamp(own.o2 ?? 100, 0, 100);
+      fill.style.width = `${o2}%`;
+      const level = o2 < 25 ? "low" : o2 < 50 ? "mid" : "ok";
+      if (air.dataset.level !== level) air.dataset.level = level;
     }
+    const depth = this.hud.querySelector("[data-dive-depth]");
+    if (depth && own) depth.textContent = `${Math.max(0, Math.round(own.y || 0))} m`;
+    const carried = this.hud.querySelector("[data-dive-carried]");
+    if (carried && own) carried.textContent = `🪙 ${own.carried || 0} dabei`;
+
     const chips = this.hud.querySelector("[data-dig-chips]");
     if (chips) {
-      chips.innerHTML = state.players.map((player) => {
+      const html = state.players.map((player) => {
         const entry = arcade.players[player.id];
         const isOwn = player.id === f.controlledId;
         return `<span class="dig-chip${isOwn ? " is-own" : ""}" style="--chip:${player.color}">${entry?.banked || 0}</span>`;
       }).join("");
+      if (chips.innerHTML !== html) chips.innerHTML = html;
     }
-    const hint = this.controls?.querySelector("[data-dig-hint]");
-    const mode = !own ? "idle" : (own.depth > 0 ? "deep" : "top");
-    if (hint && mode !== this.hintMode) {
-      this.hintMode = mode;
-      hint.textContent = mode === "deep" ? "Tippen gräbt weiter · ⬆️ hochwischen zahlt ein" : "Tippen gräbt · nach oben wischen zahlt ein";
-    }
+
     const banner = this.hud.querySelector("[data-dig-banner]");
     if (!banner || !own) return;
-    if (now < own.busyUntil && own.busyKind === "collapsed") {
-      banner.hidden = false;
-      banner.textContent = "Verschüttet — alles verloren";
-      banner.style.background = "#ff6b7f";
-      banner.style.color = "#42101a";
-    } else if (own.depth > 0 && f.remaining <= 4 && f.started) {
-      // Was bei Rundenende unten hängt, verfällt. Ohne Hinweis merkte man das
-      // erst auf der Ergebnistafel.
-      banner.hidden = false;
-      banner.textContent = `Noch ${f.remaining} s — jetzt einzahlen! (${own.carried} Gold unten)`;
-      banner.style.background = "#ff6b7f";
-      banner.style.color = "#42101a";
-    } else if (own.depth > 0) {
-      banner.hidden = false;
-      banner.textContent = `${own.carried} Gold hängen unten`;
-      banner.style.background = own.carried >= 100 ? "#ffd15c" : "#3c2a1e";
-      banner.style.color = own.carried >= 100 ? "#4a3405" : "#ffe9c8";
-    } else {
-      banner.hidden = true;
+    // Wie viel Luft der direkte Weg nach oben kostet — so warnt die Anzeige,
+    // BEVOR es zu spät ist, nicht erst bei null.
+    const rate = (arcade.o2Base || 2.6) + (arcade.o2Depth || 8.4) * clamp((own.y || 0) / 2 / this.depth, 0, 1);
+    const need = ((own.y || 0) / 6.2 + 0.5) * rate;
+    let text = "";
+    let bg = "";
+    let fg = "#ffffff";
+    if (own.fainted) {
+      text = "Ohnmächtig — du treibst nach oben";
+      bg = "#ff6b7f";
+    } else if ((own.y || 0) > 1.5 && own.o2 < need * 1.25) {
+      text = "LUFT KNAPP — AUFTAUCHEN!";
+      bg = "#ff4d5e";
+    } else if ((own.y || 0) <= 1.3 && (own.o2 ?? 100) < 99) {
+      text = "Luft holen …";
+      bg = "#7fd8ff";
+      fg = "#08304a";
+    } else if (f.remaining <= 4 && (own.carried || 0) > 0 && f.started) {
+      text = `Noch ${f.remaining} s — hoch, sonst ist dein Gold weg!`;
+      bg = "#ffd15c";
+      fg = "#4a3405";
+    }
+    banner.hidden = !text;
+    if (text && banner.textContent !== text) banner.textContent = text;
+    if (text) {
+      banner.style.background = bg;
+      banner.style.color = fg;
     }
   }
 }

@@ -68,6 +68,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 🕹️ Stick ziehen
 
 - **Bumper Pool:** Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
+- **Tiefenrausch:** Tauch mit dem Stick nach Gold — je tiefer, desto wertvoller, ganz unten wartet eine Truhe. Die Luft wird knapp, und zwar unten schneller: Tauch rechtzeitig auf, dann füllt sie sich wieder und dein Gold ist sicher eingezahlt. Quallen kosten Luft und etwas Gold. Geht dir die Luft aus, ist alles weg, was du trägst.
 - **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Fahr eine Schleife zurück in deine Farbe: alles, was du damit einkreist, wird auf einen Schlag deins. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Wer am Ende die meiste Fläche hat, gewinnt.
 
 ### 👆✳️ In jede Richtung wischen
@@ -136,10 +137,6 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 👆➡️ Nach vorne wischen
 
 - **Eisstock:** Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine, aber immer nur einer unterwegs: der nächste geht erst, wenn deiner liegt. Gezählt wird der Abstand zum Knopf, stufenlos — jeder Zentimeter näher ist mehr wert. Steine prallen nicht ab, sie schieben sich: du kannst jemanden vom Knopf drängen, aber niemand wird quer durchs Haus geschossen.
-
-### 👆⛏️ Graben oder aufhören
-
-- **Tiefenrausch:** Tippen gräbt eine Stufe tiefer und bringt Gold — aber jeder Stollen kann einstürzen, und dann ist alles weg, was noch unten hängt. Das Risiko der nächsten Stufe steht genau im Bild. Wisch nach oben, um deine Beute sicher einzuzahlen — was bei Rundenende noch unten hängt, verfällt.
 
 ### 👆🧭 Felder antippen und schliessen
 

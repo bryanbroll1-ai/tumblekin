@@ -940,26 +940,79 @@
 }
 
 
-/* --- Tiefenrausch: Risiko und Beute ------------------------------------ */
-/* Die Risikozahl ist die Ansage des Spiels — ohne sie wäre jeder Spatenstich
-   geraten statt entschieden. Sie steht deshalb breit und gut lesbar oben. */
-.dig-risk {
+/* --- Tiefenrausch: Luft, Tiefe, Beute ---------------------------------- */
+/* Die Luft ist die Anzeige, auf die es ankommt: breit, oben, farbig — grün,
+   gelb, rot und blinkend, wenn es eng wird. Darunter Tiefe und was man trägt. */
+.dive-panel {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
   left: 132px;
-  padding: 7px 12px;
+  right: 64px;
+  display: grid;
+  gap: 4px;
+}
+
+.dive-air {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
   border-radius: var(--radius-sm);
-  background: rgba(28, 18, 10, 0.9);
-  color: #ffe9c8;
+  background: rgba(8, 30, 48, 0.88);
+  color: #dff6ff;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.dive-air-bar {
+  flex: 1;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.dive-air-bar > i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #5fe0a8, #8ff5d8);
+  transition: width 90ms linear;
+}
+
+.dive-air[data-level="mid"] .dive-air-bar > i {
+  background: linear-gradient(90deg, #ffc64a, #ffe36b);
+}
+
+.dive-air[data-level="low"] .dive-air-bar > i {
+  background: linear-gradient(90deg, #ff4d5e, #ff8a8a);
+  animation: dive-air-blink 0.4s steps(2) infinite;
+}
+
+@keyframes dive-air-blink {
+  50% { opacity: 0.35; }
+}
+
+.dive-info {
+  display: flex;
+  gap: 6px;
+}
+
+.dive-info > span {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(8, 30, 48, 0.82);
+  color: #ffffff;
   font-size: 0.7rem;
   font-weight: 900;
-  letter-spacing: 0.02em;
 }
 
 .dig-chips {
   position: absolute;
-  top: calc(52px + env(safe-area-inset-top));
-  left: 132px;
+  top: calc(84px + env(safe-area-inset-top));
+  left: 12px;
   display: flex;
   gap: 6px;
 }

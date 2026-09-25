@@ -27,7 +27,7 @@ const liste = pickGames(process.argv.slice(2).filter((a) => !a.startsWith("--"))
 // korrekten Szenen Alarm schlägt, wird nach dem dritten Mal nicht mehr gelesen.
 // Die Sichtbarkeitsprüfung gilt trotzdem, die ist überall sinnvoll.
 const FLIEGT = {
-  tiefenrausch: "wird am Seil aus dem Schacht gezogen",
+  tiefenrausch: "taucht frei im Wasser",
   ballonfahrt: "steht im Korb eines fliegenden Ballons",
   trampolin: "springt",
   kanonenflug: "fliegt aus der Kanone",
@@ -50,7 +50,7 @@ const NUR_EIGENE = {
   bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild",
   kanonenflug: "die Kamera bleibt beim eigenen Rohr, bis man selbst geschossen hat — wer vorher fliegt, fliegt aus dem Bild",
   fassmut: "beim Fallen füllt die eigene Bahn das Bild, in der Auflösung zeigt die Kamera alle",
-  tiefenrausch: "die Kamera folgt dem eigenen Schacht, die anderen Stände zeigt die Anzeige"
+  tiefenrausch: "die Kamera folgt dem eigenen Taucher in die Tiefe, die anderen Stände zeigt die Anzeige"
 };
 // Szenen, in denen EINZELNE Figuren mitten in der Runde den Boden verlassen —
 // etwa wer aus dem Ring geschubst wird. Die ganze Szene deshalb von der
@@ -66,7 +66,7 @@ const FLUG_AB = 1.0;
 // klagen. Dass die EIGENE Figur im Bild ist, wird weiterhin geprüft.
 const RAND_EGAL = {
   kanonenflug: "wer weit fliegt, verlässt den Ausschnitt — das ist das Spiel",
-  tiefenrausch: "die Nachbarschächte ragen ins Bild, sie sind Kulisse"
+  tiefenrausch: "andere Taucher schwimmen am Bildrand vorbei"
 };
 const { base, stop: stopServer } = await startServer();
 const browser = await launchBrowser();
