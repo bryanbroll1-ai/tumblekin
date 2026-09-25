@@ -334,7 +334,7 @@ const FISH_RELAX = 0.45;               // Spannungsabbau beim Loslassen
 const FISH_HOLD_GRACE_MS = 190;        // so lange gilt ein Halte-Ping
 const FISH_SNAP_PAUSE_MS = 1400;       // Pause nach einem Riss
 const FISH_SNAP_COST = 80;             // Grundabzug, wenn keine Art bekannt ist
-const FISH_SNAP_SHARE = 0.75;          // Anteil des Fischwertes, den ein Riss kostet
+const FISH_SNAP_SHARE = 0.25;          // Anteil des Fischwertes, den ein Riss zusätzlich kostet
 const FISH_LANDED_POINTS = 300;
 const FISH_CALM_MIN_MS = 1400;         // Länge der ruhigen Phase
 const FISH_CALM_MAX_MS = 2600;
@@ -4753,12 +4753,20 @@ function updateArcade(room) {
         // Schnur gerissen: der Fisch ist weg, ein neuer beisst gleich an.
         entry.snaps += 1;
         entry.lastSnapAt = now;
-        // Ein Riss kostet, was der Fisch WERT war — nicht einen festen Betrag.
-        // Mit 80 Punkten pauschal war Zocken die beste Strategie: gemessen riss
-        // der unaufmerksamste Bot 2.45-mal pro Runde, landete dafür zwei Fische
-        // mehr und gewann damit klar. Wer einen Wels verliert, muss das merken.
-        entry.snapLoss = (entry.snapLoss || 0) + Math.round(kind.points * FISH_SNAP_SHARE);
-        entry.lastSnapKind = { id: kind.id, name: kind.name, at: now };
+        // Ein Riss kostet zuerst den Fisch selbst: der schon eingeholte Weg ist
+        // weg, dazu die Pause. Obendrauf kommt ein Abzug nach dem WERT des
+        // Fisches — wer einen Wels verliert, muss das merken. Mit 80 Punkten
+        // pauschal war Zocken die beste Strategie.
+        // Der Abzug war einmal 75 % des Wertes. Zusammen mit dem verlorenen Weg
+        // war das doppelt bestraft: gemessen stand der schwache Bot in jeder
+        // vierten Runde am Ende auf null, zwei Spieler teilten sich dann mit
+        // 0 Punkten Platz drei. Jetzt ein Viertel, und nie mehr, als im Eimer
+        // liegt — die Zahl oben fällt nie unter null. Dauerhaft Halten bleibt
+        // trotzdem schlechter als jede Bot-Stufe, ängstliches Loslassen auch.
+        const banked = (entry.haul || 0) - (entry.snapLoss || 0);
+        const cost = Math.min(Math.max(0, banked), Math.round(kind.points * FISH_SNAP_SHARE));
+        entry.snapLoss = (entry.snapLoss || 0) + cost;
+        entry.lastSnapKind = { id: kind.id, name: kind.name, cost, at: now };
         entry.tension = 0;
         entry.distance = 1;
         entry.bestDistance = 1;

@@ -301,7 +301,10 @@ export class FishDuel extends MinigameScene {
         animator.expression("angry", 1200);
         const at = lane.kin.position.clone().add(new THREE.Vector3(0, 1.2, -0.4));
         this.burst(at, ["#ffffff", "#ff6b7f"], { count: 12, speed: 1.8, up: 1.4, size: 0.06, life: 0.6, drag: 2.0 });
-        this.pop(at, "GERISSEN!", { color: "#ff9aa8", size: isOwn ? 0.38 : 0.26, life: 1.0 });
+        // Nur die eigene Figur nennt den Abzug — vier Minuszahlen gleichzeitig
+        // liest niemand, und fremde Verluste gehen einen nichts an.
+        const cost = isOwn ? entry.lastSnapKind?.cost || 0 : 0;
+        this.pop(at, cost > 0 ? `GERISSEN! −${cost}` : "GERISSEN!", { color: "#ff9aa8", size: isOwn ? 0.38 : 0.26, life: 1.0 });
         if (isOwn) {
           this.feedback?.sound("error");
           this.feedback?.vibrate([30, 40, 30]);

@@ -10,7 +10,8 @@ import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 // mit den Augen, grübeln beim Schätzen und drehen sich bei der Auflösung um:
 // wer richtig lag, springt auf, wer daneben lag, schlägt die Hände vors
 // Gesicht.
-const MAX_SWARM = 95;
+// Die grösste Spanne des Servers endet bei 44 Käfern (ESTIMATE_BANDS).
+const MAX_SWARM = 48;
 // Der Schwarm muss GANZ ins Bild — wer einen Teil nicht sieht, schätzt nicht,
 // sondern rät. Bei 4.1 ragten die äusseren Käfer links und rechts aus dem Bild:
 // das senkrecht gemessene Sichtfeld ergibt auf einem hochkanten Handy nur rund
@@ -34,6 +35,20 @@ function clamp(value, min, max) {
 const LOG_Z = 2.5;
 const LOG_TOP = 0.42;
 
+// Wie hoch der Schwarm steht. Auf einem hochkant gehaltenen Handy bestimmt die
+// BREITE den Bildausschnitt: darüber blieb viel Himmel leer, während sich 44
+// Käfer auf einem Streifen von einem Viertel der Bildhöhe drängten und sich
+// gegenseitig verdeckten — gezählt wurde dann ein Klumpen, nicht die Käfer.
+// Hochkant bekommt der Schwarm deshalb eineinhalbmal so viel Höhe, und die
+// Kamera schaut entsprechend höher. Quer bleibt es beim flachen Schwarm, sonst
+// schrumpfte dort alles.
+function swarmShape() {
+  const portrait = typeof window !== "undefined" && window.innerHeight > window.innerWidth * 1.15;
+  return portrait
+    ? { base: 1.3, height: 5.0, look: 3.0, frameH: 6.6 }
+    : { base: 1.0, height: 3.3, look: 2.0, frameH: 4.6 };
+}
+
 export class SwarmCount extends MinigameScene {
   constructor(ctx) {
     super(ctx);
@@ -45,6 +60,7 @@ export class SwarmCount extends MinigameScene {
     this.sendTimer = 0;
     this.reacted = new Map();
     this.labelY = 0.74;
+    this.swarmCentre = new THREE.Vector3(0, 2.6, -0.4);
   }
 
   stage() {
@@ -178,6 +194,8 @@ export class SwarmCount extends MinigameScene {
 
   layoutSwarm(round) {
     const random = seededRandom(round.index * 977 + round.count * 31 + 7);
+    const shape = swarmShape();
+    this.swarmCentre.set(0, shape.base + shape.height / 2, -0.4);
     for (let index = 0; index < MAX_SWARM; index += 1) {
       const fly = this.flies[index];
       const inUse = index < round.count;
@@ -189,7 +207,7 @@ export class SwarmCount extends MinigameScene {
       const radius = SPAWN_RADIUS * Math.sqrt(random());
       fly.home.set(
         Math.cos(angle) * radius,
-        1.0 + random() * 3.3,
+        shape.base + random() * shape.height,
         Math.sin(angle) * radius * 0.72 - 0.4
       );
       fly.drift = random() * Math.PI * 2;
@@ -212,9 +230,10 @@ export class SwarmCount extends MinigameScene {
   }
 
   shot() {
+    const shape = swarmShape();
     return {
-      look: [0, 2.0, 0.6],
-      frame: { w: SPAWN_RADIUS * 2 + 0.8, h: 4.6 },
+      look: [0, shape.look, 0.6],
+      frame: { w: SPAWN_RADIUS * 2 + 0.8, h: shape.frameH },
       yaw: 0.28,
       pitch: 0.06,
       fov: 38,
@@ -324,7 +343,7 @@ export class SwarmCount extends MinigameScene {
   }
 
   celebrate(result, round) {
-    const at = new THREE.Vector3(0, 3.2, 0);
+    const at = this.swarmCentre.clone().setZ(0);
     if (result.error === 0) {
       this.burst(at, ["#ffe36b", "#ffffff"], { count: Math.round(20 * fxScale()), speed: 2.4, up: 2.0, size: 0.08, life: 0.8, drag: 1.6 });
       this.pop(at, "GENAU!", { color: "#ffe36b", size: 0.46, life: 1.0 });
@@ -377,7 +396,7 @@ export class SwarmCount extends MinigameScene {
     const active = this.activeRound();
     this.syncPhase(active, own, now);
     this.syncSwarm(active, dt, now);
-    const swarmCentre = new THREE.Vector3(0, 2.6, -0.4);
+    const swarmCentre = this.swarmCentre;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       const kin = this.kins.get(player.id);
@@ -456,6 +475,12 @@ export class SwarmCount extends MinigameScene {
       return;
     }
     const mine = (own?.guesses || []).find((entry) => entry.round === active.round.index);
+    // Der Regler zeigt bei der Auflösung die Zahl, die GEWERTET wurde. Wer im
+    // letzten Moment noch zog, sah sonst eine andere Zahl als im Banner.
+    if (mine && this.slider && this.valueLabel && this.valueLabel.textContent !== String(mine.guess)) {
+      this.slider.value = String(mine.guess);
+      this.valueLabel.textContent = String(mine.guess);
+    }
     banner.hidden = false;
     banner.textContent = mine
       ? `Es waren ${active.round.count} — du: ${mine.guess} (+${mine.points})`

@@ -3151,9 +3151,20 @@ test("fish: losing a big fish costs more than losing a small one", () => {
   const sprotte = FISH_SPECIES.find((k) => k.id === "sprotte");
   const wels = FISH_SPECIES.find((k) => k.id === "wels");
   assert.ok(Math.round(wels.points * FISH_SNAP_SHARE) > Math.round(sprotte.points * FISH_SNAP_SHARE) * 2);
-  // Und ein Riss muss teurer sein, als der Fisch beim nächsten Versuch bringt —
-  // sonst lohnt es sich, ihn absichtlich reissen zu lassen.
-  assert.ok(FISH_SNAP_SHARE > 0.5);
+  // Der Abzug kommt ZUSÄTZLICH zum verlorenen Weg. Mit 75 % des Wertes war das
+  // doppelt bestraft und schwache Spieler standen am Ende regelmässig auf null.
+  assert.ok(FISH_SNAP_SHARE > 0 && FISH_SNAP_SHARE <= 0.4, `Anteil ${FISH_SNAP_SHARE}`);
+});
+
+test("fish: a snapped line never pushes the score below zero", () => {
+  // Wer noch nichts im Eimer hat, verliert beim Riss den Fisch und die Zeit —
+  // aber keine Punkte, die er nie hatte. Vorher lag der Stand dann im Minus,
+  // die Anzeige zeigte 0 und zwei Spieler teilten sich mit 0 Punkten Platz drei.
+  const { entry, advance } = fishRoom();
+  advance(20000, { holding: true });
+  assert.ok(entry.snaps >= 2, `Dauerhalten muss reissen (${entry.snaps})`);
+  assert.ok(fishScore(entry) >= 0, `Stand ${fishScore(entry)}`);
+  assert.ok((entry.snapLoss || 0) <= (entry.haul || 0), `Abzug ${entry.snapLoss} bei Fang ${entry.haul}`);
 });
 
 test("fish: the species differ in what you actually feel", () => {
@@ -3192,11 +3203,14 @@ test("fish: reading the fish beats holding on regardless", () => {
   // Der erste Versuch verglich Dauerhalten mit einem STARREN Rhythmus — der
   // rutschte genauso oft in einen Schub und riss gleich oft. Das Können des
   // Spiels ist nicht "ab und zu loslassen", sondern auf den Fisch REAGIEREN.
+  // Über die ganze Runde: in einem Ausschnitt kann Dauerhalten zufällig nur
+  // Sprotten erwischen und vorne liegen, seit ein Riss nicht mehr drei Viertel
+  // des Fisches kostet. Entscheidend ist, wer am Ende mehr hat.
   const greedy = fishRoom();
-  greedy.advance(16000, { holding: true });
+  greedy.advance(FISH_DURATION_MS, { holding: true });
 
   const reader = fishRoom();
-  reader.advance(16000, { holding: (entry) => !entry.surging && entry.tension < 0.72 });
+  reader.advance(FISH_DURATION_MS, { holding: (entry) => !entry.surging && entry.tension < 0.72 });
 
   assert.ok(
     greedy.entry.snaps > reader.entry.snaps,
