@@ -128,7 +128,6 @@ const {
   PAINT_BRUSH,
   PAINT_BRUSH_WIDE,
   PAINT_BOMB_RADIUS,
-  PAINT_ENCLOSE_MAX,
   PAINT_ROLLER_AHEAD,
   PAINT_TURN_RATE,
   PAINT_BOOST_MS,
@@ -136,7 +135,6 @@ const {
   PAINT_DURATION_MS,
   paintIndex,
   paintSweep,
-  paintPockets,
   paintOwnedCount,
   RUNNER_ATTACK_RANGE
 } = testRules;
@@ -3401,68 +3399,41 @@ test("paint: rival colour is painted over in a single pass", () => {
   assert.ok(entry.stolen >= 6, `übermalt: ${entry.stolen}`);
 });
 
-test("paint: closing a loop fills everything inside at once — rival colour too", () => {
+test("paint: own colour is fast ground, rival colour is slow", () => {
+  // Einkreisen gibt es nicht mehr — Tempo und Taktik kommen vom Boden.
+  const run = (fill) => {
+    const { entry, players, me, arcade, advance, steer, place, slotOf, clear } = paintRoom(2);
+    clear();
+    const slot = fill === "own" ? slotOf(me) : fill === "rival" ? slotOf(players[1]) : -1;
+    if (slot >= 0) for (let at = 0; at < arcade.cells.length; at += 1) arcade.cells[at] = slot;
+    place(me, 1.5, 12.5, Math.PI / 2);
+    steer(1, 0);
+    advance(600);
+    return entry.px;
+  };
+  const own = run("own");
+  const empty = run("empty");
+  const rival = run("rival");
+  assert.ok(own > empty, `eigene Farbe ${own.toFixed(2)} gegen leer ${empty.toFixed(2)}`);
+  assert.ok(empty > rival, `leer ${empty.toFixed(2)} gegen fremd ${rival.toFixed(2)}`);
+});
+
+test("paint: a loop back into your colour fills nothing extra", () => {
   const { entry, players, me, arcade, advance, steer, place, slotOf, at, clear } = paintRoom(2);
   clear();
   const mine = slotOf(me);
   const rival = slotOf(players[1]);
-  // Ein U aus eigener Farbe um ein 4 x 4-Feld, oben offen; drinnen liegt Fremdes.
   for (let row = 8; row <= 13; row += 1) {
     arcade.cells[paintIndex(3, row)] = mine;
     arcade.cells[paintIndex(8, row)] = mine;
   }
   for (let col = 3; col <= 8; col += 1) arcade.cells[paintIndex(col, 13)] = mine;
-  for (let col = 4; col <= 7; col += 1) arcade.cells[paintIndex(col, 10)] = rival;
-  // Noch offen: nichts ist eingeschlossen.
-  assert.deepEqual(paintPockets(arcade.cells, mine), []);
-  // Den Deckel ziehen: von links nach rechts über die Oberkante.
+  arcade.cells[paintIndex(5, 11)] = rival;
   place(me, 2.5, 7.5, Math.PI / 2);
   steer(1, 0);
   advance(1500);
-  for (let row = 9; row <= 12; row += 1) {
-    for (let col = 4; col <= 7; col += 1) assert.equal(at(col, row), mine, `(${col}, ${row}) ist nicht eingefärbt`);
-  }
-  assert.ok(entry.enclosed >= 8, `eingekreist: ${entry.enclosed}`);
-  assert.ok(entry.biggestFill >= 8);
-  assert.ok(arcade.fills.length > 0 && arcade.fills.at(-1).slot === mine, "die Szene braucht den Ursprung der Welle");
-});
-
-test("paint: the board edge is a wall — cutting off a corner fills it", () => {
-  const { arcade, me, slotOf, clear } = paintRoom(2);
-  clear();
-  const mine = slotOf(me);
-  // Ein L: Spalte 3 von oben bis Reihe 3, Reihe 3 von links bis Spalte 3.
-  for (let i = 0; i <= 3; i += 1) {
-    arcade.cells[paintIndex(3, i)] = mine;
-    arcade.cells[paintIndex(i, 3)] = mine;
-  }
-  const pocket = paintPockets(arcade.cells, mine);
-  assert.equal(pocket.length, 9, "die Ecke innerhalb des L ist eingeschlossen");
-  // Eine schräge Treppe hält dicht: verbunden wird nur über Kanten.
-  clear();
-  for (let i = 0; i <= 4; i += 1) {
-    arcade.cells[paintIndex(i, 4 - i)] = mine;
-    if (i < 4) arcade.cells[paintIndex(i + 1, 4 - i)] = mine;
-  }
-  assert.ok(paintPockets(arcade.cells, mine).length > 0, "eine geschlossene Treppe schliesst die Ecke ab");
-});
-
-test("paint: the open field is never filled, and neither is a pocket over the cap", () => {
-  const { arcade, me, slotOf, clear } = paintRoom(2);
-  const mine = slotOf(me);
-  // Quer über die Mitte: zwei grosse Hälften, keine davon wird genommen.
-  clear();
-  for (let col = 0; col < PAINT_COLS; col += 1) arcade.cells[paintIndex(col, 12)] = mine;
-  assert.deepEqual(paintPockets(arcade.cells, mine), [], "ein Strich quer übers Feld darf nicht die halbe Welt nehmen");
-  // Weiter oben quer: das kleine Stück darüber schon.
-  clear();
-  for (let col = 0; col < PAINT_COLS; col += 1) arcade.cells[paintIndex(col, 3)] = mine;
-  const top = paintPockets(arcade.cells, mine);
-  assert.equal(top.length, PAINT_COLS * 3);
-  assert.ok(top.length <= PAINT_ENCLOSE_MAX);
-  // Die grösste freie Fläche bleibt immer draussen.
-  clear();
-  assert.deepEqual(paintPockets(arcade.cells, mine), []);
+  assert.equal(at(5, 11), rival, "drinnen bleibt, was nicht überrollt wurde");
+  void entry;
 });
 
 test("paint: only the direction counts, not an oversized stick", () => {

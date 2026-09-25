@@ -389,13 +389,12 @@ const FISH_SPECIES = [
 // Figur, in Fahrtrichtung, auf der ganzen Strecke seit dem letzten Tick —
 // auch bei hoher Fahrt bleibt keine Lücke.
 //
-// Damit das Feld nicht nach ein paar Sekunden voll ist und nur noch flackert
-// (so war es vor der Anspruchs-Fassung), sind die Kacheln klein und es gibt
-// einen zweiten, grösseren Weg an Fläche: EINKREISEN. Schneidet die eigene
-// Farbe ein Stück vom Rest des Feldes ab, wird es auf einen Schlag eingefärbt —
-// auch fremde Farbe darin. Der Feldrand zählt dabei als Wand, eine Ecke
-// abzuschneiden reicht also. Das ist der Moment, auf den man hinspielt, und
-// die Antwort darauf ist, dem anderen die Schleife zu zerschneiden.
+// Einkreisen gibt es nicht mehr. Wer eine Schleife zurück in die eigene Farbe
+// fuhr, bekam alles darin auf einen Schlag — auf dem Handy aber scheiterte
+// das an jeder winzigen Lücke im Kreis, und man sah nicht, warum. Jetzt zählt
+// nur, was die Walze überrollt. Tempo und Taktik kommen vom Boden: auf der
+// eigenen Farbe fährt man schneller, auf fremder langsamer. Man baut sich
+// Bahnen, schneidet anderen den Weg ab und holt sich die Extras.
 //
 // 12 x 26 hat dasselbe Seitenverhältnis (0.46) wie das Handybild hochkant; das
 // Feld bleibt so gross wie vorher, nur fünfmal feiner aufgeteilt.
@@ -409,9 +408,9 @@ const PAINT_BRUSH = 1.05;              // Radius der Walze in Feldern
 const PAINT_BRUSH_WIDE = 2.05;         // mit der goldenen Walze: fast doppelt so breit
 const PAINT_BOMB_RADIUS = 3.2;         // Farbbombe: Klecks um die Figur
 const PAINT_START_RADIUS = 1.6;        // Startfleck in der eigenen Ecke
-// Grössere Taschen bleiben, wie sie sind: sonst teilte ein Strich quer übers
-// Feld die Welt in zwei Hälften und nähme sich die kleinere.
-const PAINT_ENCLOSE_MAX = 72;
+// Heimvorteil: auf eigener Farbe schneller, auf fremder langsamer.
+const PAINT_OWN_BOOST = 1.2;
+const PAINT_RIVAL_DRAG = 0.82;
 const PAINT_BUMP_RADIUS = 1.7;         // ab hier schubsen sich zwei Kins
 const PAINT_BUMP_FORCE = 4.5;          // Stoss in Feldern pro Sekunde je Feld Überlappung
 const PAINT_KNOCK_DECAY = 5;           // wie schnell ein Stoss ausläuft (1/s)
@@ -3160,10 +3159,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.pickups = [];
     arcade.nextPickupAt = startedAt + PAINT_PICKUP_EVERY_MS;
     arcade.nextPickupId = 1;
-    // Die letzten Einkreisungen: von dort aus läuft auf dem Bildschirm die
-    // Farbwelle über die eingeschlossene Fläche.
-    arcade.fills = [];
-    arcade.nextFillId = 1;
+    arcade.ownBoost = PAINT_OWN_BOOST;
     // Startplätze in den Ecken; zu zweit über Kreuz, damit keiner dem anderen
     // gleich zu Beginn vor der Walze steht.
     const corners = [
@@ -3191,9 +3187,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.wide = false;
       entry.boostUntil = 0;
       entry.painted = 0;
-      entry.enclosed = 0;
       entry.stolen = 0;
-      entry.biggestFill = 0;
       entry.owned = 0;
       entry.score = 0;
       entry.bumps = 0;
@@ -4560,8 +4554,12 @@ function updateArcade(room) {
       }
       // Die Fahrt folgt dem Stick zügig, ohne zusätzliche Bremse: wer den
       // Daumen hält, fährt volle Geschwindigkeit, wer loslässt, steht sofort.
-      entry.vx += (entry.dirX * PAINT_SPEED - entry.vx) * Math.min(1, PAINT_ACCEL * dt);
-      entry.vy += (entry.dirY * PAINT_SPEED - entry.vy) * Math.min(1, PAINT_ACCEL * dt);
+      const under = arcade.cells[paintIndex(clamp(Math.floor(entry.px), 0, PAINT_COLS - 1), clamp(Math.floor(entry.py), 0, PAINT_ROWS - 1))];
+      const ground = under === entry.slot ? PAINT_OWN_BOOST : under >= 0 ? PAINT_RIVAL_DRAG : 1;
+      entry.ground = under === entry.slot ? "own" : under >= 0 ? "rival" : "empty";
+      const top = PAINT_SPEED * ground;
+      entry.vx += (entry.dirX * top - entry.vx) * Math.min(1, PAINT_ACCEL * dt);
+      entry.vy += (entry.dirY * top - entry.vy) * Math.min(1, PAINT_ACCEL * dt);
       // Ein Rempler wirkt getrennt davon: sonst frässe die Lenkung ihn im
       // nächsten Tick wieder auf, und niemand würde je weggeschoben.
       entry.px = clamp(entry.px + (entry.vx + entry.kx) * dt, 0.3, PAINT_COLS - 0.3);
@@ -4617,7 +4615,7 @@ function updateArcade(room) {
       const rx = clamp(entry.px + Math.sin(entry.heading) * PAINT_ROLLER_AHEAD, 0, PAINT_COLS);
       const ry = clamp(entry.py + Math.cos(entry.heading) * PAINT_ROLLER_AHEAD, 0, PAINT_ROWS);
       const radius = entry.wide ? PAINT_BRUSH_WIDE : PAINT_BRUSH;
-      let gained = paintCells(arcade, entry.slot, paintSweep(entry.rx, entry.ry, rx, ry, radius), entry);
+      paintCells(arcade, entry.slot, paintSweep(entry.rx, entry.ry, rx, ry, radius), entry);
       entry.rx = rx;
       entry.ry = ry;
 
@@ -4634,21 +4632,7 @@ function updateArcade(room) {
           entry.wide = true;
           entry.boostUntil = now + PAINT_BOOST_MS;
         } else {
-          gained += paintCells(arcade, entry.slot, paintSweep(entry.px, entry.py, entry.px, entry.py, PAINT_BOMB_RADIUS), entry);
-        }
-      }
-
-      // Nur wer gerade Farbe dazubekommen hat, kann etwas eingeschlossen haben.
-      if (gained > 0) {
-        const pocket = paintPockets(arcade.cells, entry.slot);
-        if (pocket.length) {
-          const filled = paintCells(arcade, entry.slot, pocket, entry, "enclosed");
-          entry.biggestFill = Math.max(entry.biggestFill, filled);
-          entry.lastFillAt = now;
-          entry.lastFillCount = filled;
-          arcade.fills.push({ id: arcade.nextFillId, slot: entry.slot, x: entry.px, y: entry.py, count: filled, at: now });
-          arcade.nextFillId += 1;
-          if (arcade.fills.length > 4) arcade.fills.shift();
+          paintCells(arcade, entry.slot, paintSweep(entry.px, entry.py, entry.px, entry.py, PAINT_BOMB_RADIUS), entry);
         }
       }
       entry.hasMoved = entry.hasMoved || Math.abs(entry.dirX) + Math.abs(entry.dirY) > 0.05;
@@ -6134,42 +6118,6 @@ function paintCells(arcade, slot, cells, entry = null, stat = "painted") {
   return gained;
 }
 
-// Einkreisen: welche Felder die Farbe `slot` vom Rest des Feldes abschneidet.
-// Gesucht wird über alle Felder, die NICHT in dieser Farbe sind, verbunden nur
-// über Kanten — eine schräge Treppe aus eigener Farbe hält also dicht, und der
-// Feldrand ist eine Wand. Die grösste solche Fläche ist "draussen" und bleibt;
-// jede andere bis PAINT_ENCLOSE_MAX Felder ist eingeschlossen.
-function paintPockets(cells, slot) {
-  const total = cells.length;
-  const seen = new Uint8Array(total);
-  const regions = [];
-  for (let start = 0; start < total; start += 1) {
-    if (seen[start] || cells[start] === slot) continue;
-    const region = [start];
-    seen[start] = 1;
-    const visit = (at) => {
-      if (seen[at] || cells[at] === slot) return;
-      seen[at] = 1;
-      region.push(at);
-    };
-    for (let i = 0; i < region.length; i += 1) {
-      const at = region[i];
-      const col = at % PAINT_COLS;
-      const row = (at - col) / PAINT_COLS;
-      if (col > 0) visit(at - 1);
-      if (col < PAINT_COLS - 1) visit(at + 1);
-      if (row > 0) visit(at - PAINT_COLS);
-      if (row < PAINT_ROWS - 1) visit(at + PAINT_COLS);
-    }
-    regions.push(region);
-  }
-  if (regions.length < 2) return [];
-  let outside = 0;
-  regions.forEach((region, index) => {
-    if (region.length > regions[outside].length) outside = index;
-  });
-  return regions.flatMap((region, index) => (index === outside || region.length > PAINT_ENCLOSE_MAX ? [] : region));
-}
 
 // Zählt die Felder je Platz neu und schreibt das Feld als Zeichenkette für die
 // Geräte. Der Punktestand IST die Fläche.
@@ -6219,12 +6167,12 @@ function paintPickupSpot(arcade, entries, id) {
   return best;
 }
 
-// Der Bot fährt Schleifen: ein Stück hinaus, ein Stück quer, zurück in die
-// eigene Farbe — genau das, was ein Mensch nach der ersten Einkreisung auch
-// tut. Er probiert ein paar Schleifen im Kopf aus (malt sie auf einer Kopie
-// des Feldes und rechnet das Einkreisen nach) und nimmt die, die je Weglänge
-// am meisten bringt. Das Können steckt darin, wie viele Varianten er
-// durchdenkt, ob ihm ein Extra auffällt und wie sauber er fährt.
+// Der Bot fährt Strecken über Fläche, die ihm noch nicht gehört: ein Stück
+// hinaus, ein Stück quer, zurück über die eigene Farbe (dort ist er
+// schneller). Er probiert ein paar Wege im Kopf aus (malt sie auf einer Kopie
+// des Feldes) und nimmt den, der je Weglänge am meisten bringt. Das Können
+// steckt darin, wie viele Varianten er durchdenkt, ob ihm ein Extra auffällt
+// und wie sauber er fährt.
 function paintBotPlan(arcade, entry, profile, now) {
   const tries = profile.level === "hard" ? 9 : profile.level === "normal" ? 4 : 1;
   const radius = entry.wide ? PAINT_BRUSH_WIDE : PAINT_BRUSH;
@@ -6258,9 +6206,6 @@ function paintBotPlan(arcade, entry, profile, now) {
       });
       length += Math.hypot(point.x - from.x, point.y - from.y);
       from = point;
-    });
-    paintPockets(cells, entry.slot).forEach((at) => {
-      gain += arcade.cells[at] >= 0 && arcade.cells[at] !== entry.slot ? 1.4 : 1;
     });
     return gain / (length + 1.5);
   };
@@ -8214,7 +8159,6 @@ module.exports = {
     PAINT_BRUSH,
     PAINT_BRUSH_WIDE,
     PAINT_BOMB_RADIUS,
-    PAINT_ENCLOSE_MAX,
     PAINT_ROLLER_AHEAD,
     PAINT_TURN_RATE,
     PAINT_BUMP_COOLDOWN_MS,
@@ -8225,7 +8169,8 @@ module.exports = {
     paintInside,
     paintSweep,
     paintCells,
-    paintPockets,
+    PAINT_OWN_BOOST,
+    PAINT_RIVAL_DRAG,
     paintOwnedCount
   }
 };

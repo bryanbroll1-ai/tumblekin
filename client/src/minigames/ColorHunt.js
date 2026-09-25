@@ -21,10 +21,6 @@ const KIN_SCALE = 0.62;
 const BOARD_TOP = 0.06;
 const CELL_H = 0.035;
 const POP_MS = 300;
-// Ab so vielen Feldern wird eine Einkreisung gefeiert. Kleinere entstehen
-// nebenbei beim Malen (eine Lücke zwischen zwei Spuren) und liefen sonst
-// dauernd als Fanfare über den Bildschirm.
-const FILL_SHOW = 8;
 const BLANK = [new THREE.Color("#fbf7ee"), new THREE.Color("#efe8d9")];
 const FESTIVAL = ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b57bff", "#ff9f43"];
 const WHITE = new THREE.Color("#ffffff");
@@ -40,7 +36,6 @@ export class ColorHunt extends MinigameScene {
     this.pickupMeshes = new Map();
     this.seenBump = new Map();
     this.seenPickup = new Map();
-    this.seenFill = 0;
     this.lastPaint = null;
     this.popping = new Set();
     this.cols = 0;
@@ -391,6 +386,12 @@ export class ColorHunt extends MinigameScene {
           at.y = BOARD_TOP + 0.06;
           this.burst(at, [player.color], { count: 2, speed: 0.5, up: 0.7, size: 0.045, life: 0.35, gravity: 4 });
         }
+        // Auf eigener Farbe schneller: helle Tempostreifen hinter der Figur.
+        if (!finale && entry.ground === "own" && speed > 2 && Math.random() < frameChance(0.6, dt)) {
+          const at = kin.position.clone();
+          at.y = BOARD_TOP + 0.12;
+          this.burst(at, ["#ffffff", player.color], { count: 1, speed: 0.3, up: 0.2, size: 0.05, life: 0.3, gravity: 0 });
+        }
       }
 
       const bumpSeen = this.seenBump.get(player.id) || 0;
@@ -457,29 +458,17 @@ export class ColorHunt extends MinigameScene {
   }
 
   // Das Feld kommt als Zeichenkette ("." frei, "0".."3" Platz in arcade.order).
-  // Neue Farbe wird nicht sofort gezeigt, sondern zu ihrer Zeit: gewöhnliche
-  // Spur gleich, eine Einkreisung als Welle von dort aus, wo sie geschlossen
-  // wurde.
+  // Neue Farbe erscheint sofort, jede Kachel mit einem kleinen Hüpfer.
   syncCells(arcade, now, instant) {
     const text = arcade.paint;
     if (!text || text === this.lastPaint || !this.want) return;
     this.lastPaint = text;
-    const fresh = (arcade.fills || []).filter((fill) => fill.id > this.seenFill);
-    if (fresh.length) this.seenFill = Math.max(...fresh.map((fill) => fill.id));
-    const bySlot = new Map(fresh.map((fill) => [fill.slot, fill]));
     for (let at = 0; at < text.length && at < this.want.length; at += 1) {
       const code = text.charCodeAt(at);
       const slot = code === 46 ? -1 : code - 48;
       if (slot === this.want[at]) continue;
       this.want[at] = slot;
-      const fill = bySlot.get(slot);
-      if (instant || !fill) {
-        this.due[at] = now;
-        continue;
-      }
-      const col = at % this.cols;
-      const row = (at - col) / this.cols;
-      this.due[at] = now + Math.hypot(col + 0.5 - fill.x, row + 0.5 - fill.y) * 26;
+      this.due[at] = now;
     }
     if (instant) {
       this.shown.set(this.want);
@@ -488,7 +477,6 @@ export class ColorHunt extends MinigameScene {
       this.cells.instanceColor.needsUpdate = true;
       return;
     }
-    fresh.forEach((fill) => this.celebrateFill(fill, now));
   }
 
   stepCells(now) {
@@ -509,24 +497,6 @@ export class ColorHunt extends MinigameScene {
     if (dirty) {
       this.cells.instanceMatrix.needsUpdate = true;
       this.cells.instanceColor.needsUpdate = true;
-    }
-  }
-
-  celebrateFill(fill, now) {
-    if (fill.count < FILL_SHOW) return;
-    const color = `#${(this.slotColors[fill.slot] || WHITE).getHexString()}`;
-    const at = new THREE.Vector3(this.worldX(fill.x), BOARD_TOP + 0.05, this.worldZ(fill.y));
-    this.bursts.ring(at, color, { radius: 1.1 + Math.min(2.2, fill.count * 0.03), life: 0.7, opacity: 0.75, y: BOARD_TOP + 0.07 });
-    this.burst(at.clone().setY(0.45), [color, "#ffffff"], { count: 8 + Math.min(18, Math.round(fill.count / 3)), speed: 1.5, up: 1.8, size: 0.06, life: 0.8 });
-    const ownSlot = this.order.indexOf(this.getControlledPlayerId());
-    if (fill.slot === ownSlot) {
-      this.pop(at.clone().setY(1.1), `+${fill.count}`, { color: "#ffffff", size: fill.count >= 30 ? 0.42 : 0.34, life: 1.1 });
-      this.feedback?.sound(fill.count >= 30 ? "perfect" : "combo");
-      this.feedback?.vibrate(fill.count >= 30 ? [12, 20, 30] : [10, 16]);
-      this.rig.shake(fill.count >= 30 ? 0.28 : 0.16);
-      this.flash = { text: `Eingekreist! +${fill.count}`, tone: "fill", until: now + 1500 };
-    } else {
-      this.pop(at.clone().setY(0.95), `+${fill.count}`, { color, size: 0.24, life: 0.8 });
     }
   }
 
@@ -653,14 +623,13 @@ export class ColorHunt extends MinigameScene {
     if (f.finale) {
       banner.hidden = true;
     } else if (this.flash && now < this.flash.until) {
-      if (this.flash.tone === "fill") show(this.flash.text, "#7fe06f", "#14361a");
-      else show(this.flash.text, "#ff8fc6", "#4a0a2a");
+      show(this.flash.text, "#ff8fc6", "#4a0a2a");
     } else if (own?.wide) {
       show("Breite Walze läuft!", "#ffd15c", "#4a3400");
     } else if (now < minigame.startedAt + 6000) {
-      show("Fahr eine Schleife zurück in deine Farbe — alles darin wird deins!", "#ffffff", "#1d2b36");
+      show("Überroll alles mit deiner Farbe — auf ihr bist du schneller!", "#ffffff", "#1d2b36");
     } else if (remaining <= 8 && leader && leader.player.id !== ownId && leader.owned > 0) {
-      show(`${leader.player.name} führt — schneid die Fläche ab!`, "#ff6b7f", "#42101a");
+      show(`${leader.player.name} führt — übermal seine Farbe!`, "#ff6b7f", "#42101a");
     } else {
       banner.hidden = true;
     }
