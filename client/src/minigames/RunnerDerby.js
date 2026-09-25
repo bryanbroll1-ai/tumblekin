@@ -55,6 +55,10 @@ function frac(v) {
   return x - Math.floor(x);
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 export class RunnerDerby extends MinigameScene {
   constructor(ctx) {
     super(ctx);
@@ -67,6 +71,9 @@ export class RunnerDerby extends MinigameScene {
     this.lastFinished = new Map();
     this.lastJump = new Map();
     this.lastAttack = new Map();
+    this.lastSplash = new Map();
+    this.lastDodge = new Map();
+    this.lastBox = new Map();
     this.throws = [];
     this.swipe = null;
     this.labelY = 0.74;
@@ -328,6 +335,18 @@ export class RunnerDerby extends MinigameScene {
       scene.add(partOf(hurdle, z));
     });
 
+    // Wasserbomben-Kisten: schwebend, drehend, mit einer Wasserbombe darin —
+    // man sieht von weitem, in welcher Bahn die nächste steht.
+    this.boxes = [];
+    (arcade.segments || []).forEach((segment) => {
+      if (segment.box === null || segment.box === undefined) return;
+      const z = segment.boxAt * SEGMENT;
+      const box = this.makeItemBox();
+      box.position.set(laneX(segment.box), FLOOR_Y + 0.55, z);
+      this.boxes.push({ group: box, index: segment.index, lane: segment.box, z });
+      scene.add(partOf(box, z));
+    });
+
     [[-6, 4, 10, 5], [6, 5, 24, 6], [-5, 5, 40, 7], [7, 6, 58, 8], [-7, 5, 74, 9]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
@@ -385,7 +404,31 @@ export class RunnerDerby extends MinigameScene {
       dizzy.visible = false;
       kin.add(dizzy);
       kin.userData.dizzy = dizzy;
+      // Die getragene Wasserbombe schwebt über der Figur — man sieht bei
+      // jedem, ob er gerade werfen kann.
+      const carried = this.makeBalloon("#39b8ff");
+      carried.position.set(0.28, 0.95, 0);
+      carried.scale.setScalar(0.75);
+      carried.visible = false;
+      kin.add(carried);
+      kin.userData.carried = carried;
     });
+
+    // Zielring: goldgelb unter dem, den man anvisiert, und ein roter unter
+    // der eigenen Figur, wenn jemand auf einen zielt. Nicht in der eigenen
+    // Farbe — bei der roten Figur sähe der Zielring aus wie die Warnung.
+    const ring = (color) => {
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.36, 0.48, 28),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.visible = false;
+      scene.add(mesh);
+      return mesh;
+    };
+    this.aimRing = ring("#ffe36b");
+    this.dangerRing = ring("#ff4d5e");
   }
 
   recycleScenery(focusZ) {
@@ -448,6 +491,40 @@ export class RunnerDerby extends MinigameScene {
       group.add(flower);
       group.userData.sway = 0.02;
     }
+    return group;
+  }
+
+  makeItemBox() {
+    const group = new THREE.Group();
+    const shell = new THREE.Mesh(
+      new THREE.BoxGeometry(0.46, 0.46, 0.46),
+      new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#ffb020", emissiveIntensity: 0.35, transparent: true, opacity: 0.55, depthWrite: false })
+    );
+    group.add(shell);
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.47, 0.47, 0.47)),
+      new THREE.LineBasicMaterial({ color: "#fff4c2" })
+    );
+    group.add(edges);
+    const balloon = this.makeBalloon("#39b8ff");
+    balloon.scale.setScalar(0.8);
+    group.add(balloon);
+    group.userData.shell = shell;
+    return group;
+  }
+
+  // Eine Wasserbombe: runder Körper, kleiner Knoten oben.
+  makeBalloon(color) {
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14, 12, 10),
+      new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.25 })
+    );
+    body.scale.set(1, 1.15, 1);
+    group.add(body);
+    const knot = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.07, 6), new THREE.MeshLambertMaterial({ color }));
+    knot.position.y = 0.17;
+    group.add(knot);
     return group;
   }
 
@@ -525,11 +602,32 @@ export class RunnerDerby extends MinigameScene {
   bind() {
     this.controls.innerHTML = `
       <div class="runner-lane-controls">
-        <p class="runner-threat" data-runner-threat hidden>⚠ Verfolger dicht hinter dir!</p>
-        <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen ▶ · Tippen = Springen · ⬇ Angriff</p>
+        <p class="runner-threat" data-runner-threat hidden>⚠</p>
+        <div class="runner-row">
+          <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen ▶ · Tippen = Springen</p>
+          <button class="runner-throw" type="button" data-runner-throw disabled>
+            <span class="runner-throw-icon">🎈</span><span data-runner-throw-label>Kiste holen</span>
+          </button>
+        </div>
       </div>`;
     this.swipeHint = this.controls.querySelector("[data-swipe-hint]");
     this.threatNode = this.controls.querySelector("[data-runner-threat]");
+    this.throwButton = this.controls.querySelector("[data-runner-throw]");
+    this.throwLabel = this.controls.querySelector("[data-runner-throw-label]");
+    // Ein eigener Knopf zum Werfen: ein Wisch nach unten war schwer zu treffen
+    // und leicht mit einem Spurwechsel zu verwechseln.
+    this.on(this.throwButton, "pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
+      if (!own?.item || !own?.lockId || own.finishedAt) {
+        this.feedback?.sound("error");
+        return;
+      }
+      this.feedback?.sound("whoosh");
+      this.feedback?.vibrate(14);
+      this.sendInput({ action: "attack" }).catch(() => {});
+    });
     this.on(this.webglCanvas, "pointerdown", (event) => {
       this.swipe = { x: event.clientX, y: event.clientY, at: performance.now(), moved: false };
     });
@@ -557,14 +655,10 @@ export class RunnerDerby extends MinigameScene {
     
     if (Math.abs(dx) > Math.abs(dy)) {
        this.sendLane(dx > 0 ? 1 : -1);
-    } else {
-       if (dy < 0) {
-          this.feedback?.sound("pop");
-          this.sendInput({ action: "jump" }).catch(() => {});
-       } else {
-          this.feedback?.sound("move");
-          this.sendInput({ action: "attack" }).catch(() => {});
-       }
+    } else if (dy < 0) {
+       // Nach oben wischen springt ebenfalls — wer es so erwartet, soll es haben.
+       this.feedback?.sound("pop");
+       this.sendInput({ action: "jump" }).catch(() => {});
     }
   }
 
@@ -588,9 +682,32 @@ export class RunnerDerby extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const isOwn = player.id === controlledId;
-      const spread = index - (players.length - 1) / 2;
-      const targetX = laneX(entry.lane) + spread * 0.3;
-      const targetZ = entry.progress * SEGMENT + spread * 0.3;
+      // Mitten in der eigenen Bahn und genau auf dem eigenen Fortschritt.
+      // Vorher bekam jede Figur einen festen Seitenversatz (±0.45) und einen
+      // Vorsprung nach Startplatz: auf den Aussenbahnen ragte sie über den
+      // Bahnrand, und wer vorn aussah, lag nicht unbedingt vorn. Nur wenn zwei
+      // in derselben Bahn Schulter an Schulter laufen, rücken sie innerhalb
+      // der Bahn auseinander.
+      let nudge = 0;
+      players.forEach((other, j) => {
+        if (j === index) return;
+        const o = arcade.players[other.id];
+        if (!o || o.lane !== entry.lane || o.finishedAt || entry.finishedAt) return;
+        if (Math.abs((o.progress - entry.progress) * SEGMENT) > 0.7) return;
+        nudge += index < j ? -1 : 1;
+      });
+      let targetX = laneX(entry.lane) + clamp(nudge, -1, 1) * 0.24;
+      let targetZ = entry.progress * SEGMENT;
+      // Im Ziel: nebeneinander hinter der Linie aufreihen, in der Reihenfolge
+      // des Einlaufs — vorher standen alle auf demselben Fleck ineinander.
+      if (entry.finishedAt) {
+        const order = players
+          .map((other) => arcade.players[other.id])
+          .filter((o) => o?.finishedAt && (o.finishMs < entry.finishMs || (o.finishMs === entry.finishMs && o !== entry && players.findIndex((p) => arcade.players[p.id] === o) < index)))
+          .length;
+        targetX = (order - 1.5) * 0.78;
+        targetZ = (this.trackZ || entry.progress * SEGMENT) + 1.1;
+      }
       const prevX = kin.position.x;
       kin.position.x += (targetX - kin.position.x) * frameLerp(0.25, dt);
       kin.position.z += (targetZ - kin.position.z) * frameLerp(0.4, dt);
@@ -632,17 +749,58 @@ export class RunnerDerby extends MinigameScene {
         this.lastAttack.set(player.id, entry.lastAttackAt);
         if (!first) {
           animator.trigger("throw");
-          const ball = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.3 }));
-          ball.position.copy(kin.position).add(new THREE.Vector3(0, 0.6, 0.2));
+          const ball = this.makeBalloon("#39b8ff");
+          ball.position.copy(kin.position).add(new THREE.Vector3(0, 0.9, 0.2));
           this.scene.add(ball);
-          // Der Ball fliegt zu dem, auf den er zielt, und landet genau dann,
-          // wenn der Server den Treffer wertet. Ohne Ziel fliegt er ins Leere.
+          // Die Wasserbombe fliegt im Bogen auf die BAHN des Ziels und landet
+          // genau dann, wenn der Server den Treffer wertet. Wer ausweicht, lässt
+          // sie neben sich platzen.
           const shot = entry.lastThrow;
-          const dur = shot ? Math.max(200, shot.hitAt - shot.at) : 450;
-          this.throws.push({ mesh: ball, from: ball.position.clone(), at: now, dur, target: shot?.targetId ? this.kins.get(shot.targetId) : null });
-          if (isOwn) this.feedback?.sound("whoosh");
+          const dur = shot ? Math.max(200, shot.hitAt - shot.at) : 600;
+          this.throws.push({
+            mesh: ball,
+            from: ball.position.clone(),
+            at: now,
+            dur,
+            lane: shot?.lane ?? entry.lane,
+            target: shot?.targetId ? this.kins.get(shot.targetId) : null
+          });
+          if (isOwn || shot?.targetId === controlledId) this.feedback?.sound("whoosh");
         }
       }
+      // Getroffen: Platsch, Wasser spritzt, kurz benommen.
+      if ((entry.splashes || 0) > (this.lastSplash.get(player.id) || 0)) {
+        this.lastSplash.set(player.id, entry.splashes);
+        animator.trigger("stumble");
+        animator.expression("surprised", 900);
+        const at = kin.position.clone().add(new THREE.Vector3(0, 0.7, 0));
+        this.burst(at, ["#39b8ff", "#9fe3ff", "#ffffff"], { count: 22, speed: 2.4, up: 2.0, size: 0.08, life: 0.6, gravity: 6 });
+        this.bursts.ring(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.06, kin.position.z), "#39b8ff", { radius: 1.0, life: 0.4, y: FLOOR_Y + 0.06 });
+        this.pop(at.clone().add(new THREE.Vector3(0, 0.5, 0)), "PLATSCH!", { color: "#9fe3ff", size: isOwn ? 0.42 : 0.3, life: 0.8 });
+        if (isOwn) {
+          this.rig.shake(0.7);
+          this.feedback?.sound("collision");
+          this.feedback?.vibrate([24, 20, 24]);
+        }
+      }
+      if ((entry.dodges || 0) > (this.lastDodge.get(player.id) || 0)) {
+        this.lastDodge.set(player.id, entry.dodges);
+        const at = kin.position.clone().add(new THREE.Vector3(0, 1.3, 0));
+        this.pop(at, "AUSGEWICHEN!", { color: "#8ff5d8", size: isOwn ? 0.38 : 0.26, life: 0.8 });
+        if (isOwn) this.feedback?.sound("sparkle");
+      }
+      if ((entry.boxes || 0) > (this.lastBox.get(player.id) || 0)) {
+        this.lastBox.set(player.id, entry.boxes);
+        if (isOwn) {
+          const at = kin.position.clone().add(new THREE.Vector3(0, 1.1, 0));
+          this.burst(at, ["#ffd15c", "#39b8ff", "#ffffff"], { count: 14, speed: 1.8, up: 1.6, size: 0.07, life: 0.5 });
+          this.pop(at, "WASSERBOMBE!", { color: "#9fe3ff", size: 0.34, life: 0.8 });
+          this.feedback?.sound("coin");
+          this.feedback?.vibrate(12);
+        }
+      }
+      kin.userData.carried.visible = Boolean(entry.item) && !finished;
+      if (entry.item) kin.userData.carried.position.y = 0.95 + Math.sin(now / 180 + index) * 0.05;
       kin.userData.dizzy.visible = stumbling;
       kin.userData.dizzy.rotation.y = now / 200;
       animator.groundY = standOn(FLOOR_Y) + (jumping ? Math.sin((Math.max(0, entry.jumpUntil - now) / 650) * Math.PI) * 1.4 : 0);
@@ -681,27 +839,45 @@ export class RunnerDerby extends MinigameScene {
       if (entry.surface === "sand") animator.expression("effort", 150);
     });
 
-    // Würfe fliegen ein Stück nach vorn und zerplatzen.
+    // Wasserbomben fliegen im hohen Bogen auf die Bahn des Ziels. Das Ziel
+    // läuft weiter — die Landestelle folgt ihm nach vorn, aber nicht zur Seite.
     this.throws = this.throws.filter((shot) => {
       const u = (now - shot.at) / shot.dur;
+      const toZ = shot.target ? shot.target.position.z : shot.from.z + 5;
+      const to = new THREE.Vector3(laneX(shot.lane), FLOOR_Y + 0.5, toZ);
       if (u >= 1) {
-        this.burst(shot.mesh.position.clone(), [shot.mesh.material.color.getStyle(), "#ffffff"], { count: 8, speed: 1.6, up: 1.2, size: 0.06, life: 0.4 });
+        this.burst(to.clone(), ["#39b8ff", "#9fe3ff", "#ffffff"], { count: 14, speed: 2.0, up: 1.4, size: 0.07, life: 0.5, gravity: 6 });
+        this.bursts.ring(new THREE.Vector3(to.x, FLOOR_Y + 0.05, to.z), "#9fe3ff", { radius: 0.8, life: 0.35, y: FLOOR_Y + 0.05 });
         this.scene.remove(shot.mesh);
-        shot.mesh.geometry.dispose();
-        shot.mesh.material.dispose();
+        shot.mesh.traverse((part) => { part.geometry?.dispose(); part.material?.dispose(); });
         return false;
       }
-      if (shot.target) {
-        // Auf die Bahn zielen, nicht auf die Figur: wer ausweicht, lässt den
-        // Ball ins Leere fliegen, wer springt, lässt ihn unter sich durch.
-        const to = new THREE.Vector3(shot.from.x, 0.6, shot.target.position.z);
-        shot.mesh.position.lerpVectors(shot.from, to, u);
-        shot.mesh.position.y += Math.sin(u * Math.PI) * 0.6;
-      } else {
-        shot.mesh.position.copy(shot.from).add(new THREE.Vector3(0, Math.sin(u * Math.PI) * 0.6, u * 5));
-      }
-      shot.mesh.rotation.x += dt * 12;
+      shot.mesh.position.lerpVectors(shot.from, to, u);
+      shot.mesh.position.y += Math.sin(u * Math.PI) * 1.5;
+      shot.mesh.rotation.z += dt * 8;
       return true;
+    });
+
+    // Zielringe.
+    const me = arcade.players[controlledId];
+    const lockKin = me?.lockId && !me.finishedAt ? this.kins.get(me.lockId) : null;
+    this.aimRing.visible = Boolean(lockKin) && !finale;
+    if (lockKin) {
+      this.aimRing.position.set(lockKin.position.x, FLOOR_Y + 0.03, lockKin.position.z);
+      this.aimRing.rotation.z = now / 400;
+      this.aimRing.scale.setScalar(1 + Math.sin(now / 120) * 0.08);
+    }
+    const bedrohtKin = ownKin && (me?.lockedBy || (me?.incomingAt || 0) > now) && !me.finishedAt ? ownKin : null;
+    this.dangerRing.visible = Boolean(bedrohtKin) && !finale;
+    if (bedrohtKin) {
+      this.dangerRing.position.set(bedrohtKin.position.x, FLOOR_Y + 0.025, bedrohtKin.position.z);
+      const incoming = (me?.incomingAt || 0) > now;
+      this.dangerRing.scale.setScalar(incoming ? 1.2 + Math.sin(now / 50) * 0.12 : 1);
+      this.dangerRing.material.opacity = incoming ? 0.95 : 0.55;
+    }
+    this.boxes?.forEach((box, i) => {
+      box.group.rotation.y = now / 500 + i;
+      box.group.position.y = FLOOR_Y + 0.55 + Math.sin(now / 300 + i) * 0.06;
     });
 
     const own = arcade.players[controlledId];
@@ -719,14 +895,9 @@ export class RunnerDerby extends MinigameScene {
         }
       }
     }
-    // Ein Verfolger in der eigenen Bahn: einmal kurz vibrieren, wenn er
-    // auftaucht — die Warnzeile allein übersieht man im Lauf.
-    if ((own?.dodges || 0) > (this.letzteDodges ?? own?.dodges ?? 0) && ownKin) {
-      this.pop(ownKin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "AUSGEWICHEN!", { color: "#8ff5d8", size: 0.36, life: 0.8 });
-      this.feedback?.sound("whoosh");
-    }
-    this.letzteDodges = own?.dodges || 0;
-    const bedroht = (Boolean(own?.threatened) || (own?.incomingAt || 0) > this.now()) && !own?.finishedAt;
+    // Jemand zielt auf einen: einmal kurz vibrieren, wenn es anfängt — die
+    // Warnzeile allein übersieht man im Lauf.
+    const bedroht = (Boolean(own?.lockedBy) || (own?.incomingAt || 0) > this.now()) && !own?.finishedAt;
     if (bedroht !== this.warBedroht) {
       this.warBedroht = bedroht;
       if (bedroht) this.feedback?.vibrate(12);
@@ -788,25 +959,28 @@ export class RunnerDerby extends MinigameScene {
   }
 
   drawHud(f) {
-    const { arcade, controlledId } = f;
+    const { arcade, controlledId, state } = f;
     const controlled = arcade?.players?.[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = controlled?.finishedAt ? "Ziel!" : `${Math.round(controlled?.progress || 0)}m`;
-    if (this.swipeHint) {
-      const uebrig = controlled?.attacksLeft;
-      const pfeile = uebrig === undefined ? "" : ` (${"⬇".repeat(Math.max(0, uebrig)) || "—"})`;
-      const hinweis = `◀ Wischen ▶ · Tippen = Springen · ⬇ Angriff${pfeile}`;
-      if (this.letzterHinweis !== hinweis) {
-        this.letzterHinweis = hinweis;
-        this.swipeHint.textContent = hinweis;
-      }
+    const nameOf = (id) => state?.players?.find((player) => player.id === id)?.name || "Jemand";
+    // Der Wurfknopf sagt immer, was gerade geht: Kiste holen, kein Ziel, werfen.
+    if (this.throwButton) {
+      const hasItem = Boolean(controlled?.item) && !controlled?.finishedAt;
+      const lock = hasItem ? controlled?.lockId : null;
+      const mode = !hasItem ? "empty" : lock ? "ready" : "nolock";
+      const label = mode === "empty" ? "Kiste holen" : mode === "nolock" ? "Kein Ziel" : `Auf ${nameOf(lock)}!`;
+      if (this.throwButton.dataset.mode !== mode) this.throwButton.dataset.mode = mode;
+      this.throwButton.disabled = mode !== "ready";
+      if (this.throwLabel.textContent !== label) this.throwLabel.textContent = label;
     }
     if (this.threatNode) {
       const kommt = (controlled?.incomingAt || 0) > this.now();
-      const zeigen = (kommt || Boolean(controlled?.threatened)) && !controlled?.finishedAt;
-      const text = kommt ? "⚠ WURF KOMMT — SPRING!" : "⚠ Verfolger dicht hinter dir!";
+      const zeigen = (kommt || Boolean(controlled?.lockedBy)) && !controlled?.finishedAt;
+      const text = kommt ? "⚠ WASSERBOMBE — SPRING ODER WECHSLE!" : `⚠ ${nameOf(controlled?.lockedBy)} zielt auf dich!`;
       if (this.threatNode.textContent !== text) this.threatNode.textContent = text;
       if (this.threatNode.hidden === zeigen) this.threatNode.hidden = !zeigen;
+      this.threatNode.dataset.urgent = kommt ? "1" : "0";
     }
   }
 }

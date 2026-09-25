@@ -585,21 +585,24 @@ const RUNNER_AIR_FACTOR = 0.86;
 // der Verlust bei rund 0.75 s auf 26 s Renndauer — knapp drei Prozent, zu wenig,
 // als dass sich saubere Bahnwahl auszahlt.
 const RUNNER_STUMBLE_MS = 1200;
-// Der Angriff ist eine ENTSCHEIDUNG, kein Dauerfeuer. Gemessen: ohne Angriffe
-// trennen sich die Spielstaerken um eine halbe Sekunde Zielzeit, mit
-// Dauerangriffen (alle drei Sekunden, sieben Stueck je Rennen) kamen vier
-// Sekunden Stolper-Rauschen dazu — das Achtfache des Signals, und die Rangfolge
-// war weg. Drei Stueck je Rennen, dazwischen fuenf Sekunden Pause: dann kostet
-// ein verschenkter Angriff etwas, und der richtige Moment ist etwas wert.
-const RUNNER_ATTACK_RANGE = 9;         // nur wer dicht genug auffaehrt, trifft
-const RUNNER_ATTACK_COOLDOWN_MS = 5000;
-const RUNNER_ATTACK_STUMBLE_MS = 600;
-const RUNNER_ATTACKS_PER_RACE = 3;
-// Der Wurf fliegt, bevor er trifft. Vorher traf er im selben Augenblick, in
-// dem er losging, während der Ball im Bild noch 450 ms unterwegs war — "wer
-// springt, wird verfehlt" war damit nur Glück. Jetzt entscheidet die Landung:
-// wer in der Flugzeit abspringt oder die Bahn wechselt, ist sicher.
-const RUNNER_THROW_MS = 450;
+// Werfen — mit Wasserbomben aus Kisten auf der Strecke.
+//
+// Vorher warf ein Wisch nach unten nur dann, wenn zufällig jemand in der
+// EIGENEN Bahn knapp vor einem lief; sonst verpuffte der Wurf, ohne dass man
+// je sah, warum. Es gab kein Zielen und keine Anzeige, ob ein Wurf lohnt.
+//
+// Jetzt: Kisten stehen in den Bahnen, wer durch eine läuft, hat eine
+// Wasserbombe (höchstens eine). Wer eine trägt, visiert AUTOMATISCH den
+// nächsten Läufer vor sich an — in jeder Bahn, bis zwölf Meter voraus —, und
+// ein eigener Knopf wirft sie. Sie fliegt im Bogen auf die Bahn des Ziels und
+// landet nach 0,6 s: wer dann noch dort am Boden ist, wird nass und stolpert.
+// Das Ziel sieht das Anvisieren und den Wurf kommen und kann abspringen oder
+// die Bahn wechseln. Kisten sind eine Bahnwahl (Tempo oder Kiste?), der Wurf
+// ist eine Zeitwahl, das Ausweichen ist Reaktion — dreimal Können statt Zufall.
+const RUNNER_ATTACK_RANGE = 12;        // so weit voraus wird anvisiert
+const RUNNER_ATTACK_STUMBLE_MS = 850;
+const RUNNER_THROW_MS = 600;
+const RUNNER_BOX_EVERY = 2;            // jeder zweite Abschnitt hat eine Kiste
 // Farbflucht — eine Farbe wird angesagt, alle anderen Felder fallen weg.
 //
 // Die alte Fassung war im Ablauf kaputt: die Zielfarbe stand im Banner erst
@@ -2776,7 +2779,10 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.progress = 0;
       entry.nextHurdle = 0;        // Index des nächsten noch offenen Abschnitts
       entry.stumbleUntil = 0;
-      entry.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+      entry.item = false;            // trägt eine Wasserbombe?
+      entry.nextBox = 0;             // Index des nächsten noch offenen Abschnitts für Kisten
+      entry.lockId = null;           // wen man gerade anvisiert
+      entry.lockedBy = null;         // wer einen gerade anvisiert
       entry.jumpUntil = 0;
       entry.finishedAt = null;
       entry.finishMs = null;
@@ -3580,7 +3586,16 @@ function createRunnerCourse(seed) {
       const kandidaten = [0, 1, 2].filter((lane) => lanes[lane] !== "sand");
       hurdle = kandidaten[Math.floor(arcadeNoise(seed + index * 29) * kandidaten.length)];
     }
-    segments.push({ index, at, lanes, hurdle, hurdleAt: at + RUNNER_SEG_LEN * 0.62 });
+    // Eine Wasserbomben-Kiste in jedem zweiten Abschnitt — nie in derselben
+    // Bahn wie die Hürde und bevorzugt NICHT auf der Tempobahn: wer die Kiste
+    // will, muss Tempo dafür geben.
+    let box = null;
+    if (index >= 2 && index % RUNNER_BOX_EVERY === 0) {
+      const frei = [0, 1, 2].filter((lane) => lane !== hurdle && lanes[lane] !== "tempo");
+      const wahl = frei.length ? frei : [0, 1, 2].filter((lane) => lane !== hurdle);
+      box = wahl[Math.floor(arcadeNoise(seed + index * 43) * wahl.length)];
+    }
+    segments.push({ index, at, lanes, hurdle, hurdleAt: at + RUNNER_SEG_LEN * 0.62, box, boxAt: at + RUNNER_SEG_LEN * 0.3 });
     // Nächster Abschnitt. Die Tempobahn sprang früher in JEDEM Abschnitt auf
     // eine andere Bahn, oft von ganz links nach ganz rechts — alle 0,9 s ein
     // neuer Wisch, zwei Bahnen weit. Das ist kein Planen mehr, sondern
@@ -3606,18 +3621,20 @@ function runnerSegmentAt(arcade, position) {
   return segments[index];
 }
 
-// Wer dem Läufer gerade in den Rücken werfen könnte: dieselbe Bahn, dicht
-// dahinter, Wurf übrig und geladen. Das ist dieselbe Bedingung, unter der ein
-// Wurf trifft — die Warnung zeigt also genau die Lage, in der es gefährlich ist.
-function runnerPursuer(room, arcade, entry, now) {
-  return room.players
-    .map((p) => arcade.players[p.id])
-    .find((other) => other && other !== entry && !other.finishedAt
-      && other.lane === entry.lane
-      && other.progress < entry.progress
-      && entry.progress - other.progress <= RUNNER_ATTACK_RANGE
-      && (other.attacksLeft ?? 0) > 0
-      && now >= (other.lastAttackAt || 0) + RUNNER_ATTACK_COOLDOWN_MS) || null;
+// Wen ein Läufer mit Wasserbombe gerade anvisiert: den nächsten vor ihm, in
+// jeder Bahn, bis RUNNER_ATTACK_RANGE voraus. Dieselbe Regel gilt für den
+// Wurf — die Anzeige zeigt also genau das Ziel, das getroffen würde.
+function runnerLockTarget(room, arcade, entry) {
+  if (!entry || entry.finishedAt || !entry.item) return null;
+  let best = null;
+  room.players.forEach((p) => {
+    const other = arcade.players[p.id];
+    if (!other || other === entry || other.finishedAt) return;
+    const ahead = other.progress - entry.progress;
+    if (ahead <= 0 || ahead > RUNNER_ATTACK_RANGE) return;
+    if (!best || ahead < best.ahead) best = { id: p.id, ahead };
+  });
+  return best ? best.id : null;
 }
 
 // Der Belagfaktor einer Bahn an einer Position.
@@ -4391,45 +4408,22 @@ function handleArcadeInput(room, player, rawInput) {
       return { ok: true };
     }
     if (input.action === "attack") {
-      if ((arcadePlayer.attacksLeft ?? RUNNER_ATTACKS_PER_RACE) <= 0) {
-        return { ok: false, error: "Keine Angriffe mehr." };
-      }
-      if (now < (arcadePlayer.lastAttackAt || 0) + RUNNER_ATTACK_COOLDOWN_MS) {
-        return { ok: false, error: "Angriff lädt auf!" };
-      }
+      if (!arcadePlayer.item) return { ok: false, error: "Erst eine Wasserbombe aus einer Kiste holen." };
+      const targetId = runnerLockTarget(room, arcade, arcadePlayer);
+      if (!targetId) return { ok: false, error: "Niemand in Reichweite." };
+      const target = arcade.players[targetId];
+      arcadePlayer.item = false;
       arcadePlayer.lastAttackAt = now;
-      arcadePlayer.attacksLeft = (arcadePlayer.attacksLeft ?? RUNNER_ATTACKS_PER_RACE) - 1;
-
-      // Der Angriff geht nach VORNE IN DIE EIGENE BAHN, hat eine Reichweite, und
-      // wer springt, wird verfehlt.
-      //
-      // Ohne das traf er immer den Fuehrenden, egal wo der lief — und weil alle
-      // gleich oft angreifen, war das eine reine Fuehrungsstrafe ohne Gegenwehr.
-      // Gemessen stellte das die Rangfolge auf den Kopf: der schwaechste Bot lag
-      // im Schnitt auf Platz 2.23, der staerkste auf 2.80. Ein Spiel, in dem
-      // Vorne-Liegen bestraft wird und man nichts dagegen tun kann, belohnt kein
-      // Koennen.
-      //
-      // Reichweite allein half nicht: das Feld laeuft dicht beisammen, da ist
-      // immer jemand in neun Metern. Erst die Bahn macht daraus ein Spiel — der
-      // Angreifer muss sich hinter sein Opfer setzen, und das Opfer kann
-      // ausweichen oder abspringen. Beides ist sichtbar und beides ist Koennen.
-      const aheadId = room.players
-        .map((p) => ({ id: p.id, entry: arcade.players[p.id] }))
-        .filter(({ entry: p }) => p && p !== arcadePlayer && !p.finishedAt
-          && p.lane === arcadePlayer.lane
-          && p.progress > arcadePlayer.progress
-          && p.progress - arcadePlayer.progress <= RUNNER_ATTACK_RANGE)
-        .sort((a, b) => a.entry.progress - b.entry.progress)[0]?.id || null;
-
-      // Der Wurf ist unterwegs. Getroffen wird erst bei der Landung (siehe
-      // updateRunner) — und nur, wer dann noch in der Bahn und am Boden ist.
-      arcadePlayer.lastThrow = { at: now, hitAt: now + RUNNER_THROW_MS, targetId: aheadId, lane: arcadePlayer.lane };
-      if (aheadId) arcade.players[aheadId].incomingAt = now + RUNNER_THROW_MS;
+      arcadePlayer.throwsDone = (arcadePlayer.throwsDone || 0) + 1;
+      // Sie fliegt auf die Bahn, in der das Ziel JETZT läuft. Wer in der
+      // Flugzeit wechselt oder abspringt, ist sicher.
+      arcadePlayer.lastThrow = { at: now, hitAt: now + RUNNER_THROW_MS, targetId, lane: target.lane, fromLane: arcadePlayer.lane };
+      target.incomingAt = now + RUNNER_THROW_MS;
+      target.incomingFrom = player.id;
       arcadePlayer.hasMoved = true;
       return { ok: true };
     }
-    return { ok: false, error: "Wische zum Spurwechsel, hoch zum Springen, tippen für Angriff." };
+    return { ok: false, error: "Wische zum Spurwechsel, tippe zum Springen, Knopf zum Werfen." };
   }
 
   if (arcade.family === "colorgrid") {
@@ -5308,6 +5302,17 @@ function updateRunner(room, minigame, arcade, dt, now) {
       }
     }
 
+    // Kisten: wer in ihrer Bahn durchläuft und die Hände frei hat, nimmt sich
+    // eine Wasserbombe. Die Kiste bleibt für die anderen stehen.
+    while (entry.nextBox < segments.length && entry.progress >= segments[entry.nextBox].boxAt) {
+      const segment = segments[entry.nextBox];
+      entry.nextBox += 1;
+      if (segment.box === null || segment.box === undefined || segment.box !== entry.lane || entry.item) continue;
+      entry.item = true;
+      entry.lastBoxAt = now;
+      entry.boxes = (entry.boxes || 0) + 1;
+    }
+
     if (entry.progress >= arcade.trackLength) {
       entry.finishedAt = now;
       entry.finishMs = Math.max(0, now - minigame.startedAt);
@@ -5335,8 +5340,11 @@ function updateRunner(room, minigame, arcade, dt, now) {
       target.dodges = (target.dodges || 0) + 1;
       return;
     }
+    // Nass: kurz ausgebremst. Gezählt getrennt von den Hürden, damit das Bild
+    // zeigen kann, was passiert ist (Platsch statt umgeworfener Hürde).
     target.stumbleUntil = now + RUNNER_ATTACK_STUMBLE_MS;
-    target.stumbles = (target.stumbles || 0) + 1;
+    target.splashes = (target.splashes || 0) + 1;
+    target.lastSplashAt = now;
     target.flash = "bad";
     target.lastHitAt = now;
     shot.hit = true;
@@ -5346,7 +5354,13 @@ function updateRunner(room, minigame, arcade, dt, now) {
   // auf dem Stand des letzten Ticks.
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
-    if (entry) entry.threatened = !entry.finishedAt && Boolean(runnerPursuer(room, arcade, entry, now));
+    if (entry) entry.lockedBy = null;
+  });
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry) return;
+    entry.lockId = runnerLockTarget(room, arcade, entry);
+    if (entry.lockId) arcade.players[entry.lockId].lockedBy = player.id;
   });
 }
 
@@ -7456,21 +7470,21 @@ function arcadeBotStep(room, bot) {
       }
     }
 
-    // Angreifen, wenn wirklich jemand in Reichweite ist. Blind alle drei
-    // Sekunden zu druecken war das Gegenteil von Koennen: der Angriff traf so
-    // oder so den Fuehrenden, also griffen alle gleich gut an, und weil das
-    // ausgerechnet den Besten traf, stand die Rangfolge auf dem Kopf. Jetzt
-    // muss der Bot erkennen, dass jemand in Reichweite ist — und wie
-    // zuverlaessig er das erkennt, ist seine Spielstaerke.
-    const opfer = room.players
-      .map((p) => arcade.players[p.id])
-      .filter((p) => p && p !== player && !p.finishedAt
-        && p.lane === player.lane
-        && p.progress > player.progress
-        && p.progress - player.progress <= RUNNER_ATTACK_RANGE)
-      .sort((a, b) => a.progress - b.progress)[0];
-    if (opfer && (player.attacksLeft ?? 0) > 0 && Math.random() > profile.mistake) {
-      handleArcadeInput(room, bot, { action: "attack" });
+    // Werfen. Der Bot sieht dasselbe Ziel wie ein Mensch (das Anvisieren).
+    // Der schwache wirft sofort, der starke wartet, bis das Ziel nah und am
+    // Boden ist — und wirft lieber auf jemanden auf der Tempobahn, der dann am
+    // meisten verliert.
+    if (player.item && player.lockId) {
+      const ziel = arcade.players[player.lockId];
+      const abstand = ziel.progress - player.progress;
+      const amBoden = now >= (ziel.jumpUntil || 0);
+      const geduld = profile.level === "hard"
+        ? amBoden && (abstand < 7 || ziel.surface === "tempo")
+        : profile.level === "normal" ? amBoden && abstand < 10 : true;
+      if (geduld && Math.random() > profile.mistake) {
+        handleArcadeInput(room, bot, { action: "attack" });
+        return;
+      }
     }
 
     // Die Bahn bewerten — und zwar BEIDE Abschnitte, den laufenden anteilig und
@@ -7518,12 +7532,14 @@ function arcadeBotStep(room, bot) {
       // geladenen Wurf im Nacken, ist die eigene Bahn etwas weniger wert —
       // bei gleich guten Bahnen weicht er aus. Genau das zeigt die Warnzeile
       // dem Spieler.
-      const watched = profile.level === "hard" && player.threatened;
+      const watched = profile.level === "hard" && Boolean(player.lockedBy);
       const laneValue = (segment, lane) => {
         let wert = RUNNER_SURFACE[segment.lanes[lane]] ?? 1;
         // Hürden kosten nur einen Sprung, nicht den Abschnitt.
         if (segment.hurdle === lane && (segment !== hier || player.progress < hier.hurdleAt)) wert -= 0.12;
         if (watched && lane === player.lane) wert -= 0.2;
+        // Mit leeren Händen ist eine Kiste etwas wert — aber keine Tempobahn.
+        if (!player.item && segment.box === lane && (segment !== hier || player.progress < hier.boxAt)) wert += 0.42;
         return wert - Math.abs(lane - player.lane) * 0.02;
       };
       if (!late) {
@@ -7929,7 +7945,8 @@ module.exports = {
     bounceResultScore,
     minigameResultDetail,
     RUNNER_ATTACK_RANGE,
-    RUNNER_ATTACKS_PER_RACE,
+    RUNNER_THROW_MS,
+    runnerLockTarget,
     createArcadeState,
     ARCADE_CONFIGS,
     handleArcadeInput,

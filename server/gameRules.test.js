@@ -135,8 +135,7 @@ const {
   paintSweep,
   paintPockets,
   paintOwnedCount,
-  RUNNER_ATTACK_RANGE,
-  RUNNER_ATTACKS_PER_RACE
+  RUNNER_ATTACK_RANGE
 } = testRules;
 
 // Im Spiel wird der Startwert jeder Runde gewürfelt. Die Tests halten ihn je
@@ -731,101 +730,117 @@ test("seilspringen: a jump that already landed does not save the player", () => 
   assert.equal(entry.eliminated, true, "landing before the wave means elimination");
 });
 
-test("zielgerade: Springen und Angreifen funktionieren", () => {
+function runnerDuel() {
   const runner = player({ id: "rn", name: "RN", color: "#fff" });
   const rival = player({ id: "rv", name: "RV", color: "#000" });
   const startedAt = Date.now() - 100;
   const arcade = createArcadeState("finishRush", [runner, rival], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
   const room = { currentMinigame: minigame, players: [runner, rival] };
-
-  // Jump action sets jumpUntil timestamp
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "jump" }), { ok: true });
-  assert.ok(arcade.players[runner.id].jumpUntil > Date.now());
-
-  // Reset input cooldown for test
-  arcade.players[runner.id].lastInputAt = 0;
-
-  // Der Angriff geht nach vorne in die EIGENE Bahn und hat eine Reichweite.
-  // Beides ist nicht kosmetisch: ohne das traf er immer den Fuehrenden, egal wo
-  // der lief, und weil alle gleich oft angreifen, stellte das die Rangfolge auf
-  // den Kopf (gemessen easy 2.23, hard 2.80).
   const laeufer = arcade.players[runner.id];
   const gegner = arcade.players[rival.id];
-  laeufer.progress = 10;
-  laeufer.lane = 1;
-  gegner.lane = 1;
-  laeufer.jumpUntil = 0;
+  // Kein Kurs-Zufall im Test: keine Hürden, keine Kisten, alles normal.
+  arcade.segments.forEach((segment) => { segment.hurdle = null; segment.box = null; segment.lanes = ["normal", "normal", "normal"]; });
+  const tick = (ms = 16) => {
+    arcade.lastUpdateAt = Date.now() - ms;
+    testRules.updateArcade(room);
+  };
   // Der Wurf fliegt erst: getroffen wird bei der Landung, im Tick.
   const landen = () => {
     if (laeufer.lastThrow) laeufer.lastThrow.hitAt = Date.now() - 1;
-    arcade.lastUpdateAt = Date.now() - 16;
-    testRules.updateArcade(room);
+    tick();
+  };
+  const werfen = () => { laeufer.lastInputAt = 0; return handleArcadeInput(room, runner, { action: "attack" }); };
+  return { runner, rival, arcade, room, laeufer, gegner, tick, landen, werfen };
+}
+
+test("zielgerade: ohne Wasserbombe wird nicht geworfen", () => {
+  const { laeufer, gegner, werfen } = runnerDuel();
+  laeufer.progress = 10;
+  gegner.progress = 14;
+  assert.equal(werfen().ok, false, "erst eine Kiste holen");
+  assert.ok(!(gegner.incomingAt > Date.now()));
+});
+
+test("zielgerade: durch eine Kiste laufen gibt genau eine Wasserbombe", () => {
+  const { arcade, laeufer, tick } = runnerDuel();
+  const segment = arcade.segments[4];
+  segment.box = 2;
+  laeufer.lane = 2;
+  laeufer.progress = segment.boxAt - 0.1;
+  laeufer.nextBox = segment.index;
+  tick(100);
+  assert.equal(laeufer.item, true);
+  // Eine zweite Kiste bringt nichts, solange man eine trägt.
+  const next = arcade.segments[6];
+  next.box = 2;
+  laeufer.progress = next.boxAt - 0.1;
+  laeufer.nextBox = next.index;
+  tick(100);
+  assert.equal(laeufer.boxes, 1, "man trägt höchstens eine");
+});
+
+test("zielgerade: mit Wasserbombe wird der Nächste voraus anvisiert, in jeder Bahn", () => {
+  const { laeufer, gegner, tick } = runnerDuel();
+  laeufer.item = true;
+  laeufer.progress = 10;
+  laeufer.lane = 0;
+  gegner.lane = 2;
+  gegner.progress = 10 + RUNNER_ATTACK_RANGE - 2;
+  tick();
+  assert.equal(laeufer.lockId, "rv", "auch in einer anderen Bahn");
+  assert.equal(gegner.lockedBy, "rn", "das Ziel weiss, dass es anvisiert wird");
+  gegner.progress = laeufer.progress + RUNNER_ATTACK_RANGE + 3;
+  tick();
+  assert.equal(laeufer.lockId, null, "zu weit weg");
+});
+
+test("zielgerade: der Wurf trifft erst bei der Landung und nur, wer dann noch da ist", () => {
+  const duel = runnerDuel();
+  const { laeufer, gegner, landen, werfen } = duel;
+  const vorbereiten = () => {
+    laeufer.item = true;
+    laeufer.progress = 10;
+    laeufer.lane = 1;
+    gegner.progress = 15;
+    gegner.lane = 0;
+    gegner.jumpUntil = 0;
+    gegner.stumbleUntil = 0;
   };
 
-  // Zu weit weg: nichts passiert.
-  gegner.progress = 10 + RUNNER_ATTACK_RANGE + 5;
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  vorbereiten();
+  assert.deepEqual(werfen(), { ok: true });
+  assert.equal(laeufer.item, false, "die Bombe ist weg");
+  assert.equal(laeufer.lastThrow.lane, 0, "sie fliegt auf die Bahn des Ziels");
+  assert.ok(gegner.incomingAt > Date.now(), "das Ziel sieht sie kommen");
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "im Flug trifft noch nichts");
   landen();
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "ausser Reichweite trifft nicht");
-  // Ein Fehlgriff kostet trotzdem einen Angriff — sonst waere Dauerdruecken
-  // gratis, und genau daran ist die Rangfolge vorher gekippt.
-  assert.equal(laeufer.attacksLeft, RUNNER_ATTACKS_PER_RACE - 1, "auch ein Fehlgriff kostet");
-  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+  assert.ok(gegner.stumbleUntil > Date.now(), "wer stehen bleibt, wird nass");
+  assert.equal(gegner.splashes, 1);
 
-  // Andere Bahn: nichts passiert.
-  laeufer.lastAttackAt = 0;
-  laeufer.lastInputAt = 0;
-  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
-  gegner.progress = 14;
-  gegner.lane = 2;
-  laeufer.lane = 1;
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
-  landen();
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "eine andere Bahn trifft nicht");
-
-  // Gleiche Bahn, in Reichweite: trifft — aber erst bei der Landung.
-  laeufer.lastAttackAt = 0;
-  laeufer.lastInputAt = 0;
-  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
-  laeufer.lane = 1;
-  laeufer.progress = 10;
-  gegner.lane = 1;
-  gegner.progress = 14;
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "im Flug hat noch niemand getroffen");
-  assert.ok(gegner.incomingAt > Date.now(), "das Ziel sieht den Wurf kommen");
-  landen();
-  assert.ok(gegner.stumbleUntil > Date.now(), "gleiche Bahn in Reichweite trifft");
-
-  // Wer springt, wird verfehlt.
-  gegner.stumbleUntil = 0;
-  laeufer.lastAttackAt = 0;
-  laeufer.lastInputAt = 0;
-  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
-  laeufer.lane = 1;
-  laeufer.progress = 10;
-  gegner.lane = 1;
-  gegner.progress = 14;
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  // Abspringen in der Flugzeit rettet.
+  vorbereiten();
+  werfen();
   gegner.jumpUntil = Date.now() + 500;
   landen();
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Sprung in der Flugzeit weicht aus");
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Sprung weicht aus");
 
-  // Und wer in der Flugzeit die Bahn wechselt, ebenso.
-  gegner.jumpUntil = 0;
-  laeufer.lastAttackAt = 0;
-  laeufer.lastInputAt = 0;
-  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
-  laeufer.lane = 1;
-  laeufer.progress = 10;
+  // Die Bahn wechseln ebenso.
+  vorbereiten();
+  werfen();
   gegner.lane = 1;
-  gegner.progress = 14;
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
-  gegner.lane = 2;
   landen();
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Bahnwechsel in der Flugzeit weicht aus");
-  assert.ok(gegner.dodges >= 2, `Ausweicher gezählt: ${gegner.dodges}`);
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Bahnwechsel weicht aus");
+  assert.equal(gegner.dodges, 2);
+});
+
+test("zielgerade: ohne Ziel in Reichweite bleibt die Wasserbombe in der Hand", () => {
+  const { laeufer, gegner, werfen } = runnerDuel();
+  laeufer.item = true;
+  laeufer.progress = 10;
+  gegner.progress = 10 + RUNNER_ATTACK_RANGE + 5;
+  assert.equal(werfen().ok, false);
+  assert.equal(laeufer.item, true, "nichts verschenkt");
 });
 
 test("zielgerade: Springen hat einen Preis", () => {
@@ -844,7 +859,6 @@ test("zielgerade: Springen hat einen Preis", () => {
   handleArcadeInput(room, runner, { action: "jump" });
   assert.equal(entry.jumpUntil, first, "in der Luft springt man nicht noch einmal ab");
 
-  // In der Luft ist man langsamer als am Boden.
   entry.progress = 1;
   entry.lane = 1;
   arcade.lastUpdateAt = Date.now() - 100;
@@ -854,36 +868,6 @@ test("zielgerade: Springen hat einen Preis", () => {
   arcade.lastUpdateAt = Date.now() - 100;
   testRules.updateArcade(room);
   assert.ok(air < entry.speed, `Luft ${air} gegen Boden ${entry.speed}`);
-});
-
-test("zielgerade: Angriffe sind begrenzt", () => {
-  // Der Angriff muss eine Entscheidung sein. Gemessen: ohne Angriffe trennen
-  // sich die Spielstaerken um eine halbe Sekunde Zielzeit, mit Dauerfeuer kamen
-  // vier Sekunden Stolper-Rauschen dazu und die Rangfolge war weg.
-  const runner = player({ id: "ra", name: "RA", color: "#fff" });
-  const rival = player({ id: "rb", name: "RB", color: "#000" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner, rival], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner, rival] };
-  const laeufer = arcade.players[runner.id];
-  const gegner = arcade.players[rival.id];
-  laeufer.lane = 1;
-  gegner.lane = 1;
-  laeufer.progress = 10;
-  gegner.progress = 14;
-
-  assert.equal(laeufer.attacksLeft, RUNNER_ATTACKS_PER_RACE, "man startet mit vollem Vorrat");
-  for (let i = 0; i < RUNNER_ATTACKS_PER_RACE; i += 1) {
-    laeufer.lastAttackAt = 0;
-    laeufer.lastInputAt = 0;
-    assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
-  }
-  assert.equal(laeufer.attacksLeft, 0);
-  laeufer.lastAttackAt = 0;
-  laeufer.lastInputAt = 0;
-  const leer = handleArcadeInput(room, runner, { action: "attack" });
-  assert.equal(leer.ok, false, "ohne Vorrat geht nichts mehr");
 });
 
 test("zielgerade: Huerde stolpert den Läufer wenn er nicht springt", () => {

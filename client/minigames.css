@@ -211,8 +211,8 @@
   backdrop-filter: blur(14px);
 }
 
-/* Zielgerade: Warnung vor einem Verfolger in der eigenen Bahn. Würfe kamen
-   vorher ohne jede Vorwarnung — ausweichen oder abspringen konnte man nur
+/* Zielgerade: Warnung, wenn jemand auf einen zielt oder eine Wasserbombe
+   fliegt. Würfe kamen vorher ohne jede Vorwarnung — ausweichen oder abspringen konnte man nur
    zufällig. Die Zeile steht direkt über dem Hinweis, wo der Blick ohnehin ist. */
 .runner-threat {
   margin: 0 0 6px;
@@ -1562,6 +1562,64 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   color: rgba(255, 255, 255, 0.78);
+}
+
+/* Zielgerade: Hinweis links, Wurfknopf rechts. Der Knopf sagt, was gerade
+   geht — Kiste holen (grau), kein Ziel (gedämpft), werfen (blau, pulsierend). */
+.runner-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.runner-lane-controls .runner-throw {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 142px;
+  min-height: 58px;
+  padding: 6px 12px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius);
+  background: #2a3a41;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.92rem;
+  font-weight: 900;
+  line-height: 1.1;
+  box-shadow: 0 5px 0 #071014;
+  touch-action: none;
+}
+
+.runner-lane-controls .runner-throw .runner-throw-icon {
+  font-size: 1.5rem;
+  filter: grayscale(1) opacity(0.6);
+}
+
+.runner-lane-controls .runner-throw[data-mode="nolock"] .runner-throw-icon,
+.runner-lane-controls .runner-throw[data-mode="ready"] .runner-throw-icon {
+  filter: none;
+}
+
+.runner-lane-controls .runner-throw[data-mode="ready"] {
+  border-color: #ffffff;
+  background: #1f8fe0;
+  color: #ffffff;
+  animation: runner-throw-ready 0.5s ease-in-out infinite alternate;
+}
+
+.runner-lane-controls .runner-throw:disabled {
+  cursor: default;
+}
+
+@keyframes runner-throw-ready {
+  from { transform: scale(0.97); box-shadow: 0 5px 0 #0b3a5c; }
+  to { transform: scale(1.04); box-shadow: 0 5px 0 #0b3a5c, 0 0 18px rgba(57, 184, 255, 0.7); }
+}
+
+.runner-threat[data-urgent="1"] {
+  background: #ff2e4d;
+  animation-duration: 0.18s;
 }
 
 /* Augenmaß: der Schieberegler ist hier das ganze Spielgerät, also darf er auch
