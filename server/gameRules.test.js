@@ -404,22 +404,20 @@ test("color escape guarantees safe tiles and rewards standing on the target colo
   const startedAt = Date.now();
   const arcade = createArcadeState("colorEscape", [runner], startedAt);
   const targetTiles = arcade.grid.filter((color) => color === arcade.targetColor).length;
-  assert.ok(targetTiles >= 6, "every round keeps enough safe tiles");
+  assert.ok(targetTiles >= 6, "die erste Runde lässt genug sichere Felder");
 
-  const minigame = { arcade, scores: {}, startedAt, duration: 38000, finishing: false };
+  const minigame = { arcade, scores: {}, startedAt, duration: 31000, finishing: false };
   const room = { currentMinigame: minigame, players: [runner] };
   const entry = arcade.players[runner.id];
 
-  // Move onto a guaranteed safe tile before the floor drops.
   const safeIndex = arcade.grid.findIndex((color) => color === arcade.targetColor);
   entry.gx = safeIndex % 6;
   entry.gy = Math.floor(safeIndex / 6);
 
-  // Advance time into the drop phase of round 0.
-  minigame.startedAt = Date.now() - (arcade.leadMs + arcade.announceMs + 200);
+  minigame.startedAt = Date.now() - (arcade.schedule[0].dropAt + 150);
   updateArcade(room);
-  assert.equal(entry.survived, 1, "surviving a drop scores a round");
-  assert.notEqual(entry.fallenRound, arcade.round, "safe player did not fall");
+  assert.equal(entry.survived, 1, "wer richtig steht, übersteht die Runde");
+  assert.equal(entry.eliminated, false);
 });
 
 test("color escape never lets two players share a tile", () => {
@@ -427,12 +425,11 @@ test("color escape never lets two players share a tile", () => {
   const two = player({ id: "two", name: "Two", color: "#00f" });
   const startedAt = Date.now();
   const arcade = createArcadeState("colorEscape", [one, two], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 38000, finishing: false };
+  const minigame = { arcade, scores: {}, startedAt, duration: 31000, finishing: false };
   const room = { currentMinigame: minigame, players: [one, two] };
   const a = arcade.players[one.id];
   const b = arcade.players[two.id];
 
-  // Place them side by side and try to step onto the occupied tile.
   a.gx = 2; a.gy = 2;
   b.gx = 3; b.gy = 2;
   a.lastInputAt = 0;
@@ -440,7 +437,6 @@ test("color escape never lets two players share a tile", () => {
   assert.equal(a.gx, 2, "step onto an occupied tile bounces off");
   assert.equal(a.gy, 2);
 
-  // A free tile still works.
   a.lastInputAt = 0;
   handleArcadeInput(room, one, { action: "step", dir: "left" });
   assert.equal(a.gx, 1, "free tiles are steppable");
@@ -450,7 +446,7 @@ test("color escape drops a player standing on the wrong color", () => {
   const runner = player({ id: "cf", name: "CF", color: "#fff" });
   const startedAt = Date.now();
   const arcade = createArcadeState("colorEscape", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 38000, finishing: false };
+  const minigame = { arcade, scores: {}, startedAt, duration: 31000, finishing: false };
   const room = { currentMinigame: minigame, players: [runner] };
   const entry = arcade.players[runner.id];
 
@@ -458,13 +454,49 @@ test("color escape drops a player standing on the wrong color", () => {
   entry.gx = wrongIndex % 6;
   entry.gy = Math.floor(wrongIndex / 6);
 
-  minigame.startedAt = Date.now() - (arcade.leadMs + arcade.announceMs + 200);
+  minigame.startedAt = Date.now() - (arcade.schedule[0].dropAt + 150);
   updateArcade(room);
-  assert.equal(entry.fallenRound, arcade.round, "wrong-color player falls");
+  assert.equal(entry.eliminated, true, "wer falsch steht, fällt");
+  assert.equal(entry.fallenRound, 0);
   assert.equal(entry.survived, 0, "a fallen player scores no round");
 });
 
-test("color escape: later rounds warn shorter and offer fewer safe tiles", () => {
+test("color escape: laufen die ganze Ansage lang, gesperrt nur im Fall, die nächste Ansage direkt danach", () => {
+  const { colorGridPhaseAt } = testRules;
+  const runner = player({ id: "cp", name: "CP", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("colorEscape", [runner], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 31000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  const [first, second] = arcade.schedule;
+
+  // Die Zielfarbe steht ab dem ersten Moment fest, laufen geht sofort.
+  assert.equal(colorGridPhaseAt(arcade, 0).name, "announce");
+  entry.gx = 2; entry.gy = 2; entry.lastInputAt = 0;
+  minigame.startedAt = Date.now() - 50;
+  handleArcadeInput(room, runner, { action: "step", dir: "right" });
+  assert.equal(entry.gx, 3, "gleich zu Beginn der Ansage darf man laufen");
+
+  // Kurz vor dem Fall noch.
+  entry.lastInputAt = 0;
+  minigame.startedAt = Date.now() - (first.dropAt - 60);
+  handleArcadeInput(room, runner, { action: "step", dir: "right" });
+  assert.equal(entry.gx, 4, "bis zum Fall darf man laufen");
+
+  // Im Fall nicht.
+  entry.lastInputAt = 0;
+  minigame.startedAt = Date.now() - (first.dropAt + 200);
+  handleArcadeInput(room, runner, { action: "step", dir: "left" });
+  assert.equal(entry.gx, 4, "im Fall ist man festgenagelt");
+
+  // Direkt danach beginnt die nächste Ansage.
+  assert.equal(second.start, first.end, "keine tote Zeit zwischen Fall und nächster Ansage");
+  assert.equal(colorGridPhaseAt(arcade, second.start + 10).name, "announce");
+  assert.equal(colorGridPhaseAt(arcade, second.start + 10).round, 1);
+});
+
+test("color escape: spätere Runden warnen kürzer und haben weniger sichere Felder", () => {
   const runner = player({ id: "cg", name: "CG", color: "#fff" });
   const startedAt = Date.now();
   const arcade = createArcadeState("colorEscape", [runner], startedAt);
@@ -472,27 +504,18 @@ test("color escape: later rounds warn shorter and offer fewer safe tiles", () =>
   const measure = (round) => {
     advanceColorRound(arcade, round, startedAt);
     return {
-      warn: arcade.announceMs,
+      warn: arcade.schedule[round].dropAt - arcade.schedule[round].start,
       safe: arcade.grid.filter((color) => color === arcade.targetColor).length
     };
   };
-
   const first = measure(0);
   const last = measure(arcade.roundCount - 1);
-
   assert.ok(last.warn < first.warn * 0.6, `die Vorwarnung muss deutlich kürzer werden (${last.warn} von ${first.warn})`);
   assert.ok(last.safe < first.safe, `es müssen weniger sichere Felder werden (${last.safe} von ${first.safe})`);
-  assert.ok(last.safe >= 4, "aber nie so wenige, dass vier Mitspielende keinen Platz mehr finden");
-
-  // Die Fallphase darf dabei nicht mitschrumpfen — sonst wäre am Ende gar keine
-  // Zeit mehr, den Sturz zu sehen.
-  assert.ok(arcade.dropEndMs > arcade.announceMs, "nach der Vorwarnung muss eine Fallphase bleiben");
-
-  // Und die Runde muss immer noch in ihr Zeitfenster passen.
-  for (let round = 0; round < arcade.roundCount; round += 1) {
-    advanceColorRound(arcade, round, startedAt);
-    assert.ok(arcade.dropEndMs <= arcade.roundMs, `Runde ${round} läuft über ihr Fenster hinaus`);
-  }
+  assert.ok(last.safe >= 2, "ein, zwei Felder bleiben immer");
+  assert.ok(last.warn >= 1500, "aber die kürzeste Ansage lässt noch ein paar Schritte zu");
+  const end = arcade.schedule[arcade.roundCount - 1].end;
+  assert.ok(end <= 31000, `alle Runden passen in die Spielzeit (${end} ms)`);
 });
 
 test("Platzierung: Gleichstand teilt sich den Platz", () => {

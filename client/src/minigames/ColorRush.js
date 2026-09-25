@@ -4,7 +4,8 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
-// Wischen hüpft man Feld für Feld.
+// Wischen hüpft man Feld für Feld. Runde und Phase kommen aus dem Zeitplan des
+// Servers; die Farbe steht vom ersten Moment der Ansage an fest.
 //
 // Vorher standen die Figuren reglos auf zu grossen Feldern und rutschten
 // von Feld zu Feld. Jetzt hüpft man, schaut in Sprungrichtung, zappelt
@@ -167,16 +168,22 @@ export class ColorRush extends MinigameScene {
     this.sendInput({ action: "step", dir }).catch(() => {});
   }
 
+  // Runde und Phase kommen aus dem Zeitplan, den der Server mitschickt — dieselbe
+  // Rechnung wie dort, statt eigener Formeln aus Werten, die sich je Runde
+  // ändern. `t` läuft je Phase von 0 bis 1, `left` sind die Millisekunden bis
+  // zum nächsten Wechsel.
   computePhase(arcade, minigame, now) {
     const elapsed = Math.max(0, now - minigame.startedAt);
-    // Mirror the server's calm lead-in before the first drop.
-    const shifted = elapsed - (arcade.leadMs || 0);
-    if (shifted < 0) return { name: "announce", t: Math.max(0, 1 + shifted / Math.max(1, arcade.leadMs || 1)) };
-    const round = arcade.round;
-    const roundElapsed = shifted - round * arcade.roundMs;
-    if (roundElapsed < arcade.announceMs) return { name: "announce", t: roundElapsed / arcade.announceMs };
-    if (roundElapsed < arcade.dropEndMs) return { name: "drop", t: (roundElapsed - arcade.announceMs) / (arcade.dropEndMs - arcade.announceMs) };
-    return { name: "rest", t: (roundElapsed - arcade.dropEndMs) / Math.max(1, arcade.roundMs - arcade.dropEndMs) };
+    const schedule = arcade.schedule || [];
+    let round = 0;
+    schedule.forEach((slot, index) => { if (elapsed >= slot.start) round = index; });
+    const slot = schedule[round];
+    if (!slot) return { name: "announce", t: 0, left: 0, round };
+    if (elapsed < slot.dropAt) {
+      return { name: "announce", t: (elapsed - slot.start) / (slot.dropAt - slot.start), left: slot.dropAt - elapsed, round };
+    }
+    const t = Math.min(1, (elapsed - slot.dropAt) / (slot.end - slot.dropAt));
+    return { name: elapsed < slot.end || round < schedule.length - 1 ? "drop" : "over", t, left: slot.end - elapsed, round };
   }
 
   tick(f) {
@@ -211,20 +218,21 @@ export class ColorRush extends MinigameScene {
         const menace = Math.pow(phase.t, 2) * 0.06;
         jitterX = Math.sin(now / 40 + index) * menace;
         jitterZ = Math.cos(now / 37 + index * 1.3) * menace;
-      } else if (phase.name === "drop" && !isTarget) {
-        targetY = -3.4 * phase.t;
-        opacity = Math.max(0, 1 - phase.t * 1.4);
+      } else if ((phase.name === "drop" || phase.name === "over") && !isTarget) {
+        targetY = -3.4 * Math.min(1, phase.t * 1.6);
+        opacity = Math.max(0, 1 - phase.t * 2);
         if (droppedNow) this.burst(new THREE.Vector3(tileX(gx), TILE_TOP_Y, tileZ(gy)), [COLORS[color], "#ffffff"], { count: 3, speed: 1.6, up: 1.4, size: 0.09, life: 0.6 });
-      } else if (phase.name === "rest" && !isTarget) {
-        targetY = -3.4 * (1 - phase.t);
-        opacity = Math.min(1, phase.t * 1.4);
+      } else if (phase.name === "announce") {
+        // Zu Beginn der Ansage kommen die gefallenen Felder in neuer Farbe
+        // wieder hoch.
+        opacity = Math.min(1, (tile.material.opacity ?? 1) + dt * 4);
       }
       tile.position.x = tileX(gx) + jitterX;
       tile.position.z = tileZ(gy) + jitterZ;
       tile.position.y = THREE.MathUtils.lerp(tile.position.y, targetY, frameLerp(0.3, dt));
       tile.material.transparent = opacity < 1;
       tile.material.opacity = opacity;
-      if (isTarget && (phase.name === "announce" || phase.name === "drop")) {
+      if (isTarget && phase.name !== "over") {
         tile.material.emissive.set(COLORS[color]);
         tile.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(now / 150)) * 0.7;
         if (phase.name === "announce") tile.position.y += Math.abs(Math.sin(now / 150 + gx + gy)) * 0.06;
@@ -233,7 +241,6 @@ export class ColorRush extends MinigameScene {
       }
     });
 
-    const targetKnown = phase.name !== "announce" || phase.t >= 0.55;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       const kin = this.kins.get(player.id);
@@ -306,11 +313,9 @@ export class ColorRush extends MinigameScene {
       if (finale) return;
 
       const onTarget = arcade.grid[entry.gy * GRID + entry.gx] === arcade.targetColor;
-      if (phase.name === "announce" && targetKnown && !onTarget) {
-        animator.set("panic");
-        animator.expression("scared", 200);
-      } else if (phase.name === "announce" && !targetKnown) {
-        animator.set("think");
+      if (phase.name === "announce" && !onTarget) {
+        animator.set(phase.t > 0.5 ? "panic" : "ready");
+        if (phase.t > 0.5) animator.expression("scared", 200);
       } else if (phase.name === "announce" && onTarget) {
         animator.set("ready");
       } else {
@@ -332,18 +337,22 @@ export class ColorRush extends MinigameScene {
     this.scoreNode.textContent = String(controlled?.survived || 0);
     const banner = this.hud.querySelector("[data-color-banner]");
     if (banner) {
-      const showWarning = phase.name === "announce" || phase.name === "drop";
-      banner.hidden = !showWarning;
-      if (showWarning) {
-        const spinning = phase.name === "announce" && phase.t < 0.55;
-        const colorIdx = spinning ? Math.floor(now / 90) % COLORS.length : arcade.targetColor;
-        const secs = phase.name === "announce" ? Math.max(1, Math.ceil((1 - phase.t) * arcade.announceMs / 1000)) : 0;
-        banner.textContent = spinning
-          ? "Welche Farbe? …"
-          : (phase.name === "drop" ? `${COLOR_NAMES[arcade.targetColor]}!` : `Steh auf ${COLOR_NAMES[arcade.targetColor]}!  ${secs}`);
-        banner.style.background = COLORS[colorIdx];
-        banner.style.color = colorIdx === 2 ? "#5c4508" : "#1b2530";
-        banner.classList.toggle("locked", !spinning);
+      const own = controlled;
+      const show = phase.name === "announce" || phase.name === "drop";
+      banner.hidden = !show;
+      if (show) {
+        const name = COLOR_NAMES[arcade.targetColor];
+        if (own?.eliminated) {
+          banner.textContent = "Reingefallen — schau zu";
+          banner.style.background = "#0b1419";
+          banner.style.color = "#ffffff";
+        } else {
+          const secs = Math.max(0, phase.left / 1000).toFixed(1);
+          banner.textContent = phase.name === "drop" ? `${name}!` : `Lauf auf ${name}!  ${secs}`;
+          banner.style.background = COLORS[arcade.targetColor];
+          banner.style.color = arcade.targetColor === 2 ? "#5c4508" : "#1b2530";
+        }
+        banner.classList.add("locked");
       }
     }
   }

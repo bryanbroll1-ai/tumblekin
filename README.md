@@ -73,7 +73,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 👆✳️ In jede Richtung wischen
 
 - **Zielgerade:** Weiche Hürden aus (hoch wischen zum Springen) und such dir die schnelle Bahn (links/rechts wischen): Violett ist Tempo, Braun ist Sand. Nach unten wischen ist ein Angriff — er trifft nur, wer in DEINER Bahn dicht vor dir läuft, und wer gerade springt, weicht aus. Du hast drei davon.
-- **Farbflucht:** Wisch in die Richtung, in der die angesagte Farbe liegt, und steh darauf, bevor der Boden wegbricht.
+- **Farbflucht:** Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
 
 ### 👆 Tippen
 

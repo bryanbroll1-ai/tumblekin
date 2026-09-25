@@ -62,7 +62,7 @@ const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_ROUNDS * (DARE_ROLL_MS + DARE_SH
 const MINIGAMES = [
   { type: "bounceArena", title: "Bumper Pool", duration: 18000 },
   { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
-  { type: "colorEscape", title: "Farbflucht", duration: 46000, arcadeFamily: "colorgrid" },
+  { type: "colorEscape", title: "Farbflucht", duration: 31000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
   { type: "ballonPump", title: "Pump-Panik", duration: 12000, arcadeFamily: "pump" },
@@ -550,25 +550,26 @@ const RUNNER_ATTACK_RANGE = 9;         // nur wer dicht genug auffaehrt, trifft
 const RUNNER_ATTACK_COOLDOWN_MS = 5000;
 const RUNNER_ATTACK_STUMBLE_MS = 600;
 const RUNNER_ATTACKS_PER_RACE = 3;
+// Farbflucht — eine Farbe wird angesagt, alle anderen Felder fallen weg.
+//
+// Die alte Fassung war im Ablauf kaputt: die Zielfarbe stand im Banner erst
+// nach gut der Hälfte der Ansage fest (die Felder leuchteten aber schon), nur
+// in dieser Ansage durfte man laufen, danach war man zweieinhalb Sekunden
+// gesperrt, und beim Übergang aus dem Vorlauf begann das Rätsel noch einmal.
+// Real blieben so oft unter 0,6 s zum Laufen. Server und Client rechneten
+// dazu je eigene Phasen aus Werten, die sich von Runde zu Runde änderten.
+//
+// Jetzt gibt es EINEN Zeitplan, den der Server beim Start festlegt und
+// mitschickt: je Runde Ansage und Fall. Die Farbe steht vom ersten Moment der
+// Ansage fest, laufen darf man während der ganzen Ansage, und direkt nach dem
+// Fall kommt die nächste. Die Ansagen werden kürzer, die sicheren Felder
+// weniger — am Ende sogar weniger als Mitspieler, damit es eine Entscheidung
+// gibt.
 const COLORGRID_SIZE = 6;
-const COLORGRID_ROUNDS = 6;
-const COLORGRID_ROUND_MS = 7000;
-const COLORGRID_ANNOUNCE_MS = 2300;
-const COLORGRID_DROP_END_MS = 4800;
-// Vorlauf, bevor der Boden zum ersten Mal fällt. Vorher 3000 ms — zusammen mit
-// 2600 ms Vorwarnung standen am Anfang 5,6 Sekunden zur Verfügung, um auf eines
-// von zehn sicheren Feldern zu treten. Die erste Farbe konnte niemanden
-// erwischen und fühlte sich folgerichtig an, als passiere nichts.
-const COLORGRID_LEAD_MS = 1400;
-// Die Runden ziehen an. Vorher war jede Runde gleich lang und gleich leicht: bei
-// 2,6 s Vorwarnung und im Schnitt neun sicheren Feldern war das nächste Ziel
-// meist einen Schritt entfernt, und gemessen überlebten ALLE drei Bot-Stufen
-// gleich viele Runden. Ohne Steigerung entscheidet nur das Pech.
-const COLORGRID_ANNOUNCE_MIN_MS = 1300;
-const COLORGRID_ANNOUNCE_STEP_MS = 200;   // je Runde weniger Vorwarnung, aber sanft
-const COLORGRID_DROP_MS = 2200;           // Fallphase, unabhängig von der Vorwarnung
-const COLORGRID_SAFE_START = 8;           // sichere Felder in Runde 1
-const COLORGRID_SAFE_MIN = 4;
+const COLORGRID_ANNOUNCE_MS = [3400, 3000, 2700, 2450, 2200, 2000, 1800, 1650];
+const COLORGRID_SAFE = [9, 7, 6, 5, 4, 3, 3, 2];
+const COLORGRID_ROUNDS = COLORGRID_ANNOUNCE_MS.length;
+const COLORGRID_DROP_MS = 1300;           // Felder weg, wer falsch steht, fällt
 
 // Lichtwächter — red light, green light: hold to run, freeze on red.
 const REDLIGHT_GOAL = 30;             // metres to the guard's gate
@@ -2515,10 +2516,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "colorgrid") {
     arcade.gridSize = COLORGRID_SIZE;
-    arcade.roundMs = COLORGRID_ROUND_MS;
-    arcade.announceMs = COLORGRID_ANNOUNCE_MS;
-    arcade.dropEndMs = COLORGRID_DROP_END_MS;
-    arcade.leadMs = COLORGRID_LEAD_MS;
+    arcade.schedule = buildColorSchedule();
     arcade.roundCount = COLORGRID_ROUNDS;
     arcade.round = -1;
     arcade.phase = "announce";
@@ -3246,21 +3244,40 @@ function runnerLaneFactor(arcade, position, lane) {
 }
 
 
-// Vorwarnzeit und Zahl der sicheren Felder je Runde. Beides schrumpft, damit aus
-// „hinlaufen" gegen Ende „sofort loslaufen und den kürzesten Weg finden" wird.
-function colorGridAnnounceMs(round) {
-  return Math.max(COLORGRID_ANNOUNCE_MIN_MS, COLORGRID_ANNOUNCE_MS - round * COLORGRID_ANNOUNCE_STEP_MS);
+// Der Zeitplan: je Runde Beginn (ab Spielstart), Ende der Ansage und Ende des
+// Falls. Server, Bots und Client lesen alle dieselben Zahlen.
+function buildColorSchedule() {
+  const rounds = [];
+  let at = 0;
+  COLORGRID_ANNOUNCE_MS.forEach((announceMs) => {
+    rounds.push({ start: at, dropAt: at + announceMs, end: at + announceMs + COLORGRID_DROP_MS });
+    at += announceMs + COLORGRID_DROP_MS;
+  });
+  return rounds;
 }
 
-function colorGridSafeTiles(round) {
-  return Math.max(COLORGRID_SAFE_MIN, COLORGRID_SAFE_START - round * 2);
+// Welche Runde und welche Phase zu einer Zeit ab Spielstart. Nach der letzten
+// Runde "over".
+function colorGridPhaseAt(arcade, elapsed) {
+  const schedule = arcade.schedule || [];
+  let round = 0;
+  for (let index = 0; index < schedule.length; index += 1) {
+    if (elapsed >= schedule[index].start) round = index;
+  }
+  const slot = schedule[round];
+  if (!slot) return { round: 0, name: "announce" };
+  if (elapsed < slot.dropAt) return { round, name: "announce", slot };
+  if (elapsed < slot.end || round < schedule.length - 1) return { round, name: "drop", slot };
+  return { round, name: "over", slot };
 }
 
 function advanceColorRound(arcade, round, now) {
   arcade.round = round;
   arcade.phase = "announce";
   arcade.roundStartedAt = now;
-  arcade.announceMs = colorGridAnnounceMs(round);
+  const slot = arcade.schedule?.[round];
+  // Für ältere Leser: dieselben Zahlen wie im Zeitplan, relativ zur Runde.
+  arcade.announceMs = slot ? slot.dropAt - slot.start : COLORGRID_ANNOUNCE_MS[0];
   arcade.dropEndMs = arcade.announceMs + COLORGRID_DROP_MS;
   arcade.targetColor = Math.floor(arcadeNoise(arcade.seed + round * 53) * 4);
   // Erst alles mit anderen Farben füllen — so ist die Zahl der sicheren Felder
@@ -3269,12 +3286,12 @@ function advanceColorRound(arcade, round, now) {
     const roll = Math.floor(arcadeNoise(arcade.seed + round * 61 + index * 7) * 3);
     return (arcade.targetColor + 1 + roll) % 4;
   });
-  const safe = colorGridSafeTiles(round);
+  const safe = COLORGRID_SAFE[Math.min(round, COLORGRID_SAFE.length - 1)];
   let placed = 0;
   for (let probe = 0; placed < safe && probe < arcade.grid.length * 6; probe += 1) {
-    const slot = Math.floor(arcadeNoise(arcade.seed + round * 67 + probe * 11) * arcade.grid.length);
-    if (arcade.grid[slot] === arcade.targetColor) continue;
-    arcade.grid[slot] = arcade.targetColor;
+    const slot2 = Math.floor(arcadeNoise(arcade.seed + round * 67 + probe * 11) * arcade.grid.length);
+    if (arcade.grid[slot2] === arcade.targetColor) continue;
+    arcade.grid[slot2] = arcade.targetColor;
     placed += 1;
   }
 }
@@ -3294,7 +3311,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 90, plinko: 180, curling: 180, runner: 130, colorgrid: 150, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { daredevil: 200, dive: 90, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 40, barrel: 60, bomb: 150, catchfall: 110, whack: 110, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -4115,14 +4132,9 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "colorgrid") {
     if (input.action !== "step") return { ok: false, error: "Wische in eine Richtung." };
     if (arcadePlayer.eliminated) return { ok: true };
-    // You may move freely while the floor is whole (the calm lead-in and the
-    // announce phase). Movement locks only while the wrong tiles are dropping
-    // away and rising back, and frees again once everything is back — so this
-    // must use the same lead-aware round clock as updateColorGrid.
-    const elapsed = now - room.currentMinigame.startedAt;
-    const shifted = elapsed - (arcade.leadMs || 0);
-    const roundElapsed = shifted < 0 ? 0 : shifted - arcade.round * arcade.roundMs;
-    if (roundElapsed >= arcade.announceMs) return { ok: true };
+    // Laufen darf man während der ganzen Ansage, gesperrt ist nur der Fall.
+    const phase = colorGridPhaseAt(arcade, now - room.currentMinigame.startedAt);
+    if (phase.name !== "announce") return { ok: true };
     const directions = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
     const direction = directions[input.dir];
     if (!direction) return { ok: false, error: "Unbekannte Richtung." };
@@ -5008,17 +5020,11 @@ function updateRunner(room, minigame, arcade, dt, now) {
 function updateColorGrid(room, minigame, arcade, now) {
   if (now < minigame.startedAt) return;
   const elapsed = now - minigame.startedAt;
-  // A calm lead-in: the first target is shown but the floor never drops until
-  // the lead time has passed, so the round no longer starts abruptly.
-  const shifted = elapsed - (arcade.leadMs || 0);
-  const round = shifted < 0 ? 0 : Math.min(arcade.roundCount - 1, Math.floor(shifted / arcade.roundMs));
-  if (round !== arcade.round) advanceColorRound(arcade, round, now);
+  const phase = colorGridPhaseAt(arcade, elapsed);
+  if (phase.round !== arcade.round) advanceColorRound(arcade, phase.round, now);
 
-  const roundElapsed = shifted < 0 ? 0 : shifted - round * arcade.roundMs;
-  const phase = roundElapsed < arcade.announceMs ? "announce" : (roundElapsed < arcade.dropEndMs ? "drop" : "rest");
-
-  if (phase === "drop" && arcade.phase === "announce") {
-    // The floor drops: anyone on a wrong tile falls and is OUT for good.
+  if (phase.name !== "announce" && arcade.phase === "announce") {
+    // Der Boden fällt: wer auf einer falschen Farbe steht, fällt und ist raus.
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
       if (!entry || entry.eliminated) return;
@@ -5029,21 +5035,22 @@ function updateColorGrid(room, minigame, arcade, now) {
         entry.flash = "good";
       } else {
         entry.eliminated = true;
-        entry.fallenRound = round;
+        entry.fallenRound = phase.round;
         entry.flash = "bad";
       }
       entry.lastHitAt = now;
       syncArcadeScore(minigame, player, entry);
     });
   }
-  arcade.phase = phase;
+  arcade.phase = phase.name;
 
-  // Single elimination: once at most one player is still standing, play a
-  // short finale so the survivor is seen, then the scoreboard.
+  // Steht höchstens noch einer — oder ist die letzte Runde gefallen —, kurzes
+  // Finale, damit man sieht, wer übrig ist.
   const alive = room.players.reduce((count, player) => (
     count + (arcade.players[player.id] && !arcade.players[player.id].eliminated ? 1 : 0)
   ), 0);
-  if (room.players.length > 1 && alive <= 1 && elapsed > arcade.announceMs) {
+  const firstDrop = arcade.schedule?.[0]?.dropAt ?? 0;
+  if ((room.players.length > 1 && alive <= 1 && elapsed > firstDrop) || phase.name === "over") {
     beginMinigameFinale(room, minigame);
   }
 }
@@ -6959,13 +6966,12 @@ function arcadeBotStep(room, bot) {
     return;
   }
   if (arcade.family === "colorgrid") {
-    if (arcade.phase !== "announce" || player.eliminated) return;
+    if (player.eliminated) return;
     const now = Date.now();
     const profile = botProfile(player);
-    // Die Vorlaufzeit muss abgezogen werden — genau wie im Eingabe-Handler.
-    // Ohne sie war roundElapsed dauerhaft 3000 ms zu gross, die Reaktionszeit
-    // griff nie, und alle drei Stufen liefen gleich schnell los.
-    const roundElapsed = (now - minigame.startedAt) - (arcade.leadMs || 0) - arcade.round * arcade.roundMs;
+    const phase = colorGridPhaseAt(arcade, now - minigame.startedAt);
+    if (phase.name !== "announce" || phase.round !== arcade.round) return;
+    const roundElapsed = (now - minigame.startedAt) - phase.slot.start;
     if (roundElapsed < profile.reactionMs) return;
     const onTarget = arcade.grid[player.gy * COLORGRID_SIZE + player.gx] === arcade.targetColor;
     if (onTarget) return;
@@ -6976,10 +6982,14 @@ function arcadeBotStep(room, bot) {
       player.botDithers = Math.random() < profile.mistake;
     }
     if (player.botDithers && roundElapsed < profile.reactionMs + 700) return;
-    // Walk one step towards the nearest safe tile.
+    // Zum nächsten FREIEN sicheren Feld. Auf ein besetztes zuzulaufen hiess
+    // vorher, davor stehen zu bleiben, bis der Boden fiel.
+    const taken = new Set(Object.values(arcade.players)
+      .filter((other) => other !== player && !other.eliminated)
+      .map((other) => other.gy * COLORGRID_SIZE + other.gx));
     let best = null;
     arcade.grid.forEach((color, index) => {
-      if (color !== arcade.targetColor) return;
+      if (color !== arcade.targetColor || taken.has(index)) return;
       const gx = index % COLORGRID_SIZE;
       const gy = Math.floor(index / COLORGRID_SIZE);
       const dist = Math.abs(gx - player.gx) + Math.abs(gy - player.gy);
@@ -7356,6 +7366,7 @@ module.exports = {
     runnerSegmentAt,
     runnerLaneFactor,
     advanceColorRound,
+    colorGridPhaseAt,
     updateArcade,
     updateRedlight,
     updateWave,
