@@ -542,26 +542,19 @@ function seekFindValue(probes) {
 }
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
-// Zielgerade — neu gedacht.
+// Zielgerade — ein Lauf über drei Bahnen, 150 Meter.
 //
 // Die alte Fassung war ein Selbstläufer: alle rannten gleich schnell, und man
-// wischte hin und wieder um ein Hindernis herum. Wer nichts tat, wurde
-// bestraft, wer alles richtig machte, gewann nichts dazu — es gab keine
-// Entscheidung, nur eine Reaktionsprüfung mit langen Pausen dazwischen. Genau
-// das fühlt sich an, als spiele das Spiel sich selbst.
-//
-// Jetzt gibt es zwei Stellschrauben, und sie ziehen gegeneinander:
+// wischte hin und wieder um ein Hindernis herum. Jetzt entscheidet drei Dinge,
+// wer vorn ist, und alle drei sieht man kommen:
 //
 //  * DIE BAHN hat Tempo. Jeder Abschnitt gibt den drei Bahnen einen Belag —
-//    Tempo, normal, Sand. Die Bahnwahl wirkt damit die ganze Zeit, nicht nur
-//    im Moment eines Hindernisses. Man liest voraus und plant eine Linie.
-//  * DER SPRINT kostet Schwung und SPERRT DIE BAHN. Wer sprintet, kann nicht
-//    wechseln. Also sprintet man dort, wo die eigene Bahn eine Weile gut
-//    bleibt, und läuft locker durch die unübersichtlichen Stellen.
-//
-// Aus "ausweichen oder stolpern" wird "wo lohnt sich der Schwung". Die Hürden
-// bleiben, aber als Grund, rechtzeitig NICHT zu sprinten — nicht als
-// Zufallsstrafe.
+//    Tempo, normal, Sand —, und die Tempobahn wandert. Man liest voraus und
+//    plant eine Linie.
+//  * HÜRDEN stehen nie im Sand, dafür oft in der schnellen Bahn: überspringen
+//    (tippen) oder ausweichen, sonst stolpert man gut eine Sekunde.
+//  * DREI WÜRFE nach vorn in die eigene Bahn: wer dicht hinter jemandem läuft,
+//    kann ihn zum Stolpern bringen — wer springt, wird verfehlt.
 const RUNNER_LENGTH = 150;
 const RUNNER_BASE_SPEED = 5.2;
 const RUNNER_SEG_LEN = 7.5;            // Länge eines Bahnabschnitts in Metern
@@ -2616,7 +2609,16 @@ function arenaBotStep(arena, playerId) {
   bot.lastThrustAt = now;
 }
 
-function createArcadeState(type, players, startedAt) {
+// Der Startwert jeder Runde ist neu gewürfelt. Vorher stand er je Spieltyp
+// fest: Farbflucht sagte in jeder Partie dieselben Farben in derselben
+// Reihenfolge an, der Lichtwächter drehte sich immer im selben Takt, und der
+// Rennkurs war immer derselbe — beim dritten Mal spielte man auswendig. Die
+// Tests können ihn über `options.seed` festhalten.
+function roundSeed(base) {
+  return base * 1000 + Math.floor(Math.random() * 997);
+}
+
+function createArcadeState(type, players, startedAt, options = {}) {
   const config = ARCADE_CONFIGS[type];
   const arcade = {
     type,
@@ -2624,7 +2626,7 @@ function createArcadeState(type, players, startedAt) {
     // Startzeitpunkt am Zustand: einige Ergebnisse rechnen in Sekunden ab
     // Rundenbeginn, und die kennen das Minispiel-Objekt nicht.
     startedAt,
-    seed: config.seed,
+    seed: Number.isFinite(options.seed) ? options.seed : roundSeed(config.seed),
     beatMs: config.beatMs || null,
     choiceDelay: config.choiceDelay || 0,
     periodMs: config.periodMs || null,
@@ -2718,7 +2720,7 @@ function createArcadeState(type, players, startedAt) {
   if (config.family === "stopclock") {
     // Jedes Mal eine neue Zielzeit zwischen 4 und 8 Sekunden. Bis 12 war zu
     // lang: nach acht Sekunden im Kopf zählen ist es Glück, nicht Gefühl.
-    arcade.targetMs = Math.round(4000 + arcadeNoise(config.seed + Date.now() % 997) * 4000);
+    arcade.targetMs = Math.round(4000 + arcadeNoise(arcade.seed + Date.now() % 997) * 4000);
     arcade.hideAfterMs = 2000;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -2728,7 +2730,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "runner") {
     arcade.trackLength = RUNNER_LENGTH;
-    arcade.segments = createRunnerCourse(config.seed);
+    arcade.segments = createRunnerCourse(arcade.seed);
     arcade.segLen = RUNNER_SEG_LEN;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -2767,7 +2769,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "redlight") {
     arcade.goal = REDLIGHT_GOAL;
-    arcade.phases = buildRedlightPhases(config.seed, 60000);
+    arcade.phases = buildRedlightPhases(arcade.seed, 60000);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.progress = 0;
@@ -2784,7 +2786,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "wave") {
     arcade.jumpMs = WAVE_JUMP_MS;
-    arcade.waves = buildWaveSchedule(config.seed, 60000);
+    arcade.waves = buildWaveSchedule(arcade.seed, 60000);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.jumpUntil = 0;
@@ -2794,7 +2796,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "daredevil") {
     arcade.rounds = DARE_ROUNDS;
-    arcade.leadIn = DARE_LEAD_IN_MS + Math.round(arcadeNoise(config.seed + (Date.now() % 7919)) * DARE_LEAD_SPREAD_MS);
+    arcade.leadIn = DARE_LEAD_IN_MS + Math.round(arcadeNoise(arcade.seed + (Date.now() % 7919)) * DARE_LEAD_SPREAD_MS);
     arcade.rollMs = DARE_ROLL_MS;
     arcade.showMs = DARE_SHOW_MS;
     arcade.startM = DARE_START_M;
@@ -2819,7 +2821,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "barrel") {
     arcade.limit = BARREL_LIMIT;
-    arcade.phases = buildBarrelPhases(config.seed, 60000);
+    arcade.phases = buildBarrelPhases(arcade.seed, 60000);
     arcade.barrelAngle = 0;
     arcade.barrelVel = 0;
     players.forEach((player) => {
@@ -2836,7 +2838,7 @@ function createArcadeState(type, players, startedAt) {
     arcade.goldFrom = CATCH_GOLD_FROM;
     arcade.jackpotAt = CATCH_JACKPOT_AT;
     arcade.jackpotWarnMs = CATCH_JACKPOT_WARN_MS;
-    arcade.drops = buildCatchDrops(config.seed + (Date.now() % 7717), 60000);
+    arcade.drops = buildCatchDrops(arcade.seed + (Date.now() % 7717), 60000);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.lane = 1;
@@ -2850,7 +2852,7 @@ function createArcadeState(type, players, startedAt) {
   if (config.family === "whack") {
     // Salt the fixed per-game seed with time so the blobs pop in a fresh random
     // pattern every round instead of the identical fixed sequence.
-    arcade.pops = buildWhackPops(config.seed + (Date.now() % 9973), 60000);
+    arcade.pops = buildWhackPops(arcade.seed + (Date.now() % 9973), 60000);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.hits = 0;
@@ -2864,7 +2866,7 @@ function createArcadeState(type, players, startedAt) {
     arcade.anglePeriodMs = CANNON_ANGLE_PERIOD_MS;
     arcade.angleMin = CANNON_ANGLE_MIN;
     arcade.angleMax = CANNON_ANGLE_MAX;
-    const salt = config.seed + (Date.now() % 7907);
+    const salt = arcade.seed + (Date.now() % 7907);
     arcade.target = Math.round(CANNON_TARGET_MIN + arcadeNoise(salt) * (CANNON_TARGET_MAX - CANNON_TARGET_MIN));
     // Wind in Zehnteln: positiv schiebt Richtung Flagge, negativ bremst.
     arcade.wind = Math.round((arcadeNoise(salt + 17) * 2 - 1) * 10) / 10;
@@ -2880,7 +2882,7 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "simon") {
-    arcade.rounds = buildSimonRounds(config.seed);
+    arcade.rounds = buildSimonRounds(arcade.seed);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.currentRound = -1;
@@ -2891,7 +2893,7 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "react") {
-    arcade.rounds = buildReactRounds(config.seed);
+    arcade.rounds = buildReactRounds(arcade.seed);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.times = [];
@@ -2899,10 +2901,10 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "bomb") {
     arcade.order = players.map((player) => player.id);
-    arcade.holderId = arcade.order[Math.floor(arcadeNoise(config.seed) * arcade.order.length)] || null;
+    arcade.holderId = arcade.order[Math.floor(arcadeNoise(arcade.seed) * arcade.order.length)] || null;
     arcade.holderSince = startedAt;
     arcade.canPassAt = startedAt;
-    arcade.fuseMs = bombFuseMs(config.seed, 0);
+    arcade.fuseMs = bombFuseMs(arcade.seed, 0);
     arcade.fuseAt = startedAt + arcade.fuseMs;
     // The fuse length is shown for a moment after each pass, then hidden.
     arcade.revealUntil = startedAt + BOMB_REVEAL_MS;
@@ -2939,13 +2941,13 @@ function createArcadeState(type, players, startedAt) {
       entry.width = 1;                   // current top-block width (0..1)
       entry.offset = 0;                  // logical x-centre of the tower
       entry.dir = index % 2 === 0 ? 1 : -1;
-      entry.phase = arcadeNoise(config.seed + index * 7);
+      entry.phase = arcadeNoise(arcade.seed + index * 7);
       entry.toppled = false;
       entry.perfects = 0;
     });
   }
   if (config.family === "feint") {
-    arcade.signals = buildFeintSignals(config.seed, FEINT_DURATION_MS);
+    arcade.signals = buildFeintSignals(arcade.seed, FEINT_DURATION_MS);
     arcade.growMs = FEINT_GROW_MS;
     arcade.holdMs = FEINT_HOLD_MS;
     arcade.maxPoints = FEINT_MAX_POINTS;
@@ -2979,8 +2981,8 @@ function createArcadeState(type, players, startedAt) {
       entry.cleanLaps = 0;             // Runden ohne einen einzigen Abrutscher
       entry.lapSlips = 0;
       entry.lockUntil = 0;
-      entry.brushX = tracePathX(config.seed, 0, 0);
-      entry.gems = buildTraceGems(config.seed, 0);
+      entry.brushX = tracePathX(arcade.seed, 0, 0);
+      entry.gems = buildTraceGems(arcade.seed, 0);
       entry.gemsTaken = {};            // Index -> true, EINMAL je Kristall
       entry.gemsTotal = 0;
       entry.lastGemAt = 0;
@@ -2998,7 +3000,7 @@ function createArcadeState(type, players, startedAt) {
     // Der Farbplan der Rutschen gilt für ALLE gleich und steht von Anfang an
     // fest: derselbe Ablauf für jeden, und der Client kann den nächsten Tausch
     // ankündigen, ohne raten zu müssen.
-    arcade.chutePlan = buildBeltChutePlan(config.seed, BELT_DURATION_MS);
+    arcade.chutePlan = buildBeltChutePlan(arcade.seed, BELT_DURATION_MS);
     arcade.chutes = arcade.chutePlan[0].chutes;
     arcade.swapIndex = 0;
     arcade.speed = BELT_SPEED_START;
@@ -3014,7 +3016,7 @@ function createArcadeState(type, players, startedAt) {
       entry.reachable = false;
       // Jede Person bekommt ihre EIGENE Paketfolge aus demselben Startwert —
       // gleiche Schwierigkeit, aber man kann nicht beim Nachbarn ablesen.
-      entry.parcelSeed = config.seed + hashBeltSeed(player.id);
+      entry.parcelSeed = arcade.seed + hashBeltSeed(player.id);
       entry.queue = Array.from({ length: BELT_QUEUE }, () =>
         makeBeltParcel(arcade, entry.parcelSeed, entry.nextParcel++));
       entry.lastSortAt = 0;
@@ -3022,7 +3024,7 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "estimate") {
-    arcade.rounds = buildEstimateRounds(config.seed);
+    arcade.rounds = buildEstimateRounds(arcade.seed);
     arcade.resolvedRound = -1;
     arcade.lastReveal = null;
     players.forEach((player) => {
@@ -3045,7 +3047,7 @@ function createArcadeState(type, players, startedAt) {
       // Rennen, in dem der erste Fund die Arbeit für alle erledigt — und wer
       // gerade langsamer tippt, bekäme das Ergebnis geschenkt. Gleiche Aufgabe,
       // getrennte Bretter: dann zählt wirklich, wer besser kombiniert.
-      entry.seekSeed = config.seed + hashSeekSeed(player.id);
+      entry.seekSeed = arcade.seed + hashSeekSeed(player.id);
       entry.round = 0;
       entry.found = 0;
       entry.probes = [];               // { x, y, steps }
@@ -3131,8 +3133,8 @@ function createArcadeState(type, players, startedAt) {
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.catchIndex = 0;
-      entry.species = fishSpeciesFor(config.seed, 0);
-      entry.phases = buildFishPhases(config.seed, 0, FISH_DURATION_MS, entry.species);
+      entry.species = fishSpeciesFor(arcade.seed, 0);
+      entry.phases = buildFishPhases(arcade.seed, 0, FISH_DURATION_MS, entry.species);
       entry.caught = [];               // Arten-IDs der gelandeten Fische
       entry.snapLoss = 0;
       entry.hookedAt = startedAt;      // Beginn des aktuellen Fisches
@@ -3183,13 +3185,13 @@ function createArcadeState(type, players, startedAt) {
       entry.busyUntil = 0;             // gräbt, taucht auf oder liegt benommen
       entry.busyKind = null;
       entry.lastDive = null;
-      entry.nextRisk = diveRiskAt(config.seed, 0, 1);
+      entry.nextRisk = diveRiskAt(arcade.seed, 0, 1);
       entry.nextGain = diveGain(1);
     });
   }
   if (config.family === "glide") {
     // Der Kurs steht von Anfang an fest und gilt für ALLE gleich.
-    const course = buildGlideCourse(config.seed + (Date.now() % 6007), GLIDE_DURATION_MS);
+    const course = buildGlideCourse(arcade.seed + (Date.now() % 6007), GLIDE_DURATION_MS);
     arcade.targets = course.targets;
     arcade.stars = course.stars;
     arcade.speed = GLIDE_SPEED;
@@ -3219,7 +3221,7 @@ function createArcadeState(type, players, startedAt) {
 
   if (config.family === "climb") {
     arcade.height = CLIMB_HEIGHT;
-    arcade.sides = buildClimbSides(config.seed);
+    arcade.sides = buildClimbSides(arcade.seed);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.rung = 0;                    // rungs climbed
@@ -7685,6 +7687,7 @@ module.exports = {
     RUNNER_ATTACK_RANGE,
     RUNNER_ATTACKS_PER_RACE,
     createArcadeState,
+    ARCADE_CONFIGS,
     handleArcadeInput,
     arcadeResultDetail,
     createArenaState,

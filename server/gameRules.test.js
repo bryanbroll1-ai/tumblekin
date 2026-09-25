@@ -13,7 +13,7 @@ const {
   beginMinigameFinale,
   arcadeResultDetail,
   bounceResultScore,
-  createArcadeState,
+  createArcadeState: createArcadeStateRandom,
   createArenaState,
   handleArenaInput,
   updateBounceArena,
@@ -140,6 +140,13 @@ const {
   RUNNER_ATTACK_RANGE,
   RUNNER_ATTACKS_PER_RACE
 } = testRules;
+
+// Im Spiel wird der Startwert jeder Runde gewürfelt. Die Tests halten ihn je
+// Spieltyp fest — sonst hinge ein Fehlschlag am Zufall und liesse sich nicht
+// nachstellen. Wer ausdrücklich einen anderen will, gibt ihn mit.
+function createArcadeState(type, players, startedAt, options = {}) {
+  return createArcadeStateRandom(type, players, startedAt, { seed: testRules.ARCADE_CONFIGS[type]?.seed, ...options });
+}
 
 function player(overrides = {}) {
   return { ...overrides };
