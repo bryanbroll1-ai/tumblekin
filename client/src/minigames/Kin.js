@@ -1575,6 +1575,38 @@ const ALIASES = { room: "idle", stand: "idle" };
 
 export const KIN_STATES = Object.keys(STATES);
 
+// Einen Arm auf einen Punkt in der Welt richten — Hand an Griff, Seil oder
+// Stange. Der Arm ist zu kurz für echte Inverse Kinematik mit Ellbogen; er
+// zeigt einfach dorthin, und liegt das Ziel in Reichweite, liegt die Hand
+// darauf. `weight` blendet von der Pose zum Ziel (0 = Pose, 1 = ganz).
+//
+// Gerechnet wird im Rumpf, damit Neigen, Drehen und Hüpfen der Figur
+// mitgenommen werden: gesucht ist die Drehung, die die Armachse (0, -1, 0) auf
+// die Richtung zum Ziel dreht. Mit der Reihenfolge X-dann-Z der Gelenke ergibt
+// sich die Z-Drehung aus der seitlichen Komponente und die X-Drehung aus dem
+// Verhältnis von Höhe und Tiefe.
+const _reachTarget = new THREE.Vector3();
+export function reachArm(kin, armIndex, worldTarget, weight = 1) {
+  const arm = kin?.userData?.arms?.[armIndex];
+  if (!arm || !worldTarget || weight <= 0) return false;
+  const torso = arm.parent;
+  torso.updateWorldMatrix(true, false);
+  _reachTarget.copy(worldTarget);
+  torso.worldToLocal(_reachTarget);
+  _reachTarget.sub(arm.position);
+  const length = _reachTarget.length();
+  if (length < 1e-4) return false;
+  _reachTarget.divideScalar(length);
+  const dx = Math.max(-1, Math.min(1, _reachTarget.x));
+  const k = Math.sqrt(Math.max(0, 1 - dx * dx)) * (_reachTarget.y > 0 ? -1 : 1);
+  const z = Math.atan2(dx, k);
+  const x = Math.abs(k) < 1e-4 ? arm.rotation.x : Math.atan2(-_reachTarget.z / k, -_reachTarget.y / k);
+  const w = Math.min(1, weight);
+  const blend = (from, to) => from + Math.atan2(Math.sin(to - from), Math.cos(to - from)) * w;
+  arm.rotation.set(blend(arm.rotation.x, x), 0, blend(arm.rotation.z, z));
+  return true;
+}
+
 // --- Animator -----------------------------------------------------------------
 // Überblendet zwischen Zuständen und legt Oberkörper-Handlungen, Gesicht und
 // Blick darüber. Nimmt jede Uhr in Millisekunden — Szenen reichen die mit dem

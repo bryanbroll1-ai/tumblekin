@@ -60,7 +60,7 @@ const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_ROUNDS * (DARE_ROLL_MS + DARE_SH
 
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
-  { type: "bounceArena", title: "Bumper Bloom", duration: 18000 },
+  { type: "bounceArena", title: "Bumper Pool", duration: 18000 },
   { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
   { type: "colorEscape", title: "Farbflucht", duration: 46000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
@@ -742,10 +742,12 @@ const STACK_BOT_LOOKAHEAD_MS = 150;
 const BOT_TICK_LEAD_MS = 75;
 
 // Bergsteiger — die Griffe zeigen, welche Hand dran ist; die falsche rutscht ab.
-// Auch hier kein Gipfel mehr, an dem alles endet: geklettert wird auf Zeit, und
-// gewertet wird, wie weit man kommt. Bleibt als Obergrenze stehen, damit die
-// Wand nicht endlos gebaut werden muss.
-const CLIMB_HEIGHT = 400;
+// Der Gipfel liegt bei 70 Sprossen. Wer oben ist, ist fertig, und unter denen,
+// die es schaffen, zählt die Zeit: wer schneller oben war, gewinnt. Wer nicht
+// ankommt, steht nach Höhe dahinter. Vorher war die Wand praktisch endlos
+// (400), gewertet wurde nur die Höhe beim Schlusspfiff — es gab keinen Moment,
+// auf den man hinklettert.
+const CLIMB_HEIGHT = 70;
 // So viele Sprossen hat die Griffolge, bevor sie sich wiederholt. Genau so viele
 // Griffe hängen im Client je Bahn an der Wand und wandern beim Steigen oben
 // wieder an — die Zahl muss darum auf beiden Seiten dieselbe sein, sonst zeigt
@@ -792,6 +794,10 @@ function climbSideFor(arcade, rung) {
 
 // Blob-Klopfe — whack the blobs that pop out of the 3x3 holes.
 const WHACK_CELLS = 9;
+// Wer auf einen Stachelblob haut, ist kurz benommen und kann nicht klopfen.
+// Ein Punkt Abzug allein machte Draufhauen auf alles billig: wer blind jedes
+// Loch trifft, verliert einen Punkt und hat drei gewonnen.
+const WHACK_STUN_MS = 1400;
 
 // Kanonenflug — tap once for power, once for the launch angle (45° is best).
 const CANNON_PERIOD_MS = 1300;        // full swing of the power gauge
@@ -881,7 +887,7 @@ const CURLING_RESTITUTION = 0;      // Steine schieben sich, sie prallen nicht a
 const CURLING_BUTTON_FACTOR = 1.6;    // Wert am Knopf, gemessen am inneren Ring
 const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel through
 
-// Bumper Bloom — Schwimmringe rempeln sich im Becken.
+// Bumper Pool — Schwimmringe rempeln sich auf einer Badeinsel.
 // Physics live in a unit disk (radius 1). One analog gesture: steer with the
 // stick, ramming is pure momentum. The rim ALWAYS bounces you back — unless a
 // bumper hit was hard enough to "launch" you (a short window), so you can never
@@ -2478,8 +2484,9 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "stopclock") {
-    // A fresh random target every game, from 4s up to a 12s maximum.
-    arcade.targetMs = Math.round(4000 + arcadeNoise(config.seed + Date.now() % 997) * 8000);
+    // Jedes Mal eine neue Zielzeit zwischen 4 und 8 Sekunden. Bis 12 war zu
+    // lang: nach acht Sekunden im Kopf zählen ist es Glück, nicht Gefühl.
+    arcade.targetMs = Math.round(4000 + arcadeNoise(config.seed + Date.now() % 997) * 4000);
     arcade.hideAfterMs = 2000;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -2610,6 +2617,7 @@ function createArcadeState(type, players, startedAt) {
       entry.hits = 0;
       entry.badHits = 0;
       entry.hitPopIds = {};
+      entry.stunUntil = 0;
     });
   }
   if (config.family === "cannon") {
@@ -3411,6 +3419,7 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "whack") {
     if (input.action !== "whack") return { ok: false, error: "Tippe auf das Feld mit dem Blob." };
     const cell = clamp(Math.round(inputNumber(input.cell) || 0), 0, WHACK_CELLS - 1);
+    if (now < (arcadePlayer.stunUntil || 0)) return { ok: true };   // noch benommen
     const elapsed = now - room.currentMinigame.startedAt;
     const pop = arcade.pops.find((candidate) =>
       candidate.cell === cell && elapsed >= candidate.from && elapsed <= candidate.until && !arcadePlayer.hitPopIds[candidate.id]);
@@ -3425,6 +3434,7 @@ function handleArcadeInput(room, player, rawInput) {
       arcadePlayer.badHits += 1;
       arcadePlayer.hits = Math.max(0, arcadePlayer.hits - 1);
       arcadePlayer.flash = "bad";
+      arcadePlayer.stunUntil = now + WHACK_STUN_MS;
     } else {
       arcadePlayer.hits += 1;
       arcadePlayer.flash = "good";
@@ -6307,6 +6317,7 @@ function arcadeBotStep(room, bot) {
     // Auch Stachelblobs kommen in Frage — ein Bot, der nur die guten überhaupt
     // ansieht, kann sich nie vergreifen, und gemessen hatte KEINE Stufe je einen
     // Fehlschlag.
+    if (now < (player.stunUntil || 0)) return;
     const active = arcade.pops.find((pop) =>
       !player.hitPopIds[pop.id]
       && elapsed >= pop.from + profile.reactionMs * 0.7 && elapsed <= pop.until);
@@ -7288,6 +7299,7 @@ if (require.main === module) {
 
 module.exports = {
   testRules: {
+    WHACK_STUN_MS,
     startGame,
     finishMinigame,
     continueAfterResult,

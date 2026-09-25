@@ -1682,3 +1682,13 @@
 }
 
 .stock-power[hidden] { display: none; }
+
+/* --- Blob-Klopfe: benommen nach einem Stachelblob --------------------------- */
+.whack-stun {
+  background: #ff5c6e;
+  color: #fff;
+}
+canvas.is-stunned {
+  filter: saturate(0.35) brightness(0.92);
+  transition: filter 0.15s linear;
+}

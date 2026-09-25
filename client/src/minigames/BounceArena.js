@@ -4,25 +4,26 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameDecay, frameLerp } from "./Quality.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 
-// Bumper Bloom: jede Figur fährt in einem Blütenring über eine Bonbon-Scheibe
-// und rempelt die anderen ins Wasser.
+// Bumper Pool: jede Figur sitzt in einem gestreiften Schwimmring auf einer
+// Badeinsel mitten im Freibad und rempelt die anderen ins Becken.
 //
-// Vorher rollten hier Kugeln mit zwei Augen — das einzige Spiel ohne echte
-// Figuren. Jetzt steht die Figur in ihrem Ring, lehnt sich in die Fahrt,
-// zuckt beim Zusammenstoss, schaut ängstlich, wenn es am Rand eng wird, und
-// wer hinausfliegt, überschlägt sich, landet im Wasser und treibt dort im
-// eigenen Ring weiter mit.
+// Vorher war es eine Blütenscheibe über einem See, und die Figuren standen in
+// Blütenringen. Die Physik ist dieselbe geblieben — nur passt das Bild jetzt
+// zu dem, was passiert: wer hinausfliegt, landet mit seinem Ring im Wasser,
+// treibt dort weiter und paddelt zurück, bis er wieder auf die Insel darf.
 //
-// Die Masse folgen der Physik des Servers: Scheibe 1.0, Figur 0.11 — hier
-// mal SCALE. Die Blüte ist etwas grösser als der Stossradius, damit die Ringe
-// sich beim Aufprall sichtbar eindrücken statt kurz vorher abzuprallen.
+// Die Masse folgen der Physik des Servers: Insel 1.0, Figur 0.11 — hier mal
+// SCALE. Der Ring ist etwas grösser als der Stossradius, damit er sich beim
+// Aufprall sichtbar eindrückt statt kurz vorher abzuprallen.
 const SCALE = 2.6;
 const PLATE_R = 2.72;
 const DECK_Y = 0.3;
 const BLOOM_R = 0.11 * SCALE * 1.12;
-const WATER_Y = -1.35;
+const WATER_Y = -0.12;
 const FLOAT_R = 3.75;
 const FLY_MS = 900;
+const POOL_W = 13;
+const POOL_D = 10.5;
 
 export class BounceArena extends MinigameScene {
   constructor(ctx) {
@@ -39,9 +40,9 @@ export class BounceArena extends MinigameScene {
 
   stage() {
     return {
-      label: "3D Bumper Bloom",
+      label: "3D Bumper Pool",
       background: "#9fdcf2",
-      fog: ["#aee2f5", 14, 34],
+      fog: ["#bfe8f7", 16, 40],
       lights: {
         sunPosition: [3.5, 8, 4.2],
         shadow: { left: -4, right: 4, top: 4, bottom: -4 },
@@ -56,70 +57,18 @@ export class BounceArena extends MinigameScene {
   build() {
     const scene = this.scene;
 
-    this.water = new THREE.Mesh(new THREE.BoxGeometry(60, 0.5, 60), new THREE.MeshLambertMaterial({ color: "#3cb0cf" }));
-    this.water.position.y = WATER_Y - 0.25;
-    this.water.receiveShadow = true;
-    scene.add(this.water);
-
-    // Stiel und Kelch der Blume, die die Scheibe trägt.
-    // Oberkante deutlich unter der Scheibe: bündig flackerte sie hindurch.
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.3, 1.4, 8), new THREE.MeshLambertMaterial({ color: "#5fbf6f" }));
-    stem.position.y = WATER_Y + 0.55;
-    scene.add(stem);
-    for (let i = 0; i < 8; i += 1) {
-      const angle = (i / 8) * Math.PI * 2 + 0.2;
-      const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 0.7), new THREE.MeshLambertMaterial({ color: i % 2 ? "#4fae62" : "#6ccb78" }));
-      leaf.position.set(Math.cos(angle) * 2.2, WATER_Y + 0.05, Math.sin(angle) * 2.2);
-      leaf.rotation.y = -angle;
-      leaf.rotation.z = 0.12;
-      scene.add(leaf);
-    }
-
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R + 0.12, PLATE_R - 0.35, 0.5, 16), new THREE.MeshLambertMaterial({ color: "#c487a3" }));
-    base.position.y = DECK_Y - 0.3;
-    base.castShadow = true;
-    base.receiveShadow = true;
-    scene.add(base);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R, 0.08, 32), new THREE.MeshLambertMaterial({ color: "#a58ddd" }));
-    cap.position.y = DECK_Y - 0.04;
-    cap.receiveShadow = true;
-    scene.add(cap);
-    // Weiche Ringe als Orientierung: Mitte sicher, aussen wird es eng.
-    [0.35, 0.68].forEach((r, index) => {
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(PLATE_R * r - 0.035, PLATE_R * r + 0.035, 40),
-        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: index ? 0.5 : 0.65, depthWrite: false })
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = DECK_Y + 0.004;
-      scene.add(ring);
-    });
-    // Warnstreifen am Rand; er glüht, wenn jemand nah dran ist.
-    this.rim = new THREE.Mesh(
-      new THREE.TorusGeometry(PLATE_R - 0.02, 0.07, 6, 40),
-      new THREE.MeshLambertMaterial({ color: "#ff4668", emissive: "#ff4668", emissiveIntensity: 0.6 })
-    );
-    this.rim.rotation.x = Math.PI / 2;
-    this.rim.position.y = DECK_Y + 0.02;
-    scene.add(this.rim);
-    // Blütenblätter unter dem Rand.
-    for (let i = 0; i < 12; i += 1) {
-      const angle = (i / 12) * Math.PI * 2;
-      const petal = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.62), new THREE.MeshLambertMaterial({ color: i % 2 ? "#ff9cc0" : "#ffb8d2" }));
-      petal.position.set(Math.cos(angle) * (PLATE_R + 0.2), DECK_Y - 0.42, Math.sin(angle) * (PLATE_R + 0.2));
-      petal.rotation.y = -angle;
-      petal.rotation.z = -0.25;
-      scene.add(petal);
-    }
+    this.buildPool();
+    this.buildIsland();
 
     this.drifters = [];
-    [[-5.2, 1.4, -3.4, 1], [5.4, 2.1, -2.2, 2], [-4.8, 2.6, 2.4, 3], [4.6, 1.1, 3.2, 4]].forEach(([x, y, z, seed]) => {
+    [[-6.5, 4.2, -9, 1], [5.8, 5, -10, 2], [-1.5, 5.6, -12, 3]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      cloud.userData = { baseY: y, phase: seed * 1.7, drift: 0.1 + noise(seed) * 0.1 };
+      cloud.userData = { baseY: y, phase: seed * 1.7, drift: 0.12 };
       scene.add(cloud);
       this.drifters.push(cloud);
     });
+    this.buildToys();
 
     // Fahrspuren: flache Scheiben, die schnelle Figuren hinter sich lassen.
     this.trails = [];
@@ -147,28 +96,29 @@ export class BounceArena extends MinigameScene {
     });
   }
 
-  // Der Blütenring: ein Schlauch in der Spielerfarbe, Blätter aussen herum,
-  // ein dunkler Boden. Die Figur steht darin.
+  // Der Schwimmring: ein dicker Schlauch, abwechselnd in der Spielerfarbe und
+  // Weiss gestreift, auf Hüfthöhe. Die Hände liegen darauf.
   addBloom(player) {
     const bloom = new THREE.Group();
     const color = new THREE.Color(player.color);
-    const light = color.clone().lerp(new THREE.Color("#ffffff"), 0.45);
-    const tube = new THREE.Mesh(new THREE.TorusGeometry(BLOOM_R - 0.07, 0.085, 6, 16), new THREE.MeshLambertMaterial({ color }));
-    tube.rotation.x = Math.PI / 2;
-    tube.position.y = 0.13;
-    tube.castShadow = true;
-    bloom.add(tube);
-    const floor = new THREE.Mesh(new THREE.CylinderGeometry(BLOOM_R - 0.06, BLOOM_R - 0.02, 0.07, 14), new THREE.MeshLambertMaterial({ color: "#4a3d55" }));
-    floor.position.y = 0.04;
-    bloom.add(floor);
-    const petalMat = new THREE.MeshLambertMaterial({ color: light });
-    for (let i = 0; i < 6; i += 1) {
-      const angle = (i / 6) * Math.PI * 2;
-      const petal = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.12), petalMat);
-      petal.position.set(Math.cos(angle) * (BLOOM_R + 0.02), 0.07, Math.sin(angle) * (BLOOM_R + 0.02));
-      petal.rotation.y = -angle;
-      bloom.add(petal);
+    const colorMat = new THREE.MeshLambertMaterial({ color });
+    const whiteMat = new THREE.MeshLambertMaterial({ color: "#fdfdfd" });
+    const segments = 8;
+    for (let i = 0; i < segments; i += 1) {
+      const arc = new THREE.Mesh(
+        new THREE.TorusGeometry(BLOOM_R - 0.05, 0.1, 8, 5, (Math.PI * 2) / segments + 0.01),
+        i % 2 ? whiteMat : colorMat
+      );
+      arc.rotation.x = Math.PI / 2;
+      arc.rotation.z = (i / segments) * Math.PI * 2;
+      arc.position.y = 0.2;
+      arc.castShadow = true;
+      bloom.add(arc);
     }
+    // Das Ventil — ein kleines Detail, an dem man einen Schwimmring erkennt.
+    const valve = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.05), whiteMat);
+    valve.position.set(BLOOM_R - 0.05, 0.3, 0);
+    bloom.add(valve);
     bloom.position.y = DECK_Y;
     this.scene.add(bloom);
     this.blooms.set(player.id, bloom);
@@ -177,6 +127,184 @@ export class BounceArena extends MinigameScene {
       shadow.userData.manual = true;
       shadow.scale.setScalar(1.25);
     }
+  }
+
+  // Das Freibad: Becken mit Fliesenrand, Wasser, dahinter Liegen, Schirme,
+  // Palmen und eine Rutsche.
+  buildPool() {
+    const scene = this.scene;
+    this.water = new THREE.Mesh(
+      new THREE.BoxGeometry(POOL_W, 0.4, POOL_D),
+      new THREE.MeshLambertMaterial({ color: "#35c6e6", emissive: "#0d6f8f", emissiveIntensity: 0.18 })
+    );
+    this.water.position.y = WATER_Y - 0.2;
+    this.water.receiveShadow = true;
+    scene.add(this.water);
+    // Heller Schimmer auf dem Wasser: flache, langsam treibende Flecken.
+    this.shimmer = [];
+    const shimmerMat = new THREE.MeshBasicMaterial({ color: "#c9f6ff", transparent: true, opacity: 0.35, depthWrite: false });
+    for (let i = 0; i < 18; i += 1) {
+      const patch = new THREE.Mesh(new THREE.PlaneGeometry(0.9 + (i % 3) * 0.5, 0.12), shimmerMat);
+      patch.rotation.x = -Math.PI / 2;
+      patch.rotation.z = (i * 0.7) % Math.PI;
+      const x = -POOL_W / 2 + 0.8 + ((i * 3.7) % (POOL_W - 1.6));
+      const z = -POOL_D / 2 + 0.8 + ((i * 2.3) % (POOL_D - 1.6));
+      patch.position.set(x, WATER_Y + 0.01, z);
+      patch.userData = { x, z, phase: i * 1.3 };
+      scene.add(patch);
+      this.shimmer.push(patch);
+    }
+    // Fliesenrand rundherum und die Liegewiese dahinter.
+    const tile = new THREE.MeshLambertMaterial({ color: "#f2f5f7" });
+    const tileBlue = new THREE.MeshLambertMaterial({ color: "#2f8fc4" });
+    const edge = 0.8;
+    [
+      [0, -POOL_D / 2 - edge / 2, POOL_W + edge * 2, edge],
+      [0, POOL_D / 2 + edge / 2, POOL_W + edge * 2, edge],
+      [-POOL_W / 2 - edge / 2, 0, edge, POOL_D],
+      [POOL_W / 2 + edge / 2, 0, edge, POOL_D]
+    ].forEach(([x, z, w, d]) => {
+      const rim = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), tile);
+      rim.position.set(x, WATER_Y + 0.12, z);
+      rim.receiveShadow = true;
+      scene.add(rim);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w, POOL_W + 0.02), 0.08, Math.min(d, POOL_D + 0.02)), tileBlue);
+      band.position.set(x, WATER_Y - 0.02, z);
+      scene.add(band);
+    });
+    const lawn = new THREE.Mesh(new THREE.BoxGeometry(60, 0.3, 30), new THREE.MeshLambertMaterial({ color: "#7fd47a" }));
+    lawn.position.set(0, WATER_Y + 0.05, -POOL_D / 2 - edge - 15);
+    lawn.receiveShadow = true;
+    scene.add(lawn);
+    const sideLawn = new THREE.Mesh(new THREE.BoxGeometry(60, 0.3, 30), new THREE.MeshLambertMaterial({ color: "#86da80" }));
+    sideLawn.position.set(0, WATER_Y + 0.05, POOL_D / 2 + edge + 15);
+    scene.add(sideLawn);
+    [-1, 1].forEach((side) => {
+      const flank = new THREE.Mesh(new THREE.BoxGeometry(20, 0.3, POOL_D + edge * 2), sideLawn.material);
+      flank.position.set(side * (POOL_W / 2 + edge + 10), WATER_Y + 0.05, 0);
+      scene.add(flank);
+    });
+
+    // Liegen und Sonnenschirme am hinteren Rand.
+    const backZ = -POOL_D / 2 - edge - 1.2;
+    const chairColors = ["#ff6f91", "#ffd15c", "#6fd3ff", "#9b7bff"];
+    [-4.8, -2.6, 2.6, 4.8].forEach((x, i) => {
+      const chair = new THREE.Group();
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 1.5), new THREE.MeshLambertMaterial({ color: chairColors[i] }));
+      seat.position.y = 0.3;
+      chair.add(seat);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 0.7), seat.material);
+      back.position.set(0, 0.55, -0.85);
+      back.rotation.x = -0.9;
+      chair.add(back);
+      chair.position.set(x, WATER_Y + 0.2, backZ);
+      scene.add(chair);
+      if (i % 2 === 0) {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.1, 6), new THREE.MeshLambertMaterial({ color: "#ffffff" }));
+        pole.position.set(x + 1.1, WATER_Y + 1.25, backZ);
+        scene.add(pole);
+        const shade = new THREE.Mesh(new THREE.ConeGeometry(1.25, 0.5, 8), new THREE.MeshLambertMaterial({ color: i ? "#ff8a3d" : "#ff5d73" }));
+        shade.position.set(x + 1.1, WATER_Y + 2.35, backZ);
+        shade.castShadow = true;
+        scene.add(shade);
+      }
+    });
+    // Palmen links und rechts, eine Rutsche hinten rechts.
+    [[-7.8, -3.5], [7.9, -4.4], [-8.3, 3.2]].forEach(([x, z], i) => {
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 3.2, 6), new THREE.MeshLambertMaterial({ color: "#b98a57" }));
+      trunk.position.set(x, WATER_Y + 1.6, z);
+      trunk.rotation.z = (i % 2 ? -1 : 1) * 0.12;
+      scene.add(trunk);
+      for (let k = 0; k < 6; k += 1) {
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.42), new THREE.MeshLambertMaterial({ color: k % 2 ? "#3fae5d" : "#58c774" }));
+        const angle = (k / 6) * Math.PI * 2;
+        leaf.position.set(x + Math.cos(angle) * 0.7, WATER_Y + 3.2, z + Math.sin(angle) * 0.7);
+        leaf.rotation.y = -angle;
+        leaf.rotation.z = -0.35;
+        scene.add(leaf);
+      }
+    });
+    const slideMat = new THREE.MeshLambertMaterial({ color: "#ffcf3f" });
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.6, 0.9), new THREE.MeshLambertMaterial({ color: "#5aa7e0" }));
+    tower.position.set(5.9, WATER_Y + 1.3, -POOL_D / 2 - edge - 0.9);
+    scene.add(tower);
+    const chute = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.14, 3.2), slideMat);
+    chute.position.set(5.2, WATER_Y + 1.3, -POOL_D / 2 + 0.55);
+    chute.rotation.x = -0.72;
+    chute.rotation.y = 0.35;
+    scene.add(chute);
+  }
+
+  // Die Badeinsel: weiche Matte, rundherum ein dicker rot-weisser Wulst — der
+  // Rand, über den man fliegt, wenn man zu hart gerammt wird.
+  buildIsland() {
+    const scene = this.scene;
+    const mat = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R + 0.06, 0.44, 40), new THREE.MeshLambertMaterial({ color: "#d6c6ff" }));
+    mat.position.y = DECK_Y - 0.22;
+    mat.receiveShadow = true;
+    mat.castShadow = true;
+    scene.add(mat);
+    // Ein grosser Stern aufgedruckt, damit die Mitte lesbar ist.
+    const star = new THREE.Shape();
+    for (let i = 0; i < 10; i += 1) {
+      const r = (i % 2 ? 0.45 : 1) * PLATE_R * 0.36;
+      const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+      if (i === 0) star.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    const print = new THREE.Mesh(new THREE.ShapeGeometry(star), new THREE.MeshLambertMaterial({ color: "#fbf7ff" }));
+    print.rotation.x = -Math.PI / 2;
+    print.position.y = DECK_Y + 0.003;
+    scene.add(print);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(PLATE_R * 0.66 - 0.04, PLATE_R * 0.66 + 0.04, 48),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.75, depthWrite: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = DECK_Y + 0.004;
+    scene.add(ring);
+    // Der Wulst: rot-weiss gestreift; er glüht, wenn jemand nah dran ist.
+    this.rim = new THREE.Group();
+    const red = new THREE.MeshLambertMaterial({ color: "#ff4668", emissive: "#ff4668", emissiveIntensity: 0.6 });
+    const white = new THREE.MeshLambertMaterial({ color: "#ffffff" });
+    this.rim.material = red;
+    const segments = 16;
+    for (let i = 0; i < segments; i += 1) {
+      const arc = new THREE.Mesh(new THREE.TorusGeometry(PLATE_R + 0.04, 0.16, 8, 6, (Math.PI * 2) / segments + 0.01), i % 2 ? white : red);
+      arc.rotation.x = Math.PI / 2;
+      arc.rotation.z = (i / segments) * Math.PI * 2;
+      arc.castShadow = true;
+      this.rim.add(arc);
+    }
+    this.rim.position.y = DECK_Y - 0.02;
+    scene.add(this.rim);
+  }
+
+  // Was sonst im Becken treibt: ein Wasserball, eine Quietscheente.
+  buildToys() {
+    const scene = this.scene;
+    this.toys = [];
+    const ball = new THREE.Group();
+    ["#ff5d73", "#ffffff", "#ffd15c", "#ffffff", "#4bb8ff", "#ffffff"].forEach((color, i) => {
+      const slice = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 8, (i / 6) * Math.PI * 2, Math.PI / 3), new THREE.MeshLambertMaterial({ color }));
+      ball.add(slice);
+    });
+    ball.position.set(-4.6, WATER_Y + 0.22, -2.6);
+    scene.add(ball);
+    this.toys.push({ mesh: ball, x: -4.6, z: -2.6, phase: 0.4, spin: 0.4 });
+    const duck = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.26, 0.52), new THREE.MeshLambertMaterial({ color: "#ffd84a" }));
+    body.position.y = 0.1;
+    duck.add(body);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), body.material);
+    head.position.set(0, 0.34, 0.14);
+    duck.add(head);
+    const beak = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.07, 0.12), new THREE.MeshLambertMaterial({ color: "#ff8a2a" }));
+    beak.position.set(0, 0.32, 0.33);
+    duck.add(beak);
+    duck.position.set(4.7, WATER_Y, -1.9);
+    scene.add(duck);
+    this.toys.push({ mesh: duck, x: 4.7, z: -1.9, phase: 2.1, spin: -0.25 });
   }
 
   hudHtml() {
@@ -202,7 +330,7 @@ export class BounceArena extends MinigameScene {
       </div>`;
     this.joystick = new VirtualJoystick({
       root: this.controls.querySelector(".joystick-slot"),
-      label: "Bumper Bloom lenken und rammen",
+      label: "Schwimmring lenken und rammen",
       intervalMs: 70,
       feedback: this.feedback,
       onVector: (x, y) => this.sendInput({ action: "thrust", x, y }).catch(() => {}),
@@ -373,12 +501,24 @@ export class BounceArena extends MinigameScene {
     });
 
     this.pulse *= frameDecay(0.85, dt);
-    this.rim.material.emissiveIntensity = 0.5 + Math.sin(now / 190) * 0.2 + danger * 0.9 + this.pulse;
+    this.rim.material.emissiveIntensity = 0.35 + Math.sin(now / 190) * 0.15 + danger * 0.9 + this.pulse;
+    this.shimmer?.forEach((patch) => {
+      const d = patch.userData;
+      patch.position.x = d.x + Math.sin(now / 1700 + d.phase) * 0.4;
+      patch.position.z = d.z + Math.cos(now / 2100 + d.phase) * 0.3;
+      patch.material.opacity = 0.22 + Math.sin(now / 900 + d.phase) * 0.1;
+    });
+    this.toys?.forEach((toy) => {
+      toy.mesh.position.x = toy.x + Math.sin(now / 2600 + toy.phase) * 0.5;
+      toy.mesh.position.z = toy.z + Math.cos(now / 3100 + toy.phase) * 0.4;
+      toy.mesh.position.y = (toy.mesh === this.toys[0].mesh ? WATER_Y + 0.22 : WATER_Y) + Math.sin(now / 600 + toy.phase) * 0.04;
+      toy.mesh.rotation.y += dt * toy.spin;
+    });
     this.drifters.forEach((drifter) => {
       const data = drifter.userData;
       drifter.position.y = data.baseY + Math.sin(now / 1400 + data.phase) * data.drift;
     });
-    this.water.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.03;
+    this.water.position.y = WATER_Y - 0.2 + Math.sin(now / 900) * 0.015;
     this.trails.forEach((spur) => {
       if (!spur.mesh.visible) return;
       spur.age += dt;
@@ -424,7 +564,7 @@ export class BounceArena extends MinigameScene {
     s.float.x = Math.cos(s.float.angle) * FLOAT_R;
     s.float.z = Math.sin(s.float.angle) * FLOAT_R;
     const bob = Math.sin(now / 520 + s.float.phase) * 0.05;
-    bloom.position.set(s.float.x, WATER_Y - 0.08 + bob, s.float.z);
+    bloom.position.set(s.float.x, WATER_Y - 0.2 + bob, s.float.z);
     bloom.rotation.set(Math.sin(now / 700 + s.float.phase) * 0.06, bloom.rotation.y + dt * 0.2, Math.cos(now / 800 + s.float.phase) * 0.06);
     kin.position.x = s.float.x;
     kin.position.z = s.float.z;
@@ -469,7 +609,7 @@ export class BounceArena extends MinigameScene {
     });
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const w = Math.min(PLATE_R * 2 + 0.5, Math.max(4.1, maxX - minX + 3));
+    const w = Math.min(PLATE_R * 2 + 0.5, Math.max(4.6, maxX - minX + 3));
     const h = Math.min(4.4, Math.max(3.2, (maxZ - minZ) * 0.7 + 2.2));
     const finale = Boolean((this.update || this.minigame)?.finaleAt);
     return { look: [cx * 0.75, 0.25, cz * 0.75 + 0.2], frame: { w, h }, pitch: finale ? 0.42 : undefined };

@@ -34,6 +34,7 @@ export function kinVariant(player, index = 0) {
 // Ein Spiel überschreibt:
 //   stage()        Himmel, Nebel, Licht        (optional)
 //   hudHtml()      Markup der Anzeige           (optional)
+//   afterAnimate(f) nach den Posen, z. B. Hände an Griffe legen (optional)
 //   build()        die Welt
 //   shot()         die Kameraeinstellung (siehe CameraRig)
 //   bind()         Steuerung anhängen           (optional)
@@ -147,6 +148,9 @@ export class MinigameScene {
     if (finale && places && this.autoFinale !== false) this.finaleMoods(f);
 
     this.animators.forEach((animator) => animator.update(now));
+    // Nach der Pose, vor dem Bild: hier können Szenen einzelne Glieder an die
+    // Welt anpassen — Hände an Griffe oder Seilenden legen.
+    this.afterAnimate?.(f);
     this.shadows.forEach((shadow, id) => {
       const kin = this.kins.get(id);
       const animator = this.animators.get(id);

@@ -1,11 +1,19 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin200";
 import { addStageLights } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
 // Bergsteiger — die Wand zeigt, welche Hand als Nächstes greifen muss. Der
-// richtige Griff zieht eine Sprosse hoch, der falsche rutscht eine ab.
+// richtige Griff zieht eine Sprosse hoch, der falsche rutscht eine ab. Oben
+// auf 70 wartet der Gipfel: wer ankommt, klettert über die Kante, hisst seine
+// Fahne und jubelt; unter allen, die es schaffen, gewinnt die kürzere Zeit.
+//
+// Die Hände liegen AUF den Griffen. Früher hingen die Griffe fast einen Meter
+// über der Figur und die Arme ruderten davor in der Luft. Jetzt sitzen die
+// Griffe dort, wo eine Hand hinkommt, die Figur hängt dicht an der Wand, und
+// nach der Pose richtet reachArm jede Hand auf ihren Griff aus — die greifende
+// fährt dabei vom alten zum neuen Griff hinüber.
 //
 // Die Kletterbewegung war bisher von Hand an Arme und Füsse der alten Figur
 // geschrieben; mit der neuen Figur griff sie ins Leere, und alle hingen steif
@@ -15,17 +23,26 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // Kamera: der Sieger jubelt, der Rest hängt durch.
 const LANE_GAP = 1.55;
 // Kletterhöhe je Sprosse. Ein fester Abstand je Sprosse, die Kamera fährt mit.
-const WORLD_PER_RUNG = 0.42;
+const WORLD_PER_RUNG = 0.26;
 // So viele Griffe je Bahn hängen an der Wand und wandern beim Steigen oben
 // wieder an. MUSS mit CLIMB_PATTERN_LEN auf dem Server übereinstimmen: nur dann
 // steht nach einem Umlauf wieder derselbe Griff da, den der Server verlangt.
 const HOLDS_PER_LANE = 40;
-const HOLD_REACH = 0.4;               // seitlicher Abstand des Griffs zur Bahn
-const HOLD_LIFT = 0.95;               // Griffhöhe über den Füssen — Reichweite
+// Griffe in Reichweite: bei Sprosse n hält eine Hand Griff n-1 (etwas über
+// der Schulter), die andere den letzten auf ihrer Seite (etwas darunter). Die
+// Schulter sitzt auf Höhe von kin.position.y, der Arm ist knapp 0,19 lang.
+const HOLD_REACH = 0.3;               // seitlicher Abstand des Griffs zur Bahn
+const HOLD_LIFT = 0.39;               // Griffhöhe über der Schulter bei Sprosse 0
+const HOLD_FACE_Z = -0.36;            // Vorderseite der Griffe
+const KIN_Z = -0.36;                  // die Figur hängt dicht an der Wand
+const PLATEAU_Z = -0.95;              // dort steht, wer oben angekommen ist
 const WALL_SPAN = 40;                 // Höhe des Wandblocks, der mitgezogen wird
 const WALL_WIDTH = 15;                // breit genug, dass nie Himmel daneben steht
 const KIN_BASE_Y = 0.5;
 const GRAB_MS = 340;
+const _handA = new THREE.Vector3();
+const _handB = new THREE.Vector3();
+const _handFrom = new THREE.Vector3();
 
 export class CliffClimb extends MinigameScene {
   constructor(ctx) {
@@ -38,6 +55,7 @@ export class CliffClimb extends MinigameScene {
     this.lastSlips = new Map();
     this.lastFinished = new Map();
     this.grabAt = new Map();
+    this.finishSeenAt = new Map();
     this.ownY = KIN_BASE_Y;
     this.ownX = 0;
     this.ownLane = 0;
@@ -77,9 +95,13 @@ export class CliffClimb extends MinigameScene {
       new THREE.BoxGeometry(WALL_WIDTH, WALL_SPAN, 1),
       new THREE.MeshLambertMaterial({ color: "#9c8f7a" })
     );
-    this.cliff.position.set(0, 0, -1.1);
+    // Der Gipfel: die Wand endet eine Handbreit über dem letzten Griff.
+    this.summit = (this.update || this.minigame)?.arcade?.height || 70;
+    this.summitTop = KIN_BASE_Y + this.summit * WORLD_PER_RUNG + 0.3;
+    this.cliff.position.set(0, this.summitTop - WALL_SPAN / 2, -1.1);
     this.cliff.receiveShadow = true;
     scene.add(this.cliff);
+    this.buildSummit();
     // Die Wand hatte bisher nur die bunten Griffe auf einer glatten Platte —
     // beim Klettern bewegte sich sichtbar gar nichts ausser den Figuren, und man
     // konnte nicht sehen, wie hoch man schon war. Drei Lagen ändern das, und
@@ -237,7 +259,7 @@ export class CliffClimb extends MinigameScene {
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
       const x = this.laneX(index, players.length);
-      this.addKin(player, index, { x, ground: KIN_BASE_Y - 0.3, z: 0, facing: Math.PI });
+      this.addKin(player, index, { x, ground: KIN_BASE_Y - 0.3, z: KIN_Z, facing: Math.PI });
       // An einer senkrechten Wand gibt es keinen Boden für einen Schatten.
       const shadow = this.shadows.get(player.id);
       shadow.userData.manual = true;
@@ -249,6 +271,54 @@ export class CliffClimb extends MinigameScene {
       }
     });
     this.buildLadder();
+  }
+
+  // Schnee auf der Kante, Felsspitzen dahinter und je Bahn eine Fahnenstange,
+  // an der die Fahne hochgeht, sobald jemand oben ist.
+  buildSummit() {
+    const scene = this.scene;
+    const top = this.summitTop;
+    const snow = new THREE.Mesh(new THREE.BoxGeometry(WALL_WIDTH, 0.16, 1.3), new THREE.MeshLambertMaterial({ color: "#f7fbff" }));
+    snow.position.set(0, top + 0.02, -1.05);
+    snow.receiveShadow = true;
+    scene.add(snow);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(WALL_WIDTH, 0.1, 0.16), new THREE.MeshLambertMaterial({ color: "#e4eef8" }));
+    lip.position.set(0, top - 0.02, -0.48);
+    scene.add(lip);
+    const rock = new THREE.MeshLambertMaterial({ color: "#8d8069" });
+    const cap = new THREE.MeshLambertMaterial({ color: "#f3f8fd" });
+    [[-5.6, 2.6, 2.2], [-3.1, 3.8, 2.8], [0.4, 5.2, 3.4], [3.6, 3.4, 2.6], [6, 2.2, 2]].forEach(([x, h, w], i) => {
+      const peak = new THREE.Mesh(new THREE.ConeGeometry(w, h, 4), rock);
+      peak.position.set(x, top + h / 2, -3.2 - (i % 2) * 1.4);
+      peak.rotation.y = Math.PI / 4 + i * 0.3;
+      scene.add(peak);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(w * 0.36, h * 0.36, 4), cap);
+      tip.position.set(x, top + h - h * 0.18, peak.position.z);
+      tip.rotation.y = peak.rotation.y;
+      scene.add(tip);
+    });
+    this.flags = new Map();
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => {
+      const x = this.laneX(index, players.length) + 0.42;
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.1, 0.05), new THREE.MeshLambertMaterial({ color: "#6b4a2e" }));
+      pole.position.set(x, top + 0.6, PLATEAU_Z - 0.2);
+      pole.castShadow = true;
+      scene.add(pole);
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.02), new THREE.MeshLambertMaterial({ color: player.color }));
+      flag.position.set(x + 0.19, top + 0.25, PLATEAU_Z - 0.2);
+      scene.add(flag);
+      this.flags.set(player.id, { flag, low: top + 0.25, high: top + 1.02, raisedAt: null });
+    });
+  }
+
+  // Wo Griff Nummer `step` einer Bahn in der Welt hängt (Vorderseite).
+  holdPoint(laneX, step, out = new THREE.Vector3()) {
+    return out.set(
+      laneX + this.sideAt(step) * HOLD_REACH,
+      KIN_BASE_Y + step * WORLD_PER_RUNG + HOLD_LIFT,
+      HOLD_FACE_Z
+    );
   }
 
   shot() {
@@ -332,8 +402,7 @@ export class CliffClimb extends MinigameScene {
 
   syncLadder(arcade, state) {
     if (this.ladderPips.size === 0) return;
-    let top = 8;
-    state.players.forEach((player) => { top = Math.max(top, arcade.players[player.id]?.rung || 0); });
+    const top = this.summit || arcade.height || 70;
     state.players.forEach((player) => {
       const pip = this.ladderPips.get(player.id);
       if (!pip) return;
@@ -384,37 +453,44 @@ export class CliffClimb extends MinigameScene {
       }
       if (entry.finishedAt && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
+        this.finishSeenAt.set(player.id, now);
+        const flag = this.flags?.get(player.id);
+        if (flag) flag.raisedAt = now;
         this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffd15c", "#ffffff"], { count: 22, speed: 2.6, up: 2.8, size: 0.1, life: 0.9, drag: 1.2 });
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "OBEN! 🏔️", { color: "#ffe36b", size: 0.46, life: 1.2, rise: 1 });
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), `OBEN! ${((entry.finishMs || 0) / 1000).toFixed(1)} s`, { color: "#ffe36b", size: 0.46, life: 1.4, rise: 1 });
         if (player.id === controlledId) this.feedback?.sound("win");
       }
 
-      if (finale) {
-        // Am Ende bleibt jeder da hängen, wo er ist, und dreht sich um.
+      if (entry.finishedAt) {
+        // Oben: über die Kante auf das Plateau, zur Kamera drehen, jubeln.
+        const over = Math.min(1, (now - (this.finishSeenAt.get(player.id) ?? now)) / 650);
+        kin.position.x += (kin.userData.laneX - kin.position.x) * frameLerp(0.2, dt);
+        kin.position.z += (PLATEAU_Z - kin.position.z) * frameLerp(over < 1 ? 0.14 : 0.3, dt);
+        animator.groundY = standOn(this.summitTop + 0.1) + Math.sin(over * Math.PI) * 0.32;
+        kin.rotation.y += Math.atan2(Math.sin(-kin.rotation.y), Math.cos(-kin.rotation.y)) * frameLerp(over < 1 ? 0.06 : 0.14, dt);
+        animator.set(over < 1 ? "clamber" : finale && (f.places?.[player.id] || 9) !== 1 ? "wave" : "cheer");
+      } else if (finale) {
+        // Wer es nicht geschafft hat, bleibt hängen und dreht sich halb um.
         const place = f.places?.[player.id] || players.length;
         kin.position.x += (kin.userData.laneX - kin.position.x) * frameLerp(0.3, dt);
-        const turn = place === 1 ? 0 : Math.PI * 0.55;
-        kin.rotation.y += (turn - kin.rotation.y) * frameLerp(0.08, dt);
+        kin.rotation.y += (Math.PI * 0.55 - kin.rotation.y) * frameLerp(0.08, dt);
+        animator.set("hang");
         if (player.id === controlledId && !this.placeShown) {
           this.placeShown = true;
-          this.burst(
-            kin.position.clone().add(new THREE.Vector3(0, 0.6, 0.3)),
-            place === 1 ? ["#ffd15c", "#ffffff", player.color] : [player.color, "#ffffff"],
-            { count: place === 1 ? 26 : 12, speed: 2.4, up: 2.6, size: 0.1, life: 1, drag: 1.2 }
-          );
-          this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0.3)), place === 1 ? "PLATZ 1! 🏔️" : `PLATZ ${place}`, { color: place === 1 ? "#ffe36b" : "#ffffff", size: 0.5, life: 1.6, rise: 0.8 });
+          this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0.3)), `PLATZ ${place}`, { color: "#ffffff", size: 0.46, life: 1.6, rise: 0.8 });
         }
       } else {
-        // Zur greifenden Hand hin pendeln; der Arm auf dieser Seite ist oben.
+        // Zur greifenden Hand hin pendeln; die Hände legt afterAnimate auf die
+        // Griffe.
         const since = now - (this.grabAt.get(player.id) || -1e9);
         const grab = Math.max(0, 1 - since / GRAB_MS);
         const usedSide = -(entry.nextSide || 1);
-        const reach = usedSide * 0.1 * grab;
+        const reach = usedSide * 0.06 * grab;
         kin.position.x += (kin.userData.laneX + reach - kin.position.x) * frameLerp(0.3, dt);
+        kin.position.z = KIN_Z;
         kin.rotation.y = Math.PI;
-        if (entry.finishedAt) animator.set("cheer");
         // Zur Wand gedreht liegt der linke Arm des Gerüsts rechts im Bild.
-        else animator.set("clamber", { params: { up: usedSide > 0 ? -1 : 1, grab } });
+        animator.set("clamber", { params: { up: usedSide > 0 ? -1 : 1, grab } });
       }
       if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.75;
       if (player.id === controlledId) {
@@ -424,18 +500,72 @@ export class CliffClimb extends MinigameScene {
       }
     });
 
+    // Fahnen gehen hoch, sobald jemand oben ist.
+    this.flags?.forEach((entry) => {
+      const t = entry.raisedAt === null ? 0 : Math.min(1, (now - entry.raisedAt) / 1100);
+      const eased = 1 - (1 - t) * (1 - t);
+      entry.flag.position.y = entry.low + (entry.high - entry.low) * eased;
+      entry.flag.rotation.y = t > 0 ? Math.sin(now / 180) * 0.25 : 0;
+    });
+
     // Welche Hand als Nächstes dran ist: Hinweiszeile und leuchtender Ring.
     const own = arcade.players[controlledId];
     const wantsLeft = own && !own.finishedAt && own.nextSide === -1;
-    const hintKey = finale ? "ende" : wantsLeft;
+    const hintKey = finale ? "ende" : own?.finishedAt ? "oben" : wantsLeft;
     if (own && hintKey !== this.hintSide) {
       this.hintSide = hintKey;
       const hint = this.controls?.querySelector("[data-climb-hint]");
-      if (hint) hint.textContent = finale ? "Geschafft!" : wantsLeft ? "◀ Jetzt LINKS tippen" : "Jetzt RECHTS tippen ▶";
+      if (hint) {
+        hint.textContent = finale ? "Geschafft!"
+          : own.finishedAt ? `Oben in ${((own.finishMs || 0) / 1000).toFixed(1)} s — warte auf die anderen`
+            : wantsLeft ? "◀ Jetzt LINKS tippen" : "Jetzt RECHTS tippen ▶";
+      }
     }
     this.syncNextMark(own, f.minigame, now);
     this.syncLadder(arcade, f.state);
     this.scrollWall(this.ownY, dt);
+  }
+
+  // Hände auf die Griffe. Bei Sprosse n hält die zuletzt greifende Hand Griff
+  // n-1, die andere den letzten Griff auf ihrer Seite. Direkt nach einem Zug
+  // fährt die greifende Hand vom alten Griff ihrer Seite zum neuen hinüber,
+  // mit einem kleinen Bogen von der Wand weg.
+  afterAnimate(f) {
+    const { arcade, players, now } = f;
+    if (!arcade) return;
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const kin = this.kins.get(player.id);
+      if (!entry || !kin || entry.finishedAt || f.finale) return;
+      const rung = entry.rung || 0;
+      if (rung < 1) return;
+      const laneX = kin.userData.laneX;
+      const newest = rung - 1;
+      const sideA = this.sideAt(newest);
+      const target = this.holdPoint(laneX, newest, _handA);
+      const since = now - (this.grabAt.get(player.id) || -1e9);
+      if (since < GRAB_MS) {
+        const prev = this.lastOnSide(newest - 1, sideA);
+        if (prev !== null) {
+          const t = since / GRAB_MS;
+          const eased = t * t * (3 - 2 * t);
+          this.holdPoint(laneX, prev, _handFrom);
+          target.lerpVectors(_handFrom, target, eased);
+          target.z += Math.sin(t * Math.PI) * 0.18;
+        }
+      }
+      reachArm(kin, sideA < 0 ? 0 : 1, target, 1);
+      const other = this.lastOnSide(newest - 1, -sideA);
+      if (other !== null) reachArm(kin, sideA < 0 ? 1 : 0, this.holdPoint(laneX, other, _handB), 1);
+    });
+  }
+
+  // Die letzte Sprosse bis einschliesslich `from`, deren Griff auf `side` liegt.
+  lastOnSide(from, side) {
+    for (let step = from; step >= Math.max(0, from - 4); step -= 1) {
+      if (this.sideAt(step) === side) return step;
+    }
+    return null;
   }
 
   // Die Kamera bleibt an der eigenen Figur. Nach zehn Sekunden liegen zwanzig
@@ -478,13 +608,17 @@ export class CliffClimb extends MinigameScene {
     if (!arcade) return;
     const own = arcade.players[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = `${own?.rung || 0}`;
+    this.scoreNode.textContent = own?.finishedAt
+      ? `🏔️ ${((own.finishMs || 0) / 1000).toFixed(1)} s`
+      : `${own?.rung || 0}/${this.summit || arcade.height || 70}`;
     const banner = this.hud.querySelector("[data-climb-banner]");
     if (!banner) return;
     const place = minigame.finaleAt ? (arcade.places?.[controlledId] || 0) : 0;
     if (place) {
       banner.hidden = false;
-      banner.textContent = place === 1 ? "PLATZ 1 — GESCHAFFT! 🏔️" : `PLATZ ${place} · ${own?.rung || 0} Sprossen`;
+      banner.textContent = own?.finishedAt
+        ? `PLATZ ${place} · oben in ${((own.finishMs || 0) / 1000).toFixed(1)} s${place === 1 ? " 🏔️" : ""}`
+        : `PLATZ ${place} · ${own?.rung || 0} von ${this.summit || 70} Sprossen`;
       banner.style.background = place === 1 ? "#ffc400" : "#0b1419";
       banner.style.color = place === 1 ? "#5c4508" : "#ffffff";
     } else {
@@ -501,9 +635,17 @@ export class CliffClimb extends MinigameScene {
       while (object.position.y < floor) object.position.y += band;
       while (object.position.y > floor + band) object.position.y -= band;
     };
-    this.holds.forEach(wrap);
-    this.decor?.forEach(wrap);
-    this.marks?.forEach(wrap);
+    const top = this.summitTop ?? Infinity;
+    this.holds.forEach((hold) => {
+      wrap(hold);
+      // Über dem Gipfel hängen keine Griffe mehr.
+      const step = Math.round((hold.position.y - KIN_BASE_Y - HOLD_LIFT) / WORLD_PER_RUNG);
+      hold.visible = step >= 0 && step < (this.summit ?? Infinity);
+    });
+    [...(this.decor || []), ...(this.marks || [])].forEach((part) => {
+      wrap(part);
+      part.visible = part.position.y < top - 0.1;
+    });
     this.driftClouds?.forEach((cloud) => {
       // Wolken driften seitlich, damit die Wand auch dann lebt, wenn man
       // gerade nicht steigt.
@@ -528,6 +670,7 @@ export class CliffClimb extends MinigameScene {
     // die Wand hat gar keine Textur, sie ist eine einfarbige Fläche. Stufenlos
     // mitzuziehen sieht man ihr deshalb nicht an, und die Kante ist mit einem
     // halben Wandblock Abstand nach oben und unten nie wieder im Bild.
-    if (this.cliff) this.cliff.position.y = ownY;
+    // Seit es einen Gipfel gibt, steht die Wand fest: ihre Oberkante IST der
+    // Gipfel, die Unterkante liegt weit unter dem Einstieg.
   }
 }

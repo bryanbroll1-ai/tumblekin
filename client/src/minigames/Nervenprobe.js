@@ -94,7 +94,7 @@ export class Nervenprobe extends MinigameScene {
     this.revealed = false;
     this.hidAt = false;
     this.labelY = 0.74;
-    this.lastBeat = -1;
+    this.nextNod = new Map();
   }
 
   stage() {
@@ -108,7 +108,7 @@ export class Nervenprobe extends MinigameScene {
 
   hudHtml() {
     return `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-nerve-target></strong></div>
+      <div class="kinetic-scorebar"><span data-nerve-clock>0.00s</span><strong data-nerve-target></strong></div>
       <div class="color-banner" data-nerve-banner hidden></div>`;
   }
 
@@ -358,10 +358,6 @@ export class Nervenprobe extends MinigameScene {
       this.feedback?.sound("win");
       this.feedback?.vibrate([30, 30, 60]);
     }
-    // Im Kopf mitzählen: ein Nicken je Sekunde.
-    const beat = Math.floor(elapsed / 1000);
-    const newBeat = beat !== this.lastBeat;
-    this.lastBeat = beat;
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -408,7 +404,16 @@ export class Nervenprobe extends MinigameScene {
       } else if (hidden) {
         animator.set("think");
         animator.lookAt(null);
-        if (newBeat) animator.trigger("nod");
+        // Nervöses Nicken, aber in keinem Takt: früher nickten alle genau im
+        // Sekundentakt, und man konnte die Zeit einfach an den Figuren
+        // abzählen. Jetzt hat jede ihren eigenen, unregelmässigen Abstand.
+        const due = this.nextNod.get(player.id) ?? now + 900 + Math.random() * 1400;
+        if (now >= due) {
+          animator.trigger("nod");
+          this.nextNod.set(player.id, now + 1300 + Math.random() * 1700);
+        } else {
+          this.nextNod.set(player.id, due);
+        }
       } else {
         animator.set("focus");
         animator.lookAt(station.display.position);
@@ -430,6 +435,11 @@ export class Nervenprobe extends MinigameScene {
     const elapsed = Math.max(0, now - minigame.startedAt);
     const hidden = elapsed >= arcade.hideAfterMs;
     const revealAll = Boolean(minigame.finaleAt);
+    // Die Rundenuhr oben links zählt hier NICHT mit — sie verriete die Zeit,
+    // die man schätzen soll. Sie zeigt dasselbe wie die Anzeigen: bis zum
+    // Verstecken die Stoppuhr, danach nichts.
+    this.clockNode ||= this.hud.querySelector("[data-nerve-clock]");
+    this.clockNode.textContent = revealAll || !hidden ? `${(Math.min(elapsed, arcade.hideAfterMs) / 1000).toFixed(2)}s` : "?.??s";
     this.targetNode ||= this.hud.querySelector("[data-nerve-target]");
     this.targetNode.textContent = `Ziel: ${(arcade.targetMs / 1000).toFixed(1)}s`;
     const banner = this.hud.querySelector("[data-nerve-banner]");

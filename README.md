@@ -67,7 +67,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️ Stick ziehen
 
-- **Bumper Bloom:** Drängen, rammen, auf der Platte bleiben.
+- **Bumper Pool:** Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Wer reinfällt, paddelt zurück — oben bleiben bringt Punkte, rausschubsen noch mehr.
 - **Farbenjagd:** Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal.
 
 ### 👆✳️ In jede Richtung wischen
@@ -77,9 +77,9 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆 Tippen
 
-- **Nervenprobe:** Die Uhr versteckt sich nach 2 Sekunden. Drück den Knopf so nah wie möglich an der Zielzeit.
+- **Nervenprobe:** Die Zielzeit liegt zwischen 4 und 8 Sekunden. Nach 2 Sekunden verschwindet jede Uhr — zähl im Kopf weiter und drück so nah wie möglich an der Zielzeit.
 - **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus.
-- **Blob-Klopfe:** Blobs poppen aus den Löchern – tipp ihr Feld, bevor sie abtauchen. Finger weg von den stacheligen!
+- **Blob-Klopfe:** Blobs poppen aus den Löchern – tipp ihr Feld, bevor sie abtauchen. Finger weg von den stacheligen: wer einen erwischt, verliert einen Treffer und ist kurz benommen.
 - **Seilspringen:** Das Riesenseil wird immer schneller. Spring im richtigen Moment – einmal gestolpert und du bist raus.
 - **Messerwurf:** Reihum je ein Wurf in den drehenden Stamm. Wirf dahin, wo am meisten Platz ist – wer knapp neben ein fremdes Messer setzt, hat Glück gehabt, nicht gut gezielt. Zweimal dagegen und du bist raus. Der Stamm wird jede Runde schneller.
 - **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
@@ -95,7 +95,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Pump-Panik:** Tippe so schnell du kannst! Jeder Tap pumpt deinen Ballon größer – der dickste Ballon gewinnt.
 - **Fassmut:** Ein Fass rollt auf dich zu und wird dabei immer schneller. EIN Tap bremst es. Wer es am dichtesten vor der roten Linie zum Stehen bringt, gewinnt — wer zu spät bremst, wird überrollt.
 - **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Abschusswinkel. Volle Power bei 45° fliegt am weitesten!
-- **Bergsteiger:** Tippe abwechselnd auf die linke und die rechte Bildhälfte — jede Seite ist eine Hand. Die falsche Seite kostet den Griff. Wer am höchsten kommt, gewinnt.
+- **Bergsteiger:** Tippe auf die Bildhälfte, auf der der nächste Griff leuchtet — jede Seite ist eine Hand, die falsche kostet den Griff. Der Gipfel liegt auf 70: wer am schnellsten oben ist, gewinnt. Wer nicht ankommt, zählt nach Höhe.
 
 ### 👆↔️ Links/Rechts wischen
 

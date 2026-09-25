@@ -210,7 +210,9 @@ export class WhackBlob extends MinigameScene {
   }
 
   hudHtml() {
-    return `<div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>`;
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="color-banner whack-stun" data-whack-stun hidden>Aua! Kurz benommen …</div>`;
   }
 
   bind() {
@@ -218,6 +220,11 @@ export class WhackBlob extends MinigameScene {
     this.on(this.webglCanvas, "pointerdown", (event) => {
       event.preventDefault();
       const cell = this.cellFromPointer(event);
+      const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
+      if (this.now() < (own?.stunUntil || 0)) {
+        this.feedback?.vibrate(4);
+        return;
+      }
       if (cell >= 0) {
         this.feedback?.vibrate(8);
         this.sendInput({ action: "whack", cell }).catch(() => {});
@@ -353,7 +360,7 @@ export class WhackBlob extends MinigameScene {
       if (finale) return;
       const face = since < STAY_MS ? swing.face : leap ? Math.atan2(to.x - from.x, to.z - from.z) : Math.atan2(-swing.home.x, -swing.home.z * 0.3 - 1.2);
       kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(leap ? 0.6 : 0.35, dt);
-      animator.set("ready");
+      animator.set(now < (entry.stunUntil || 0) ? "dizzy" : "ready");
     });
   }
 
@@ -365,5 +372,9 @@ export class WhackBlob extends MinigameScene {
     const own = f.arcade?.players?.[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.hits || 0);
+    this.stunNode ||= this.hud.querySelector("[data-whack-stun]");
+    const stunned = f.now < (own?.stunUntil || 0);
+    this.stunNode.hidden = !stunned;
+    this.webglCanvas?.classList.toggle("is-stunned", stunned);
   }
 }

@@ -151,12 +151,13 @@ export class BombPass extends MinigameScene {
 
   buildBomb() {
     this.bomb = new THREE.Group();
-    const body = new THREE.MeshLambertMaterial({ color: "#31405a" });
+    const body = new THREE.MeshLambertMaterial({ color: "#31405a", emissive: "#ff2a1a", emissiveIntensity: 0 });
+    this.bombBody = body;
     const core = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.46), body);
     core.castShadow = true;
     this.bomb.add(core);
     [[0.26, 0, 0], [-0.26, 0, 0], [0, 0, 0.26], [0, 0, -0.26], [0, -0.26, 0]].forEach(([x, y, z]) => {
-      const bulge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.3, 0.24), new THREE.MeshLambertMaterial({ color: "#3d4e6b" }));
+      const bulge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.3, 0.24), body);
       bulge.position.set(x, y, z);
       this.bomb.add(bulge);
     });
@@ -262,13 +263,21 @@ export class BombPass extends MinigameScene {
       this.lastHolderId = arcade.holderId;
     }
 
+    // Anspannung nach HALTEZEIT, nicht nach Restzeit. Wann es knallt, weiss
+    // keiner — aber wer die Bombe festhält, wird mit jeder Zehntelsekunde
+    // nervöser, und alle anderen sehen es: die Bombe zittert und glüht, der
+    // Träger schwitzt und tritt von einem Fuss auf den anderen, die Nachbarn
+    // gehen in Deckung. Nach drei Sekunden ist man ganz oben.
     const holderKin = this.kins.get(arcade.holderId);
     const heldFor = Math.max(0, now - (arcade.holderSince || now)) / 1000;
-    const nervous = Math.min(1, heldFor / 6);
+    const tension = holderKin ? Math.min(1, Math.max(0, (heldFor - 0.4) / 2.6)) : 0;
+    this.bombBody.emissiveIntensity = tension * tension * (0.55 + Math.abs(Math.sin(now / (260 - tension * 190))) * 0.45);
     if (holderKin && !finale) {
       this.bomb.visible = true;
       const rest = this.bombRest(holderKin);
-      rest.x += Math.sin(now / (90 - nervous * 40)) * nervous * 0.06;
+      rest.x += Math.sin(now / (70 - tension * 42)) * (0.012 + tension * 0.085);
+      rest.z += Math.cos(now / (83 - tension * 47)) * tension * 0.05;
+      this.bomb.scale.setScalar(1 + Math.max(0, Math.sin(now / (240 - tension * 170))) * tension * 0.14);
       if (this.flight && this.flight.to === arcade.holderId && now - this.flight.start < PASS_MS) {
         const u = (now - this.flight.start) / PASS_MS;
         this.bomb.position.lerpVectors(this.flight.from, rest, u);
@@ -306,9 +315,24 @@ export class BombPass extends MinigameScene {
       c.fillText(text, 64, 70);
       this.timerTex.needsUpdate = true;
     }
-    this.spark.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(now / (150 - nervous * 90))) * (0.8 + nervous);
-    if (this.bomb.visible && Math.random() < frameChance(0.3, dt)) {
-      this.burst(this.bomb.position.clone().add(new THREE.Vector3(0, 0.55, 0)), ["#ffd15c", "#ff8b2e"], { count: 1, speed: 0.5, up: 0.6, size: 0.04, life: 0.3 });
+    this.spark.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(now / (150 - tension * 100))) * (0.8 + tension * 1.4);
+    this.spark.scale.setScalar(1 + tension * 0.7);
+    if (this.bomb.visible && Math.random() < frameChance(0.3 + tension * 2.2, dt)) {
+      this.burst(this.bomb.position.clone().add(new THREE.Vector3(0, 0.55, 0)), ["#ffd15c", "#ff8b2e"], { count: 1 + Math.round(tension * 2), speed: 0.5 + tension, up: 0.6 + tension * 0.8, size: 0.04, life: 0.3 });
+    }
+    // Schweiss vom Träger, und der eigene Puls in der Hand.
+    if (holderKin && !finale && tension > 0.25 && Math.random() < frameChance(tension * 5, dt)) {
+      const brow = holderKin.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.72, 0.18));
+      this.burst(brow, ["#bfe9ff", "#8fd4ff"], { count: 1, speed: 0.35, up: 0.5, size: 0.045, life: 0.45, gravity: 5 });
+    }
+    if (arcade.holderId === controlledId && tension > 0.2 && !finale) {
+      const beatMs = 820 - tension * 470;
+      if (!this.nextPulse || now >= this.nextPulse) {
+        this.nextPulse = now + beatMs;
+        this.feedback?.vibrate(tension > 0.7 ? [10, 60, 14] : 8);
+      }
+    } else {
+      this.nextPulse = 0;
     }
 
     players.forEach((player) => {
@@ -355,13 +379,24 @@ export class BombPass extends MinigameScene {
       kin.rotation.y = spot.facing;
       // Alle schauen der Bombe hinterher.
       animator.lookAt(this.bomb.visible && !isHolder ? this.bomb.position : null);
-      if (finale) return;
+      if (finale) {
+        this.setGround(player.id, 0.3);
+        return;
+      }
       if (isHolder) {
-        animator.set(nervous > 0.55 ? "panic" : "carry");
-        if (nervous > 0.3) animator.expression("scared", 200);
-        kin.position.x = spot.x + Math.sin(now / 90) * 0.04 * nervous;
+        // Hält die Bombe über dem Kopf; erst ruhig, dann zitternd, zuletzt
+        // trippelnd von einem Fuss auf den anderen.
+        animator.set("carry");
+        if (tension > 0.15) animator.expression(tension > 0.6 ? "surprised" : "scared", 200);
+        kin.position.x = spot.x + Math.sin(now / (60 - tension * 25)) * 0.05 * tension;
+        const trip = tension > 0.45 ? Math.abs(Math.sin(now / (170 - tension * 70))) * 0.07 * tension : 0;
+        this.setGround(player.id, 0.3 + trip);
+        kin.rotation.y = spot.facing + Math.sin(now / 130) * 0.12 * tension;
       } else {
-        animator.set("focus");
+        this.setGround(player.id, 0.3);
+        // Je länger der Nachbar festhält, desto mehr geht man in Deckung.
+        animator.set(tension > 0.65 ? "cower" : tension > 0.3 ? "brace" : "focus");
+        if (tension > 0.5) animator.expression("scared", 200);
       }
     });
 

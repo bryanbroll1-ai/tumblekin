@@ -1054,6 +1054,36 @@ test("blobklopfe: only live blobs count, spiky ones backfire", () => {
   assert.equal(entry.badHits, 1, "spiky blob backfires");
 });
 
+test("blobklopfe: wer einen Stachelblob trifft, ist kurz benommen", () => {
+  const { WHACK_STUN_MS } = testRules;
+  const whacker = player({ id: "wa3", name: "WA3", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("blobklopfe", [whacker], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 25000, finishing: false };
+  const room = { currentMinigame: minigame, players: [whacker] };
+  const entry = arcade.players[whacker.id];
+
+  const bad = arcade.pops.find((pop) => pop.kind === "bad");
+  minigame.startedAt = Date.now() - bad.from - 50;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, whacker, { action: "whack", cell: bad.cell });
+  assert.ok(entry.stunUntil > Date.now(), "nach dem Stachel benommen");
+  assert.ok(entry.stunUntil - Date.now() <= WHACK_STUN_MS);
+
+  // Ein guter Blob, der genau jetzt oben ist, zählt während der Sperre nicht.
+  const good = arcade.pops.find((pop) => pop.kind === "good" && pop.cell !== bad.cell);
+  minigame.startedAt = Date.now() - good.from - 50;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, whacker, { action: "whack", cell: good.cell });
+  assert.equal(entry.hits, 0, "benommen trifft man nichts");
+
+  // Nach der Sperre wieder.
+  entry.stunUntil = Date.now() - 1;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, whacker, { action: "whack", cell: good.cell });
+  assert.equal(entry.hits, 1, "danach zählt es wieder");
+});
+
 test("kanonenflug: tap one locks power, tap two locks the angle (45° flies farthest)", () => {
   const gunner = player({ id: "ka", name: "KA", color: "#fff" });
   const arcade = createArcadeState("kanonenflug", [gunner], Date.now() - 650);
@@ -1276,6 +1306,33 @@ test("bergsteiger: die Griffolge sagt die Hand an, die falsche rutscht ab", () =
   const higher = arcadeRankingScore(arcade, { rung: 12, finishedAt: null });
   const lower = arcadeRankingScore(arcade, { rung: 4, finishedAt: null });
   assert.ok(higher > lower, "climbing higher ranks better");
+});
+
+test("bergsteiger: der Gipfel liegt bei 70, oben zählt die Zeit", () => {
+  const climber = player({ id: "cg", name: "CG", color: "#fff" });
+  const startedAt = Date.now() - 9000;
+  const arcade = createArcadeState("bergsteiger", [climber], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 26000, finishing: false };
+  const room = { currentMinigame: minigame, players: [climber] };
+  const entry = arcade.players[climber.id];
+  assert.equal(arcade.height, 70);
+
+  for (let step = 0; step < 70; step += 1) {
+    entry.lastInputAt = 0;
+    handleArcadeInput(room, climber, { action: "grab", side: entry.nextSide });
+  }
+  assert.equal(entry.rung, 70);
+  assert.ok(entry.finishedAt, "oben angekommen ist man fertig");
+  assert.ok(entry.finishMs >= 9000 && entry.finishMs < 10000, "die Gipfelzeit zählt ab Start");
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, climber, { action: "grab", side: entry.nextSide });
+  assert.equal(entry.rung, 70, "über den Gipfel hinaus geht es nicht");
+
+  const fast = arcadeRankingScore(arcade, { rung: 70, finishedAt: 1, finishMs: 11000 });
+  const slow = arcadeRankingScore(arcade, { rung: 70, finishedAt: 1, finishMs: 14000 });
+  const almost = arcadeRankingScore(arcade, { rung: 69, finishedAt: null });
+  assert.ok(fast > slow, "wer schneller oben war, liegt vorn");
+  assert.ok(slow > almost, "oben angekommen schlägt jeden, der es nicht geschafft hat");
 });
 
 // Wer blind Hand über Hand trommelt, soll nicht durchkommen — aber die Wand

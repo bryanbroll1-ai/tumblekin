@@ -35,7 +35,7 @@ const NUR = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : nul
 // einem eigenen Feld und die Zahl ist nur Beiwerk.
 const KEINE_RANGZAHL = new Set(["standing", "out", "time", "deviation", "sumTime", "progress"]);
 
-// Bumper Bloom laeuft nicht ueber die Arcade-Familien, sondern hat einen
+// Bumper Pool laeuft nicht ueber die Arcade-Familien, sondern hat einen
 // eigenen Zustand. Es faellt damit auch aus der Bot-Waage heraus — und war
 // prompt das einzige Spiel, dessen Ergebniskarte noch die falsche Zahl zeigte.
 function spieleArena() {

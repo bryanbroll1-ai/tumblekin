@@ -15,7 +15,8 @@ export {
   setKinOpacity,
   flashKin,
   finalePose,
-  applyFinaleMood
+  applyFinaleMood,
+  reachArm
 } from "./Kin.js?v=tumblekin200";
 
 export function createShadowBlob(size = 0.55) {
