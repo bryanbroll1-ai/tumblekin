@@ -38,8 +38,6 @@ const {
   MAX_ROOMS_PER_ADDRESS,
   GLIDE_DURATION_MS,
   DIVE_DURATION_MS,
-  KNIFE_MIN_GAP_DEG,
-  knifeRoundsFor,
   humansInRoom,
   DIVE_MAX_DEPTH,
   DIVE_RISK_MAX,
@@ -1121,176 +1119,136 @@ test("blobklopfe: wer einen Stachelblob trifft, ist kurz benommen", () => {
   assert.equal(entry.hits, 1, "danach zählt es wieder");
 });
 
-test("kanonenflug: tap one locks power, tap two locks the angle (45° flies farthest)", () => {
+test("kanonenflug: erster Tipp Kraft, zweiter Winkel, Punkte für die Nähe zur Flagge", () => {
+  const { cannonDistance, cannonPoints } = testRules;
   const gunner = player({ id: "ka", name: "KA", color: "#fff" });
-  const arcade = createArcadeState("kanonenflug", [gunner], Date.now() - 650);
-  const minigame = { arcade, scores: {}, startedAt: Date.now() - 650, duration: 16000, finishing: false };
+  const startedAt = Date.now() - 575;
+  const arcade = createArcadeState("kanonenflug", [gunner], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 16000, finishing: false };
   const room = { currentMinigame: minigame, players: [gunner] };
   const entry = arcade.players[gunner.id];
+  assert.ok(arcade.target >= 42 && arcade.target <= 90, "die Flagge steht im Feld");
+  assert.ok(Math.abs(arcade.wind) <= 1, "Wind höchstens voll");
 
-  // 650ms into a 1300ms period = the power gauge peak.
+  // Halbe Periode = volle Kraft (Dreieck, nicht Sinus).
   handleArcadeInput(room, gunner, { action: "launch" });
-  assert.equal(entry.launchedAt, null, "first tap only locks the power");
-  assert.ok(entry.power > 0.95, "mid-period tap is near max power");
-  assert.ok(entry.powerAt, "the angle phase starts");
+  assert.equal(entry.launchedAt, null, "der erste Tipp legt nur die Kraft fest");
+  assert.ok(entry.power > 0.95, `volle Kraft zur Hälfte der Periode (${entry.power})`);
 
-  // Second tap timed to the 45° sweet spot (angleT = 0.5 at period/6).
-  entry.powerAt = Date.now() - Math.round(arcade.anglePeriodMs / 6);
+  entry.powerAt = Date.now() - Math.round(arcade.anglePeriodMs / 4);
   entry.lastInputAt = 0;
   handleArcadeInput(room, gunner, { action: "launch" });
-  assert.ok(entry.launchedAt, "second tap fires");
-  assert.ok(Math.abs(entry.angle - 45) <= 4, "sweet-spot tap lands near 45 degrees");
-  assert.ok(entry.distance > 90, "full power at 45° flies farthest");
+  assert.ok(entry.launchedAt, "der zweite Tipp schiesst");
+  assert.ok(Math.abs(entry.angle - 45) <= 2, `ein Viertel der Periode ist 45° (${entry.angle})`);
+  assert.ok(Math.abs(entry.distance - cannonDistance(entry.power, entry.angle, arcade.wind)) < 0.11);
+  assert.equal(entry.points, cannonPoints(entry.distance, arcade.target));
 
-  const firstDistance = entry.distance;
+  const first = entry.distance;
   entry.lastInputAt = 0;
   handleArcadeInput(room, gunner, { action: "launch" });
-  assert.equal(entry.distance, firstDistance, "only one shot per game");
-
-  // A flat angle with the same power flies much shorter.
-  const flat = { power: 1, powerAt: Date.now(), lastInputAt: 0, launchedAt: null, angle: null };
-  arcade.players.flatTest = flat;
-  const flatPlayer = { id: "flatTest", name: "Flat", color: "#000" };
-  room.players.push(flatPlayer);
-  flat.powerAt = Date.now() - 40; // barely into the sweep → shallow angle
-  handleArcadeInput(room, flatPlayer, { action: "launch" });
-  assert.ok(flat.distance < firstDistance, "shallow angles cost distance");
+  assert.equal(entry.distance, first, "ein Schuss je Spiel");
 });
 
-test("messerwurf: only the active thrower may throw; a clash ends their turn", () => {
+test("kanonenflug: nicht mehr immer 45° und volle Kraft", () => {
+  const { cannonDistance, cannonPoints, cannonTri } = testRules;
+  // Die Kraft verweilt nicht am Maximum: 10 % der Periode neben der Spitze
+  // sind deutlich schwächer (beim Sinus waren es 95 %).
+  assert.ok(cannonTri(0.4) < 0.85, "die Kraftanzeige verweilt nicht oben");
+  // Bei einer nahen Flagge schiesst volle Kraft auf 45° weit darüber hinaus.
+  const target = 55;
+  assert.ok(cannonPoints(cannonDistance(1, 45, 0), target) === 0, "volle Kraft auf 45° verfehlt eine nahe Flagge");
+  // Es gibt eine Kombination, die trifft.
+  let bestOff = Infinity;
+  for (let deg = 10; deg <= 80; deg += 0.5) bestOff = Math.min(bestOff, Math.abs(cannonDistance(1, deg, 0) - target));
+  assert.ok(bestOff < 1, "mit flacherem Winkel ist die Flagge erreichbar");
+  // Näher ist besser, ein Volltreffer gibt Zugabe.
+  assert.ok(cannonPoints(target + 1, target) > cannonPoints(target + 6, target));
+  assert.ok(cannonPoints(target, target) > 100, "Volltreffer mit Zugabe");
+  // Rückenwind trägt weiter.
+  assert.ok(cannonDistance(1, 45, 1) > cannonDistance(1, 45, 0));
+  assert.ok(cannonDistance(1, 45, -1) < cannonDistance(1, 45, 0));
+});
+
+function knifeRoom() {
   const one = player({ id: "ka", name: "KA", color: "#fff" });
-  const two = player({ id: "kb", name: "KB", color: "#0ff" });
-  const startedAt = Date.now();
-  const arcade = createArcadeState("messerwurf", [one, two], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
-  const room = { currentMinigame: minigame, players: [one, two] };
-  const active = arcade.activeId === one.id ? one : two;
-  const waiting = active === one ? two : one;
+  const startedAt = Date.now() - 2000;
+  const arcade = createArcadeState("messerwurf", [one], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 40000, finishing: false };
+  const room = { currentMinigame: minigame, players: [one] };
+  return { one, arcade, minigame, room, entry: arcade.players[one.id] };
+}
 
-  // The waiting player cannot throw out of turn.
-  arcade.logAngle = Math.PI;
-  arcade.players[waiting.id].lastInputAt = 0;
-  handleArcadeInput(room, waiting, { action: "throw" });
-  assert.equal(arcade.players[waiting.id].stuck, 0, "off-turn throws are ignored");
-
-  // The active player throws exactly one knife, then the turn passes on.
-  arcade.logAngle = 0;
-  arcade.players[active.id].lastInputAt = 0;
-  handleArcadeInput(room, active, { action: "throw" });
-  assert.equal(arcade.players[active.id].stuck, 1, "active thrower sticks one knife");
-  assert.equal(arcade.knives.length, 1);
-  assert.equal(arcade.players[active.id].turnDone, true, "a clean throw ends the turn");
-  assert.equal(arcade.activeId, waiting.id, "the turn passes after one knife");
-
-  // The next player throws onto the existing knife → clash → costs a life.
-  arcade.logAngle = (2 * Math.PI) / 180; // 2 degrees, inside the safety gap
-  arcade.players[waiting.id].lastInputAt = 0;
-  handleArcadeInput(room, waiting, { action: "throw" });
-  assert.equal(arcade.players[waiting.id].clashes, 1, "a clash costs a life");
-  assert.equal(arcade.players[waiting.id].eliminated, false, "the first clash is not the end");
-  assert.equal(arcade.knives.length, 1, "no knife added on a clash");
-
-  // Both have thrown, so the next round starts and the clash victim may retry.
-  assert.equal(arcade.round, 1, "a new round begins once everyone has thrown");
-  assert.equal(arcade.players[waiting.id].turnDone, false, "the round resets the throwing window");
-
-  // The second clash is the end.
-  arcade.activeId = waiting.id;
-  arcade.logAngle = (2 * Math.PI) / 180;
-  arcade.players[waiting.id].lastInputAt = 0;
-  handleArcadeInput(room, waiting, { action: "throw" });
-  assert.equal(arcade.players[waiting.id].clashes, 2);
-  assert.equal(arcade.players[waiting.id].eliminated, true, "the second clash knocks the thrower out");
-
-  const survivor = arcadeRankingScore(arcade, arcade.players[active.id]);
-  const out = arcadeRankingScore(arcade, arcade.players[waiting.id]);
-  assert.ok(survivor > out, "survivors outrank the eliminated");
+test("messerwurf: jeder hat seinen eigenen Stamm, freie Würfe stecken", () => {
+  const { one, room, entry } = knifeRoom();
+  assert.equal(entry.stage, 0);
+  assert.equal(entry.knivesLeft, testRules.KNIFE_STAGES[0].knives);
+  // Den Stamm künstlich stillstehen lassen: dann landet jedes Messer an
+  // derselben Stelle — das erste steckt, das zweite trifft das erste.
+  entry.spin = { kind: "steady", speed: 0 };
+  entry.apples = [];
+  handleArcadeInput(room, one, { action: "throw" });
+  assert.equal(entry.stuck, 1, "das erste Messer steckt");
+  assert.equal(entry.points, 1);
+  entry.lastThrowAt = 0;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, one, { action: "throw" });
+  assert.equal(entry.clashes, 1, "dieselbe Stelle ist ein Treffer auf ein Messer");
+  assert.equal(entry.knivesLeft, 0, "der Stamm ist verloren");
+  assert.ok(entry.stunUntil > Date.now(), "kurz gesperrt");
+  // Während der Sperre zählt nichts.
+  entry.lastThrowAt = 0;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, one, { action: "throw" });
+  assert.equal(entry.throws, 2, "gesperrt wird nicht geworfen");
 });
 
-test("messerwurf: der sauberere Wurf zählt mehr, nicht der riskantere", () => {
-  // Das Spiel verlangt, in freien Raum zu werfen. Die Feinwertung muss in
-  // dieselbe Richtung zeigen — vorher belohnte sie die ENGE Lücke, also genau
-  // das Gegenteil, und "normal" und "hard" lagen gemessen gleichauf.
-  const one = player({ id: "kn1", name: "KN1", color: "#fff" });
-  const two = player({ id: "kn2", name: "KN2", color: "#0ff" });
-  const startedAt = Date.now();
-  const arcade = createArcadeState("messerwurf", [one, two], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
-  const room = { currentMinigame: minigame, players: [one, two] };
-
-  // Zwei Messer stehen schon: eine Lücke von 60 Grad, der grosse Rest 300 Grad.
-  const standing = () => [{ angleDeg: 0, playerId: "x" }, { angleDeg: 60, playerId: "x" }];
-  const first = arcade.activeId === one.id ? one : two;
-  const second = first === one ? two : one;
-
-  // Sauber in die Mitte des grossen Bogens: 210 Grad, also das Bestmögliche.
-  arcade.knives = standing();
-  arcade.logAngle = (210 * Math.PI) / 180;
-  arcade.players[first.id].lastInputAt = 0;
-  handleArcadeInput(room, first, { action: "throw" });
-  const clean = arcade.players[first.id].precision;
-
-  // Knapp am zweiten Messer vorbei: gerade noch erlaubt, aber schlampig.
-  arcade.knives = standing();
-  arcade.activeId = second.id;
-  arcade.logAngle = (83 * Math.PI) / 180;
-  arcade.players[second.id].lastInputAt = 0;
-  handleArcadeInput(room, second, { action: "throw" });
-  const sloppy = arcade.players[second.id].precision;
-
-  assert.equal(arcade.players[second.id].stuck, 1, "a legal throw still sticks");
-  assert.ok(clean > sloppy, `der saubere Wurf zählt mehr (${clean} > ${sloppy})`);
-  assert.ok(clean > 0.98, `der bestmögliche Wurf zählt voll (${clean})`);
-});
-
-test("messerwurf: die Feinwertung ist reihenfolgeneutral", () => {
-  // Die Scheibe füllt sich, der erste Werfer jeder Runde hat strukturell mehr
-  // Platz. Gemessen wird darum der Wurf gegen das, was in diesem Augenblick
-  // möglich war — der perfekte Wurf auf voller Scheibe zählt genauso viel wie
-  // der perfekte Wurf auf leerer.
-  const one = player({ id: "kp1", name: "KP1", color: "#fff" });
-  const two = player({ id: "kp2", name: "KP2", color: "#0ff" });
-  const startedAt = Date.now();
-  const arcade = createArcadeState("messerwurf", [one, two], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
-  const room = { currentMinigame: minigame, players: [one, two] };
-  const first = arcade.activeId === one.id ? one : two;
-  const second = first === one ? two : one;
-
-  // Früh dran: nur ein Messer steht, der grösste Bogen ist fast die ganze Scheibe.
-  arcade.knives = [{ angleDeg: 0, playerId: "x" }];
-  arcade.logAngle = Math.PI;                       // 180 Grad, genau gegenüber
-  arcade.players[first.id].lastInputAt = 0;
-  handleArcadeInput(room, first, { action: "throw" });
-  const early = arcade.players[first.id].precision;
-
-  // Spät dran: die Scheibe ist voll, der beste Bogen viel kleiner.
-  arcade.knives = [0, 40, 80, 120, 160, 200, 260].map((angleDeg) => ({ angleDeg, playerId: "x" }));
-  arcade.activeId = second.id;
-  arcade.logAngle = (310 * Math.PI) / 180;          // Mitte des 260–360-Bogens
-  arcade.players[second.id].lastInputAt = 0;
-  handleArcadeInput(room, second, { action: "throw" });
-  const late = arcade.players[second.id].precision;
-
-  assert.equal(arcade.players[second.id].stuck, 1, "der späte Wurf steckt");
-  assert.ok(Math.abs(early - late) < 0.05,
-    `perfekt ist perfekt, egal wann (früh ${early}, spät ${late})`);
-});
-
-test("messerwurf: the turn timer hands the disc to the next player", () => {
-  const one = player({ id: "kc", name: "KC", color: "#fff" });
-  const two = player({ id: "kd", name: "KD", color: "#0ff" });
-  const startedAt = Date.now();
-  const arcade = createArcadeState("messerwurf", [one, two], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 46000, finishing: false };
-  const room = { currentMinigame: minigame, players: [one, two] };
-  const first = arcade.activeId;
-
-  // Force the active window to expire; the tick advances the turn.
-  arcade.turnEndsAt = Date.now() - 1;
+test("messerwurf: ein voller Stamm bringt Zugabe und den nächsten", () => {
+  const { one, arcade, room, minigame, entry } = knifeRoom();
+  // Schnell drehender Stamm, Würfe mit Abstand: alle stecken.
+  entry.apples = [];
+  const total = entry.knivesLeft;
+  for (let i = 0; i < total; i += 1) {
+    // Jeden Wurf an eine andere Stelle: die Stufe so zurückdatieren, dass der
+    // Stamm um 360/total Grad weitergedreht ist.
+    entry.spin = { kind: "steady", speed: 0 };
+    entry.stuckAngles = entry.stuckAngles.map((knife) => ({ ...knife, angle: (knife.angle + 360 / total) % 360 }));
+    entry.lastThrowAt = 0;
+    entry.lastInputAt = 0;
+    handleArcadeInput(room, one, { action: "throw" });
+  }
+  assert.equal(entry.stuck, total, "alle stecken");
+  assert.equal(entry.cleared, 1, "Stamm geschafft");
+  assert.ok(entry.points > total, "mit Zugabe");
+  assert.ok(entry.nextStageAt, "der nächste Stamm kommt");
+  entry.nextStageAt = Date.now() - 1;
   testRules.updateKnife(room, minigame, arcade, 0.05, Date.now());
-  assert.notEqual(arcade.activeId, first, "the timer passes the turn on");
-  assert.equal(arcade.players[first].turnDone, true, "the first player's turn is done");
+  assert.equal(entry.stage, 1, "Stufe 2");
+  assert.equal(entry.knivesLeft, testRules.KNIFE_STAGES[1].knives);
+  assert.equal(entry.stuckAngles.filter((knife) => knife.preset).length, testRules.KNIFE_STAGES[1].preset, "mit vorgesteckten Messern");
+});
+
+test("messerwurf: ein Apfel bringt Punkte", () => {
+  const { one, room, entry } = knifeRoom();
+  entry.spin = { kind: "steady", speed: 0 };
+  const angle = testRules.knifeImpactAngle(entry, Date.now());
+  entry.apples = [{ angle, hit: false }];
+  handleArcadeInput(room, one, { action: "throw" });
+  assert.equal(entry.applesHit, 1);
+  assert.ok(entry.points >= 4, "Messer plus Apfel");
+});
+
+test("messerwurf: die Stämme sind für alle gleich und drehen verschieden", () => {
+  const a = createArcadeState("messerwurf", [player({ id: "x", name: "X" }), player({ id: "y", name: "Y" })], Date.now());
+  const [ex, ey] = [a.players.x, a.players.y];
+  assert.deepEqual(ex.stuckAngles, ey.stuckAngles);
+  assert.deepEqual(ex.apples, ey.apples);
+  const kinds = new Set(testRules.KNIFE_STAGES.map((stage) => stage.spin.kind));
+  assert.ok(kinds.size >= 3, "mehrere Drehmuster");
+  // Pendeln wechselt die Richtung: der Winkel läuft hin und wieder zurück.
+  const swing = testRules.KNIFE_STAGES.find((stage) => stage.spin.kind === "swing").spin;
+  const d1 = testRules.knifeLogAngle(swing, 400) - testRules.knifeLogAngle(swing, 300);
+  const d2 = testRules.knifeLogAngle(swing, 2900) - testRules.knifeLogAngle(swing, 2800);
+  assert.ok(Math.sign(d1) !== Math.sign(d2), "die Drehrichtung wechselt");
 });
 
 test("turmbau: an aligned drop stacks, a miss topples the tower", () => {
@@ -1742,28 +1700,6 @@ test("result: only everyone together can skip the result table", () => {
 });
 
 // --- Messerwurf ------------------------------------------------------------
-
-test("knife: the disc can actually hold every knife that gets thrown", () => {
-  // Bei 360 Grad und 22 Grad Mindestabstand passen rechnerisch 16 Messer auf
-  // die Scheibe, in der Praxis eher zwölf. Mit acht festen Runden landeten bei
-  // vier Personen 32 dort — das Spiel war mathematisch nicht zu überleben, und
-  // gemessen flogen in JEDER Partie alle raus. Gewonnen hatte, wer zufällig
-  // zuletzt ausschied.
-  const theoretical = Math.floor(360 / KNIFE_MIN_GAP_DEG);
-  for (let count = 2; count <= 4; count += 1) {
-    const total = knifeRoundsFor(count) * count;
-    assert.ok(total <= theoretical,
-      `${count} Personen werfen ${total} Messer, es passen aber nur ${theoretical}`);
-    // Und es muss auch genug zu tun geben: unter drei Würfen je Person ist es
-    // kein Spiel mehr, sondern eine Stichprobe.
-    assert.ok(knifeRoundsFor(count) >= 3, `${count} Personen bekommen nur ${knifeRoundsFor(count)} Würfe`);
-  }
-});
-
-test("knife: fewer players means more throws each", () => {
-  assert.ok(knifeRoundsFor(2) > knifeRoundsFor(4));
-  assert.ok(knifeRoundsFor(3) >= knifeRoundsFor(4));
-});
 
 // --- Tiefenrausch ----------------------------------------------------------
 

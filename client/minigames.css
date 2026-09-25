@@ -1692,3 +1692,24 @@ canvas.is-stunned {
   filter: saturate(0.35) brightness(0.92);
   transition: filter 0.15s linear;
 }
+
+/* --- Messerwurf: Messervorrat des laufenden Stamms --------------------------- */
+.knife-ammo {
+  position: absolute;
+  left: 12px;
+  top: calc(96px + env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 5px;
+}
+.knife-ammo i {
+  display: block;
+  width: 10px;
+  height: 26px;
+  border-radius: 3px 3px 5px 5px;
+  background: linear-gradient(#eef2f7 0 62%, #8a5a2c 62% 100%);
+  box-shadow: 0 0 0 2px rgba(11, 20, 25, 0.35);
+}
+.knife-ammo i.used {
+  opacity: 0.22;
+}

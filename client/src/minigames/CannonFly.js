@@ -5,7 +5,9 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
-// fliegt die Figur.
+// fliegt die Figur. Ziel ist die FLAGGE, deren Abstand jede Runde wechselt;
+// Wind schiebt oder bremst. Beim Winkel zeigt ein Ring am Boden, wo man ohne
+// Wind landen würde — den Wind muss man selbst einrechnen.
 //
 // Vorher sass die Figur von Anfang an im Rohr, die Kamera stand dahinter, und
 // man sah vier Hinterköpfe. Jetzt steht jeder neben seiner Kanone und schaut
@@ -23,7 +25,20 @@ const HOP_MS = 420;
 const FACING = 0.5;
 
 function flightMs(distance) {
-  return 1000 + Math.min(100, distance || 0) * 8;
+  return 1000 + Math.min(110, distance || 0) * 8;
+}
+
+// Dieselben Rechnungen wie auf dem Server (cannonTri, cannonDistance).
+function tri(x) {
+  const frac = x - Math.floor(x);
+  return 1 - Math.abs(frac * 2 - 1);
+}
+function shotDistance(power, angleDeg, wind, windM = 11) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return 6 + power * power * Math.sin(2 * rad) * 94 + wind * windM * power * Math.sin(rad);
+}
+function landZ(distance) {
+  return CANNON_Z - 0.9 - distance * METER;
 }
 
 export class CannonFly extends MinigameScene {
@@ -47,6 +62,7 @@ export class CannonFly extends MinigameScene {
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>—</strong></div>
+      <div class="simon-round" data-cannon-info></div>
       <div class="cannon-phase-label" data-cannon-label>KRAFT</div>
       <div class="cannon-gauge" data-cannon-gauge><div class="cannon-gauge-fill" data-cannon-fill></div></div>`;
   }
@@ -92,8 +108,61 @@ export class CannonFly extends MinigameScene {
       scene.add(cloud);
     });
 
+    this.buildTarget();
+    this.buildWindsock();
+
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.addStation(player, index, players.length));
+
+    // Die Landevorschau der eigenen Figur: ein Ring am Boden.
+    this.preview = new THREE.Mesh(
+      new THREE.RingGeometry(0.22, 0.34, 24),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, depthWrite: false })
+    );
+    this.preview.rotation.x = -Math.PI / 2;
+    this.preview.visible = false;
+    this.scene.add(this.preview);
+  }
+
+  // Die Zielzone quer über alle Bahnen: gold um die Flagge, heller aussen,
+  // dazu eine grosse Flagge mit Schild am Rand.
+  buildTarget() {
+    const arcade = this.minigame?.arcade;
+    const target = arcade?.target || 70;
+    const z = landZ(target);
+    [[8, "#fff3c4", 0.03], [2, "#ffc93c", 0.035]].forEach(([meters, color, y]) => {
+      const zone = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.02, meters * 2 * METER), new THREE.MeshLambertMaterial({ color }));
+      zone.position.set(0, y + 0.03, z);
+      zone.receiveShadow = true;
+      this.scene.add(zone);
+    });
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.4, 0.1), new THREE.MeshLambertMaterial({ color: "#f2f2f2" }));
+    pole.position.set(4.1, 1.2, z);
+    pole.castShadow = true;
+    this.scene.add(pole);
+    this.targetFlag = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.04), new THREE.MeshLambertMaterial({ color: "#ff3b55" }));
+    this.targetFlag.position.set(4.55, 2.1, z);
+    this.scene.add(this.targetFlag);
+    const sign = this.sign(`ZIEL ${target}`, 4.1, z + 0.2, true);
+    sign.scale.setScalar(1.25);
+    this.scene.add(sign);
+  }
+
+  // Windsack neben den Kanonen: zeigt, wohin der Wind weht und wie stark.
+  buildWindsock() {
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.8, 0.07), new THREE.MeshLambertMaterial({ color: "#d8dde6" }));
+    pole.position.set(-3.6, 0.9, CANNON_Z - 0.4);
+    this.scene.add(pole);
+    this.sock = new THREE.Group();
+    const stripes = ["#ff6a3d", "#ffffff", "#ff6a3d", "#ffffff"];
+    stripes.forEach((color, i) => {
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.16 - i * 0.025, 0.14 - i * 0.025, 0.26, 10, 1, true), new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.z = -0.13 - i * 0.26;
+      this.sock.add(ring);
+    });
+    this.sock.position.set(-3.6, 1.72, CANNON_Z - 0.4);
+    this.scene.add(this.sock);
   }
 
   // Ein Schild mit der Meterzahl am linken Rand der Bahn.
@@ -245,8 +314,8 @@ export class CannonFly extends MinigameScene {
   angleOf(entry, arcade, now) {
     if (entry.launchedAt && entry.angle) return entry.angle;
     if (entry.powerAt) {
-      const t = Math.abs(Math.sin(((now - entry.powerAt) / (arcade.anglePeriodMs || 1500)) * Math.PI));
-      return 5 + t * 80;
+      const t = tri((now - entry.powerAt) / (arcade.anglePeriodMs || 1300));
+      return (arcade.angleMin ?? 10) + t * ((arcade.angleMax ?? 80) - (arcade.angleMin ?? 10));
     }
     return 38;
   }
@@ -255,7 +324,16 @@ export class CannonFly extends MinigameScene {
     const { now, dt, arcade, players, controlledId, finale } = f;
     if (!arcade) return;
     const elapsed = now - f.minigame.startedAt;
-    const gauge = Math.abs(Math.sin((Math.max(0, elapsed) / (arcade.periodMs || 1300)) * Math.PI));
+    const gauge = tri(Math.max(0, elapsed) / (arcade.periodMs || 1150));
+    // Windsack: zeigt mit der Spitze dorthin, wohin der Wind weht.
+    const wind = arcade.wind || 0;
+    if (this.sock) {
+      this.sock.rotation.y = wind >= 0 ? 0 : Math.PI;
+      this.sock.scale.set(1, 1, 0.35 + Math.abs(wind) * 0.65);
+      this.sock.rotation.z = Math.sin(now / 160) * 0.08 * Math.abs(wind);
+      this.sock.rotation.x = -(1 - Math.abs(wind)) * 0.9;
+    }
+    if (this.targetFlag) this.targetFlag.rotation.y = Math.sin(now / 300) * 0.25;
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -325,7 +403,7 @@ export class CannonFly extends MinigameScene {
         animator.groundY = seat.y;
         kin.rotation.set(rad - Math.PI / 2, 0, 0);
         animator.set("brace");
-        animator.expression(Math.abs(deg - 45) < 8 ? "joy" : "focus", 120);
+        animator.expression("focus", 120);
         return;
       }
 
@@ -357,7 +435,8 @@ export class CannonFly extends MinigameScene {
         animator.trigger("tumble");
         this.burst(landing.clone().setY(0.2), ["#7fce6f", "#e6f2da", player.color], { count: 16, speed: 2.2, up: 1.8, size: 0.09, life: 0.7, drag: 1.7 });
         this.bursts.ring(landing.clone().setY(0.07), "#e6f2da", { radius: 1.4, life: 0.5 });
-        this.pop(landing.clone().add(new THREE.Vector3(0, 1.3, 0)), `${Math.round(distance)} m`, { color: "#ffe36b", size: 0.44, life: 1.4, rise: 0.8 });
+        const pts = entry.points || 0;
+        this.pop(landing.clone().add(new THREE.Vector3(0, 1.3, 0)), `${Math.round(distance)} m · ${pts}`, { color: pts >= 100 ? "#7fe0a8" : pts >= 50 ? "#ffe36b" : "#ffffff", size: 0.44, life: 1.6, rise: 0.8 });
         st.pin.position.set(st.x - 0.42, 0, landing.z);
         st.pin.visible = true;
         if (player.id === controlledId) {
@@ -374,9 +453,25 @@ export class CannonFly extends MinigameScene {
       kin.rotation.set(0, Math.PI + (FACING - Math.PI) * turn, 0);
       if (!finale && since > 1300 && !st.reacted) {
         st.reacted = true;
-        animator.set(distance >= 75 ? "celebrate" : distance >= 45 ? "happy" : "shrug");
+        const pts = entry.points || 0;
+        animator.set(pts >= 100 ? "celebrate" : pts >= 50 ? "happy" : "shrug");
       }
     });
+
+    // Landevorschau der eigenen Figur, solange der Winkel läuft.
+    const own = arcade.players[controlledId];
+    const ownStation = this.stations.get(controlledId);
+    if (this.preview) {
+      const aiming = own?.powerAt && !own.launchedAt && ownStation && !finale;
+      this.preview.visible = Boolean(aiming);
+      if (aiming) {
+        const predicted = shotDistance(own.power || 0, this.angleOf(own, arcade, now), 0, arcade.windM || 11);
+        this.preview.position.set(ownStation.x, 0.07, landZ(predicted));
+        const close = Math.abs(predicted - (arcade.target || 0)) <= 3;
+        this.preview.material.color.set(close ? "#57e08a" : "#ffffff");
+        this.preview.scale.setScalar(1 + Math.sin(now / 90) * 0.08);
+      }
+    }
 
     this.chooseFocus(f);
   }
@@ -436,7 +531,13 @@ export class CannonFly extends MinigameScene {
     if (!arcade) return;
     const own = arcade.players[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = own?.launchedAt ? `${own.distance}m` : "—";
+    this.scoreNode.textContent = own?.launchedAt ? `${own.points || 0}` : "—";
+    const info = this.hud.querySelector("[data-cannon-info]");
+    if (info) {
+      const wind = arcade.wind || 0;
+      const windText = Math.abs(wind) < 0.15 ? "windstill" : `${wind > 0 ? "Rückenwind" : "Gegenwind"} ${Math.round(Math.abs(wind) * 10)}`;
+      info.textContent = `Ziel ${arcade.target || "?"} m · ${windText}`;
+    }
     const fill = this.hud.querySelector("[data-cannon-fill]");
     const gauge = this.hud.querySelector("[data-cannon-gauge]");
     const label = this.hud.querySelector("[data-cannon-label]");
@@ -445,20 +546,20 @@ export class CannonFly extends MinigameScene {
       if (own?.launchedAt || minigame.finaleAt || elapsed < 0) {
         gauge.classList.add("done");
         gauge.classList.remove("angle-phase");
-        if (label) label.textContent = own?.angle ? `${own.angle}°` : "";
+        if (label) label.textContent = own?.angle ? `${Math.round(own.angle)}°` : "";
       } else if (own?.powerAt) {
         gauge.classList.remove("done");
         gauge.classList.add("angle-phase");
-        const t = Math.abs(Math.sin(((now - own.powerAt) / (arcade.anglePeriodMs || 1500)) * Math.PI));
-        const deg = Math.round(5 + t * 80);
+        const t = tri((now - own.powerAt) / (arcade.anglePeriodMs || 1300));
+        const deg = Math.round((arcade.angleMin ?? 10) + t * ((arcade.angleMax ?? 80) - (arcade.angleMin ?? 10)));
         fill.style.height = `${Math.round(t * 100)}%`;
-        fill.classList.toggle("hot", Math.abs(deg - 45) < 8);
+        fill.classList.remove("hot");
         if (label) label.textContent = `WINKEL ${deg}°`;
       } else {
         gauge.classList.remove("done", "angle-phase");
-        const power = Math.abs(Math.sin((elapsed / (arcade.periodMs || 1300)) * Math.PI));
+        const power = tri(Math.max(0, elapsed) / (arcade.periodMs || 1150));
         fill.style.height = `${Math.round(power * 100)}%`;
-        fill.classList.toggle("hot", power > 0.85);
+        fill.classList.toggle("hot", power > 0.9);
         if (label) label.textContent = "KRAFT";
       }
     }

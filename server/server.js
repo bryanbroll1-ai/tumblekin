@@ -80,7 +80,7 @@ const MINIGAMES = [
   { type: "blobklopfe", title: "Blob-Klopfe", duration: 25000, arcadeFamily: "whack" },
   { type: "seilspringen", title: "Seilspringen", duration: 35000, arcadeFamily: "wave" },
   { type: "kanonenflug", title: "Kanonenflug", duration: 16000, arcadeFamily: "cannon" },
-  { type: "messerwurf", title: "Messerwurf", duration: 45000, arcadeFamily: "knife" },
+  { type: "messerwurf", title: "Messerwurf", duration: 40000, arcadeFamily: "knife" },
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
   { type: "ballonfahrt", title: "Ballonfahrt", duration: GLIDE_DURATION_MS, arcadeFamily: "glide" },
@@ -698,48 +698,104 @@ const BOMB_REVEAL_MS = 2000;          // fuse time is visible this long after a 
 // Münzregen — coins, gems and bombs rain into three lanes; switch to catch.
 const CATCH_FALL_MS = 1150;           // visual fall time from sky to lane
 
-// Messerwurf — throw a knife into the spinning log without hitting another.
-const KNIFE_MIN_GAP_DEG = 22;         // knives closer than this collide
-// Mehrere Runden statt eines einzigen Wurfs. Mit einem Wurf pro Person lagen bei
-// vier Mitspielenden vier Messer auf einer Scheibe, auf die rund 16 passen — ein
-// Zusammenstoss war praktisch unmöglich und die Partie endete gemessen IMMER
-// unentschieden. Über vier Runden füllt sich die Scheibe bis an ihre Grenze, und
-// genau dann fängt das Spiel an, eines zu sein.
-// So viele Runden, dass die Scheibe wirklich eng wird. Das Ende kommt in der
-// Praxis früher: entweder ist nur noch eine Person übrig, oder die Minute ist um
-// (duration). Ein festes kleines Rundenlimit liess das Spiel vorher aufhören,
-// obwohl noch alle standen.
-// Wie viele Messer die Scheibe ÜBERHAUPT fassen kann, bevor jeder weitere Wurf
-// zwangsläufig kollidiert: bei 360 Grad und 22 Grad Mindestabstand sind das
-// rechnerisch 16, in der Praxis eher zwölf, weil sie nie gleichmässig liegen.
+// Messerwurf — wie die bekannten Handyspiele: jeder hat SEINEN Stamm, alle
+// werfen gleichzeitig. Ein Stamm ist eine Stufe mit einer festen Zahl Messer;
+// sind alle drin, zerbricht er und der nächste kommt. Manche Stämme tragen
+// schon Messer, auf manchen sitzt ein Apfel, und jeder dreht sich anders —
+// gleichmässig, schneller, stockend, mit Richtungswechseln. Die Stämme sind
+// für alle dieselben. Wer ein steckendes Messer trifft, verliert den Rest
+// dieses Stamms und macht nach einer kurzen Pause mit dem nächsten weiter.
 //
-// Mit acht festen Runden landeten bei drei Personen 24 Messer auf der Scheibe
-// und bei vier sogar 32. Das Spiel war also mathematisch nicht zu überleben —
-// gemessen flogen in jeder einzelnen Partie ALLE raus, und gewonnen hatte, wer
-// zufällig zuletzt ausschied. Die Rundenzahl richtet sich deshalb nach der
-// Tischgrösse.
-const KNIFE_DISC_CAPACITY = 13;
-function knifeRoundsFor(playerCount) {
-  return clamp(Math.round(KNIFE_DISC_CAPACITY / Math.max(1, playerCount)), 3, 7);
+// Vorher warf man reihum auf EINEN gemeinsamen Stamm, je ein Messer, und die
+// meiste Zeit sah man anderen beim Werfen zu.
+const KNIFE_MIN_GAP_DEG = 13;         // so dicht darf kein Messer an ein anderes
+const KNIFE_APPLE_GAP_DEG = 12;       // so nah muss man an einen Apfel
+const KNIFE_FLIGHT_MS = 110;          // Flugzeit bis in den Stamm
+const KNIFE_COOLDOWN_MS = 160;        // frühestens so schnell das nächste Messer
+const KNIFE_CLASH_MS = 1300;          // Pause nach einem Treffer auf ein Messer
+const KNIFE_BREAK_MS = 650;           // der volle Stamm zerbricht, dann der nächste
+const KNIFE_STAGE_BONUS = 5;          // für einen geschafften Stamm
+const KNIFE_APPLE_POINTS = 3;
+// Die Stämme: Messer zu werfen, schon steckende Messer, Äpfel, Drehmuster.
+// Ab dem letzten wiederholt sich der letzte mit steigendem Tempo.
+const KNIFE_STAGES = [
+  { knives: 5, preset: 0, apples: 1, spin: { kind: "steady", speed: 1.6 } },
+  { knives: 6, preset: 1, apples: 1, spin: { kind: "steady", speed: -2.3 } },
+  { knives: 7, preset: 2, apples: 1, spin: { kind: "wobble", speed: 2.2, amp: 1.6, rate: 1.6 } },
+  { knives: 7, preset: 2, apples: 2, spin: { kind: "swing", speed: 2.8, rate: 1.15 } },
+  { knives: 8, preset: 3, apples: 1, spin: { kind: "wobble", speed: -2.6, amp: 2.4, rate: 2.1 } },
+  { knives: 8, preset: 3, apples: 2, spin: { kind: "swing", speed: 3.4, rate: 1.5 } }
+];
+
+// Winkel des Stamms (Grad) nach `ms` seit Beginn der Stufe. Geschlossen
+// integriert, damit Server, Bots und Client ohne Aufsummieren dasselbe
+// ausrechnen.
+//   steady  gleichmässig
+//   wobble  Grundtempo plus Schwankung — stockt, zieht an, kehrt kurz um
+//   swing   pendelt hin und her, wechselt also dauernd die Richtung
+function knifeLogAngle(spin, ms) {
+  const t = ms / 1000;
+  let rad;
+  if (spin.kind === "wobble") {
+    rad = spin.speed * t - (spin.amp / spin.rate) * (Math.cos(spin.rate * t) - 1) * Math.sign(spin.speed || 1);
+  } else if (spin.kind === "swing") {
+    rad = (spin.speed / spin.rate) * Math.sin(spin.rate * t);
+  } else {
+    rad = spin.speed * t;
+  }
+  const deg = (rad * 180) / Math.PI;
+  return ((deg % 360) + 360) % 360;
 }
-// Ein Treffer auf ein anderes Messer kostet den Wurf und die Runde, aber nicht
-// gleich die ganze Partie: mit sofortigem Aus schieden gemessen 9 von 10
-// schwächeren Mitspielenden nach dem ersten oder zweiten Wurf aus und sahen den
-// Rest nur noch zu. Das zweite Mal ist das Aus.
-const KNIFE_LIVES = 2;
-// Die Scheibe dreht immer schneller. Das ist nicht nur Dramaturgie: ein
-// Zeitfehler ist hier direkt ein Winkelfehler, und nur wenn die Scheibe schnell
-// genug wird, entscheidet das Timing überhaupt etwas. Bei 2.4 rad/s lagen selbst
-// 150 ms Wackeln noch unter der Kollisionsschwelle — gemessen war zwischen
-// "normal" und "hard" kein Unterschied mehr.
-// 3.4 rad/s sind 195 Grad/s: 100 ms menschliches Zittern ergeben 19.5 Grad und
-// bleiben damit knapp unter den 22 Grad Mindestabstand. Eng, aber machbar.
-const KNIFE_SPIN_START = 1.1;
-const KNIFE_SPIN_STEP = 0.34;
-const KNIFE_SPIN_MAX = 3.4;
-const KNIFE_TURN_START_MS = 3000;     // Wurffenster in der ersten Runde
-const KNIFE_TURN_MIN_MS = 1500;
-const KNIFE_TURN_STEP = 0.84;         // je Runde wird es enger
+
+function knifeStageConfig(index) {
+  const last = KNIFE_STAGES.length - 1;
+  const base = KNIFE_STAGES[Math.min(index, last)];
+  if (index <= last) return base;
+  const extra = index - last;
+  return {
+    ...base,
+    knives: base.knives + Math.min(3, extra),
+    spin: { ...base.spin, speed: base.spin.speed * (1 + extra * 0.12) }
+  };
+}
+
+function knifeAngleGap(a, b) {
+  return Math.abs(((a - b + 540) % 360) - 180);
+}
+
+// Ein Stamm frisch aufsetzen: vorgesteckte Messer und Äpfel liegen je Stufe
+// fest (aus dem Seed), also für alle gleich.
+function setupKnifeStage(arcade, entry, index, now) {
+  const stage = knifeStageConfig(index);
+  entry.stage = index;
+  entry.stageStartedAt = now;
+  entry.knivesLeft = stage.knives;
+  entry.knivesTotal = stage.knives;
+  entry.spin = stage.spin;
+  entry.stuckAngles = [];
+  entry.apples = [];
+  entry.nextStageAt = null;
+  const seed = arcade.seed + index * 97;
+  for (let i = 0; i < stage.preset; i += 1) {
+    const angle = Math.round((i / Math.max(1, stage.preset)) * 360 + arcadeNoise(seed + i * 13) * 40) % 360;
+    entry.stuckAngles.push({ angle, preset: true });
+  }
+  for (let i = 0; i < stage.apples; i += 1) {
+    let angle = Math.round(arcadeNoise(seed + 71 + i * 29) * 360);
+    // Äpfel nie auf ein steckendes Messer legen.
+    for (let guard = 0; guard < 12 && entry.stuckAngles.some((knife) => knifeAngleGap(knife.angle, angle) < 30); guard += 1) {
+      angle = (angle + 37) % 360;
+    }
+    entry.apples.push({ angle, hit: false });
+  }
+}
+
+// Wo ein Messer im Stamm landet, das jetzt geworfen wird: es trifft unten
+// (270°) auf den Stamm, der sich bis dahin weitergedreht hat.
+function knifeImpactAngle(entry, now) {
+  const logAngle = knifeLogAngle(entry.spin, now + KNIFE_FLIGHT_MS - entry.stageStartedAt);
+  return ((270 - logAngle) % 360 + 360) % 360;
+}
 
 // Turmbau — drop the sliding block onto your tower; misalignment trims it.
 // Kein festes Ziel mehr: gebaut wird, so hoch man kommt, bis die Zeit um ist
@@ -816,9 +872,42 @@ const WHACK_CELLS = 9;
 // Loch trifft, verliert einen Punkt und hat drei gewonnen.
 const WHACK_STUN_MS = 1400;
 
-// Kanonenflug — tap once for power, once for the launch angle (45° is best).
-const CANNON_PERIOD_MS = 1300;        // full swing of the power gauge
-const CANNON_ANGLE_PERIOD_MS = 1500;  // full sweep of the angle gauge (5°-85°)
+// Kanonenflug — erster Tipp Kraft, zweiter Winkel, dann fliegt man. Getroffen
+// werden soll die ZIELFLAGGE, nicht die grösste Weite.
+//
+// Vorher war das Optimum immer dasselbe und leicht zu treffen: beide Anzeigen
+// liefen als Sinus und verweilten genau oben, wo es am meisten gab, und bei
+// 45° ist die Weite so flach, dass 40° bis 50° praktisch gleich weit flogen.
+// Jetzt steht die Flagge jede Runde woanders, Wind schiebt oder bremst, beide
+// Anzeigen laufen gleichmässig durch, und Punkte gibt es für die Nähe zur
+// Flagge. Beim Winkel zeigt eine Landevorschau (ohne Wind), wo man aufkäme —
+// den Wind muss man selbst einrechnen.
+const CANNON_PERIOD_MS = 1150;        // Kraft: 0 → 1 → 0, gleichmässig
+const CANNON_ANGLE_PERIOD_MS = 1300;  // Winkel: 10° → 80° → 10°, gleichmässig
+const CANNON_ANGLE_MIN = 10;
+const CANNON_ANGLE_MAX = 80;
+const CANNON_TARGET_MIN = 42;
+const CANNON_TARGET_MAX = 90;
+const CANNON_WIND_M = 11;             // so viele Meter bringt voller Wind höchstens
+
+// Dreieck statt Sinus: 0 → 1 → 0 mit gleichem Tempo überall.
+function cannonTri(x) {
+  const frac = x - Math.floor(x);
+  return 1 - Math.abs(frac * 2 - 1);
+}
+
+// Weite eines Schusses: Wurfparabel plus Wind, der bei steilen Schüssen
+// länger wirkt.
+function cannonDistance(power, angleDeg, wind = 0) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return 6 + power * power * Math.sin(2 * rad) * 94 + wind * CANNON_WIND_M * power * Math.sin(rad);
+}
+
+// Punkte nach Abstand zur Flagge; ein Volltreffer (bis 2 m) gibt Zugabe.
+function cannonPoints(distance, target) {
+  const off = Math.abs(distance - target);
+  return Math.round(Math.max(0, 100 - off * 3.5) + (off <= 2 ? 25 : 0));
+}
 
 // Blitzfang — wait for green, tap first; a false start costs dearly.
 // Tiefenrausch — tiefer graben bringt mehr, aber jeder Stollen kann einstürzen.
@@ -1909,7 +1998,9 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.max(0, 50000 + (arcadePlayer.hits || 0) * 1000);
   }
   if (arcade.family === "cannon") {
-    return arcadePlayer.launchedAt ? (arcadePlayer.distance || 0) : 0;
+    if (!arcadePlayer.launchedAt) return 0;
+    const off = Math.abs((arcadePlayer.distance || 0) - (arcade.target || 0));
+    return (arcadePlayer.points || 0) * 10000 + Math.max(1, Math.round(5000 - off * 50));
   }
   if (arcade.family === "simon") {
     return Math.max(0, (arcadePlayer.survived || 0) * 1000 - (arcadePlayer.mistakes || 0));
@@ -1933,19 +2024,8 @@ function arcadeRankingScore(arcade, arcadePlayer) {
       + Math.max(0, 500 - (arcadePlayer.totalProbes || 0)));
   }
   if (arcade.family === "knife") {
-    // Survivors rank above the eliminated; more knives stuck breaks ties, and
-    // among equals der sauberere Wurf (näher am bestmöglichen) rangiert höher.
-    // Die Feinwertung ist auf 0..500 normiert und bleibt damit immer unter
-    // einem einzigen Treffer (1000) — sie ordnet Gleichstände, sie kippt nichts.
-    // Auf den DURCHSCHNITT je Wurf normiert, nicht auf eine Rundenzahl — die
-    // gibt es nicht mehr, seit gespielt wird, bis alle draussen sind.
-    const würfe = (arcadePlayer.stuck || 0) + (arcadePlayer.clashes || 0);
-    const precision = Math.round(
-      ((arcadePlayer.precision || 0) / Math.max(1, würfe)) * 500);
-    return Math.max(0, (arcadePlayer.eliminated ? 0 : 5000000)
-      + (arcadePlayer.stuck || 0) * 1000
-      + precision
-      - (arcadePlayer.clashes || 0) * 100);
+    // Punkte zuerst; bei Gleichstand weniger Fehlwürfe.
+    return Math.max(0, (arcadePlayer.points || 0) * 100 - (arcadePlayer.clashes || 0));
   }
   if (arcade.family === "bounce") {
     // Gewertet wird die Hoehe — genau die Zahl, die auch angezeigt wird, und in
@@ -2053,7 +2133,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "targets", value: arcadePlayer.hits || 0, label: "Treffer" };
   }
   if (arcade.family === "cannon") {
-    return { kind: "points", value: arcadePlayer.distance || 0, label: "Meter" };
+    return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte" };
   }
   if (arcade.family === "simon") {
     return { kind: "correct", value: arcadePlayer.survived || 0, label: "Runden" };
@@ -2076,12 +2156,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
   if (arcade.family === "knife") {
-    // Zuerst entscheidet, ob man noch dabei ist — also steht das auch da.
-    // Ein Ausgeschiedener mit fünf Treffern liegt hinter einem Überlebenden mit
-    // zwei, und eine reine Trefferzahl behauptete das Gegenteil.
-    return arcadePlayer.eliminated
-      ? { kind: "out", survived: false, value: arcadePlayer.stuck || 0, label: "Treffer" }
-      : { kind: "points", value: arcadePlayer.stuck || 0, label: "Treffer" };
+    return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte" };
   }
   if (arcade.family === "stack") {
     return { kind: "points", value: arcadePlayer.height || 0, label: "Etagen" };
@@ -2637,6 +2712,13 @@ function createArcadeState(type, players, startedAt) {
   if (config.family === "cannon") {
     arcade.periodMs = CANNON_PERIOD_MS;
     arcade.anglePeriodMs = CANNON_ANGLE_PERIOD_MS;
+    arcade.angleMin = CANNON_ANGLE_MIN;
+    arcade.angleMax = CANNON_ANGLE_MAX;
+    const salt = config.seed + (Date.now() % 7907);
+    arcade.target = Math.round(CANNON_TARGET_MIN + arcadeNoise(salt) * (CANNON_TARGET_MAX - CANNON_TARGET_MIN));
+    // Wind in Zehnteln: positiv schiebt Richtung Flagge, negativ bremst.
+    arcade.wind = Math.round((arcadeNoise(salt + 17) * 2 - 1) * 10) / 10;
+    arcade.windM = CANNON_WIND_M;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.launchedAt = null;
@@ -2644,6 +2726,7 @@ function createArcadeState(type, players, startedAt) {
       entry.powerAt = null;
       entry.angle = null;
       entry.distance = 0;
+      entry.points = 0;
     });
   }
   if (config.family === "simon") {
@@ -2681,26 +2764,21 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "knife") {
-    // Turn-based like the mobile knife game: one player is active at a time
-    // with a 10s window to stick knives into the shared spinning disc.
-    arcade.order = players.map((player) => player.id);
-    arcade.turnIndex = 0;
-    arcade.activeId = arcade.order[0] || null;
-    arcade.turnPos = 1;                  // der Erste steht schon auf Position 0
-    arcade.round = 0;
-    arcade.turnMs = knifeTurnMs(0);
-    arcade.turnEndsAt = startedAt + arcade.turnMs;
-    arcade.spinSpeed = KNIFE_SPIN_START;
-    arcade.logAngle = 0;
-    arcade.knives = [];                  // { angleDeg, playerId }
+    arcade.stages = KNIFE_STAGES.length;
+    arcade.flightMs = KNIFE_FLIGHT_MS;
+    arcade.minGapDeg = KNIFE_MIN_GAP_DEG;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
-      entry.stuck = 0;
-      entry.clashes = 0;                 // Fehlwürfe auf ein anderes Messer
-      entry.precision = 0;               // Summe: Wurf gemessen am bestmöglichen
-      entry.posSum = 0;                  // bisherige Plätze in der Wurfreihenfolge
-      entry.eliminated = false;          // beim zweiten Fehlwurf → raus
-      entry.turnDone = false;            // has had their throwing window
+      entry.points = 0;
+      entry.stuck = 0;                   // Messer, die gesteckt haben
+      entry.applesHit = 0;
+      entry.cleared = 0;                 // geschaffte Stämme
+      entry.clashes = 0;                 // Treffer auf ein Messer
+      entry.throws = 0;
+      entry.lastThrowAt = 0;
+      entry.lastThrow = null;            // { at, angle, result }
+      entry.stunUntil = 0;
+      setupKnifeStage(arcade, entry, 0, startedAt);
     });
   }
   if (config.family === "stack") {
@@ -3486,26 +3564,27 @@ function handleArcadeInput(room, player, rawInput) {
     if (arcadePlayer.launchedAt) return { ok: true };
     const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
 
-    // First tap locks the power, then the angle gauge starts sweeping.
+    // Erster Tipp legt die Kraft fest, dann läuft der Winkel.
     if (!arcadePlayer.powerAt) {
-      const power = Math.abs(Math.sin((elapsed / arcade.periodMs) * Math.PI));
+      const power = cannonTri(elapsed / arcade.periodMs);
       arcadePlayer.power = Number(power.toFixed(3));
       arcadePlayer.powerAt = now;
-      arcadePlayer.flash = power > 0.88 ? "good" : "bad";
+      arcadePlayer.flash = "good";
       arcadePlayer.lastHitAt = now;
       arcadePlayer.hasMoved = true;
       return { ok: true };
     }
 
-    // Second tap locks the angle — real ballistics, 45° flies farthest.
-    const angleT = Math.abs(Math.sin(((now - arcadePlayer.powerAt) / arcade.anglePeriodMs) * Math.PI));
-    const angleDeg = Math.round(5 + angleT * 80);
-    const angleRad = (angleDeg * Math.PI) / 180;
+    // Zweiter Tipp legt den Winkel fest — und los.
+    const angleT = cannonTri((now - arcadePlayer.powerAt) / arcade.anglePeriodMs);
+    const angleDeg = Math.round((CANNON_ANGLE_MIN + angleT * (CANNON_ANGLE_MAX - CANNON_ANGLE_MIN)) * 10) / 10;
     arcadePlayer.angle = angleDeg;
     arcadePlayer.launchedAt = now;
-    arcadePlayer.distance = Math.round(6 + arcadePlayer.power * arcadePlayer.power * Math.sin(2 * angleRad) * 94);
-    arcadePlayer.score = arcadePlayer.distance;
-    arcadePlayer.flash = Math.abs(angleDeg - 45) < 8 ? "good" : "bad";
+    const distance = cannonDistance(arcadePlayer.power, angleDeg, arcade.wind || 0);
+    arcadePlayer.distance = Math.round(distance * 10) / 10;
+    arcadePlayer.points = cannonPoints(arcadePlayer.distance, arcade.target);
+    arcadePlayer.score = arcadePlayer.points;
+    arcadePlayer.flash = arcadePlayer.points >= 70 ? "good" : "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
@@ -3586,65 +3665,47 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "knife") {
     if (input.action !== "throw") return { ok: false, error: "Tippe, um das Messer zu werfen." };
-    // Only the active thrower may throw, only during their own window.
-    if (arcade.activeId !== player.id || arcadePlayer.eliminated || arcadePlayer.turnDone) return { ok: true };
-    // Ein Bot darf den Augenblick mitschicken, auf den er gezielt hat, ein
-    // Client nie. Sonst misst das Spiel beim Bot seinen Taktgeber statt sein
-    // Auge: er sieht die Scheibe nur alle 110 bis 180 ms, ein Mensch dauernd.
-    // Gemessen hat dieses Rauschen den Unterschied zwischen den Stufen
-    // vollständig verschluckt — „hard" lag hinter „normal".
-    const rueck = player.isBot && Number.isFinite(input.atMs)
-      ? clamp(now - input.atMs, 0, 400) : 0;
-    const dir = arcade.turnIndex % 2 === 0 ? 1 : -1;
-    const angleDeg = (((arcade.logAngle - arcade.spinSpeed * dir * (rueck / 1000)) * 180) / Math.PI) % 360;
-    const normalized = (angleDeg + 360) % 360;
-    // Collision if another knife already sits within the safety gap.
-    const clash = arcade.knives.some((knife) => {
-      const diff = Math.abs(((knife.angleDeg - normalized + 540) % 360) - 180);
-      return diff < KNIFE_MIN_GAP_DEG;
-    });
-    if (clash) {
-      // Das Messer prallt ab: die Runde ist vorbei, beim zweiten Mal die Partie.
-      arcadePlayer.clashes = (arcadePlayer.clashes || 0) + 1;
-      if (arcadePlayer.clashes >= KNIFE_LIVES) {
-        arcadePlayer.eliminated = true;
-        arcadePlayer.eliminatedAt = now;
-      }
-      arcadePlayer.turnDone = true;
-      arcadePlayer.flash = "bad";
-      arcadePlayer.lastHitAt = now;
-      advanceKnifeTurn(room, room.currentMinigame, arcade, now);
-    } else {
-      // One knife per turn: a clean throw lands and immediately hands the
-      // spinning log to the next player.
-      // Feinwertung, damit nicht jede Partie unentschieden endet: bei drei
-      // Runden kommt fast jeder starke Spieler auf dieselben drei Treffer.
-      //
-      // Vorher zählte hier die ENGE der Lücke ("Nerven"). Das war genau
-      // verkehrt herum: das Spiel verlangt, in freien Raum zu werfen, die
-      // Zugabe belohnte das Gegenteil. Wer sauber zielte, bekam WENIGER — die
-      // beiden Regler zeigten in entgegengesetzte Richtungen und hoben sich
-      // auf. Gemessen lagen "normal" und "hard" exakt gleichauf.
-      //
-      // Die blosse Lückengrösse taugt aber auch nicht: die Scheibe füllt sich,
-      // also hat der erste Werfer jeder Runde strukturell mehr Platz. Gemessen
-      // wird darum, wie nah der Wurf am BESTMÖGLICHEN dieses Augenblicks lag —
-      // das ist Ausführung statt Gelegenheit und damit reihenfolgeneutral.
-      let gap = 180;
-      arcade.knives.forEach((knife) => {
-        const diff = Math.abs(((knife.angleDeg - normalized + 540) % 360) - 180);
-        if (diff < gap) gap = diff;
-      });
-      arcadePlayer.precision = (arcadePlayer.precision || 0)
-        + clamp(gap / Math.max(1, knifeBestGap(arcade.knives)), 0, 1);
-      arcade.knives.push({ angleDeg: normalized, playerId: player.id });
-      arcadePlayer.stuck += 1;
-      arcadePlayer.flash = "good";
-      arcadePlayer.lastHitAt = now;
-      arcadePlayer.turnDone = true;
-      advanceKnifeTurn(room, room.currentMinigame, arcade, now);
-    }
+    if (now < room.currentMinigame.startedAt) return { ok: true };
+    if (now < (arcadePlayer.stunUntil || 0) || arcadePlayer.nextStageAt) return { ok: true };
+    if (now - (arcadePlayer.lastThrowAt || 0) < KNIFE_COOLDOWN_MS || arcadePlayer.knivesLeft <= 0) return { ok: true };
+    arcadePlayer.lastThrowAt = now;
+    arcadePlayer.throws += 1;
     arcadePlayer.hasMoved = true;
+    const angle = knifeImpactAngle(arcadePlayer, now);
+    const clash = arcadePlayer.stuckAngles.some((knife) => knifeAngleGap(knife.angle, angle) < KNIFE_MIN_GAP_DEG);
+    if (clash) {
+      // Klirr — das Messer prallt ab, der Stamm ist verloren. Nach der Pause
+      // kommt der nächste.
+      arcadePlayer.clashes += 1;
+      arcadePlayer.knivesLeft = 0;
+      arcadePlayer.stunUntil = now + KNIFE_CLASH_MS;
+      arcadePlayer.nextStageAt = now + KNIFE_CLASH_MS;
+      arcadePlayer.lastThrow = { at: now, angle, result: "clash" };
+      arcadePlayer.flash = "bad";
+    } else {
+      arcadePlayer.stuckAngles.push({ angle, preset: false });
+      arcadePlayer.stuck += 1;
+      arcadePlayer.knivesLeft -= 1;
+      arcadePlayer.points += 1;
+      let result = "stuck";
+      const apple = arcadePlayer.apples.find((candidate) => !candidate.hit && knifeAngleGap(candidate.angle, angle) < KNIFE_APPLE_GAP_DEG);
+      if (apple) {
+        apple.hit = true;
+        arcadePlayer.applesHit += 1;
+        arcadePlayer.points += KNIFE_APPLE_POINTS;
+        result = "apple";
+      }
+      if (arcadePlayer.knivesLeft <= 0) {
+        arcadePlayer.cleared += 1;
+        arcadePlayer.points += KNIFE_STAGE_BONUS;
+        arcadePlayer.nextStageAt = now + KNIFE_BREAK_MS;
+        result = "cleared";
+      }
+      arcadePlayer.lastThrow = { at: now, angle, result };
+      arcadePlayer.flash = "good";
+    }
+    arcadePlayer.lastHitAt = now;
+    arcadePlayer.score = arcadePlayer.points;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
@@ -4656,121 +4717,16 @@ function updateCatchfall(room, minigame, arcade, now) {
   });
 }
 
-// Messerwurf: the shared log spins ever faster; once every alive player has
-// thrown this round (or the round times out) it advances to the next.
-// Move to the next player who has not yet had a turn. Spin gets a touch
-// faster each turn so later throwers face a trickier disc.
-// Das Wurffenster je Runde. Es wird enger, damit späte Runden — wenn die Scheibe
-// schon voll ist — auch unter Zeitdruck stehen.
-// Der beste Wurf, der in diesem Augenblick überhaupt möglich wäre: die Mitte
-// des grössten freien Bogens. Von dort aus ist der Abstand zum nächsten Messer
-// genau der halbe Bogen.
-function knifeBestGap(knives) {
-  if (!knives || knives.length === 0) return 180;
-  const angles = knives.map((knife) => ((knife.angleDeg % 360) + 360) % 360).sort((a, b) => a - b);
-  let widest = angles[0] + 360 - angles[angles.length - 1];
-  for (let i = 1; i < angles.length; i += 1) {
-    widest = Math.max(widest, angles[i] - angles[i - 1]);
-  }
-  return Math.max(1, widest / 2);
-}
 
-function knifeTurnMs(round) {
-  return Math.max(KNIFE_TURN_MIN_MS, Math.round(KNIFE_TURN_START_MS * Math.pow(KNIFE_TURN_STEP, round)));
-}
 
-function advanceKnifeTurn(room, minigame, arcade, now) {
-  const current = arcade.players[arcade.activeId];
-  if (current) current.turnDone = true;
-  const alive = (id) => {
-    const entry = arcade.players[id];
-    return entry && !entry.eliminated;
-  };
-  let next = null;
-  for (let step = 1; step <= arcade.order.length; step += 1) {
-    const index = (arcade.turnIndex + step) % arcade.order.length;
-    const candidate = arcade.order[index];
-    if (alive(candidate) && !arcade.players[candidate].turnDone) {
-      next = candidate;
-      arcade.turnIndex = index;
-      break;
-    }
-  }
-  if (!next) {
-    // Runde vorbei: alle, die noch dabei sind, dürfen erneut werfen.
-    //
-    // KEIN Rundenlimit. Es geht so lange, bis nur noch einer steht — und das
-    // kommt von allein: die Scheibe fasst rund sechzehn Messer, jede Runde
-    // legen alle eines nach, und irgendwann ist die grösste freie Lücke kleiner
-    // als der Mindestabstand. Ab da wirft sich jeder selbst raus, und genau das
-    // ist der Schluss, den das Spiel haben soll.
-    arcade.round += 1;
-    const stillIn = arcade.order.filter((id) => alive(id));
-    if (stillIn.length > 1) {
-      arcade.order.forEach((id) => {
-        if (alive(id)) arcade.players[id].turnDone = false;
-      });
-      arcade.turnMs = knifeTurnMs(arcade.round);
-      // Wer anfängt, wirft in die leerste Scheibe — das ist der grösste Vorteil
-      // im ganzen Spiel. Bei fester Reihenfolge hatte Spieler 1 in JEDER Runde
-      // im Schnitt 100 Grad Platz und Spieler 3 nur 66; das entschied die Partie
-      // deutlicher als alles, was die Spieler taten.
-      //
-      // Einfaches Durchrotieren reicht nicht: geht die Rundenzahl nicht durch
-      // die Spielerzahl auf (drei Spieler, vier Runden), bleibt ein fester Rest
-      // übrig — gemessen genau bei drei Spielern. Nur den Anfänger zu tauschen
-      // reicht auch nicht, denn der Rest der Runde bleibt dann in alter Ordnung.
-      //
-      // Darum wird die ganze Runde neu sortiert: wer bisher die schlechtesten
-      // Plätze hatte, wirft zuerst. Gleichstände werden gewürfelt — sonst
-      // bevorzugt der Rest über viele Partien hinweg immer denselben Sitz.
-      arcade.turnPos = 0;
-      arcade.order = arcade.order
-        .map((id) => ({ id, sum: arcade.players[id]?.posSum || 0, jitter: Math.random() }))
-        .sort((a, b) => (b.sum - a.sum) || (a.jitter - b.jitter))
-        .map((entry) => entry.id);
-      for (let step = 0; step < arcade.order.length; step += 1) {
-        const candidate = arcade.order[step];
-        if (alive(candidate)) { next = candidate; arcade.turnIndex = step; break; }
-      }
-    }
-  }
-  if (next) {
-    arcade.activeId = next;
-    const entry = arcade.players[next];
-    if (entry) entry.posSum = (entry.posSum || 0) + (arcade.turnPos || 0);
-    arcade.turnPos = (arcade.turnPos || 0) + 1;
-    arcade.turnEndsAt = now + arcade.turnMs;
-    arcade.spinSpeed = Math.min(KNIFE_SPIN_MAX, arcade.spinSpeed + KNIFE_SPIN_STEP);
-  } else {
-    arcade.activeId = null;   // alle Runden geworfen oder niemand mehr übrig
-  }
-}
 
 function updateKnife(room, minigame, arcade, dt, now) {
-  // The disc always spins; direction alternates by turn to keep it honest.
-  const dir = arcade.turnIndex % 2 === 0 ? 1 : -1;
-  arcade.logAngle += arcade.spinSpeed * dir * dt;
-
-  if (arcade.activeId && now >= arcade.turnEndsAt) {
-    // Knife Hit rule: miss your throwing window and you are out.
-    const current = arcade.players[arcade.activeId];
-    const currentPlayer = room.players.find((p) => p.id === arcade.activeId);
-    if (current && currentPlayer && !current.turnDone && !current.eliminated) {
-      // Ein verpasstes Wurffenster zählt wie ein Fehlwurf — auch hier gibt es
-      // einen zweiten Versuch, sonst wäre kurzes Zögern härter bestraft als ein
-      // Messer in ein anderes zu werfen.
-      current.clashes = (current.clashes || 0) + 1;
-      if (current.clashes >= KNIFE_LIVES) {
-        current.eliminated = true;
-        current.eliminatedAt = now;
-      }
-      current.flash = "bad";
-      current.lastHitAt = now;
-      syncArcadeScore(minigame, currentPlayer, current);
-    }
-    advanceKnifeTurn(room, minigame, arcade, now);
-  }
+  // Nach einem vollen oder verlorenen Stamm kommt der nächste.
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry || !entry.nextStageAt || now < entry.nextStageAt) return;
+    setupKnifeStage(arcade, entry, entry.stage + 1, now);
+  });
 }
 
 function updateBarrel(room, minigame, arcade, dt, now) {
@@ -5105,10 +5061,6 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     const allesLiegt = (arcade.stones || []).every((stone) =>
       Math.hypot(stone.vx || 0, stone.vy || 0) < 0.02);
     done = alleGeworfen && allesLiegt;
-  } else if (arcade.family === "knife") {
-    // Es ist niemand mehr übrig — gespielt wird, bis sich alle rausgeworfen
-    // haben.
-    done = arcade.activeId === null;
   } else if (arcade.family === "stack") {
     done = room.players.every((player) => {
       const entry = arcade.players[player.id];
@@ -6366,30 +6318,35 @@ function arcadeBotStep(room, bot) {
     if (player.launchedAt) return;
     const now = Date.now();
     const profile = botProfile(player);
+    const accuracy = profile.level === "hard" ? 1 : profile.level === "normal" ? 0.6 : 0.2;
     if (!player.powerAt) {
       if (player.botLaunchAt === undefined) {
-        // Aim for a gauge peak, offset by skill-based error.
-        const target = arcade.periodMs / 2 + (Math.random() - 0.5) * profile.spreadMs * 0.6;
-        const cycle = 2 + Math.floor(Math.random() * 5);
-        player.botLaunchAt = cycle * arcade.periodMs + Math.max(120, target) - BOT_TICK_LEAD_MS;
+        // Eine Kraft wählen und den Moment treffen, in dem die Anzeige dort
+        // steht (steigend), mit Streuung nach Können.
+        player.botPower = 0.78 + Math.random() * 0.2;
+        const at = (player.botPower / 2) * arcade.periodMs + (Math.random() - 0.5) * profile.spreadMs * 0.5;
+        const cycle = 1 + Math.floor(Math.random() * 3);
+        player.botLaunchAt = cycle * arcade.periodMs + Math.max(60, at) - BOT_TICK_LEAD_MS;
       }
       if (now - minigame.startedAt >= player.botLaunchAt) {
         handleArcadeInput(room, bot, { action: "launch" });
       }
       return;
     }
-    // Second tap: aim for the 45° sweet spot (angleT = 0.5 → period/6).
     if (player.botAngleAt === undefined) {
-      // 45° entspricht angleT = 0.5, also 1/6 und 5/6 der Sweep-Periode. Die
-      // erste Gelegenheit liegt bei 250 ms — so dicht hinter dem ersten Tipper,
-      // dass der Eingabe-Cooldown sie schluckte. Der Bot zielte deshalb ins
-      // Leere und schoss gemessen mit 70° statt 45°. Er nimmt jetzt die zweite,
-      // sicher erreichbare Gelegenheit.
-      const earliest = 260;
-      const first = arcade.anglePeriodMs / 6;
-      const aim = first >= earliest ? first : (arcade.anglePeriodMs * 5) / 6;
-      player.botAngleAt = player.powerAt + aim - BOT_TICK_LEAD_MS
-        + (Math.random() - 0.5) * profile.spreadMs * 0.7;
+      // Den Winkel suchen, der mit der festgelegten Kraft die Flagge trifft —
+      // den Wind rechnet ein guter Bot ganz ein, ein schwacher kaum.
+      const wind = (arcade.wind || 0) * accuracy;
+      let best = CANNON_ANGLE_MIN;
+      let bestOff = Infinity;
+      for (let deg = CANNON_ANGLE_MIN; deg <= 45; deg += 0.5) {
+        const off = Math.abs(cannonDistance(player.power, deg, wind) - arcade.target);
+        if (off < bestOff) { bestOff = off; best = deg; }
+      }
+      const share = (best - CANNON_ANGLE_MIN) / (CANNON_ANGLE_MAX - CANNON_ANGLE_MIN);
+      const first = (share / 2) * arcade.anglePeriodMs;
+      const aim = first >= 260 ? first : arcade.anglePeriodMs - first;
+      player.botAngleAt = player.powerAt + aim - BOT_TICK_LEAD_MS + (Math.random() - 0.5) * profile.spreadMs * 0.7;
     }
     if (now >= player.botAngleAt) {
       handleArcadeInput(room, bot, { action: "launch" });
@@ -6427,64 +6384,19 @@ function arcadeBotStep(room, bot) {
     return;
   }
   if (arcade.family === "knife") {
-    // Only act on the bot's own turn.
-    if (arcade.activeId !== bot.id || player.eliminated || player.turnDone) return;
     const now = Date.now();
+    if (now < minigame.startedAt || now < (player.stunUntil || 0) || player.nextStageAt || player.knivesLeft <= 0) return;
+    if (now - (player.lastThrowAt || 0) < KNIFE_COOLDOWN_MS) return;
     const profile = botProfile(player);
-
-    // Der Bot spielt das, was auch ein Mensch hier spielt: er SCHAUT der Scheibe
-    // zu und lässt im richtigen Moment los.
-    //
-    // Vorher war der Fehler auf die geschätzte LÜCKE modelliert, und das ging
-    // zweimal schief. Ein fester Anspruch liess den genauen Bot bei enger
-    // Scheibe zwangsläufig bis zum Panikwurf warten — und der fällt immer auf
-    // denselben Augenblick, also denselben Drehwinkel; der schlampige streute
-    // über das Fenster und erwischte zufällig gute Momente. Ein fallender
-    // Anspruch machte es schlimmer, weil dann der Zufall noch früher greifen
-    // durfte. Gemessen stand die Rangfolge beide Male auf dem Kopf.
-    //
-    // Der Fehler gehört auf die ZEIT, nicht auf die Lücke: die Scheibe dreht
-    // sich, also ist ein Zeitfehler direkt ein Winkelfehler, und wer genauer
-    // trifft, wirft in grössere Lücken. Genau das ist das Können des Spiels.
-    if (player.botTurnKey !== `${arcade.round}:${arcade.turnIndex}`) {
-      player.botTurnKey = `${arcade.round}:${arcade.turnIndex}`;
-      const spread = profile.level === "hard" ? 55 : profile.level === "normal" ? 150 : 320;
-      player.botAimError = (Math.random() * 2 - 1) * spread;
-      player.botThrowAt = null;
-    }
-
-    // Den besten Augenblick im verbleibenden Fenster suchen: die Scheibe dreht
-    // gleichmässig, ihre Lage lässt sich also vorausrechnen.
-    if (player.botThrowAt === null || player.botThrowAt === undefined) {
-      const dir = arcade.turnIndex % 2 === 0 ? 1 : -1;
-      const perMs = (arcade.spinSpeed * dir * 180) / Math.PI / 1000;
-      const nowAngle = (((arcade.logAngle * 180) / Math.PI) % 360 + 360) % 360;
-      // Nervenreserve. Seit der Bot seinen Zielaugenblick mitschickt, muss sie
-      // nicht mehr den Bot-Takt abdecken, sondern nur noch Zögern abbilden.
-      const nerve = 260;
-      const horizon = Math.max(0, arcade.turnEndsAt - now - nerve);
-      let bestAt = now;
-      let bestGap = -1;
-      for (let ahead = 0; ahead <= horizon; ahead += 40) {
-        const angle = (nowAngle + perMs * ahead % 360 + 360) % 360;
-        let gap = 180;
-        arcade.knives.forEach((knife) => {
-          const diff = Math.abs(((knife.angleDeg - angle + 540) % 360) - 180);
-          if (diff < gap) gap = diff;
-        });
-        if (gap > bestGap) { bestGap = gap; bestAt = now + ahead; }
-      }
-      player.botThrowAt = bestAt + player.botAimError;
-    }
-
-    if (now >= player.botThrowAt || arcade.turnEndsAt - now <= 200) {
-      // Auf den geplanten Augenblick werfen, nicht auf „jetzt" — siehe
-      // handleArcadeInput. Der Panikwurf am Fensterende zielt auf jetzt.
-      handleArcadeInput(room, bot, {
-        action: "throw",
-        atMs: Math.min(now, Math.max(player.botThrowAt, now - 400))
-      });
-    }
+    // Der Bot schaut, wo sein Messer jetzt landen würde, und wirft, wenn dort
+    // genug Platz ist. Wie viel Platz er verlangt und wie sehr er sich dabei
+    // verschätzt, ist seine Stufe.
+    const margin = profile.level === "hard" ? 24 : profile.level === "normal" ? 19 : 15;
+    const misjudge = (Math.random() * 2 - 1) * (profile.level === "hard" ? 4 : profile.level === "normal" ? 9 : 16);
+    const angle = knifeImpactAngle(player, now + BOT_TICK_LEAD_MS * 0.5) + misjudge;
+    const free = player.stuckAngles.every((knife) => knifeAngleGap(knife.angle, angle) >= margin);
+    const hurry = Math.random() < profile.mistake * 0.25;
+    if (free || hurry) handleArcadeInput(room, bot, { action: "throw" });
     return;
   }
   if (arcade.family === "stack") {
@@ -7328,6 +7240,9 @@ if (require.main === module) {
 
 module.exports = {
   testRules: {
+    cannonDistance,
+    cannonPoints,
+    cannonTri,
     WHACK_STUN_MS,
     startGame,
     finishMinigame,
@@ -7405,8 +7320,11 @@ module.exports = {
     BARREL_LIMIT,
     BOMB_PASS_LOCK_MS,
     KNIFE_MIN_GAP_DEG,
-    KNIFE_DISC_CAPACITY,
-    knifeRoundsFor,
+    knifeLogAngle,
+    knifeImpactAngle,
+    setupKnifeStage,
+    KNIFE_STAGES,
+    KNIFE_CLASH_MS,
     STACK_BLOCKS,
     CLIMB_HEIGHT,
     roomCreateBlockedReason,

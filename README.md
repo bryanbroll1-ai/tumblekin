@@ -82,7 +82,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus.
 - **Blob-Klopfe:** Blobs poppen aus den Löchern – tipp ihr Feld, bevor sie abtauchen. Finger weg von den stacheligen: wer einen erwischt, verliert einen Treffer und ist kurz benommen.
 - **Seilspringen:** Die zwei Dreher schwingen das Riesenseil, und es wird immer schneller. Tipp, wenn es unter dir durchgeht — du bist nur kurz in der Luft. Achtung bei DOPPELT: dann kommt es zweimal kurz hintereinander. Einmal hängen geblieben und du bist raus.
-- **Messerwurf:** Reihum je ein Wurf in den drehenden Stamm. Wirf dahin, wo am meisten Platz ist – wer knapp neben ein fremdes Messer setzt, hat Glück gehabt, nicht gut gezielt. Zweimal dagegen und du bist raus. Der Stamm wird jede Runde schneller.
+- **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt, jeder dreht sich anders. Äpfel bringen Extrapunkte, ein Klirren kostet den Stamm.
 - **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
 
 ### 👆⏺️ Knopf gedrückt halten
@@ -94,7 +94,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 👆👆 Schnell tippen
 
 - **Pump-Panik:** Tippe so schnell du kannst! Jeder Tap pumpt deinen Ballon größer – der dickste Ballon gewinnt.
-- **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Abschusswinkel. Volle Power bei 45° fliegt am weitesten!
+- **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Winkel. Triff die Zielflagge — sie steht jede Runde woanders, und der Windsack zeigt, ob Wind dich weiter trägt oder bremst. Beim Winkel zeigt ein Ring, wo du ohne Wind landen würdest.
 - **Bergsteiger:** Tippe auf die Bildhälfte, auf der der nächste Griff leuchtet — jede Seite ist eine Hand, die falsche kostet den Griff. Der Gipfel liegt auf 70: wer am schnellsten oben ist, gewinnt. Wer nicht ankommt, zählt nach Höhe.
 
 ### 👆↔️ Links/Rechts wischen

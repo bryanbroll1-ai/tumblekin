@@ -4,8 +4,14 @@ import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Turmbau: über dem eigenen Turm pendelt der nächste Block, ein Tipp lässt ihn
-// fallen. Was übersteht, wird abgeschnitten — wer am höchsten baut, gewinnt.
+// Turmbau: wie bei den Stapelspielen gleitet der nächste Block direkt auf der
+// nächsten Ebene über den Turm hin und her, ein Tipp setzt ihn ab. Was
+// übersteht, wird abgeschnitten — wer am höchsten baut, gewinnt.
+//
+// Den gleitenden Block sieht jeder nur für den EIGENEN Turm. Vorher pendelten
+// alle vier halb durchsichtig an Seilen über den Türmen und schnitten sich
+// gegenseitig durchs Bild — man verlor den eigenen aus den Augen. Der eigene
+// Turm steht dazu eine Reihe weiter vorn.
 //
 // Vorher gab es gar keine Figuren, nur Türme und Namensschilder. Jetzt steht
 // vor jedem Turm sein Baumeister, schaut dem pendelnden Block nach, reisst
@@ -16,7 +22,8 @@ const BLOCK_H = 0.46;
 const BASE_Y = 0.2;
 const WORLD_W = 1.35;
 const SLIDE_W = 1.15;
-const HOVER = 1.55;
+const OWN_Z = 0.7;              // der eigene Turm eine Reihe weiter vorn
+const OTHER_Z = -1.0;
 const DROP_MS = 200;
 
 export class TowerStack extends MinigameScene {
@@ -66,7 +73,18 @@ export class TowerStack extends MinigameScene {
     });
 
     const players = this.getState()?.players || [];
-    players.forEach((player, index) => this.addTower(player, index, players.length));
+    const own = this.getControlledPlayerId();
+    const others = players.filter((player) => player.id !== own);
+    players.forEach((player, index) => {
+      // Der eigene Turm vorn in der Mitte, die anderen dahinter verteilt.
+      const slot = others.indexOf(player);
+      const spots = others.length === 1 ? [[1.5, OTHER_Z]] : others.length === 2 ? [[-1.9, OTHER_Z], [1.9, OTHER_Z]] : [[-1.95, OTHER_Z], [0, OTHER_Z - 1.5], [1.95, OTHER_Z]];
+      const [x, z] = player.id === own ? [0, OWN_Z] : spots[slot % spots.length];
+      this.addTower(player, index, x, z);
+      // Die Namen der anderen stünden sonst mitten auf dem eigenen Turm.
+      const label = this.kins.get(player.id)?.userData.label;
+      if (label && player.id !== own) label.visible = false;
+    });
   }
 
   columnX(index, count) {
@@ -77,10 +95,10 @@ export class TowerStack extends MinigameScene {
     return BASE_Y + 0.2 + level * BLOCK_H - BLOCK_H / 2;
   }
 
-  addTower(player, index, count) {
-    const x = this.columnX(index, count);
+  addTower(player, index, x, z) {
+    const isOwn = player.id === this.getControlledPlayerId();
     const group = new THREE.Group();
-    group.position.x = x;
+    group.position.set(x, 0, z);
     this.scene.add(group);
     const base = new THREE.Mesh(new THREE.BoxGeometry(WORLD_W, 0.4, 1.1), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
     base.receiveShadow = true;
@@ -89,18 +107,24 @@ export class TowerStack extends MinigameScene {
     const stripe = new THREE.Mesh(new THREE.BoxGeometry(WORLD_W + 0.06, 0.1, 1.16), new THREE.MeshLambertMaterial({ color: player.color }));
     stripe.position.y = 0.2;
     group.add(stripe);
-    // Der Haken, an dem der nächste Block hängt.
+    // Der gleitende nächste Block — nur beim eigenen Turm zu sehen.
     const hook = new THREE.Group();
-    const rope = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1, 0.04), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
-    rope.position.y = BLOCK_H / 2 + 0.5;
-    hook.add(rope);
-    const slider = new THREE.Mesh(new THREE.BoxGeometry(WORLD_W, BLOCK_H, 1), new THREE.MeshLambertMaterial({ color: player.color, transparent: true, opacity: 0.92 }));
+    const slider = new THREE.Mesh(
+      new THREE.BoxGeometry(WORLD_W, BLOCK_H, 1),
+      new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.18, transparent: true, opacity: 0.88 })
+    );
     slider.castShadow = true;
     hook.add(slider);
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(WORLD_W, BLOCK_H, 1)),
+      new THREE.LineBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.8 })
+    );
+    hook.add(edges);
+    hook.visible = false;
     group.add(hook);
     // Der Baumeister vor dem Turm.
-    this.addKin(player, index, { x, ground: 0, z: 0.95, facing: 0, scale: 0.9 });
-    this.towers.set(player.id, { group, blocks: [], hook, slider, x, color: player.color, dropping: null, flagged: false });
+    this.addKin(player, index, { x, ground: 0, z: group.position.z + 0.95, facing: 0, scale: 0.9 });
+    this.towers.set(player.id, { group, blocks: [], hook, slider, edges, x, isOwn, color: player.color, dropping: null, flagged: false });
   }
 
   shot() {
@@ -166,7 +190,7 @@ export class TowerStack extends MinigameScene {
         block.receiveShadow = true;
         tower.group.add(block);
         tower.blocks.push(block);
-        tower.dropping = { block, from: tower.hook.position.y, to: restY, at: now };
+        tower.dropping = { block, from: restY + 0.1, to: restY, at: now };
         animator.trigger("hop", { height: 0.2 });
       }
       if (tower.dropping) {
@@ -219,31 +243,34 @@ export class TowerStack extends MinigameScene {
           this.feedback?.vibrate(entry.toppled && height < arcade.total ? 12 : [20, 20, 40]);
         }
       }
-      // Der Haken pendelt über der Figur.
+      // Der nächste Block gleitet auf der nächsten Ebene hin und her — nur
+      // der eigene ist zu sehen.
       const active = !capped && !finale;
-      tower.hook.visible = active;
+      tower.hook.visible = active && isOwn;
       if (active) {
         const speed = 1.1 + height * 0.06;
         const swing = Math.sin((elapsed / 1000) * speed + (entry.phase || 0) * Math.PI * 2);
         const blockCentre = swing * (0.85 - height * 0.01);
-        tower.slider.geometry.dispose();
-        tower.slider.geometry = new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1);
-        tower.hook.position.set(blockCentre * (SLIDE_W / 0.85), standY + BLOCK_H / 2 + HOVER * 0.5, 0);
-        tower.slider.material.opacity = isOwn ? 0.95 : 0.55;
+        const width = Math.max(0.1, entry.width * WORLD_W);
+        if (tower.sliderWidth !== width) {
+          tower.sliderWidth = width;
+          tower.slider.scale.x = width / WORLD_W;
+          tower.edges.scale.x = width / WORLD_W;
+        }
+        tower.hook.position.set(blockCentre * (SLIDE_W / 0.85), BASE_Y + 0.2 + height * BLOCK_H, 0);
       }
       if (finale) return;
-      animator.lookAt(active ? tower.slider.getWorldPosition(new THREE.Vector3()) : null);
+      animator.lookAt(active ? tower.group.localToWorld(tower.hook.position.clone()) : null);
       animator.set(capped ? "happy" : "ready");
     });
     this.smoothTop += (topHeight - this.smoothTop) * frameLerp(0.08, dt);
   }
 
   rigOptions() {
-    const count = Math.max(1, this.towers.size);
     const topY = BASE_Y + this.smoothTop * BLOCK_H;
     return {
-      look: [0, topY * 0.55 + 1.0, 0],
-      frame: { w: count * COL_GAP + 1.2, h: Math.max(3.4, topY + 2.6) }
+      look: [0, topY * 0.55 + 1.0, OWN_Z * 0.4],
+      frame: { w: 4.6, h: Math.max(3.6, topY + 2.6) }
     };
   }
 
