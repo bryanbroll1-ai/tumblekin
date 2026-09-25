@@ -24,7 +24,7 @@ export const GESTURES = {
 
 export const MINIGAME_CATALOG = [
   { type: "bounceArena", title: "Bumper Pool", gesture: "joystick", help: "Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Wer reinfällt, paddelt zurück — oben bleiben bringt Punkte, rausschubsen noch mehr." },
-  { type: "finishRush", title: "Zielgerade", family: "runner", gesture: "swipeAny", help: "Weiche Hürden aus (hoch wischen zum Springen) und such dir die schnelle Bahn (links/rechts wischen): Violett ist Tempo, Braun ist Sand. Nach unten wischen ist ein Angriff — er trifft nur, wer in DEINER Bahn dicht vor dir läuft, und wer gerade springt, weicht aus. Du hast drei davon." },
+  { type: "finishRush", title: "Zielgerade", family: "runner", gesture: "swipeAny", help: "Wisch nach links oder rechts in die schnelle Bahn: grüne Felder mit Pfeilen sind Boost, Matsch bremst. Tippen springt über Hürden. Nach unten wischen wirft etwas auf den, der in DEINER Bahn dicht vor dir läuft — du hast drei Würfe." },
   { type: "colorEscape", title: "Farbflucht", family: "colorgrid", gesture: "swipeAny", help: "Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus." },
   { type: "nervenprobe", title: "Nervenprobe", family: "stopclock", gesture: "tap", help: "Die Zielzeit liegt zwischen 4 und 8 Sekunden. Nach 2 Sekunden verschwindet jede Uhr — zähl im Kopf weiter und drück so nah wie möglich an der Zielzeit." },
   { type: "lichtwaechter", title: "Lichtwächter", family: "redlight", gesture: "hold", help: "Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!" },

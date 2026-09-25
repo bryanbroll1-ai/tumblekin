@@ -3,14 +3,16 @@ import { createCloud, createKin, KinAnimator, KIN_SOLE, standOn } from "./VoxelK
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Zielgerade: drei Bahnen, Hürden, Sand und Tempofelder. Wischen wechselt die
-// Bahn, nach oben springt, nach unten wirft man etwas auf den Vordermann.
+// Zielgerade: drei Bahnen auf einer echten Laufbahn — Boostfelder, Matsch und
+// Hürden. Wischen wechselt die Bahn, Tippen oder nach oben wischen springt,
+// nach unten wischen wirft etwas auf den Vordermann.
 //
-// Vorher schaute die Kamera von hinten auf vier Rücken im Dauerlauf, eine
-// Hürde vorn im Bild verdeckte das halbe Feld, und ein Angriff war nur eine
-// Zahl, die kleiner wurde. Jetzt läuft die Kamera leicht seitlich versetzt
-// mit, man sieht Sprint, Sprung, den Wurf nach vorn, den Purzelbaum nach
-// einer Hürde samt Sternchen, und im Ziel dreht man sich jubelnd um.
+// Die alte Strecke war blass und neblig, die Beläge flache Pastellplatten,
+// Torbögen schnitten quer durchs Bild, die Hürden waren rote Kisten, und ein
+// einfacher Tipp löste aus Versehen einen Angriff aus. Jetzt: rote Tartanbahn
+// mit weissen Linien und Meterangaben, Boostfelder mit laufenden Pfeilen,
+// Matschpfützen, die spritzen, Leichtathletik-Hürden, Tribünen und
+// Wimpelketten an der Seite, eine höhere Kamera, und Tippen heisst Springen.
 const LANE_WIDTH = 1.15;
 // Grösse der wiederverwendeten Kulissen-Vorräte. Am Bild gerechnet: die Kamera
 // sieht bei diesem Blickwinkel gut 14 Streckeneinheiten voraus, also reichen
@@ -27,7 +29,7 @@ const SEGMENT = 0.62; // world units per track meter
 // wo man vorausliest, gingen Bahn und Himmel ineinander über. Violett kommt
 // in dieser Szene sonst nirgends vor — nicht im Himmel, nicht in der Wiese,
 // nicht im Sand und nicht im normalen Belag.
-const SURFACE_COLOUR = { sand: "#a97a42", normal: "#f4d98c", tempo: "#9b7bff" };
+const SURFACE_COLOUR = { sand: "#6b4424", normal: "#d4553f", tempo: "#1fe0b0" };
 const FLOOR_Y = 0;                  // Oberkante der Laufbahn
 const KIN_Y = standOn(FLOOR_Y);
 // Die Zuschauer sind kleiner — und weil der Sohlenabstand mitskaliert,
@@ -44,6 +46,9 @@ const FAN_Y = MEADOW_TOP_Y + KIN_SOLE * FAN_SCALE;
 function laneX(lane) {
   return (1 - lane) * LANE_WIDTH;
 }
+
+const _white = new THREE.Color("#ffffff");
+const _mint = new THREE.Color("#8ff5d8");
 
 function frac(v) {
   const x = Math.sin(v * 12.9898) * 43758.5453;
@@ -70,8 +75,8 @@ export class RunnerDerby extends MinigameScene {
   stage() {
     return {
       label: "3D Zielgerade",
-      background: "#8fd8f2",
-      fog: ["#9fdef5", 18, 48],
+      background: "#6fc3f0",
+      fog: ["#a9dcf5", 34, 90],
       lights: { sunPosition: [-4, 10, -2], sunIntensity: 3.2, skyColor: 0xdfefff, groundColor: 0x6fb0c4, sunColor: 0xfff4d6 }
     };
   }
@@ -87,42 +92,38 @@ export class RunnerDerby extends MinigameScene {
     this.trackZ = trackZ;
     const meadow = new THREE.Mesh(
       new THREE.BoxGeometry(34, 0.5, trackZ + 34),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+      new THREE.MeshLambertMaterial({ color: "#58b85a" })
     );
     meadow.position.set(0, FLOOR_Y - 0.31, trackZ / 2);
     meadow.receiveShadow = true;
     scene.add(meadow);
 
-    // Rolling hills on the horizon left and right.
-    for (let i = 0; i < 14; i += 1) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const s = 2.6 + frac(i * 4.7) * 3.4;
-      const hill = new THREE.Mesh(
-        new THREE.BoxGeometry(s * 1.6, s, s * 1.4),
-        new THREE.MeshLambertMaterial({ color: i % 3 === 0 ? "#8fd97b" : (i % 3 === 1 ? "#6bbf5e" : "#a5e08c") })
-      );
-      hill.position.set(side * (8.5 + frac(i * 2.3) * 5), FLOOR_Y - 0.3 + s / 2 - s * 0.35, (i / 14) * (trackZ + 20) - 6);
-      hill.rotation.y = frac(i * 8.1) * 0.7;
-      scene.add(hill);
-    }
-
-    // Die Bahn IST das Spiel: jeder Abschnitt gibt den drei Bahnen einen Belag,
-    // und den muss man von weitem lesen können. Ein durchgehend sandfarbener
-    // Streifen je Bahn wäre hier eine Lüge — er würde behaupten, alle drei
-    // seien gleich.
-    //
-    // Ein Grundband je Bahn (damit unter den Belägen nie eine Lücke klafft),
-    // darüber je Belagsorte eine Instanz. Drei Zeichenaufrufe für die ganzen
-    // sechzig Felder.
+    // Die Laufbahn: roter Tartan, weisse Linien zwischen den Bahnen.
     for (let lane = 0; lane < 3; lane += 1) {
       const strip = new THREE.Mesh(
-        new THREE.BoxGeometry(LANE_WIDTH - 0.04, 0.3, trackZ + 8),
+        new THREE.BoxGeometry(LANE_WIDTH - 0.02, 0.3, trackZ + 8),
         new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.normal })
       );
       strip.position.set(laneX(lane), FLOOR_Y - 0.15, trackZ / 2);
       strip.receiveShadow = true;
       scene.add(strip);
     }
+    const lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff" });
+    for (let k = 0; k <= 3; k += 1) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, trackZ + 8), lineMat);
+      line.position.set((1.5 - k) * LANE_WIDTH, FLOOR_Y + 0.011, trackZ / 2);
+      scene.add(line);
+    }
+    // Aussen ein Kunststoffrand und dahinter die Wiese.
+    [-1, 1].forEach((side) => {
+      const kerb = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.32, trackZ + 8), new THREE.MeshLambertMaterial({ color: "#2f7fd8" }));
+      kerb.position.set(side * (LANE_WIDTH * 1.5 + 0.3), FLOOR_Y - 0.14, trackZ / 2);
+      kerb.receiveShadow = true;
+      scene.add(kerb);
+    });
+
+    // Beläge aus dem geteilten Kurs: Boost leuchtet und hat Pfeile, Matsch ist
+    // eine dunkle Pfütze mit Blasen.
     const segLen = (arcade.segLen || 7.5) * SEGMENT;
     const felder = { tempo: [], sand: [] };
     (arcade.segments || []).forEach((segment) => {
@@ -131,137 +132,197 @@ export class RunnerDerby extends MinigameScene {
         felder[belag].push({ lane, z: (segment.at + (arcade.segLen || 7.5) / 2) * SEGMENT });
       });
     });
-    Object.entries(felder).forEach(([belag, liste]) => {
-      if (liste.length === 0) return;
-      const feld = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(LANE_WIDTH - 0.1, 0.06, segLen - 0.12),
-        new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR[belag] }),
-        liste.length
-      );
-      const platz = new THREE.Object3D();
-      liste.forEach((eintrag, i) => {
-        platz.position.set(laneX(eintrag.lane), FLOOR_Y + 0.02, eintrag.z);
-        platz.updateMatrix();
-        feld.setMatrixAt(i, platz.matrix);
-      });
-      feld.instanceMatrix.needsUpdate = true;
-      feld.receiveShadow = true;
-      scene.add(feld);
-    });
-    // Pfeile auf den Tempofeldern: die Farbe sagt "schnell", die Pfeile sagen
-    // "in diese Richtung" — und sie sind auch dann noch zu erkennen, wenn die
-    // Bahn im Dunst liegt.
     if (felder.tempo.length) {
-      const pfeile = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(0.16, 0.03, 0.42),
-        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55, depthWrite: false }),
-        felder.tempo.length * 3
+      const pad = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(LANE_WIDTH - 0.16, 0.05, segLen - 0.2),
+        new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.tempo, emissive: "#0fb88c", emissiveIntensity: 0.55 }),
+        felder.tempo.length
       );
-      const platz = new THREE.Object3D();
+      const place = new THREE.Object3D();
+      felder.tempo.forEach((entry, i) => {
+        place.position.set(laneX(entry.lane), FLOOR_Y + 0.02, entry.z);
+        place.updateMatrix();
+        pad.setMatrixAt(i, place.matrix);
+      });
+      pad.instanceMatrix.needsUpdate = true;
+      pad.receiveShadow = true;
+      scene.add(pad);
+      // Pfeile, die nacheinander aufleuchten: sie scheinen nach vorn zu laufen.
+      const perPad = 4;
+      const chevronGeo = new THREE.BufferGeometry();
+      chevronGeo.setAttribute("position", new THREE.Float32BufferAttribute([
+        -0.34, 0, -0.16, 0, 0, 0.2, 0, 0, 0.06,
+        -0.34, 0, -0.16, 0, 0, 0.06, -0.34, 0, -0.3,
+        0.34, 0, -0.16, 0, 0, 0.06, 0, 0, 0.2,
+        0.34, 0, -0.16, 0.34, 0, -0.3, 0, 0, 0.06
+      ], 3));
+      chevronGeo.computeVertexNormals();
+      this.chevrons = new THREE.InstancedMesh(chevronGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", side: THREE.DoubleSide }), felder.tempo.length * perPad);
       let k = 0;
-      felder.tempo.forEach((eintrag) => {
-        for (let n = -1; n <= 1; n += 1) {
-          platz.position.set(laneX(eintrag.lane), FLOOR_Y + 0.06, eintrag.z + n * segLen * 0.28);
-          platz.updateMatrix();
-          pfeile.setMatrixAt(k, platz.matrix);
+      felder.tempo.forEach((entry) => {
+        for (let n = 0; n < perPad; n += 1) {
+          place.position.set(laneX(entry.lane), FLOOR_Y + 0.05, entry.z - segLen * 0.36 + n * (segLen * 0.72 / (perPad - 1)));
+          place.updateMatrix();
+          this.chevrons.setMatrixAt(k, place.matrix);
+          this.chevrons.setColorAt(k, new THREE.Color("#ffffff"));
           k += 1;
         }
       });
-      pfeile.instanceMatrix.needsUpdate = true;
-      scene.add(pfeile);
+      this.chevrons.instanceMatrix.needsUpdate = true;
+      this.chevronsPerPad = perPad;
+      scene.add(this.chevrons);
     }
-    // Dirt shoulders framing the course.
-    [-1, 1].forEach((side) => {
-      const shoulder = new THREE.Mesh(
-        new THREE.BoxGeometry(0.34, 0.34, trackZ + 8),
-        new THREE.MeshLambertMaterial({ color: "#6cb95c" })
+    if (felder.sand.length) {
+      const mud = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(0.5, 0.52, 0.05, 10),
+        new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.sand }),
+        felder.sand.length * 3
       );
-      shoulder.position.set(side * (LANE_WIDTH * 1.5 + 0.15), FLOOR_Y - 0.16, trackZ / 2);
-      scene.add(shoulder);
-    });
-
-    // Festival arches spanning the track every stretch.
-    const archColors = ["#ff5c8a", "#12aaff", "#ffc400", "#33cf4d"];
-    for (let a = 0; a < 4; a += 1) {
-      const z = (a + 1) * (trackZ / 5);
-      const color = archColors[a % archColors.length];
-      [-1, 1].forEach((side) => {
-        const post = new THREE.Mesh(
-          new THREE.BoxGeometry(0.26, 2.5, 0.26),
-          new THREE.MeshLambertMaterial({ color })
-        );
-        post.position.set(side * (LANE_WIDTH * 1.9), FLOOR_Y + 1.25, z);
-        post.castShadow = true;
-        scene.add(post);
+      const bubbles = new THREE.InstancedMesh(
+        new THREE.SphereGeometry(0.06, 6, 4),
+        new THREE.MeshLambertMaterial({ color: "#8a5a34" }),
+        felder.sand.length * 4
+      );
+      const place = new THREE.Object3D();
+      let k = 0;
+      let b = 0;
+      felder.sand.forEach((entry, i) => {
+        for (let n = 0; n < 3; n += 1) {
+          place.position.set(laneX(entry.lane) + (frac(i * 3 + n) - 0.5) * 0.14, FLOOR_Y + 0.02 + n * 0.002, entry.z + (n - 1) * segLen * 0.3);
+          place.scale.set(1.05, 1, (segLen * 0.42) / 1.04);
+          place.rotation.y = frac(i + n * 7) * 0.4;
+          place.updateMatrix();
+          mud.setMatrixAt(k, place.matrix);
+          k += 1;
+        }
+        place.scale.set(1, 1, 1);
+        place.rotation.set(0, 0, 0);
+        for (let n = 0; n < 4; n += 1) {
+          place.position.set(laneX(entry.lane) + (frac(i * 5 + n) - 0.5) * 0.7, FLOOR_Y + 0.05, entry.z + (frac(i * 9 + n) - 0.5) * segLen * 0.8);
+          place.updateMatrix();
+          bubbles.setMatrixAt(b, place.matrix);
+          b += 1;
+        }
       });
-      const beam = new THREE.Mesh(
-        new THREE.BoxGeometry(LANE_WIDTH * 3.8 + 0.6, 0.32, 0.32),
-        new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.15 })
-      );
-      beam.position.set(0, FLOOR_Y + 2.55, z);
-      scene.add(beam);
+      mud.instanceMatrix.needsUpdate = true;
+      bubbles.instanceMatrix.needsUpdate = true;
+      mud.receiveShadow = true;
+      scene.add(mud);
+      scene.add(bubbles);
     }
 
-    // A little cheering crowd along the course.
-    const crowdColors = ["#ff8b2e", "#8f6ae0", "#2ec4b6", "#f45b9d", "#8bc34a", "#5c9dff"];
+    // Tribünen auf beiden Seiten: Stufen mit bunten Zuschauerwürfeln. Sie
+    // wandern mit wie die übrige Kulisse.
+    this.stands = [];
+    const crowdColors = ["#ff8b2e", "#8f6ae0", "#2ec4b6", "#f45b9d", "#8bc34a", "#5c9dff", "#ffd15c"];
+    for (let i = 0; i < 8; i += 1) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const stand = new THREE.Group();
+      for (let step = 0; step < 3; step += 1) {
+        const tier = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.35 + step * 0.35, 5.6), new THREE.MeshLambertMaterial({ color: step % 2 ? "#e9eef5" : "#d4dde8" }));
+        tier.position.set(side * step * 1.0, (0.35 + step * 0.35) / 2, 0);
+        tier.receiveShadow = true;
+        stand.add(tier);
+        const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(0.26, 0.34, 0.26), new THREE.MeshLambertMaterial({ color: "#ffffff" }), 6);
+        const place = new THREE.Object3D();
+        for (let c = 0; c < 6; c += 1) {
+          place.position.set(side * step * 1.0, 0.35 + step * 0.35 + 0.17, -2.4 + c * 0.95);
+          place.updateMatrix();
+          crowd.setMatrixAt(c, place.matrix);
+          crowd.setColorAt(c, new THREE.Color(crowdColors[(i * 3 + step * 5 + c) % crowdColors.length]));
+        }
+        crowd.userData.baseY = 0.35 + step * 0.35 + 0.17;
+        crowd.userData.side = side;
+        crowd.userData.step = step;
+        stand.add(crowd);
+        stand.userData.crowds = (stand.userData.crowds || []).concat(crowd);
+      }
+      stand.position.set(side * (LANE_WIDTH * 2.1 + 1.0), FLOOR_Y - 0.06, 3 + Math.floor(i / 2) * 6.2);
+      scene.add(stand);
+      this.stands.push(stand);
+    }
+
+    // Wimpelketten über den Seitenrändern, nicht quer über die Bahn.
+    this.bunting = [];
+    const flagColors = ["#ff5c8a", "#12aaff", "#ffc400", "#33cf4d", "#9b7bff"];
+    for (let i = 0; i < 12; i += 1) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const group = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.07, 2.2, 0.07), new THREE.MeshLambertMaterial({ color: "#ffffff" }));
+      pole.position.y = 1.1;
+      group.add(pole);
+      for (let f = 0; f < 5; f += 1) {
+        const flag = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.26, 3), new THREE.MeshLambertMaterial({ color: flagColors[(i + f) % flagColors.length] }));
+        flag.rotation.x = Math.PI;
+        flag.position.set(0, 1.95 - f * 0.02, 0.35 + f * 0.36);
+        group.add(flag);
+      }
+      group.position.set(side * (LANE_WIDTH * 1.5 + 0.55), FLOOR_Y, 2 + Math.floor(i / 2) * 4);
+      scene.add(group);
+      this.bunting.push(group);
+    }
+
+    // Jubelnde Zuschauer vorn an der Bande.
     for (let i = 0; i < 8; i += 1) {
       const side = i % 2 === 0 ? -1 : 1;
       const fan = createKin(crowdColors[i % crowdColors.length], i);
       fan.scale.setScalar(FAN_SCALE);
-      fan.position.set(side * (LANE_WIDTH * 2.55 + frac(i * 3.3) * 0.5), FAN_Y, 6 + i * (trackZ / 9));
+      fan.position.set(side * (LANE_WIDTH * 2.2 + frac(i * 3.3) * 0.3), FAN_Y, 6 + i * (trackZ / 9));
       fan.rotation.y = -side * Math.PI / 2;
       scene.add(fan);
-      // Auch die Zuschauer wandern mit: sie stehen fest an der Strecke, und
-      // acht Figuren zu je einem Dutzend Körpern sind der letzte grosse Posten.
       this.spectatorParts.push({ object: fan, z: fan.position.z });
       const fanAnimator = new KinAnimator(fan);
       fanAnimator.groundY = FAN_Y;
       fanAnimator.set("cheer", { base: true });
       this.spectators.push(fanAnimator);
     }
-    // Fahrbahnstriche. NUR so viele, wie ins Bild passen — sie wandern mit
-    // (siehe recycleScenery). Vorher lag über die ganzen 150 Streckeneinheiten
-    // ein Strich alle vier Meter, also 37 Meshes, von denen man nie mehr als
-    // acht gleichzeitig sah.
+
+    // Meterangaben auf der Bahn, alle zehn Meter — sie wandern mit.
     this.rungs = [];
     for (let i = 0; i < RUNG_POOL; i += 1) {
       const rung = new THREE.Mesh(
-        new THREE.BoxGeometry(LANE_WIDTH * 3, 0.02, 0.12),
-        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.25 })
+        new THREE.BoxGeometry(LANE_WIDTH * 3, 0.02, 0.1),
+        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55 })
       );
-      rung.position.set(0, FLOOR_Y + 0.01, (4 + i * 4) * SEGMENT);
+      rung.position.set(0, FLOOR_Y + 0.012, (4 + i * 4) * SEGMENT);
       scene.add(rung);
       this.rungs.push(rung);
     }
 
-    // Finish line.
-    const finish = new THREE.Mesh(
-      new THREE.BoxGeometry(LANE_WIDTH * 3.2, 0.06, 0.5),
-      new THREE.MeshLambertMaterial({ color: "#ffffff", emissive: "#ffd15c", emissiveIntensity: 0.4 })
-    );
+    // Das Ziel: Karo-Linie und ein hoher Bogen mit Karo-Banner.
+    const checker = document.createElement("canvas");
+    checker.width = 128;
+    checker.height = 32;
+    const pen = checker.getContext("2d");
+    for (let cx = 0; cx < 16; cx += 1) {
+      for (let cy = 0; cy < 4; cy += 1) {
+        pen.fillStyle = (cx + cy) % 2 ? "#111111" : "#ffffff";
+        pen.fillRect(cx * 8, cy * 8, 8, 8);
+      }
+    }
+    const checkerTex = new THREE.CanvasTexture(checker);
+    checkerTex.colorSpace = THREE.SRGBColorSpace;
+    checkerTex.magFilter = THREE.NearestFilter;
+    const finish = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3, 0.03, 0.5), new THREE.MeshLambertMaterial({ map: checkerTex }));
     finish.position.set(0, FLOOR_Y + 0.02, trackZ);
     scene.add(finish);
     [-1, 1].forEach((side) => {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.6, 0.2), new THREE.MeshLambertMaterial({ color: "#ef6673" }));
-      post.position.set(side * LANE_WIDTH * 1.7, FLOOR_Y + 0.8, trackZ);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.28, 3.4, 0.28), new THREE.MeshLambertMaterial({ color: "#ffc400" }));
+      post.position.set(side * (LANE_WIDTH * 1.5 + 0.35), FLOOR_Y + 1.7, trackZ);
       post.castShadow = true;
       scene.add(post);
     });
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3 + 0.9, 0.5, 0.1), new THREE.MeshLambertMaterial({ map: checkerTex }));
+    banner.position.set(0, FLOOR_Y + 3.2, trackZ);
+    scene.add(banner);
 
-    // Hürden aus dem geteilten Kurs. Sie sind kein Zufallspech mehr, sondern
-    // der Grund, an dieser Stelle NICHT zu sprinten: wer sprintet, kann nicht
-    // ausweichen.
-    //
-    // Alles bekommt zusätzlich einen Eintrag in `courseParts`: weit entfernte
-    // Hürden werden im Bild ausgeblendet. three.js überspringt unsichtbare
-    // Objekte beim Zeichnen, das spart also echte Zeichenaufrufe — und man
-    // sieht ohnehin nie mehr als ein paar Meter Strecke.
+    // Hürden aus dem geteilten Kurs; weit entfernte werden ausgeblendet.
     this.courseParts = [];
     const partOf = (object, z) => { this.courseParts.push({ object, z }); return object; };
     (arcade.segments || []).forEach((segment) => {
       if (segment.hurdle === null || segment.hurdle === undefined) return;
       const z = segment.hurdleAt * SEGMENT;
-      scene.add(partOf(this.makeHurdle(laneX(segment.hurdle), z, "#ef6673"), z));
+      scene.add(partOf(this.makeHurdle(laneX(segment.hurdle), z), z));
     });
 
     [[-6, 4, 10, 5], [6, 5, 24, 6], [-5, 5, 40, 7], [7, 6, 58, 8], [-7, 5, 74, 9]].forEach(([x, y, z, seed]) => {
@@ -331,6 +392,16 @@ export class RunnerDerby extends MinigameScene {
       while (rung.position.z < behind) rung.position.z += rungBand;
       while (rung.position.z > behind + rungBand) rung.position.z -= rungBand;
     });
+    const standBand = 4 * 6.2;
+    this.stands?.forEach((stand) => {
+      while (stand.position.z < behind - 3) stand.position.z += standBand;
+      while (stand.position.z > behind - 3 + standBand) stand.position.z -= standBand;
+    });
+    const flagBand = 6 * 4;
+    this.bunting?.forEach((flag) => {
+      while (flag.position.z < behind) flag.position.z += flagBand;
+      while (flag.position.z > behind + flagBand) flag.position.z -= flagBand;
+    });
     const propBand = (PROP_POOL / 2) * PROP_SPACING * SEGMENT;
     this.scenery.forEach((prop) => {
       while (prop.position.z < behind) prop.position.z += propBand;
@@ -377,25 +448,39 @@ export class RunnerDerby extends MinigameScene {
     return group;
   }
 
-  makeHurdle(x, z, color) {
+  // Leichtathletik-Hürde: zwei dünne Füsse, oben eine rot-weiss gestreifte
+  // Latte. Leicht und klar lesbar statt eines Klotzes.
+  makeHurdle(x, z) {
     const group = new THREE.Group();
-    const block = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH - 0.24, 0.6, 0.34), new THREE.MeshLambertMaterial({ color }));
-    block.position.y = FLOOR_Y + 0.3;
-    block.castShadow = true;
-    group.add(block);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH - 0.1, 0.12, 0.44), new THREE.MeshLambertMaterial({ color: "#ffffff" }));
-    cap.position.y = FLOOR_Y + 0.62;
-    group.add(cap);
+    const white = new THREE.MeshLambertMaterial({ color: "#ffffff" });
+    const red = new THREE.MeshLambertMaterial({ color: "#ff3b55" });
+    [-1, 1].forEach((side) => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.06), white);
+      leg.position.set(side * (LANE_WIDTH / 2 - 0.14), FLOOR_Y + 0.31, 0);
+      leg.castShadow = true;
+      group.add(leg);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.42), white);
+      foot.position.set(side * (LANE_WIDTH / 2 - 0.14), FLOOR_Y + 0.03, -0.14);
+      group.add(foot);
+    });
+    const stripes = 5;
+    const width = LANE_WIDTH - 0.2;
+    for (let i = 0; i < stripes; i += 1) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(width / stripes, 0.14, 0.06), i % 2 ? white : red);
+      bar.position.set(-width / 2 + (i + 0.5) * (width / stripes), FLOOR_Y + 0.6, 0);
+      bar.castShadow = true;
+      group.add(bar);
+    }
     group.position.set(x, 0, z);
     return group;
   }
 
   shot() {
     return {
-      look: [0, 0.9, 2],
-      frame: { w: 4.4, h: 3 },
-      yaw: Math.PI - 0.2,
-      pitch: 0.3,
+      look: [0, 0.7, 2.4],
+      frame: { w: 4.6, h: 3.4 },
+      yaw: Math.PI - 0.12,
+      pitch: 0.5,
       fov: 40,
       ease: 0.14,
       intro: { yaw: -0.8, pitch: 0.2, zoom: 1.3 }
@@ -405,7 +490,7 @@ export class RunnerDerby extends MinigameScene {
   bind() {
     this.controls.innerHTML = `
       <div class="runner-lane-controls">
-        <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen ▶ · ⬆ Springen · ⬇ Angriff</p>
+        <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen ▶ · Tippen = Springen · ⬇ Angriff</p>
       </div>`;
     this.swipeHint = this.controls.querySelector("[data-swipe-hint]");
     this.on(this.webglCanvas, "pointerdown", (event) => {
@@ -425,8 +510,11 @@ export class RunnerDerby extends MinigameScene {
     const dy = event.clientY - this.swipe.y;
     this.swipe = null;
     
+    // Ein einfacher Tipp springt. Er löste vorher einen Angriff aus — genau
+    // das, was man beim hastigen Tippen vor einer Hürde nicht wollte.
     if (Math.abs(dx) < 26 && Math.abs(dy) < 26) {
-       this.sendInput({ action: "attack" }).catch(() => {});
+       this.feedback?.sound("pop");
+       this.sendInput({ action: "jump" }).catch(() => {});
        return;
     }
     
@@ -474,6 +562,12 @@ export class RunnerDerby extends MinigameScene {
       const stumbling = now < (entry.stumbleUntil || 0);
       const jumping = now < (entry.jumpUntil || 0);
 
+      if (!finished && entry.surface === "sand" && Math.random() < frameChance(0.6, dt)) {
+        this.burst(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.08, kin.position.z - 0.1), ["#6b4424", "#8a5a34"], { count: 2, speed: 1.1, up: 1.4, size: 0.07, life: 0.45, gravity: 5 });
+      }
+      if (!finished && entry.surface === "tempo" && Math.random() < frameChance(0.8, dt)) {
+        this.burst(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.3, kin.position.z - 0.3), ["#8ff5d8", "#ffffff"], { count: 1, speed: 0.4, up: 0.3, size: 0.06, life: 0.35, gravity: 0 });
+      }
       if (!finished && Math.random() < frameChance(0.14, dt)) {
         this.burst(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.05, kin.position.z - 0.2), ["#e8f0d8", "#ffffff"], { count: 1, speed: 0.5, up: 0.6, size: 0.05, life: 0.4, gravity: 1.5 });
       }
@@ -563,10 +657,10 @@ export class RunnerDerby extends MinigameScene {
       this.letzterBelag = belag;
       if (ownKin && vorher !== undefined && !own?.finishedAt) {
         if (belag === "tempo") {
-          this.pop(ownKin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "TEMPO!", { color: "#b9a2ff", size: 0.34, life: 0.75 });
+          this.pop(ownKin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "BOOST!", { color: "#8ff5d8", size: 0.36, life: 0.75 });
           this.feedback?.sound("coin");
         } else if (belag === "sand") {
-          this.pop(ownKin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "SAND", { color: "#c99a5e", size: 0.3, life: 0.7 });
+          this.pop(ownKin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "MATSCH", { color: "#c99a5e", size: 0.3, life: 0.7 });
           this.feedback?.sound("clack");
         }
       }
@@ -579,6 +673,22 @@ export class RunnerDerby extends MinigameScene {
 
     this.scenery.forEach((prop) => {
       prop.rotation.z = Math.sin(now / 900 + prop.userData.phase) * prop.userData.sway;
+    });
+    // Boostpfeile leuchten nacheinander auf und scheinen nach vorn zu laufen.
+    if (this.chevrons) {
+      const per = this.chevronsPerPad || 4;
+      const beat = Math.floor(now / 110) % per;
+      for (let i = 0; i < this.chevrons.count; i += 1) {
+        const lit = i % per === beat;
+        this.chevrons.setColorAt(i, lit ? _white : _mint);
+      }
+      this.chevrons.instanceColor.needsUpdate = true;
+    }
+    // Die Tribünen hüpfen.
+    this.stands?.forEach((stand, i) => {
+      stand.userData.crowds.forEach((crowd, c) => {
+        crowd.position.y = Math.max(0, Math.sin(now / 160 + i * 1.3 + c)) * 0.08;
+      });
     });
     const focusZ = ownKin ? ownKin.position.z : 0;
     const focusX = ownKin ? ownKin.position.x : 0;
@@ -614,7 +724,7 @@ export class RunnerDerby extends MinigameScene {
     if (!this.focus) return {};
     const sprint = f.arcade?.players?.[f.controlledId]?.sprintingNow;
     return {
-      look: [this.focus.x * 0.3, 0.9, this.focus.z + 1.8],
+      look: [this.focus.x * 0.3, 0.7, this.focus.z + 2.4],
       frame: sprint ? { w: 4.8, h: 3.2 } : undefined
     };
   }
@@ -627,7 +737,7 @@ export class RunnerDerby extends MinigameScene {
     if (this.swipeHint) {
       const uebrig = controlled?.attacksLeft;
       const pfeile = uebrig === undefined ? "" : ` (${"⬇".repeat(Math.max(0, uebrig)) || "—"})`;
-      const hinweis = `◀ Wischen ▶ · ⬆ Springen · ⬇ Angriff${pfeile}`;
+      const hinweis = `◀ Wischen ▶ · Tippen = Springen · ⬇ Angriff${pfeile}`;
       if (this.letzterHinweis !== hinweis) {
         this.letzterHinweis = hinweis;
         this.swipeHint.textContent = hinweis;
