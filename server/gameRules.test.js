@@ -2314,6 +2314,23 @@ test("feint: the signal plan fills the round and mixes real with fake", () => {
   assert.ok(gos.length < signals.length / 2, `${gos.length}/${signals.length} real is too generous`);
 });
 
+test("feint: the last ring comes shortly before the end, whatever the seed", () => {
+  // Ein vierter Dreierblock passt meist nicht mehr in die Runde. Vorher blieben
+  // je nach Startwert bis zu acht Sekunden ohne Ring am Ende — die Uhr lief,
+  // und es geschah nichts mehr.
+  [491, 17, 99, 1234, 5000, 77777].forEach((seed) => {
+    const signals = buildFeintSignals(seed, FEINT_DURATION_MS);
+    const last = signals[signals.length - 1];
+    const end = last.at + last.windowMs;
+    assert.ok(end <= FEINT_DURATION_MS, `Seed ${seed}: letzter Ring endet nach der Runde (${end})`);
+    assert.ok(FEINT_DURATION_MS - end <= 2000, `Seed ${seed}: ${FEINT_DURATION_MS - end} ms ohne Ring am Ende`);
+    assert.equal(last.real, true, `Seed ${seed}: der letzte Ring ist echt`);
+    for (let i = 1; i < signals.length; i += 1) {
+      assert.ok(signals[i].at >= signals[i - 1].at + signals[i - 1].windowMs, `Seed ${seed}: Ringe ${i - 1} und ${i} überlappen`);
+    }
+  });
+});
+
 test("feint: real and fake start at exactly the same speed", () => {
   // DAS ist der Kern des Spiels. Wäre der Unterschied von Anfang an sichtbar,
   // gäbe es nichts zu wetten — dann wäre es wieder ein Nachschlagespiel, bei

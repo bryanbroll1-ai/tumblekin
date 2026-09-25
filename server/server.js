@@ -241,6 +241,7 @@ const FEINT_GAP_MIN_MS = 800;          // Abstand zwischen den Ringen
 const FEINT_GAP_MAX_MS = 1900;
 const FEINT_GROW_MS = 950;             // so lange braucht ein echter Ring bis zur Marke
 const FEINT_HOLD_MS = 480;             // danach steht er noch und zählt minimal
+const FEINT_END_PAD_MS = 1300;         // nach dem letzten Ring bis zum Rundenende
 const FEINT_FADE_MS = 420;             // ein falscher Ring verlischt so lange
 const FEINT_MIN_POINTS = 80;           // wer bis zur Marke wartet
 const FEINT_MAX_POINTS = 500;          // wer sofort tippt
@@ -5886,6 +5887,28 @@ function buildFeintSignals(seed, durationMs) {
       signals.splice(ersterDesLetzten, block.length, ...umsortiert);
     }
   }
+  // Die Restzeit auf die Pausen verteilen. Ein vierter Block passt meist nicht
+  // mehr in die Runde, und je nach Startwert blieben am Ende bis zu acht
+  // Sekunden ohne Ring — die Uhr lief, und auf dem Bild geschah nichts mehr.
+  // Jetzt werden die Pausen gleichmässig gestreckt, bis der letzte echte Ring
+  // kurz vor Schluss endet. Etwas längeres Warten zwischen den Ringen ist in
+  // einem Geduldsspiel kein Nachteil.
+  if (signals.length > 1) {
+    const last = signals[signals.length - 1];
+    const slack = durationMs - FEINT_END_PAD_MS - (last.at + last.windowMs);
+    if (slack > 0) {
+      const extra = slack / (signals.length - 1);
+      const gaps = signals.slice(0, -1).map((sig, i) => signals[i + 1].at - (sig.at + sig.windowMs));
+      let zeit = signals[0].at;
+      signals.forEach((sig, i) => {
+        sig.at = Math.round(zeit);
+        if (i < gaps.length) {
+          sig.gapAfter = gaps[i] + extra;
+          zeit += sig.windowMs + sig.gapAfter;
+        }
+      });
+    }
+  }
   signals.forEach((sig, i) => { sig.index = i; });
   return signals;
 }
@@ -7308,6 +7331,17 @@ function arcadeBotStep(room, bot) {
     // Weitergraben, solange sich der Stich unterm Strich lohnt. Die Zeit steckt
     // mit drin: tief graben kostet Sekunden, in denen zwei flache Tauchgänge
     // durchgingen.
+    // Die Uhr. Was bei Rundenende unten hängt, verfällt — ein guter Spieler
+    // zahlt rechtzeitig ein, ein gieriger gräbt noch eine Stufe und verliert
+    // alles. Ohne Blick auf die Uhr standen die Bots in den letzten fünf
+    // Sekunden mit vollen Taschen im Schacht, und am Stand änderte sich nichts
+    // mehr (Leerlauf-Prüfung).
+    const left = minigame.startedAt + minigame.duration - now;
+    const lastCall = profile.level === "hard" ? 1500 : profile.level === "normal" ? 1000 : 450;
+    if (player.depth > 0 && left <= lastCall) {
+      handleArcadeInput(room, bot, { action: "bank" });
+      return;
+    }
     const value = (1 - seen) * gain - seen * player.carried;
     const timeBias = player.depth >= diveBestDepth() ? 0.55 : 1;
     if (player.depth > 0 && value * timeBias + greed <= 0) {

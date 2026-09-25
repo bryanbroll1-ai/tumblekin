@@ -389,6 +389,13 @@ export class DeepDig extends MinigameScene {
       banner.textContent = "Verschüttet — alles verloren";
       banner.style.background = "#ff6b7f";
       banner.style.color = "#42101a";
+    } else if (own.depth > 0 && f.remaining <= 4 && f.started) {
+      // Was bei Rundenende unten hängt, verfällt. Ohne Hinweis merkte man das
+      // erst auf der Ergebnistafel.
+      banner.hidden = false;
+      banner.textContent = `Noch ${f.remaining} s — jetzt einzahlen! (${own.carried} Gold unten)`;
+      banner.style.background = "#ff6b7f";
+      banner.style.color = "#42101a";
     } else if (own.depth > 0) {
       banner.hidden = false;
       banner.textContent = `${own.carried} Gold hängen unten`;
