@@ -31,7 +31,12 @@ const HOLDS_PER_LANE = 40;
 // Griffe in Reichweite: bei Sprosse n hält eine Hand Griff n-1 (etwas über
 // der Schulter), die andere den letzten auf ihrer Seite (etwas darunter). Die
 // Schulter sitzt auf Höhe von kin.position.y, der Arm ist knapp 0,19 lang.
-const HOLD_REACH = 0.3;               // seitlicher Abstand des Griffs zur Bahn
+// Der Kopf ist 0,44 breit und hängt dicht an der Wand. Bei 0,3 Abstand und
+// 0,3 breiten Griffen steckte die Innenkante jedes Griffs sieben Zentimeter im
+// Kopf — von hinten sah es aus, als wüchse der Griff aus dem Gesicht. Jetzt
+// liegt die Innenkante knapp ausserhalb, und die Hand reicht trotzdem hin.
+const HOLD_REACH = 0.37;              // seitlicher Abstand des Griffs zur Bahn
+const HOLD_W = 0.26;
 const HOLD_LIFT = 0.39;               // Griffhöhe über der Schulter bei Sprosse 0
 const HOLD_FACE_Z = -0.36;            // Vorderseite der Griffe
 const KIN_Z = -0.36;                  // die Figur hängt dicht an der Wand
@@ -125,32 +130,52 @@ export class CliffClimb extends MinigameScene {
     // Wandfarbe entfernt. Als einzelne Rechtecke sahen sie aus wie aufgeklebte
     // Zettel; als Bänder liest man sie als Schichtung — und weil die Bänder
     // waagrecht laufen, sieht man beim Steigen sofort, dass es aufwärts geht.
-    const strata = [
-      new THREE.MeshLambertMaterial({ color: "#94886f" }),
-      new THREE.MeshLambertMaterial({ color: "#a79a82" }),
-      new THREE.MeshLambertMaterial({ color: "#8e8268" })
-    ];
+    // Die flachen Lagen liegen nur Millimeter voreinander, und benachbarte
+    // Bänder und Flecken überlappen sich. Über die Kameraentfernung reichte
+    // die Tiefengenauigkeit dafür nicht — sie kämpften um dieselben Pixel, und
+    // die Wand flackerte in schraffierten Streifen.
+    //
+    // Deshalb entscheidet über die Deko nicht mehr die Tiefe, sondern die
+    // Reihenfolge: die Lagen schreiben keine Tiefe und werden nach der Wand in
+    // fester Folge gemalt (Bänder, Flecken, Marken). Der Polygon-Versatz hält
+    // sie sicher vor der Wandfläche; Griffe und Figuren sind zu dem Zeitpunkt
+    // schon im Tiefenpuffer und verdecken sie weiter richtig.
+    const decal = (color, layer) => new THREE.MeshLambertMaterial({
+      color,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -layer,
+      polygonOffsetUnits: -layer * 4
+    });
+    const flat = (geometry, material) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.renderOrder = 1 + Math.abs(material.polygonOffsetFactor);
+      mesh.receiveShadow = true;
+      return mesh;
+    };
+    const strata = [decal("#94886f", 1), decal("#a79a82", 1), decal("#8e8268", 1)];
+    const patchMats = [decal("#94886f", 2), decal("#a79a82", 2), decal("#8e8268", 2)];
     for (let i = 0; i < 16; i += 1) {
       const t = i / 16;
-      const layer = new THREE.Mesh(
+      const layer = flat(
         // FLÄCHE, kein Quader. Ein 0.05 tiefer Quader zeigt der Kamera seine
         // Unterseite als haarfeine dunkle Linie — im Bild sah jede Schicht aus,
         // als hätte sie einen Kratzer darunter.
         new THREE.PlaneGeometry(WALL_WIDTH, 0.3 + (i % 4) * 0.28),
         strata[i % strata.length]
       );
-      layer.position.set(0, 0.4 + t * bandHeight, -0.575);
+      layer.position.set(0, 0.4 + t * bandHeight, -0.59);
       scene.add(layer);
       this.decor.push(layer);
     }
     // Ein paar unregelmässige Flecken darüber, damit die Bänder nicht wie ein
     // Streifenmuster wirken.
     for (let i = 0; i < 14; i += 1) {
-      const patch = new THREE.Mesh(
+      const patch = flat(
         new THREE.PlaneGeometry(1.2 + (i % 4) * 1.1, 0.5 + (i % 3) * 0.4),
-        strata[(i + 1) % strata.length]
+        patchMats[(i + 1) % patchMats.length]
       );
-      patch.position.set(-6.2 + ((i * 4.3) % 12.4), 0.9 + ((i * 1.31) % 1) * bandHeight, -0.57);
+      patch.position.set(-6.2 + ((i * 4.3) % 12.4), 0.9 + ((i * 1.31) % 1) * bandHeight, -0.58);
       scene.add(patch);
       this.decor.push(patch);
     }
@@ -180,11 +205,11 @@ export class CliffClimb extends MinigameScene {
       // sichtige Fläche mit depthWrite:false wurde daraus im Bild ein dünner
       // dunkler Strich, der wie ein Kratzer aussah. Ein normal beleuchtetes
       // Band in hellem Ton liest sich als Markierung auf dem Fels.
-      const mark = new THREE.Mesh(
+      const mark = flat(
         new THREE.PlaneGeometry(WALL_WIDTH, 0.14),
-        new THREE.MeshLambertMaterial({ color: "#e9dcc0" })
+        decal("#e9dcc0", 3)
       );
-      mark.position.set(0, i * markSpacing, -0.56);
+      mark.position.set(0, i * markSpacing, -0.57);
       scene.add(mark);
       this.marks.push(mark);
     }
@@ -230,7 +255,7 @@ export class CliffClimb extends MinigameScene {
       // sieht. Weil das Band genau so lang ist wie die Griffolge, steht nach
       // einem Umlauf wieder derselbe Griff da.
       for (let step = 0; step < HOLDS_PER_LANE; step += 1) {
-        const hold = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.24), laneMat);
+        const hold = new THREE.Mesh(new THREE.BoxGeometry(HOLD_W, 0.2, 0.24), laneMat);
         hold.position.set(
           lx + this.sideAt(step) * HOLD_REACH,
           KIN_BASE_Y + step * WORLD_PER_RUNG + HOLD_LIFT,
@@ -250,7 +275,7 @@ export class CliffClimb extends MinigameScene {
     // oben an der Wand hängt — genau der Blickwechsel, der beim Klettern
     // Sprossen kostet.
     this.nextMark = new THREE.Mesh(
-      new THREE.TorusGeometry(0.3, 0.05, 8, 18),
+      new THREE.TorusGeometry(0.22, 0.045, 8, 18),
       new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, toneMapped: false })
     );
     this.nextMark.visible = false;
@@ -283,7 +308,8 @@ export class CliffClimb extends MinigameScene {
     snow.receiveShadow = true;
     scene.add(snow);
     const lip = new THREE.Mesh(new THREE.BoxGeometry(WALL_WIDTH, 0.1, 0.16), new THREE.MeshLambertMaterial({ color: "#e4eef8" }));
-    lip.position.set(0, top - 0.02, -0.48);
+    // Eine Spur vor der Schneekante: bündig mit ihr flimmerte die Front.
+    lip.position.set(0, top - 0.02, -0.46);
     scene.add(lip);
     const rock = new THREE.MeshLambertMaterial({ color: "#8d8069" });
     const cap = new THREE.MeshLambertMaterial({ color: "#f3f8fd" });
@@ -292,8 +318,11 @@ export class CliffClimb extends MinigameScene {
       peak.position.set(x, top + h / 2, -3.2 - (i % 2) * 1.4);
       peak.rotation.y = Math.PI / 4 + i * 0.3;
       scene.add(peak);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(w * 0.36, h * 0.36, 4), cap);
-      tip.position.set(x, top + h - h * 0.18, peak.position.z);
+      // Die Kappe ist etwas bauchiger als der Berg. Mit derselben Steigung lag
+      // ihre Fläche genau auf der Bergflanke, und die Spitzen flimmerten
+      // schraffiert zwischen Schnee und Fels.
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(w * 0.4, h * 0.36, 4), cap);
+      tip.position.set(x, top + h - h * 0.18 + 0.03, peak.position.z);
       tip.rotation.y = peak.rotation.y;
       scene.add(tip);
     });
@@ -428,9 +457,9 @@ export class CliffClimb extends MinigameScene {
       if ((entry.rung || 0) > (this.lastRung.get(player.id) || 0)) {
         this.lastRung.set(player.id, entry.rung);
         this.grabAt.set(player.id, now);
-        // Kreidestaub am Griff.
+        // Kreidestaub an genau dem Griff, der eben gepackt wurde.
         this.burst(
-          kin.position.clone().add(new THREE.Vector3(entry.nextSide * -0.3, 0.55, -0.2)),
+          this.holdPoint(kin.userData.laneX, entry.rung - 1).add(new THREE.Vector3(0, 0.04, 0.05)),
           ["#f2ece0", "#ffffff"],
           { count: 4, speed: 0.7, up: 0.5, size: 0.045, life: 0.35, gravity: 1.4, drag: 2.6 }
         );
@@ -444,8 +473,10 @@ export class CliffClimb extends MinigameScene {
         animator.trigger("stumble");
         animator.expression("scared", 700);
         this.burst(kin.position.clone(), ["#ab9e88", "#ffffff"], { count: 8, speed: 1.5, up: 0.8, size: 0.06, life: 0.5, gravity: 2, drag: 1.8 });
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 0.9, 0)), "ABGERUTSCHT!", { color: "#ffb37a", size: 0.32, life: 0.8 });
+        // Die Schrift nur bei der eigenen Figur. Rutschten zwei Nachbarn
+        // gleichzeitig ab, stapelten sich drei Schriftzüge übereinander.
         if (player.id === controlledId) {
+          this.pop(kin.position.clone().add(new THREE.Vector3(0, 0.9, 0)), "ABGERUTSCHT!", { color: "#ffb37a", size: 0.32, life: 0.8 });
           this.rig.shake(0.5);
           this.feedback?.sound("error");
           this.feedback?.vibrate([18, 14, 22]);
@@ -470,11 +501,17 @@ export class CliffClimb extends MinigameScene {
         kin.rotation.y += Math.atan2(Math.sin(-kin.rotation.y), Math.cos(-kin.rotation.y)) * frameLerp(over < 1 ? 0.06 : 0.14, dt);
         animator.set(over < 1 ? "clamber" : finale && (f.places?.[player.id] || 9) !== 1 ? "wave" : "cheer");
       } else if (finale) {
-        // Wer es nicht geschafft hat, bleibt hängen und dreht sich halb um.
+        // Wer es nicht geschafft hat, bleibt an seinen Griffen hängen und
+        // schaut über die Schulter zur Kamera. Bisher drehte sich die Figur
+        // quer zur Wand, liess los und machte dann die Siegerpose des
+        // Podiums — ein Hüpfer mitten in der Luft neben den Griffen.
         const place = f.places?.[player.id] || players.length;
         kin.position.x += (kin.userData.laneX - kin.position.x) * frameLerp(0.3, dt);
-        kin.rotation.y += (Math.PI * 0.55 - kin.rotation.y) * frameLerp(0.08, dt);
+        kin.position.z = KIN_Z;
+        kin.rotation.y += (Math.PI * 0.8 - kin.rotation.y) * frameLerp(0.08, dt);
         animator.set("hang");
+        animator.lookAt(this.camera.position);
+        animator.expression(place === 1 ? "joy" : place >= players.length ? "sad" : "happy", 400);
         if (player.id === controlledId && !this.placeShown) {
           this.placeShown = true;
           this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0.3)), `PLATZ ${place}`, { color: "#ffffff", size: 0.46, life: 1.6, rise: 0.8 });
@@ -516,7 +553,7 @@ export class CliffClimb extends MinigameScene {
       this.hintSide = hintKey;
       const hint = this.controls?.querySelector("[data-climb-hint]");
       if (hint) {
-        hint.textContent = finale ? "Geschafft!"
+        hint.textContent = finale ? (own.finishedAt ? "Geschafft!" : "Zeit um!")
           : own.finishedAt ? `Oben in ${((own.finishMs || 0) / 1000).toFixed(1)} s — warte auf die anderen`
             : wantsLeft ? "◀ Jetzt LINKS tippen" : "Jetzt RECHTS tippen ▶";
       }
@@ -536,7 +573,7 @@ export class CliffClimb extends MinigameScene {
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       const kin = this.kins.get(player.id);
-      if (!entry || !kin || entry.finishedAt || f.finale) return;
+      if (!entry || !kin || entry.finishedAt) return;
       const rung = entry.rung || 0;
       if (rung < 1) return;
       const laneX = kin.userData.laneX;
@@ -558,6 +595,12 @@ export class CliffClimb extends MinigameScene {
       const other = this.lastOnSide(newest - 1, -sideA);
       if (other !== null) reachArm(kin, sideA < 0 ? 1 : 0, this.holdPoint(laneX, other, _handB), 1);
     });
+  }
+
+  // Oben Angekommene feiern wie auf jedem Podium. Wer noch an der Wand hängt,
+  // behält seine Pose aus tick — eine Siegerpose hiesse loslassen.
+  finaleOverride(player, place, f) {
+    return !f.arcade?.players?.[player.id]?.finishedAt;
   }
 
   // Die letzte Sprosse bis einschliesslich `from`, deren Griff auf `side` liegt.

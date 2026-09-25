@@ -675,6 +675,11 @@
   top: calc(70px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
+  /* Ohne feste Breite schrumpfte die Pille auf den Platz rechts von der
+     Bildmitte (left: 50%) — kaum 200 Pixel — und "PLATZ 1 · 47 von 70 Griffen"
+     brach in drei Zeilen, eine davon mit dem Punkt vorn. max-content lässt sie
+     so breit werden wie ihr Text, max-width fängt lange Ansagen ab. */
+  width: max-content;
   max-width: min(88vw, 420px);
   padding: 9px 20px;
   border: 4px solid #ffffff;
