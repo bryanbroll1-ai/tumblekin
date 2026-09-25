@@ -1218,6 +1218,104 @@ test("fassrolle: among survivors the steadier balance ranks higher", () => {
   );
 });
 
+test("fassrolle: im Wildwasser ist ein Sturz das Aus", () => {
+  const early = player({ id: "we", name: "WE", color: "#fff" });
+  const late = player({ id: "wl", name: "WL", color: "#0ff" });
+  const stay = player({ id: "ws", name: "WS", color: "#ff0" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassrolle", [early, late, stay], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [early, late, stay] };
+  assert.equal(arcade.wildAt, 32000 - testRules.BARREL_WILD_MS, "das Wildwasser beginnt vor Schluss");
+  arcade.waves = [];
+
+  // Vor dem Wildwasser: ins Wasser und wieder zurück.
+  const a = arcade.players[early.id];
+  a.offset = arcade.limit - 0.01;
+  a.lastRunAt = startedAt + 5000;
+  a.runDir = 1;
+  testRules.updateBarrel(room, minigame, arcade, 0.05, startedAt + 5000);
+  assert.ok(a.fallenAt, "vorher ist ein Sturz eine Pause");
+  assert.equal(a.outAt, null);
+  testRules.updateBarrel(room, minigame, arcade, 0.05, a.backAt + 10);
+  assert.equal(a.fallenAt, null, "und man steht wieder oben");
+
+  // Im Wildwasser: raus, und kein Zurück.
+  const b = arcade.players[late.id];
+  const wildNow = startedAt + arcade.wildAt + 2000;
+  b.offset = -(arcade.limit - 0.01);
+  b.lastRunAt = wildNow;
+  b.runDir = -1;
+  testRules.updateBarrel(room, minigame, arcade, 0.05, wildNow);
+  assert.ok(b.outAt, "im Wildwasser ist ein Sturz das Aus");
+  assert.equal(b.outMs, arcade.wildAt + 2000);
+  testRules.updateBarrel(room, minigame, arcade, 0.05, wildNow + 8000);
+  assert.ok(b.fallenAt && b.outAt, "wer raus ist, kommt nicht zurück");
+
+  // Wertung: wer oben blieb, vor dem Gekenterten — egal wie viel Mitte der hatte.
+  b.balanceWork = 30;
+  arcade.players[stay.id].balanceWork = 1;
+  assert.ok(
+    arcadeRankingScore(arcade, arcade.players[stay.id]) > arcadeRankingScore(arcade, b),
+    "oben bleiben schlägt jede Mittelzeit"
+  );
+  const detail = arcadeResultDetail(arcade, b);
+  assert.equal(detail.kind, "standing");
+  assert.equal(detail.survived, false);
+  assert.equal(detail.value, arcade.wildAt + 2000, "die Tafel zeigt, wann man gekentert ist");
+});
+
+test("fassrolle: Wellen sind angekündigt, schieben in ihre Richtung und werden im Wildwasser dichter", () => {
+  const waves = testRules.buildBarrelWaves(1234, 32000, 20000);
+  assert.ok(waves.length >= 5, `genug Wellen (${waves.length})`);
+  waves.forEach((wave) => {
+    assert.ok(wave.at - wave.warnAt >= 900, "jede Welle ist mindestens 0,9 s vorher zu sehen");
+    assert.ok(wave.dir === 1 || wave.dir === -1);
+  });
+  for (let i = 2; i < waves.length; i += 1) {
+    assert.ok(!(waves[i].dir === waves[i - 1].dir && waves[i].dir === waves[i - 2].dir), "nie dreimal dieselbe Richtung");
+  }
+  const vorher = waves.filter((wave) => wave.at < 20000);
+  const wild = waves.filter((wave) => wave.at >= 20000 && wave.at < 32000);
+  assert.ok(wild.length >= 3, `im Wildwasser mehrere Wellen (${wild.length})`);
+  assert.ok(wild.length / 12 > vorher.length / 14, "im Wildwasser kommen sie dichter");
+  assert.ok(wild.every((wave) => wave.kick > vorher[0].kick), "und stärker");
+
+  // Ein Stehender in der Mitte wird in Wellenrichtung geschoben, überlebt aber.
+  const idle = player({ id: "wi", name: "WI", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassrolle", [idle], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [idle] };
+  arcade.phases = [{ from: 0, until: 60000, vel: 0 }];
+  arcade.waves = [{ id: 1, at: 8000, warnAt: 6700, dir: 1, kick: 2.5, wild: false }];
+  const entry = arcade.players[idle.id];
+  for (let t = 7000; t < 10000; t += 50) testRules.updateBarrel(room, minigame, arcade, 0.05, startedAt + t);
+  assert.ok(entry.offset > 0.6, `die Welle schiebt nach rechts (${entry.offset.toFixed(2)})`);
+  assert.equal(entry.fallenAt, null, "aus der Mitte heraus reicht eine Welle allein nicht");
+});
+
+test("fassrolle: bleibt im Wildwasser nur einer oben, ist die Runde vorbei", () => {
+  const players = ["x1", "x2", "x3"].map((id) => player({ id, name: id, color: "#fff" }));
+  const startedAt = Date.now() - 25000;
+  const arcade = createArcadeState("fassrolle", players, startedAt);
+  const minigame = { id: 1, type: "fassrolle", arcade, scores: {}, startedAt, duration: 32000, lastInputAt: {}, arena: {}, flux: {}, canopy: {} };
+  const room = { code: "TEST", players, currentMinigame: minigame };
+  arcade.waves = [];
+  arcade.players.x1.outAt = Date.now() - 2000;
+  arcade.players.x1.outMs = 23000;
+  arcade.players.x1.fallenAt = arcade.players.x1.outAt;
+  testRules.updateArcade(room);
+  assert.equal(minigame.finaleAt, undefined, "zwei sind noch oben");
+  arcade.players.x2.outAt = Date.now() - 500;
+  arcade.players.x2.outMs = 24500;
+  arcade.players.x2.fallenAt = arcade.players.x2.outAt;
+  testRules.updateArcade(room);
+  assert.ok(minigame.finaleAt, "der Letzte auf dem Fass hat gewonnen");
+  assert.equal(minigame.arcade.places.x3, 1);
+  assert.equal(minigame.arcade.places.x2, 2, "wer später kentert, liegt vorn");
+});
+
 test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () => {
   const one = player({ id: "za", name: "ZA", color: "#fff" });
   const two = player({ id: "zb", name: "ZB", color: "#0ff" });

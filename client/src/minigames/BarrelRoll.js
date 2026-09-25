@@ -11,12 +11,26 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 //
 // Wer nicht läuft, balanciert mit ausgebreiteten Armen — je näher an der
 // Kante, desto wackliger und ängstlicher. Laufen passt sich dem Tempo an.
+//
+// Wellen rollen von der Seite heran und stossen das Fass an. Man sieht sie
+// kommen, ein Pfeil sagt, wohin man laufen muss. In den letzten zwölf
+// Sekunden kommt das Wildwasser: angesagt mit Countdown, schnelleres Fass,
+// dichtere Wellen — und wer jetzt fällt, ist raus und treibt im Schwimmring.
 const BARREL_R = 2.1;
 const BARREL_CENTER_Y = 1.1;
 const RUN_PING_MS = 90;
 const WATER_Y = -1.15;
 const CLIMB_MS = 600;           // Sprung aus dem Wasser zurück auf den Stamm
 const TOP_Y = BARREL_CENTER_Y + BARREL_R;
+// Hier taucht eine Welle auf: am Bildrand, damit man sie die ganze Warnzeit
+// über anrollen sieht. Sie läuft an der HINTEREN Hälfte des Fasses an — die
+// Kamera schaut von vorn oben, und dort liegt das Wasser offen im Bild. Auf
+// Höhe der Fassmitte verschwand sie hinter dem Deckel und war nur ein Strich.
+const WAVE_START_X = 4.6;
+const WAVE_Z = -1.5;
+const WAVE_AFTER_MS = 700;      // so lange bricht sie nach dem Aufprall noch
+const WATER_CALM = new THREE.Color("#1f8fd6");
+const WATER_WILD = new THREE.Color("#155f9e");
 
 export class BarrelRoll extends MinigameScene {
   constructor(ctx) {
@@ -28,6 +42,12 @@ export class BarrelRoll extends MinigameScene {
     this.holdDir = 0;
     this.holdTimer = null;
     this.localAngle = 0;
+    this.waveMeshes = new Map();
+    this.wavesHit = new Set();
+    this.wavesWarned = new Set();
+    this.rings = new Map();
+    this.wildShown = false;
+    this.countShown = null;
   }
 
   stage() {
@@ -43,6 +63,7 @@ export class BarrelRoll extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0s</strong></div>
       <div class="simon-round barrel-spin" data-barrel-spin></div>
+      <div class="barrel-wave" data-barrel-wave hidden></div>
       <div class="color-banner" data-barrel-banner hidden></div>`;
   }
 
@@ -147,6 +168,8 @@ export class BarrelRoll extends MinigameScene {
       rail.position.set(Math.sin(angle) * (BARREL_R + 0.12), BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.12), 0);
       rail.rotation.z = -angle;
       this.scene.add(rail);
+      this.rails ||= [];
+      this.rails.push(rail);
     });
     this.limit = limit;
 
@@ -184,6 +207,164 @@ export class BarrelRoll extends MinigameScene {
 
   laneZ(index) {
     return (index - 1.5) * 0.95;
+  }
+
+  // Eine Welle: blauer Wasserberg mit weisser Schaumkrone, so lang wie das
+  // Fass. Sie rollt quer zum Fass heran; die Krone zeigt in Laufrichtung.
+  //
+  // Die Kamera schaut längs des Fasses, also sieht man die Welle im Profil:
+  // ein Keil, der zur Laufrichtung hin ansteigt und vorn überkippt. Sie ist
+  // bewusst hoch — flach am Wasser lag sie unter den Tasten und war nur ein
+  // weisser Strich.
+  makeWave(dir) {
+    const group = new THREE.Group();
+    // Kräftiger als das Flusswasser: in der Sonne wurde ein helles Blau fast
+    // weiss, und die Welle las sich als Mauer statt als Wasser.
+    const water = new THREE.MeshLambertMaterial({ color: "#1f7fd0" });
+    const deep = new THREE.MeshLambertMaterial({ color: "#1766ad" });
+    const foam = new THREE.MeshLambertMaterial({ color: "#f4fbff" });
+    const LEN = 3.4;
+    [[-0.55, 0.5, 0.5, deep], [-0.1, 0.95, 0.55, water], [0.32, 1.3, 0.45, water]].forEach(([x, h, w, mat]) => {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(w, h, LEN), mat);
+      step.position.set(dir * x, h / 2, 0);
+      group.add(step);
+    });
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.26, LEN + 0.1), foam);
+    lip.position.set(dir * 0.62, 1.34, 0);
+    group.add(lip);
+    const curl = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, LEN + 0.1), foam);
+    curl.position.set(dir * 0.84, 1.12, 0);
+    group.add(curl);
+    for (let i = 0; i < 5; i += 1) {
+      const fleck = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.4), foam);
+      fleck.position.set(dir * (-0.3 + (i % 2) * 0.4), 0.96 + (i % 3) * 0.12, -1.4 + i * 0.7);
+      group.add(fleck);
+    }
+    group.traverse((part) => { if (part.isMesh) part.castShadow = true; });
+    this.scene.add(group);
+    return group;
+  }
+
+  // Wellen heranrollen lassen, beim Aufprall spritzen, danach brechen.
+  syncWaves(arcade, elapsed, controlledId, now) {
+    const active = new Set();
+    let warn = null;
+    (arcade.waves || []).forEach((wave) => {
+      if (elapsed < wave.warnAt || elapsed > wave.at + WAVE_AFTER_MS) return;
+      active.add(wave.id);
+      let mesh = this.waveMeshes.get(wave.id);
+      if (!mesh) {
+        mesh = this.makeWave(wave.dir);
+        this.waveMeshes.set(wave.id, mesh);
+      }
+      const hitX = -wave.dir * (BARREL_R + 0.45);
+      if (elapsed < wave.at) {
+        const u = (elapsed - wave.warnAt) / Math.max(1, wave.at - wave.warnAt);
+        // Erst gemächlich, dann schneller — wie eine Welle, die aufläuft.
+        const eased = u * u * (1.6 - 0.6 * u);
+        // Sie steigt beim Anrollen aus dem Wasser und türmt sich auf.
+        mesh.position.set(-wave.dir * THREE.MathUtils.lerp(WAVE_START_X, BARREL_R + 0.45, eased), WATER_Y - 0.5 + Math.min(1, u * 2.5) * 0.4, WAVE_Z);
+        mesh.scale.set(1, 0.55 + u * 0.75, 1);
+        if (!warn || wave.at < warn.at) warn = wave;
+        if (!this.wavesWarned.has(wave.id)) {
+          this.wavesWarned.add(wave.id);
+          this.feedback?.sound("whoosh", { pan: -wave.dir * 0.6 });
+        }
+      } else {
+        const u = (elapsed - wave.at) / WAVE_AFTER_MS;
+        mesh.position.set(hitX + wave.dir * u * 0.6, WATER_Y - 0.1 - u * 0.6, WAVE_Z);
+        mesh.scale.set(1 + u * 0.5, Math.max(0.05, 1.3 * (1 - u)), 1);
+        if (!this.wavesHit.has(wave.id)) {
+          this.wavesHit.add(wave.id);
+          const at = new THREE.Vector3(hitX, BARREL_CENTER_Y - 0.2, 0);
+          [-1.2, 0, 1.2].forEach((z) => {
+            this.burst(at.clone().setZ(z), ["#bfe9ff", "#ffffff", "#3aa9ef"], { count: 10, speed: 2.6, up: 3, size: 0.1, life: 0.8, drag: 1.3 });
+          });
+          this.bursts.ring(new THREE.Vector3(hitX, WATER_Y + 0.05, 0), "#e8f7ff", { radius: 2.4, life: 0.7, y: WATER_Y + 0.05 });
+          this.rig.shake(wave.wild ? 0.45 : 0.3);
+          this.feedback?.sound("impact");
+          const own = arcade.players?.[controlledId];
+          if (own && !own.fallenAt) this.feedback?.vibrate(18);
+        }
+      }
+    });
+    this.waveMeshes.forEach((mesh, id) => {
+      if (active.has(id)) return;
+      this.scene.remove(mesh);
+      this.waveMeshes.delete(id);
+    });
+
+    // Warnung: von welcher Seite, und welche Taste jetzt hilft. Gegen die
+    // Welle laufen, also der Seite entgegen, von der sie kommt.
+    const node = this.hud.querySelector("[data-barrel-wave]");
+    const own = arcade.players?.[controlledId];
+    const show = warn && own && !own.fallenAt;
+    if (node) {
+      node.hidden = !show;
+      if (show) {
+        const fromLeft = warn.dir > 0;
+        const key = `${warn.id}`;
+        if (node.dataset.wave !== key) {
+          node.dataset.wave = key;
+          node.dataset.side = fromLeft ? "left" : "right";
+          node.textContent = fromLeft ? "🌊 WELLE! Halte ◀" : "Halte ▶ WELLE! 🌊";
+        }
+        node.classList.toggle("is-close", warn.at - elapsed < 450);
+      }
+    }
+    const needed = show ? (warn.dir > 0 ? "-1" : "1") : null;
+    this.controls?.querySelectorAll("[data-barrel-run]").forEach((button) => {
+      button.classList.toggle("is-hint", button.dataset.barrelRun === needed);
+    });
+  }
+
+  // Countdown zum Wildwasser, dann die Ansage und das dunklere, schnellere
+  // Wasser. Liefert den Bannertext, solange einer zu zeigen ist.
+  syncWild(arcade, elapsed, now) {
+    const wildAt = arcade.wildAt ?? Infinity;
+    const wild = elapsed >= wildAt;
+    const mix = wild ? Math.min(1, (elapsed - wildAt) / 1200) : 0;
+    this.waterMesh.material.color.copy(WATER_CALM).lerp(WATER_WILD, mix);
+    this.rails?.forEach((rail) => {
+      rail.material.emissiveIntensity = wild ? 0.9 + Math.sin(now / 140) * 0.6 : 0.9;
+    });
+    if (!wild && elapsed >= wildAt - (arcade.wildWarnMs || 3000)) {
+      const left = Math.ceil((wildAt - elapsed) / 1000);
+      if (this.countShown !== left) {
+        this.countShown = left;
+        this.feedback?.sound("countdown");
+      }
+      return { text: `WILDWASSER in ${left}…`, background: "#0f5f96", color: "#ffffff" };
+    }
+    if (wild && !this.wildShown) {
+      this.wildShown = now;
+      this.feedback?.sound("combo");
+      this.feedback?.vibrate([30, 30, 30]);
+      this.rig.shake(0.6);
+    }
+    if (wild && now - this.wildShown < 2600) {
+      return { text: "🌊 WILDWASSER!\nWer jetzt fällt, ist raus", background: "#ff5c6e", color: "#ffffff" };
+    }
+    return null;
+  }
+
+  // Ein Schwimmring für alle, die im Wildwasser gekentert sind.
+  ringFor(playerId) {
+    let ring = this.rings.get(playerId);
+    if (!ring) {
+      ring = new THREE.Group();
+      const orange = new THREE.MeshLambertMaterial({ color: "#ff7a3d" });
+      const white = new THREE.MeshLambertMaterial({ color: "#ffffff" });
+      for (let i = 0; i < 8; i += 1) {
+        const seg = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.1, 6, 3, Math.PI / 4 + 0.02), i % 2 ? white : orange);
+        seg.rotation.z = (i / 8) * Math.PI * 2;
+        ring.add(seg);
+      }
+      ring.rotation.x = Math.PI / 2;
+      this.scene.add(ring);
+      this.rings.set(playerId, ring);
+    }
+    return ring;
   }
 
   // Wer im Wasser treibt, zieht die Kamera nicht hinter sich her.
@@ -231,6 +412,13 @@ export class BarrelRoll extends MinigameScene {
   unbind() {
     clearInterval(this.holdTimer);
     this.holdTimer = null;
+    this.waveMeshes.clear();
+    this.rings.clear();
+  }
+
+  // Wer im Schwimmring treibt, macht keine Podiumspose im Wasser.
+  finaleOverride(player, place, f) {
+    return Boolean(f.arcade?.players?.[player.id]?.outAt);
   }
 
   setHold(dir) {
@@ -274,6 +462,9 @@ export class BarrelRoll extends MinigameScene {
     this.localAngle += (targetAngle - this.localAngle) * Math.min(1, dt * 10);
     this.barrel.rotation.z = -this.localAngle / BARREL_R;
     const speed = Math.abs(arcade.barrelVel || 0);
+    const elapsed = now - f.minigame.startedAt;
+    this.syncWaves(arcade, elapsed, controlledId, now);
+    this.wildBanner = this.syncWild(arcade, elapsed, now);
 
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
@@ -304,7 +495,7 @@ export class BarrelRoll extends MinigameScene {
         animator.trigger("tumble");
         const at = kin.position.clone();
         this.burst(at, ["#1f8fd6", "#bfe9ff", player.color], { count: 18, speed: 2.5, up: 2, size: 0.09, life: 0.8, drag: 1.5 });
-        this.pop(at.clone().add(new THREE.Vector3(0, 1.1, 0)), "PLATSCH! 💦", { color: "#8fd8f2", size: 0.44, life: 1 });
+        this.pop(at.clone().add(new THREE.Vector3(0, 1.1, 0)), entry.outAt ? "RAUS! 🛟" : "PLATSCH! 💦", { color: entry.outAt ? "#ffb37a" : "#8fd8f2", size: 0.44, life: 1 });
         if (player.id === controlledId) {
           this.rig.shake(0.8);
           this.feedback?.sound("fall");
@@ -316,6 +507,32 @@ export class BarrelRoll extends MinigameScene {
       }
 
       kin.userData.outOfPlay = fallen;
+      const ring = this.rings.get(player.id);
+      if (ring) ring.visible = false;
+      if (fallen && entry.outAt && now - this.fell.get(player.id) > 900) {
+        // Im Wildwasser gekentert: treibt im Schwimmring vor dem Fass und
+        // schaut beim Rest zu, statt einfach zu verschwinden.
+        const side = entry.fallSide || 1;
+        const bob = Math.sin(now / 380 + index * 1.7) * 0.06;
+        kin.visible = true;
+        setKinOpacity(kin, 1);
+        // Seitlich neben dem Fass, auf Höhe der eigenen Bahn: dort liegt das
+        // Wasser mitten im Bild. Vor dem Fass trieb man unter den Tasten.
+        kin.position.x = side * (BARREL_R + 0.8);
+        kin.position.z = this.laneZ(index);
+        this.setGround(player.id, WATER_Y - 0.42 + bob);
+        kin.rotation.z = Math.sin(now / 520 + index) * 0.08;
+        kin.rotation.y += (0 - kin.rotation.y) * Math.min(1, dt * 4);
+        animator.set("balance", { params: { wobble: 0.35 } });
+        animator.rate = 0.6;
+        animator.expression("sad", 300);
+        if (kin.userData.label) kin.userData.label.visible = true;
+        shadow.visible = false;
+        const float = this.ringFor(player.id);
+        float.visible = true;
+        float.position.set(kin.position.x, WATER_Y + 0.02 + bob, kin.position.z);
+        return;
+      }
       if (fallen) {
         // Die Rundung hinunter und in den Fluss.
         const since = (now - this.fell.get(player.id)) / 1000;
@@ -391,9 +608,10 @@ export class BarrelRoll extends MinigameScene {
       }
     });
 
-    this.waterMesh.position.y = WATER_Y - 0.25 + Math.sin(now / 900) * 0.05;
+    this.waterMesh.position.y = WATER_Y - 0.25 + Math.sin(now / (arcade.wild ? 420 : 900)) * (arcade.wild ? 0.08 : 0.05);
+    const flow = arcade.wild ? 2.6 : 1;
     this.ripples.forEach((ripple, i) => {
-      ripple.position.x += dt * (0.4 + (i % 3) * 0.2);
+      ripple.position.x += dt * (0.4 + (i % 3) * 0.2) * flow;
       if (ripple.position.x > 12) ripple.position.x = -12;
     });
   }
@@ -404,19 +622,31 @@ export class BarrelRoll extends MinigameScene {
     if (spin) {
       const vel = f.arcade?.barrelVel || 0;
       const count = Math.min(3, Math.round(Math.abs(vel) / 0.7));
-      spin.textContent = count === 0 ? "Fass ruhig" : `Fass rollt ${vel < 0 ? "◀".repeat(count) : "▶".repeat(count)}`;
+      const text = count === 0 ? "Fass ruhig" : `Fass rollt ${vel < 0 ? "◀".repeat(count) : "▶".repeat(count)}`;
+      spin.textContent = f.arcade?.wild ? `🌊 ${text}` : text;
       spin.classList.toggle("hot", count >= 3);
     }
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     // Die Zahl, nach der gewertet wird: Zeit mittig auf dem Fass.
     this.scoreNode.textContent = `${(own?.balanceWork || 0).toFixed(1)}s`;
     const banner = this.hud.querySelector("[data-barrel-banner]");
-    if (own?.fallenAt) {
+    banner.style.whiteSpace = "pre-line";
+    if (own?.outAt) {
+      banner.hidden = false;
+      banner.textContent = "Gekentert — raus! 🛟";
+      banner.style.background = "#0f5f96";
+      banner.style.color = "#ffffff";
+    } else if (own?.fallenAt) {
       banner.hidden = false;
       const back = Math.max(0, Math.ceil(((own.backAt || 0) - f.now) / 1000));
       banner.textContent = back > 0 ? `Ins Wasser gerollt! Zurück in ${back}…` : "Ins Wasser gerollt!";
       banner.style.background = "#1f8fd6";
       banner.style.color = "#ffffff";
+    } else if (this.wildBanner && !f.finale) {
+      banner.hidden = false;
+      banner.textContent = this.wildBanner.text;
+      banner.style.background = this.wildBanner.background;
+      banner.style.color = this.wildBanner.color;
     } else {
       banner.hidden = true;
     }

@@ -2013,3 +2013,49 @@ canvas.is-stunned {
 .kinetic-hud .hud-chips ~ .color-banner {
   top: calc(98px + env(safe-area-inset-top));
 }
+
+/* --- Fassrolle: Wellenwarnung ------------------------------------------- */
+/* Steht auf der Seite, von der die Welle kommt, und nennt die Taste, die
+   jetzt hilft. Dieselbe Taste unten leuchtet mit. */
+.barrel-wave {
+  position: absolute;
+  top: calc(150px + env(safe-area-inset-top));
+  padding: 8px 14px;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #1f8fd6;
+  color: #ffffff;
+  font-size: clamp(0.95rem, 4.2vw, 1.2rem);
+  font-weight: 1000;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  animation: barrel-wave-pulse 420ms ease-in-out infinite alternate;
+}
+
+.barrel-wave[data-side="left"] {
+  left: 12px;
+}
+
+.barrel-wave[data-side="right"] {
+  right: 12px;
+}
+
+.barrel-wave.is-close {
+  background: #ff5c6e;
+  animation-duration: 180ms;
+}
+
+.barrel-wave[hidden] {
+  display: none;
+}
+
+@keyframes barrel-wave-pulse {
+  from { transform: scale(1); }
+  to { transform: scale(1.07); }
+}
+
+.runner-lane-controls button.is-hint {
+  border-color: #ffe36b;
+  box-shadow: 0 7px 0 #071014, 0 0 0 4px rgba(255, 227, 107, 0.75);
+  animation: barrel-wave-pulse 260ms ease-in-out infinite alternate;
+}

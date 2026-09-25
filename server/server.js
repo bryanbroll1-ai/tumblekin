@@ -768,6 +768,25 @@ const BARREL_OTHERS_MAX = 0.8;
 // Wer fällt, schwimmt zurück und steht nach dieser Zeit wieder oben — die
 // Zeit im Wasser zählt nicht. Vorher war ein Sturz das Aus für die Runde.
 const BARREL_RESPAWN_MS = 2600;
+// Wildwasser: die letzten Sekunden der Runde. Das Fass dreht schneller, die
+// Wellen kommen dichter — und wer jetzt fällt, ist raus. Vorher war jeder
+// Sturz nur eine Pause im Wasser, und gemessen schied in 80 Runden kein
+// einziger Bot aus; auch im Test mit Menschen fiel niemand. Die Schlussphase
+// ist angesagt (Countdown), damit sie niemanden kalt erwischt.
+const BARREL_WILD_MS = 12000;         // so lange vor Schluss beginnt das Wildwasser
+const BARREL_WILD_WARN_MS = 3000;     // Countdown davor
+const BARREL_WILD_CURRENT = 0.72;     // Anteil der Strömung im Wildwasser (sonst 0.6)
+const BARREL_WILD_TURN_MS = 520;      // schnellere Umschwünge im Wildwasser
+// Wellen: Treibgut und Wellen rollen den Fluss herunter und stossen das Fass
+// an. Sie sind angekündigt — man sieht sie kommen und weiss, wohin sie
+// schieben. Wer rechtzeitig dagegen läuft, bleibt stehen; wer am falschen
+// Rand steht oder zu spät reagiert, rollt ins Wasser.
+const BARREL_WAVE_WARN_MS = 1300;     // so lange sieht man die Welle kommen
+const BARREL_WAVE_WARN_WILD_MS = 1000;
+const BARREL_WAVE_TAU = 0.42;         // s — so schnell klingt der Stoss ab
+const BARREL_WAVE_KICK = 2.5;         // Spitzenschub (Einheiten/s)
+const BARREL_WAVE_KICK_WILD = 3.0;
+const BARREL_WAVE_FIRST_MS = 6000;
 
 // Zündstoff — hot-potato bomb: the fuse time is shown for the first moments,
 // then hidden, so a good passer can time the boom.
@@ -2190,7 +2209,11 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     // oben war. Vorher rangierten die Ueberlebenden nach `score`, und da steckte
     // die verstrichene Zeit mit drin: die ist fuer alle Ueberlebenden gleich, also
     // entschied sie nichts und die Balancearbeit verschwand dahinter.
+    //
+    // Wer im Wildwasser gekentert ist, steht darunter — und unter denen zählt,
+    // wer länger durchgehalten hat, erst danach die Zeit in der Mitte.
     const mitte = Math.round((arcadePlayer.balanceWork || 0) * 1000);
+    if (arcadePlayer.outAt) return Math.round(arcadePlayer.outMs || 0) * 64 + Math.min(63, Math.round(mitte / 1000));
     return arcadePlayer.fallenAt ? mitte : 10000000 + mitte;
   }
   if (arcade.family === "bomb") {
@@ -2324,6 +2347,9 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     // Als Zeit IN einer Zone, nicht als "standing": dort las die Tafel den
     // Wert als Sturzzeit und schrieb "Raus nach 1,66 s", obwohl 1,66 s die
     // Zeit in der Mitte war.
+    if (arcadePlayer.outAt) {
+      return { kind: "standing", survived: false, value: Math.round(arcadePlayer.outMs || 0), label: "Ausgang" };
+    }
     return {
       kind: "zoneTime",
       value: Math.round((arcadePlayer.balanceWork || 0) * 1000),
@@ -2911,10 +2937,15 @@ function createArcadeState(type, players, startedAt, options = {}) {
     });
   }
   if (config.family === "barrel") {
+    const duration = MINIGAMES.find((minigame) => minigame.type === type)?.duration || 32000;
     arcade.limit = BARREL_LIMIT;
-    arcade.phases = buildBarrelPhases(arcade.seed, 60000);
+    arcade.wildAt = Math.max(0, duration - BARREL_WILD_MS);
+    arcade.wildWarnMs = BARREL_WILD_WARN_MS;
+    arcade.phases = buildBarrelPhases(arcade.seed, 60000, arcade.wildAt);
+    arcade.waves = buildBarrelWaves(arcade.seed + (Date.now() % 7919), 60000, arcade.wildAt);
     arcade.barrelAngle = 0;
     arcade.barrelVel = 0;
+    arcade.wild = false;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.offset = 0;
@@ -2925,6 +2956,8 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.falls = 0;
       entry.spinShare = 0;
       entry.survivedMs = 0;
+      entry.outAt = null;
+      entry.outMs = null;
     });
   }
   if (config.family === "catchfall") {
@@ -3350,14 +3383,18 @@ function createArcadeState(type, players, startedAt, options = {}) {
 }
 
 // The barrel keeps switching direction and rolls faster over time.
-function buildBarrelPhases(seed, totalMs) {
+function buildBarrelPhases(seed, totalMs, wildAt = Infinity) {
   const phases = [];
   let at = 2000;
   let index = 0;
   let sign = arcadeNoise(seed) > 0.5 ? 1 : -1;
   phases.push({ from: 0, until: at, vel: 0 });
   while (at < totalMs) {
-    const length = 1250 + arcadeNoise(seed + index * 13) * 1150;
+    const wild = at >= wildAt;
+    // Im Wildwasser wechselt die Strömung öfter.
+    const length = wild
+      ? 900 + arcadeNoise(seed + index * 13) * 800
+      : 1250 + arcadeNoise(seed + index * 13) * 1150;
     // A short calm start, then a livelier ramp so it stays exciting.
     const ramp = Math.min(1, index * 0.11);
     // Die spaeten Schuebe sind SCHNELLER als man laufen kann. Genau daran haengt
@@ -3369,7 +3406,7 @@ function buildBarrelPhases(seed, totalMs) {
     const magnitude = 0.5 + ramp * 1.6 + arcadeNoise(seed + index * 19) * 0.25;
     // Mostly alternate, sometimes double up in the same direction for surprise.
     if (arcadeNoise(seed + index * 29) > 0.28) sign = -sign;
-    phases.push({ from: at, until: at + length, vel: sign * magnitude });
+    phases.push({ from: at, until: at + length, vel: sign * magnitude, wild });
     at += length;
     index += 1;
   }
@@ -3392,7 +3429,7 @@ function barrelVelAt(arcade, elapsed) {
     const phase = arcade.phases[index];
     if (elapsed >= phase.until) continue;
     const vorher = index > 0 ? arcade.phases[index - 1].vel : 0;
-    const t = clamp((elapsed - phase.from) / BARREL_TURN_MS, 0, 1);
+    const t = clamp((elapsed - phase.from) / (phase.wild ? BARREL_WILD_TURN_MS : BARREL_TURN_MS), 0, 1);
     // Weiche Kurve statt Geraden: der Umschwung faengt sanft an und laeuft sanft
     // aus, so wie ein schweres Fass eben dreht.
     const w = t * t * (3 - 2 * t);
@@ -3400,6 +3437,54 @@ function barrelVelAt(arcade, elapsed) {
   }
   const letzte = arcade.phases[arcade.phases.length - 1];
   return letzte ? letzte.vel : 0;
+}
+
+// Wellen: vorab geplant, damit Server, Bots und Bild dieselbe Welle kennen.
+// Vor dem Wildwasser alle vier bis sechs Sekunden eine, danach alle zwei bis
+// drei — und stärker. Nie dreimal hintereinander aus derselben Richtung, sonst
+// lohnte es sich, einfach am einen Rand zu warten.
+function buildBarrelWaves(seed, totalMs, wildAt = Infinity) {
+  const waves = [];
+  let at = BARREL_WAVE_FIRST_MS + arcadeNoise(seed + 3) * 1500;
+  let index = 0;
+  let last = 0;
+  let run = 0;
+  while (at < totalMs) {
+    const wild = at >= wildAt;
+    let dir = arcadeNoise(seed + index * 37 + 11) > 0.5 ? 1 : -1;
+    if (dir === last && run >= 2) dir = -dir;
+    run = dir === last ? run + 1 : 1;
+    last = dir;
+    const warn = wild ? BARREL_WAVE_WARN_WILD_MS : BARREL_WAVE_WARN_MS;
+    waves.push({
+      id: index + 1,
+      at: Math.round(at),
+      warnAt: Math.round(at - warn),
+      dir,
+      kick: wild ? BARREL_WAVE_KICK_WILD : BARREL_WAVE_KICK,
+      wild
+    });
+    const gap = wild
+      ? 2100 + arcadeNoise(seed + index * 41) * 1100
+      : 4200 + arcadeNoise(seed + index * 41) * 1800;
+    // Die erste Welle im Wildwasser kommt nicht sofort mit dem Umschalten.
+    const next = at + gap;
+    at = !wild && next >= wildAt ? Math.max(next, wildAt + 1600) : next;
+    index += 1;
+  }
+  return waves;
+}
+
+// Der Stoss aller Wellen, die gerade das Fass treffen: schlagartig voll, dann
+// rasch abklingend. Positive Richtung schiebt alle nach +offset.
+function barrelWaveVelAt(arcade, elapsed) {
+  let vel = 0;
+  for (const wave of arcade.waves || []) {
+    const since = (elapsed - wave.at) / 1000;
+    if (since < 0 || since > 2.5) continue;
+    vel += wave.dir * wave.kick * Math.exp(-since / BARREL_WAVE_TAU);
+  }
+  return vel;
 }
 
 function barrelPhaseAt(arcade, elapsed) {
@@ -5041,7 +5126,9 @@ function updateBarrel(room, minigame, arcade, dt, now) {
     spin += entry.spinShare;
   });
   arcade.spin = spin;
-  const current = barrelVelAt(arcade, elapsed) * BARREL_CURRENT_SHARE;
+  arcade.wild = elapsed >= (arcade.wildAt ?? Infinity);
+  const current = barrelVelAt(arcade, elapsed) * (arcade.wild ? BARREL_WILD_CURRENT : BARREL_CURRENT_SHARE)
+    + barrelWaveVelAt(arcade, elapsed);
   const vel = current + spin;
   arcade.barrelVel = vel;
   arcade.barrelAngle += vel * dt;
@@ -5049,6 +5136,7 @@ function updateBarrel(room, minigame, arcade, dt, now) {
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
     if (!entry) return;
+    if (entry.outAt) return;
     if (entry.fallenAt) {
       // Zurück auf den Stamm, oben in die Mitte.
       if (now < (entry.backAt || 0)) return;
@@ -5075,6 +5163,12 @@ function updateBarrel(room, minigame, arcade, dt, now) {
       entry.falls = (entry.falls || 0) + 1;
       entry.backAt = now + BARREL_RESPAWN_MS;
       entry.survivedMs = elapsed;
+      // Im Wildwasser gibt es kein Zurück.
+      if (arcade.wild) {
+        entry.outAt = now;
+        entry.outMs = elapsed;
+        entry.backAt = null;
+      }
       entry.flash = "bad";
       entry.lastHitAt = now;
       syncArcadeScore(minigame, player, entry);
@@ -5445,6 +5539,10 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = Boolean(letzte) && now - minigame.startedAt >= letzte.until;
   } else if (arcade.family === "climb") {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
+  } else if (arcade.family === "barrel") {
+    // Im Wildwasser: steht nur noch einer auf dem Fass, hat er gewonnen.
+    const oben = room.players.filter((player) => !arcade.players[player.id]?.outAt);
+    done = room.players.length > 1 && oben.length <= 1;
   } else if (arcade.family === "plinko") {
     // Alle Kugeln geworfen und unten.
     done = room.players.every((player) => (arcade.players[player.id]?.ballsLeft ?? 1) <= 0)
@@ -5458,8 +5556,10 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = room.players.every((player) => {
       const entry = arcade.players[player.id];
       if (!entry) return true;
+      // Ein Sturz ins Wasser (Fassrolle) ist nur eine Pause — wer gerade
+      // schwimmt, ist gleich wieder oben. Raus ist erst, wer outAt trägt.
       return Boolean(entry.eliminated || entry.finishedAt || entry.outAt
-        || entry.toppled || entry.fallenAt);
+        || entry.toppled);
     });
   }
 
@@ -6967,6 +7067,31 @@ function arcadeBotStep(room, bot) {
     // Mittelzeit die eigentliche Entscheidung des Spiels: Rand ist sicher und
     // bringt nichts, Mitte bringt Punkte und kann den Sturz kosten. Ein starker
     // Spieler bleibt dichter dran, weil er den Wechsel frueher sieht.
+    // Wellen: der Bot sieht sie mit seiner Reaktionszeit Verspätung, stellt
+    // sich auf die Seite, von der sie kommt, und läuft beim Aufprall dagegen.
+    // Manche Welle übersieht er — je schwächer der Bot, desto öfter.
+    const elapsed = now - (room.currentMinigame?.startedAt || now);
+    const wave = (arcade.waves || []).find((w) =>
+      elapsed >= w.warnAt + profile.reactionMs * 0.7 && elapsed < w.at + 650);
+    if (wave) {
+      player.botWaveSeen ||= {};
+      if (player.botWaveSeen[wave.id] === undefined) {
+        player.botWaveSeen[wave.id] = Math.random() >= (profile.mistake || 0.1) * 1.5;
+      }
+      if (player.botWaveSeen[wave.id]) {
+        if (elapsed < wave.at) {
+          const target = -wave.dir * arcade.limit * 0.35;
+          if (Math.abs(player.offset - target) > 0.05) {
+            handleArcadeInput(room, bot, { action: "run", dir: player.offset > target ? -1 : 1 });
+          }
+          return;
+        }
+        if (wave.dir * player.offset > -0.25) {
+          handleArcadeInput(room, bot, { action: "run", dir: -wave.dir });
+          return;
+        }
+      }
+    }
     const mut = profile.level === "hard" ? 0.5 : profile.level === "normal" ? 0.72 : 1;
     const bank = Math.min(arcade.limit * 0.75, (0.3 + Math.abs(seenVel) * 0.35) * mut);
     const target = -Math.sign(seenVel || 1) * bank;
@@ -8088,8 +8213,11 @@ module.exports = {
     updateKnife,
     buildBarrelPhases,
     barrelPhaseAt,
+    buildBarrelWaves,
+    barrelWaveVelAt,
     bombFuseMs,
     BARREL_LIMIT,
+    BARREL_WILD_MS,
     BOMB_PASS_LOCK_MS,
     KNIFE_MIN_GAP_DEG,
     knifeLogAngle,
