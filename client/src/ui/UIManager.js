@@ -967,6 +967,11 @@ export function formatResultMetric(entry) {
       : `${formatMilliseconds(detail.value)} ${detail.label}`;
   }
   if (detail.kind === "sumTime") return `${formatMilliseconds(detail.value)} ${detail.label}`;
+  if (detail.kind === "bestTime") {
+    return detail.value === null || detail.value === undefined
+      ? "Kein gültiger Versuch"
+      : `Bestzeit ${Math.round(detail.value)} ms`;
+  }
   if (detail.kind === "standing") {
     return detail.survived ? "Überlebt" : `Raus nach ${formatMilliseconds(detail.value)}`;
   }

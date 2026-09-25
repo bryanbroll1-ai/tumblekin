@@ -1316,6 +1316,53 @@ test("fassrolle: bleibt im Wildwasser nur einer oben, ist die Runde vorbei", () 
   assert.equal(minigame.arcade.places.x2, 2, "wer später kentert, liegt vorn");
 });
 
+test("blitzreflex: Best of 3 — die beste Einzelzeit zählt, Fehlstarts nicht", () => {
+  const steady = player({ id: "r1", name: "R1", color: "#fff" });
+  const spiky = player({ id: "r2", name: "R2", color: "#0ff" });
+  const startedAt = Date.now() - 60000;
+  const arcade = createArcadeState("blitzreflex", [steady, spiky], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 20000, finishing: false };
+  const room = { currentMinigame: minigame, players: [steady, spiky] };
+  const tapAt = (who, roundIndex, offsetMs) => {
+    const round = arcade.rounds[roundIndex];
+    const realNow = Date.now;
+    Date.now = () => startedAt + round.greenAt + offsetMs;
+    arcade.players[who.id].lastInputAt = 0;
+    try {
+      return handleArcadeInput(room, who, { action: "tap" });
+    } finally {
+      Date.now = realNow;
+    }
+  };
+  // Gleichmässig: 300, 310, 320 — Summe 930, beste 300.
+  tapAt(steady, 0, 300);
+  tapAt(steady, 1, 310);
+  tapAt(steady, 2, 320);
+  // Ein Ausreisser nach oben, aber eine sehr schnelle: 250, Fehlstart, 700.
+  tapAt(spiky, 0, 250);
+  tapAt(spiky, 1, -400);
+  tapAt(spiky, 2, 700);
+  assert.deepEqual(arcade.players.r2.fouls, [false, true, false]);
+  assert.equal(testRules.reactBest(arcade.players.r1), 300);
+  assert.equal(testRules.reactBest(arcade.players.r2), 250, "der Fehlstart zählt nicht als Zeit");
+  assert.ok(
+    arcadeRankingScore(arcade, arcade.players.r2) > arcadeRankingScore(arcade, arcade.players.r1),
+    "die schnellste Einzelzeit gewinnt, nicht die kleinste Summe"
+  );
+  const detail = arcadeResultDetail(arcade, arcade.players.r2);
+  assert.equal(detail.kind, "bestTime");
+  assert.equal(detail.value, 250, "die Tafel zeigt die Bestzeit");
+
+  // Nur Fehlstarts: kein gültiger Versuch, ganz hinten.
+  const fouler = player({ id: "r3", name: "R3", color: "#f0f" });
+  const arcade2 = createArcadeState("blitzreflex", [fouler], startedAt);
+  arcade2.players.r3.times = [900, 900, 900];
+  arcade2.players.r3.fouls = [true, true, true];
+  assert.equal(testRules.reactBest(arcade2.players.r3), null);
+  assert.equal(arcadeRankingScore(arcade2, arcade2.players.r3), 1);
+  assert.equal(arcadeResultDetail(arcade2, arcade2.players.r3).value, null);
+});
+
 test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () => {
   const one = player({ id: "za", name: "ZA", color: "#fff" });
   const two = player({ id: "zb", name: "ZB", color: "#0ff" });

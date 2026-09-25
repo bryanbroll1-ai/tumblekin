@@ -33,7 +33,7 @@ const NUR = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : nul
 
 // Arten, die absichtlich keine Rangzahl sind: sie tragen die Rangaussage in
 // einem eigenen Feld und die Zahl ist nur Beiwerk.
-const KEINE_RANGZAHL = new Set(["standing", "out", "time", "deviation", "sumTime", "progress"]);
+const KEINE_RANGZAHL = new Set(["standing", "out", "time", "deviation", "sumTime", "bestTime", "progress"]);
 
 // Bumper Pool laeuft nicht ueber die Arcade-Familien, sondern hat einen
 // eigenen Zustand. Es faellt damit auch aus der Bot-Waage heraus — und war

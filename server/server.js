@@ -1083,6 +1083,22 @@ const REACT_ROUNDS = 3;
 const REACT_WINDOW_MS = 2200;
 const REACT_PENALTY_MS = 900;
 
+// Blitzreflex wertet BEST OF 3: die beste gültige Einzelzeit. Vorher wurden
+// die drei Zeiten addiert — ein einziger verpatzter Versuch entschied dann
+// über alles, und die schnellste Reaktion der Runde zählte nicht mehr als
+// jede andere. Fehlstarts und verpasste Versuche (keine Reaktion im Fenster)
+// sind keine gültige Zeit.
+function reactBest(arcadePlayer) {
+  const times = arcadePlayer?.times || [];
+  const fouls = arcadePlayer?.fouls || [];
+  let best = null;
+  times.forEach((value, index) => {
+    if (fouls[index] || value >= REACT_WINDOW_MS) return;
+    if (best === null || value < best) best = value;
+  });
+  return best;
+}
+
 // Nagelbrett — fünf Kugeln je Spieler und ein wandernder Jackpot.
 //
 // Vorher: Kugeln ohne Ende, die Mitte war immer am meisten wert, also zielte
@@ -2241,9 +2257,12 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.max(0, (arcadePlayer.survived || 0) * 1000 - (arcadePlayer.mistakes || 0));
   }
   if (arcade.family === "react") {
+    // Zuerst die Bestzeit; bei gleicher Bestzeit die Summe aller Versuche.
+    const best = reactBest(arcadePlayer);
     const played = arcadePlayer.times || [];
     const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
-    return Math.max(1, 1000000 - total);
+    if (best === null) return 1;
+    return Math.max(2, 10000000 - best * 1000 - Math.min(999, Math.round(total / 10)));
   }
   if (arcade.family === "estimate") {
     // Der Punktestand steckt alles: jede Schätzung ist umso mehr wert, je näher
@@ -2380,9 +2399,8 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "correct", value: arcadePlayer.survived || 0, label: "Runden" };
   }
   if (arcade.family === "react") {
-    const played = arcadePlayer.times || [];
-    const total = played.reduce((sum, value) => sum + value, 0) + (REACT_ROUNDS - played.length) * REACT_WINDOW_MS;
-    return { kind: "sumTime", value: Math.round(total), label: "gesamt" };
+    const best = reactBest(arcadePlayer);
+    return { kind: "bestTime", value: best, label: "Bestzeit" };
   }
   if (arcade.family === "estimate") {
     // Eine Zahl, und zwar die, nach der auch sortiert wird. Der Gesamtfehler
@@ -3028,6 +3046,8 @@ function createArcadeState(type, players, startedAt, options = {}) {
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.times = [];
+      entry.fouls = [];
+      entry.best = null;
     });
   }
   if (config.family === "bomb") {
@@ -4083,17 +4103,21 @@ function handleArcadeInput(room, player, rawInput) {
     const round = arcade.rounds[roundIndex];
     const elapsed = now - room.currentMinigame.startedAt;
     if (elapsed < round.armFrom) return { ok: true };
+    arcadePlayer.fouls ||= [];
     if (elapsed < round.greenAt) {
-      // False start: a painful fixed penalty for this round.
+      // Fehlstart: dieser Versuch ist verloren.
       arcadePlayer.times.push(REACT_PENALTY_MS);
+      arcadePlayer.fouls.push(true);
       arcadePlayer.flash = "bad";
     } else {
       arcadePlayer.times.push(Math.min(REACT_WINDOW_MS, Math.round(elapsed - round.greenAt)));
+      arcadePlayer.fouls.push(false);
       arcadePlayer.flash = "good";
     }
     arcadePlayer.lastHitAt = now;
     arcadePlayer.hasMoved = true;
-    arcadePlayer.score = arcadePlayer.times.reduce((sum, value) => sum + value, 0);
+    arcadePlayer.best = reactBest(arcadePlayer);
+    arcadePlayer.score = arcadePlayer.best ?? 0;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
@@ -8317,6 +8341,7 @@ module.exports = {
     SIMON_ROUNDS,
     SIMON_DURATION_MS,
     REACT_ROUNDS,
+    reactBest,
     buildSimonRounds,
     buildReactRounds,
     beltSpeed,

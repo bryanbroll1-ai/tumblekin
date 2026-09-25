@@ -4,7 +4,8 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
 // Blitzreflex: zwei rote Lampen, dann Grün — wer am schnellsten tippt, hat
-// die beste Reaktionszeit. Drei Durchgänge.
+// die beste Reaktionszeit. Drei Versuche, gewertet wird der BESTE (Best of 3);
+// ein Fehlstart kostet nur diesen einen Versuch.
 //
 // Vorher standen die Figuren reglos an einer Linie, und der einzige Hinweis
 // auf die Spannung war, dass sie ein wenig gestaucht wurden. Jetzt ist es ein
@@ -261,8 +262,9 @@ export class FlashReflex extends MinigameScene {
       if (times.length > (this.lastCount.get(player.id) || 0)) {
         this.lastCount.set(player.id, times.length);
         const last = times[times.length - 1];
+        const foul = isFoul(entry, times.length - 1);
         const at = kin.position.clone().add(new THREE.Vector3(0, 1.1, 0));
-        if (last >= 900) {
+        if (foul) {
           // Fehlstart: der Länge nach hin.
           animator.trigger("fall");
           animator.expression("angry", 1200);
@@ -278,8 +280,12 @@ export class FlashReflex extends MinigameScene {
           animator.expression(last < 260 ? "joy" : "happy", 900);
           this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0.2)), ["#c9b79a", "#ffffff"], { count: 8, speed: 1.2, up: 0.6, size: 0.06, life: 0.4 });
           if (isOwn) {
+            // Neue Bestzeit ausdrücklich feiern: genau die zählt.
+            const earlier = bestOf(entry, times.length - 1);
+            const record = earlier === null || last < earlier;
             this.pop(at, `${last} ms`, { color: last < 260 ? "#ffe36b" : "#c6ffb0", size: last < 260 ? 0.42 : 0.34, life: 0.8 });
-            this.feedback?.sound(last < 260 ? "perfect" : "pop");
+            if (record && times.length > 1) this.pop(at.clone().add(new THREE.Vector3(0, 0.45, 0)), "NEUE BESTZEIT!", { color: "#ffe36b", size: 0.3, life: 1, rise: 0.6 });
+            this.feedback?.sound(record ? "perfect" : "pop");
             this.feedback?.vibrate([8, 10, 14]);
           }
         }
@@ -298,7 +304,7 @@ export class FlashReflex extends MinigameScene {
       kin.rotation.y = Math.PI;
       const armed = round && !done && elapsed >= round.armFrom && elapsed < round.greenAt;
       if (dashing) animator.set("sprint");
-      else if (done) animator.set(times.every((t) => t < 900) ? "happy" : "idle");
+      else if (done) animator.set(bestOf(entry) !== null ? "happy" : "idle");
       else if (armed) {
         animator.set("charge", { params: { power: Math.min(1, (elapsed - round.armFrom) / 900) } });
       } else animator.set("ready");
@@ -339,17 +345,27 @@ export class FlashReflex extends MinigameScene {
     const elapsed = Math.max(0, now - minigame.startedAt);
     const times = own?.times || [];
     const round = arcade.rounds[Math.min(times.length, arcade.rounds.length - 1)];
-    const best = times.length > 0 ? Math.min(...times) : null;
+    const best = own ? bestOf(own) : null;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = best === null ? "—" : `${best} ms`;
+    this.scoreNode.textContent = best === null ? "BEST —" : `BEST ${best} ms`;
     const rounds = this.hud.querySelector("[data-react-rounds]");
     if (rounds) {
-      rounds.innerHTML = arcade.rounds.map((_r, i) => {
-        const value = times[i];
-        const state2 = value === undefined ? "open" : (value >= 900 ? "bad" : "good");
-        const text = value === undefined ? "–" : `${value}`;
-        return `<span class="react-slot is-${state2}">${text}</span>`;
-      }).join("");
+      // Versuch 1, 2, 3 — der beste leuchtet gold. Nur neu schreiben, wenn
+      // sich etwas geändert hat, sonst flackert die Leiste.
+      const key = `${times.join(",")}|${(own?.fouls || []).join(",")}|${times.length}`;
+      if (rounds.dataset.key !== key) {
+        rounds.dataset.key = key;
+        const bestIndex = best === null ? -1 : times.findIndex((value, i) => value === best && !isFoul(own, i));
+        rounds.innerHTML = arcade.rounds.map((_r, i) => {
+          const value = times[i];
+          const foul = value !== undefined && isFoul(own, i);
+          const missed = value !== undefined && !foul && value >= WINDOW_MS;
+          const state2 = value === undefined ? (i === times.length ? "now" : "open")
+            : foul || missed ? "bad" : i === bestIndex ? "best" : "good";
+          const text = value === undefined ? "–" : foul ? "Fehlstart" : missed ? "zu spät" : `${value} ms`;
+          return `<span class="react-slot is-${state2}"><small>Versuch ${i + 1}</small>${text}</span>`;
+        }).join("");
+      }
     }
 
     const banner = this.hud.querySelector("[data-react-banner]");
@@ -357,10 +373,9 @@ export class FlashReflex extends MinigameScene {
     const done = times.length >= arcade.rounds.length;
     if (done) {
       banner.hidden = false;
-      const total = times.reduce((sum, value) => sum + value, 0);
-      banner.textContent = `Alle drei durch · ${total} ms gesamt`;
-      banner.style.background = "#7fe06f";
-      banner.style.color = "#14361a";
+      banner.textContent = best === null ? "Kein gültiger Versuch" : `BEST: ${best} ms`;
+      banner.style.background = best === null ? "#ff6b7f" : "#ffd15c";
+      banner.style.color = best === null ? "#42101a" : "#4a3400";
     } else if (round && elapsed >= round.greenAt) {
       banner.hidden = false;
       banner.textContent = "JETZT!";
@@ -375,4 +390,24 @@ export class FlashReflex extends MinigameScene {
       banner.hidden = true;
     }
   }
+}
+
+// Wie auf dem Server: ein Versuch ist ungültig, wenn er ein Fehlstart war
+// (ältere Stände ohne `fouls`: die feste Strafzeit) oder ausserhalb des
+// Fensters lag.
+const PENALTY_MS = 900;
+const WINDOW_MS = 2200;
+function isFoul(entry, index) {
+  const fouls = entry?.fouls;
+  if (Array.isArray(fouls) && fouls[index] !== undefined) return Boolean(fouls[index]);
+  return (entry?.times?.[index] ?? 0) === PENALTY_MS;
+}
+
+function bestOf(entry, upTo = Infinity) {
+  let best = null;
+  (entry?.times || []).forEach((value, index) => {
+    if (index >= upTo || isFoul(entry, index) || value >= WINDOW_MS) return;
+    if (best === null || value < best) best = value;
+  });
+  return best;
 }
