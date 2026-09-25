@@ -88,6 +88,9 @@ function buildTarget() {
   return target;
 }
 
+const STAR_POP_MS = 110;       // Stern springt beim Einsammeln auf …
+const STAR_FLY_MS = 280;       // … und fliegt dann in den Korb
+
 function buildStar() {
   const shape = new THREE.Shape();
   for (let i = 0; i < 10; i += 1) {
@@ -424,10 +427,19 @@ export class BalloonGlide extends MinigameScene {
         if (mine) {
           const star = this.stars.find((candidate) => candidate.star.index === entry.lastStar?.index);
           if (star && !star.taken) {
+            // Einsammeln in zwei Takten: der Stern springt kurz auf und
+            // blitzt (Ring, Funken, Ton), dann fliegt er in den eigenen Korb
+            // und klingelt dort. Vorher schrumpfte er nur an Ort und Stelle.
             star.taken = true;
-            this.burst(star.mesh.position.clone(), ["#ffd84a", "#ffffff"], { count: 14, speed: 2, up: 1.6, size: 0.08, life: 0.6 });
-            this.pop(star.mesh.position.clone().add(new THREE.Vector3(0, 0.5, 0.5)), "+15 ⭐", { color: "#ffe36b", size: 0.36, life: 0.8 });
+            star.takenAt = now;
+            star.from = star.mesh.position.clone();
+            star.kin = kin;
+            const at = star.mesh.position.clone();
+            this.burst(at, ["#ffd84a", "#ffffff", "#fff3b0"], { count: 16, speed: 2.4, up: 1.2, size: 0.07, life: 0.55, drag: 2.2, fadePow: 1.5 });
+            this.bursts.ring(at, "#ffe36b", { radius: 1.1, life: 0.35, opacity: 0.8, tilt: null, y: at.y });
+            this.pop(at.clone().add(new THREE.Vector3(0, 0.55, 0.5)), "+15 ⭐", { color: "#ffe36b", size: 0.4, life: 0.9, rise: 0.7 });
             this.feedback?.sound("sparkle");
+            this.feedback?.vibrate(10);
           }
         }
       }
@@ -439,6 +451,30 @@ export class BalloonGlide extends MinigameScene {
 
     // Sterne drehen sich, genommene verschwinden, verpasste verblassen.
     this.stars.forEach((star) => {
+      if (star.taken && star.takenAt) {
+        const age = now - star.takenAt;
+        if (age < STAR_POP_MS) {
+          // Aufspringen: grösser werden und schnell drehen.
+          const u = age / STAR_POP_MS;
+          star.mesh.scale.setScalar(1 + Math.sin(u * Math.PI * 0.5) * 0.7);
+          star.mesh.rotation.y += dt * 22;
+        } else if (age < STAR_POP_MS + STAR_FLY_MS && star.kin) {
+          // In den Korb: beschleunigt hin, dabei kleiner werden.
+          const u = (age - STAR_POP_MS) / STAR_FLY_MS;
+          const target = star.kin.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.3, 0.1));
+          star.mesh.position.lerpVectors(star.from, target, u * u);
+          star.mesh.position.y += Math.sin(u * Math.PI) * 0.35;
+          star.mesh.scale.setScalar(1.7 * (1 - u) + 0.15);
+          star.mesh.rotation.y += dt * 16;
+        } else if (star.mesh.visible) {
+          star.mesh.visible = false;
+          if (star.kin) {
+            this.burst(star.kin.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.35, 0.1)), ["#ffd84a", "#ffffff"], { count: 8, speed: 1.3, up: 1.1, size: 0.06, life: 0.4, drag: 2.4 });
+            this.feedback?.sound("coin");
+          }
+        }
+        return;
+      }
       star.mesh.rotation.y = now / 400 + star.star.index;
       if (star.taken) star.mesh.scale.multiplyScalar(Math.max(0, 1 - dt * 6));
       else if (star.star.at < elapsed - 200) star.mesh.visible = false;
