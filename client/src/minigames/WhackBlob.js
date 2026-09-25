@@ -15,6 +15,14 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 const CELL = 1.35;
 const HOME = 2.05;
 const MOUND_TOP = 0.3;
+// Nach dem Schlag bleibt die Figur so lange am Loch, dann springt sie zurück.
+const STAY_MS = 650;
+
+// Ein Sprung dauert mit der Weite etwas länger — der weiteste landet genau im
+// Schlag der Hammer-Bewegung (dig schlägt nach knapp 300 ms zu).
+function leapMs(from, to) {
+  return 170 + Math.hypot(to.x - from.x, to.z - from.z) * 25;
+}
 
 export class WhackBlob extends MinigameScene {
   constructor(ctx) {
@@ -284,7 +292,10 @@ export class WhackBlob extends MinigameScene {
         const bad = pop.kind === "bad";
         const away = new THREE.Vector3(swing.home.x - pos.x, 0, swing.home.z - pos.z).normalize().multiplyScalar(0.8);
         swing.target = new THREE.Vector3(pos.x + away.x, 0, pos.z + away.z);
+        swing.from = new THREE.Vector3(kin.position.x, 0, kin.position.z);
+        swing.leap = leapMs(swing.from, swing.target);
         swing.at = now;
+        swing.hopped = false;
         swing.face = Math.atan2(pos.x - swing.target.x, pos.z - swing.target.z);
         animator.trigger("dig");
         const blob = this.blobs.get(pop.id);
@@ -306,18 +317,43 @@ export class WhackBlob extends MinigameScene {
       });
       this.hitsSeen.set(player.id, seen);
 
-      // Nach dem Schlag zurück an die Ecke.
+      // Zum Loch und zurück wird GESPRUNGEN, nicht gelaufen. Der Weg von der
+      // Ecke zum fernen Loch führt über das mittlere, und wer dort durchlief,
+      // hatte den Blob im Bauch. Der Bogen trägt über jeden Blob hinweg, und
+      // der Hammer ist oben, während man fliegt — die Landung ist der Schlag.
       const since = now - swing.at;
-      const goal = swing.target && since < 650 ? swing.target : swing.home;
-      const gap = new THREE.Vector3(goal.x - kin.position.x, 0, goal.z - kin.position.z);
-      const moving = gap.length() > 0.08;
-      kin.position.x += gap.x * frameLerp(since < 650 ? 0.45 : 0.18, dt);
-      kin.position.z += gap.z * frameLerp(since < 650 ? 0.45 : 0.18, dt);
+      let from = swing.home;
+      let to = swing.home;
+      let t = 1;
+      let leap = 0;
+      if (swing.target) {
+        const back = leapMs(swing.target, swing.home);
+        if (since < swing.leap) {
+          from = swing.from;
+          to = swing.target;
+          t = since / swing.leap;
+          leap = swing.leap;
+        } else if (since < STAY_MS) {
+          from = to = swing.target;
+        } else if (since < STAY_MS + back) {
+          from = swing.target;
+          t = (since - STAY_MS) / back;
+          leap = back;
+          if (!swing.hopped) {
+            swing.hopped = true;
+            animator.trigger("hop", { height: 0 });
+          }
+        }
+      }
+      const dist = Math.hypot(to.x - from.x, to.z - from.z);
+      kin.position.x = from.x + (to.x - from.x) * t;
+      kin.position.z = from.z + (to.z - from.z) * t;
+      const arc = leap ? 4 * t * (1 - t) * Math.min(1.25, 0.3 + dist * 0.3) : 0;
+      this.setGround(player.id, MOUND_TOP + arc);
       if (finale) return;
-      const face = since < 650 ? swing.face : moving ? Math.atan2(gap.x, gap.z) : Math.atan2(-swing.home.x, -swing.home.z * 0.3 - 1.2);
-      kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.35, dt);
-      if (moving && since >= 650) animator.set("run");
-      else animator.set("ready");
+      const face = since < STAY_MS ? swing.face : leap ? Math.atan2(to.x - from.x, to.z - from.z) : Math.atan2(-swing.home.x, -swing.home.z * 0.3 - 1.2);
+      kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(leap ? 0.6 : 0.35, dt);
+      animator.set("ready");
     });
   }
 

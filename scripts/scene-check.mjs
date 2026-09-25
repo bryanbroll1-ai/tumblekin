@@ -226,7 +226,7 @@ for (const game of liste) {
               const q = ecke.project(cam);
               rand = Math.min(rand, 1 - Math.abs(q.x), 1 - Math.abs(q.y));
             });
-            if (rand < 0.06) knapp.push({ index, rand: Number(rand.toFixed(3)) });
+            if (rand < 0.06) knapp.push({ index, rand: Number(rand.toFixed(3)), eigen: kin === eigene });
           }
           // Nur SPIELERFIGUREN zählen. Die jubelnden Zuschauer bei Zielsprint
           // stehen über 127 Einheiten Strecke verteilt — dass die meisten
@@ -244,6 +244,9 @@ for (const game of liste) {
     });
 
     if (befund?.knapp?.length && RAND_EGAL[game]) befund.knapp = [];
+    // Wo nur die eigene Figur im Bild sein muss, zählt am Rand auch nur sie:
+    // ein Nachbar, der halb ins Bild ragt, ist dort Beiwerk.
+    if (befund?.knapp?.length && NUR_EIGENE[game]) befund.knapp = befund.knapp.filter((k) => k.eigen);
     // Fliegende Einzelfiguren aussortieren, bevor irgendetwas gezählt wird.
     if (befund?.drin?.length && FLIEGT_EINZELN[game]) {
       befund.drin = befund.drin.filter((d) => d.mass < FLUG_AB);
