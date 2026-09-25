@@ -593,7 +593,10 @@ const RUNNER_ATTACKS_PER_RACE = 3;
 // Fall kommt die nächste. Die Ansagen werden kürzer, die sicheren Felder
 // weniger — am Ende sogar weniger als Mitspieler, damit es eine Entscheidung
 // gibt.
-const COLORGRID_SIZE = 6;
+// Hochkant wie das Handy: 5 breit, 8 tief. Das quadratische 6 x 6 füllte im
+// Hochformat nur die Bildmitte, darüber und darunter lag leere Wiese.
+const COLORGRID_COLS = 5;
+const COLORGRID_ROWS = 8;
 const COLORGRID_ANNOUNCE_MS = [3400, 3000, 2700, 2450, 2200, 2000, 1800, 1650];
 const COLORGRID_SAFE = [9, 7, 6, 5, 4, 3, 3, 2];
 const COLORGRID_ROUNDS = COLORGRID_ANNOUNCE_MS.length;
@@ -2748,14 +2751,15 @@ function createArcadeState(type, players, startedAt, options = {}) {
     });
   }
   if (config.family === "colorgrid") {
-    arcade.gridSize = COLORGRID_SIZE;
+    arcade.gridCols = COLORGRID_COLS;
+    arcade.gridRows = COLORGRID_ROWS;
     arcade.schedule = buildColorSchedule();
     arcade.roundCount = COLORGRID_ROUNDS;
     arcade.round = -1;
     arcade.phase = "announce";
     arcade.targetColor = 0;
     arcade.grid = [];
-    const starts = [[1, 1], [4, 1], [1, 4], [4, 4]];
+    const starts = [[1, 2], [3, 2], [1, 5], [3, 5]];
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
       const [gx, gy] = starts[index % starts.length];
@@ -3592,7 +3596,7 @@ function advanceColorRound(arcade, round, now) {
   arcade.targetColor = Math.floor(arcadeNoise(arcade.seed + round * 53) * 4);
   // Erst alles mit anderen Farben füllen — so ist die Zahl der sicheren Felder
   // gesetzt und nicht dem Zufall überlassen.
-  arcade.grid = Array.from({ length: COLORGRID_SIZE * COLORGRID_SIZE }, (_cell, index) => {
+  arcade.grid = Array.from({ length: COLORGRID_COLS * COLORGRID_ROWS }, (_cell, index) => {
     const roll = Math.floor(arcadeNoise(arcade.seed + round * 61 + index * 7) * 3);
     return (arcade.targetColor + 1 + roll) % 4;
   });
@@ -4459,8 +4463,8 @@ function handleArcadeInput(room, player, rawInput) {
     const directions = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
     const direction = directions[input.dir];
     if (!direction) return { ok: false, error: "Unbekannte Richtung." };
-    const targetGx = clamp(arcadePlayer.gx + direction[0], 0, COLORGRID_SIZE - 1);
-    const targetGy = clamp(arcadePlayer.gy + direction[1], 0, COLORGRID_SIZE - 1);
+    const targetGx = clamp(arcadePlayer.gx + direction[0], 0, COLORGRID_COLS - 1);
+    const targetGy = clamp(arcadePlayer.gy + direction[1], 0, COLORGRID_ROWS - 1);
     // One kin per tile: a step onto an occupied tile simply bounces off.
     const occupied = Object.entries(arcade.players).some(([otherId, other]) => (
       otherId !== player.id && !other.eliminated && other.gx === targetGx && other.gy === targetGy
@@ -5306,7 +5310,7 @@ function updateColorGrid(room, minigame, arcade, now) {
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
       if (!entry || entry.eliminated) return;
-      const tileColor = arcade.grid[entry.gy * COLORGRID_SIZE + entry.gx];
+      const tileColor = arcade.grid[entry.gy * COLORGRID_COLS + entry.gx];
       if (tileColor === arcade.targetColor) {
         entry.survived += 1;
         entry.score = entry.survived;
@@ -7304,7 +7308,7 @@ function arcadeBotStep(room, bot) {
     if (phase.name !== "announce" || phase.round !== arcade.round) return;
     const roundElapsed = (now - minigame.startedAt) - phase.slot.start;
     if (roundElapsed < profile.reactionMs) return;
-    const onTarget = arcade.grid[player.gy * COLORGRID_SIZE + player.gx] === arcade.targetColor;
+    const onTarget = arcade.grid[player.gy * COLORGRID_COLS + player.gx] === arcade.targetColor;
     if (onTarget) return;
     // Zögern wird EINMAL je Runde entschieden. Als Wurf je Tick summierte es sich
     // über die vielen Ticks einer Runde weg und war praktisch wirkungslos.
@@ -7317,12 +7321,12 @@ function arcadeBotStep(room, bot) {
     // vorher, davor stehen zu bleiben, bis der Boden fiel.
     const taken = new Set(Object.values(arcade.players)
       .filter((other) => other !== player && !other.eliminated)
-      .map((other) => other.gy * COLORGRID_SIZE + other.gx));
+      .map((other) => other.gy * COLORGRID_COLS + other.gx));
     let best = null;
     arcade.grid.forEach((color, index) => {
       if (color !== arcade.targetColor || taken.has(index)) return;
-      const gx = index % COLORGRID_SIZE;
-      const gy = Math.floor(index / COLORGRID_SIZE);
+      const gx = index % COLORGRID_COLS;
+      const gy = Math.floor(index / COLORGRID_COLS);
       const dist = Math.abs(gx - player.gx) + Math.abs(gy - player.gy);
       if (!best || dist < best.dist) best = { gx, gy, dist };
     });

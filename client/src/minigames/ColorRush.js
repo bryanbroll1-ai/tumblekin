@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
@@ -12,17 +13,20 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // ängstlich, solange man auf der falschen Farbe steht, jubelt, wenn man
 // sicher ist, und wer fällt, rudert mit den Armen in die Tiefe.
 const TILE = 0.76;
-const GRID = 6;
+// Hochkant wie das Handy — dieselben Zahlen wie auf dem Server.
+const COLS = 5;
+const ROWS = 8;
 const TILE_H = 0.3;
 const TILE_TOP_Y = TILE_H / 2;
+const WATER_Y = -3.9;
 const COLORS = ["#ff2e6a", "#12aaff", "#ffc400", "#33cf4d"];
 const COLOR_NAMES = ["Pink", "Blau", "Gelb", "Grün"];
 
 function tileX(gx) {
-  return (gx - (GRID - 1) / 2) * TILE;
+  return (gx - (COLS - 1) / 2) * TILE;
 }
 function tileZ(gy) {
-  return (gy - (GRID - 1) / 2) * TILE;
+  return (gy - (ROWS - 1) / 2) * TILE;
 }
 
 export class ColorRush extends MinigameScene {
@@ -56,43 +60,60 @@ export class ColorRush extends MinigameScene {
 
   build() {
     const scene = this.scene;
-    const span = GRID * TILE;
+    const spanX = COLS * TILE;
+    const spanZ = ROWS * TILE;
     // Die Grube liegt in einer Wiese: vier Erdblöcke mit Grasdecke rundum.
     // Vorher stand vorn eine sieben Einheiten hohe Wand, deren Vorderseite ein
     // Drittel des Bildes braun füllte.
     const earth = new THREE.MeshLambertMaterial({ color: "#5a4030" });
     const earthDark = new THREE.MeshLambertMaterial({ color: "#3c2a1e" });
     const grass = new THREE.MeshLambertMaterial({ color: "#78c46a" });
-    const rim = span / 2 + 0.12;
+    const rimX = spanX / 2 + 0.12;
+    const rimZ = spanZ / 2 + 0.12;
     const far = 18;
     [
-      [0, -(rim + far / 2), far * 2 + span, far, earth],
-      [0, rim + far / 2, far * 2 + span, far, earth],
-      [-(rim + far / 2), 0, far, span + 0.24, earthDark],
-      [rim + far / 2, 0, far, span + 0.24, earthDark]
+      [0, -(rimZ + far / 2), far * 2 + spanX, far, earth],
+      [0, rimZ + far / 2, far * 2 + spanX, far, earth],
+      [-(rimX + far / 2), 0, far, spanZ + 0.24, earthDark],
+      [rimX + far / 2, 0, far, spanZ + 0.24, earthDark]
     ].forEach(([x, z, w, d, side]) => {
       const block = new THREE.Mesh(new THREE.BoxGeometry(w, 7, d), [side, side, grass, side, side, side]);
       block.position.set(x, -3.7, z);
       block.receiveShadow = true;
       scene.add(block);
     });
-    for (let i = 0; i < 16; i += 1) {
-      const angle = (i / 16) * Math.PI * 2 + 0.3;
-      const radius = span / 2 + 1.4 + (i % 3) * 1.1;
-      const tuft = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2 + (i % 2) * 0.12, 0.3), new THREE.MeshLambertMaterial({ color: i % 2 ? "#5fae55" : "#8ad27a" }));
-      tuft.position.set(Math.cos(angle) * radius * 1.3, -0.1, Math.sin(angle) * radius);
-      scene.add(tuft);
-    }
-    const pit = new THREE.Mesh(
-      new THREE.BoxGeometry(span + 2.4, 0.4, span + 2.4),
-      new THREE.MeshLambertMaterial({ color: "#1c130c" })
-    );
-    pit.position.y = -7.2;
-    scene.add(pit);
 
-    // The 6×6 colour floor.
-    for (let gy = 0; gy < GRID; gy += 1) {
-      for (let gx = 0; gx < GRID; gx += 1) {
+    // Die Wiese ringsum bekommt Flecken, Blumen, Steine und einen Baumkranz —
+    // vorher war sie eine einzige grüne Fläche.
+    dressMeadow(scene, { groundY: -0.2, seed: 33, keepOut: { x: rimX + 0.5, z: rimZ + 0.5 }, spread: { x: 12, z: 14 }, trees: 22, treeRing: { x: 12, z: 14 }, crownShape: "blob", crownColor: "#4aa65a", crownColor2: "#63bf6b" });
+
+    // Unten in der Grube steht Wasser — wer fällt, landet mit einem Platsch,
+    // statt in einem schwarzen Loch zu verschwinden. Die Wände sind Stein.
+    const stone = new THREE.MeshLambertMaterial({ color: "#8b8f99" });
+    [[0, -rimZ + 0.06, spanX + 0.24, 0.12], [0, rimZ - 0.06, spanX + 0.24, 0.12], [-rimX + 0.06, 0, 0.12, spanZ], [rimX - 0.06, 0, 0.12, spanZ]].forEach(([x, z, w, d]) => {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 4.6, d), stone);
+      wall.position.set(x, -2.45, z);
+      scene.add(wall);
+    });
+    this.pool = new THREE.Mesh(
+      new THREE.BoxGeometry(spanX + 0.2, 0.3, spanZ + 0.2),
+      new THREE.MeshLambertMaterial({ color: "#2bb6d8", emissive: "#0c6f8f", emissiveIntensity: 0.35 })
+    );
+    this.pool.position.y = WATER_Y - 0.15;
+    scene.add(this.pool);
+
+    // Der Rand der Grube leuchtet in der angesagten Farbe — so steht sie auch
+    // im Bild, nicht nur im Banner.
+    this.rimMat = new THREE.MeshLambertMaterial({ color: COLORS[0], emissive: COLORS[0], emissiveIntensity: 0.6 });
+    [[0, -rimZ, spanX + 0.48, 0.16], [0, rimZ, spanX + 0.48, 0.16], [-rimX, 0, 0.16, spanZ + 0.16], [rimX, 0, 0.16, spanZ + 0.16]].forEach(([x, z, w, d]) => {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, d), this.rimMat);
+      bar.position.set(x, 0.02, z);
+      scene.add(bar);
+    });
+
+    // Das Farbfeld.
+    for (let gy = 0; gy < ROWS; gy += 1) {
+      for (let gx = 0; gx < COLS; gx += 1) {
         const tile = new THREE.Mesh(
           new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08),
           new THREE.MeshLambertMaterial({ color: COLORS[0] })
@@ -102,7 +123,7 @@ export class ColorRush extends MinigameScene {
         tile.castShadow = true;
         tile.userData = { gx, gy, restY: 0 };
         scene.add(tile);
-        this.tiles[gy * GRID + gx] = tile;
+        this.tiles[gy * COLS + gx] = tile;
       }
     }
 
@@ -124,14 +145,18 @@ export class ColorRush extends MinigameScene {
   }
 
   shot() {
-    const span = GRID * TILE;
+    const spanX = COLS * TILE;
+    const spanZ = ROWS * TILE;
     return {
       look: [0, 0.2, 0.25],
-      frame: { w: span + 0.4, h: span * Math.sin(0.86) + 1.1 },
+      frame: { w: spanX + 0.4, h: spanZ * Math.sin(0.86) + 1.1 },
       fill: 0.95,
       pitch: 0.86,
       fov: 36,
-      intro: { yaw: 0.5, pitch: 0.25, zoom: 1.4 }
+      intro: { yaw: 0.5, pitch: 0.25, zoom: 1.4 },
+      // Im Finale nicht dicht an den Sieger heran: sonst füllen die Löcher
+      // neben ihm das halbe Bild.
+      finale: { pull: 0.9, zoom: 0.8, lift: 0.4, orbit: 0.1 }
     };
   }
 
@@ -204,12 +229,20 @@ export class ColorRush extends MinigameScene {
     }
     this.lastPhaseName = phase.name;
 
+    const targetColor = COLORS[arcade.targetColor] || COLORS[0];
+    this.rimMat.color.set(targetColor);
+    this.rimMat.emissive.set(targetColor);
+    // Je näher der Fall, desto hektischer pulsiert der Rand.
+    const urgency = phase.name === "announce" ? phase.t : 0;
+    this.rimMat.emissiveIntensity = 0.45 + Math.abs(Math.sin(now / (170 - urgency * 110))) * (0.4 + urgency * 0.8);
+    this.pool.position.y = WATER_Y - 0.15 + Math.sin(now / 700) * 0.03;
+
     this.tiles.forEach((tile, index) => {
       const color = arcade.grid[index];
       tile.material.color.set(COLORS[color] || COLORS[0]);
       const isTarget = color === arcade.targetColor;
-      const gx = index % GRID;
-      const gy = Math.floor(index / GRID);
+      const gx = index % COLS;
+      const gy = Math.floor(index / COLS);
       let targetY = 0;
       let opacity = 1;
       let jitterX = 0;
@@ -295,12 +328,20 @@ export class ColorRush extends MinigameScene {
       }
 
       if (fallen) {
-        // Fällt mit rudernden Armen in die Tiefe und verblasst.
+        // Fällt mit rudernden Armen ins Wasser, platscht und taucht ab.
+        kin.userData.outOfPlay = true;
         const since = (now - (this.fallAt.get(player.id) || now)) / 1000;
-        const drop = Math.min(7.5, since * since * 4.5);
+        const bottom = TILE_TOP_Y + 0.3 - WATER_Y;
+        const drop = Math.min(bottom + 0.9, since * since * 4.5);
         animator.groundY = TILE_TOP_Y + 0.3 - drop;
         if (since > 0.5) animator.set("panic");
-        const visibility = Math.max(0, 1 - drop / 2.6);
+        if (drop >= bottom && !kin.userData.splashed) {
+          kin.userData.splashed = true;
+          const at = new THREE.Vector3(kin.position.x, WATER_Y + 0.05, kin.position.z);
+          this.burst(at, ["#bfefff", "#ffffff", player.color], { count: 16, speed: 2.2, up: 2.6, size: 0.08, life: 0.7, drag: 1.4 });
+          this.bursts.ring(at, "#bfefff", { radius: 1.3, life: 0.55, y: WATER_Y + 0.05 });
+        }
+        const visibility = Math.max(0, 1 - Math.max(0, drop - bottom) / 0.9);
         setKinOpacity(kin, visibility);
         kin.visible = visibility > 0.02;
         if (kin.userData.label) kin.userData.label.material.opacity = 0;
@@ -312,7 +353,7 @@ export class ColorRush extends MinigameScene {
       if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
       if (finale) return;
 
-      const onTarget = arcade.grid[entry.gy * GRID + entry.gx] === arcade.targetColor;
+      const onTarget = arcade.grid[entry.gy * COLS + entry.gx] === arcade.targetColor;
       if (phase.name === "announce" && !onTarget) {
         animator.set(phase.t > 0.5 ? "panic" : "ready");
         if (phase.t > 0.5) animator.expression("scared", 200);

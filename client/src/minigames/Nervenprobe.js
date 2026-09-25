@@ -12,6 +12,55 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 const PODIUM_GAP = 1.12;
 const STAGE_Y = 0.26;
 const KIN_Z = 0.95;
+// Die grosse Stoppuhr über der Bühne: eine Umdrehung sind zehn Sekunden.
+const DIAL_MS = 10000;
+const DIAL_R = 0.9;
+const DIAL_POS = [0, 3.25, -2.25];
+
+// Das Zifferblatt: weiss, zehn Sekundenmarken, und die Zielzeit als goldener
+// Keil. Man sieht so, WO der Zeiger hin muss, und zählt nicht nur im Kopf.
+function paintDial(canvas, targetMs) {
+  const ctx = canvas.getContext("2d");
+  const size = canvas.width;
+  const c = size / 2;
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = "#fffaf0";
+  ctx.beginPath();
+  ctx.arc(c, c, c - 2, 0, Math.PI * 2);
+  ctx.fill();
+  const at = (ms) => (ms / DIAL_MS) * Math.PI * 2 - Math.PI / 2;
+  // Zielkeil: ±0,25 s um die Zielzeit.
+  ctx.fillStyle = "rgba(255, 196, 0, 0.9)";
+  ctx.beginPath();
+  ctx.moveTo(c, c);
+  ctx.arc(c, c, c - 8, at(targetMs - 250), at(targetMs + 250));
+  ctx.closePath();
+  ctx.fill();
+  for (let s = 0; s < 10; s += 1) {
+    const a = at(s * 1000);
+    ctx.strokeStyle = "#28313f";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(c + Math.cos(a) * (c - 12), c + Math.sin(a) * (c - 12));
+    ctx.lineTo(c + Math.cos(a) * (c - 40), c + Math.sin(a) * (c - 40));
+    ctx.stroke();
+    ctx.fillStyle = "#28313f";
+    ctx.font = "900 38px ui-rounded, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(s), c + Math.cos(a) * (c - 68), c + Math.sin(a) * (c - 68));
+  }
+  for (let s = 0; s < 50; s += 1) {
+    if (s % 5 === 0) continue;
+    const a = at(s * 200);
+    ctx.strokeStyle = "#7a8494";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(c + Math.cos(a) * (c - 12), c + Math.sin(a) * (c - 12));
+    ctx.lineTo(c + Math.cos(a) * (c - 26), c + Math.sin(a) * (c - 26));
+    ctx.stroke();
+  }
+}
 
 function formatSeconds(ms) {
   return `${(ms / 1000).toFixed(2)}s`;
@@ -95,6 +144,7 @@ export class Nervenprobe extends MinigameScene {
     this.hidAt = false;
     this.labelY = 0.74;
     this.nextNod = new Map();
+    this.finaleFocus = false;
   }
 
   stage() {
@@ -266,8 +316,83 @@ export class Nervenprobe extends MinigameScene {
       scene.add(linse);
     }
 
+    this.buildStopwatch();
+
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.addStation(player, index, players.length));
+  }
+
+  buildStopwatch() {
+    const arcade = this.minigame?.arcade;
+    const group = new THREE.Group();
+    group.position.set(...DIAL_POS);
+    const gold = new THREE.MeshLambertMaterial({ color: "#ffc400" });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(DIAL_R + 0.12, DIAL_R + 0.12, 0.24, 40), gold);
+    body.rotation.x = Math.PI / 2;
+    group.add(body);
+    const crown = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.2), gold);
+    crown.position.y = DIAL_R + 0.22;
+    group.add(crown);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.24), new THREE.MeshLambertMaterial({ color: "#ff2038" }));
+    cap.position.y = DIAL_R + 0.38;
+    group.add(cap);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 512;
+    paintDial(canvas, arcade?.targetMs || 5000);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const face = new THREE.Mesh(new THREE.CircleGeometry(DIAL_R, 48), new THREE.MeshBasicMaterial({ map: texture }));
+    face.position.z = 0.125;
+    group.add(face);
+
+    // Der Zeiger dreht um die Mitte.
+    this.hand = new THREE.Group();
+    this.hand.position.z = 0.14;
+    const needle = new THREE.Mesh(new THREE.BoxGeometry(0.05, DIAL_R * 0.86, 0.03), new THREE.MeshBasicMaterial({ color: "#ff2038" }));
+    needle.position.y = DIAL_R * 0.4;
+    this.hand.add(needle);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.05, 16), new THREE.MeshBasicMaterial({ color: "#28313f" }));
+    hub.rotation.x = Math.PI / 2;
+    this.hand.add(hub);
+    group.add(this.hand);
+
+    // Die Abdeckung: nach zwei Sekunden schiebt sie sich über das Blatt.
+    const coverCanvas = document.createElement("canvas");
+    coverCanvas.width = 256;
+    coverCanvas.height = 256;
+    const pen = coverCanvas.getContext("2d");
+    pen.fillStyle = "#2a1d45";
+    pen.beginPath();
+    pen.arc(128, 128, 126, 0, Math.PI * 2);
+    pen.fill();
+    pen.fillStyle = "#ff5c8a";
+    pen.font = "900 150px ui-rounded, system-ui, sans-serif";
+    pen.textAlign = "center";
+    pen.textBaseline = "middle";
+    pen.fillText("?", 128, 138);
+    const coverTex = new THREE.CanvasTexture(coverCanvas);
+    coverTex.colorSpace = THREE.SRGBColorSpace;
+    this.cover = new THREE.Mesh(new THREE.CircleGeometry(DIAL_R + 0.02, 48), new THREE.MeshBasicMaterial({ map: coverTex, transparent: true, opacity: 0 }));
+    this.cover.position.z = 0.16;
+    group.add(this.cover);
+
+    this.dialMarks = new Map();
+    this.scene.add(group);
+    this.dial = group;
+  }
+
+  // Bei der Auflösung steckt für jeden eine Marke in seiner Farbe am Rand —
+  // dort, wo er gestoppt hat.
+  markDial(player, ms) {
+    if (this.dialMarks.has(player.id) || !this.dial) return;
+    const angle = -(ms / DIAL_MS) * Math.PI * 2;
+    const mark = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.08), new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.4 }));
+    mark.position.set(-Math.sin(angle) * (DIAL_R + 0.02), Math.cos(angle) * (DIAL_R + 0.02), 0.2);
+    mark.rotation.z = angle;
+    this.dial.add(mark);
+    this.dialMarks.set(player.id, mark);
   }
 
   stationX(index, count) {
@@ -309,13 +434,17 @@ export class Nervenprobe extends MinigameScene {
 
   shot() {
     const count = Math.max(1, this.stations.size);
+    // Breit genug für die äusseren Anzeigen, hoch genug für die Stoppuhr über
+    // der Bühne. Vorher schnitt die Auflösung die linke Anzeige an, und das
+    // halbe Bild darunter war leerer Studioboden.
     return {
-      look: [0.15, 1.1, 0.8],
-      frame: { w: count * PODIUM_GAP + 0.5, h: 2.4 },
+      look: [0.15, 1.7, 0.4],
+      frame: { w: count * PODIUM_GAP + 1.1, h: 4.6 },
       pitch: 0.14,
       fov: 36,
       intro: { yaw: 0.5, pitch: 0.2, zoom: 1.4 },
-      finale: { pull: 0.6, zoom: 0.7, lift: 0.6, orbit: 0.12 }
+      // Die Auflösung IST das Finale: alle Anzeigen und die Uhr bleiben im Bild.
+      finale: { pull: 0.95, zoom: 1, lift: 0.1, orbit: 0.04 }
     };
   }
 
@@ -357,6 +486,21 @@ export class Nervenprobe extends MinigameScene {
       this.revealed = true;
       this.feedback?.sound("win");
       this.feedback?.vibrate([30, 30, 60]);
+    }
+    // Die grosse Uhr: der Zeiger läuft, solange man ihn sehen darf; dann
+    // deckt sie sich zu, und zur Auflösung öffnet sie sich wieder.
+    if (this.hand) {
+      const shownMs = hidden && !revealAll ? arcade.hideAfterMs : Math.min(elapsed, revealAll ? arcade.targetMs : elapsed);
+      this.hand.rotation.z = -(shownMs / DIAL_MS) * Math.PI * 2;
+      const coverTarget = hidden && !revealAll ? 1 : 0;
+      this.cover.material.opacity += (coverTarget - this.cover.material.opacity) * frameLerp(0.2, dt);
+      this.cover.visible = this.cover.material.opacity > 0.01;
+      if (revealAll) {
+        players.forEach((player) => {
+          const entry = arcade.players[player.id];
+          if (entry?.stoppedMs !== null && entry?.stoppedMs !== undefined) this.markDial(player, entry.stoppedMs);
+        });
+      }
     }
 
     players.forEach((player) => {
