@@ -939,8 +939,10 @@ function climbSideFor(arcade, rung) {
   return sides[((rung % sides.length) + sides.length) % sides.length];
 }
 
-// Blob-Klopfe — whack the blobs that pop out of the 3x3 holes.
-const WHACK_CELLS = 9;
+// Blob-Klopfe — Blobs kommen aus 3 x 4 Löchern. Hochkant wie das Handy: das
+// quadratische 3 x 3 füllte nur die Bildmitte, darunter lag leere Wiese.
+const WHACK_COLS = 3;
+const WHACK_CELLS = 12;
 // Wer auf einen Stachelblob haut, ist kurz benommen und kann nicht klopfen.
 // Ein Punkt Abzug allein machte Draufhauen auf alles billig: wer blind jedes
 // Loch trifft, verliert einen Punkt und hat drei gewonnen.
@@ -3365,7 +3367,7 @@ function buildCatchDrops(seed, totalMs) {
   return drops;
 }
 
-// Blobs pop out of the 3x3 holes — some are spiky troublemakers.
+// Blobs pop out of the holes — some are spiky troublemakers.
 function buildWhackPops(seed, totalMs) {
   const pops = [];
   let at = 2500;
@@ -6636,7 +6638,15 @@ function arcadeBotStep(room, bot) {
       // Vorhalt kam der Bot durch seinen eigenen Takt regelmässig zu spät und
       // schied an der Technik statt am Können aus — gemessen waren nach drei
       // Wellen 95 bis 100 Prozent des Feldes draussen, auf jeder Stufe.
-      player.botJumpAt = Math.random() < profile.mistake
+      // Ein Patzer je Welle mit dem vollen Fehlerwert war zu viel: der starke
+      // Bot schied im Mittel nach acht Wellen aus, die Runde war oft nach acht
+      // Sekunden vorbei. Mit einem Drittel davon hält er gut dreissig Wellen,
+      // der schwache um die zehn.
+      // Und erst mit dem Tempo steigt die Gefahr: in den ersten Wellen patzt
+      // kaum einer, wenn das Seil rast, deutlich öfter.
+      const waveIndex = arcade.waves.indexOf(next);
+      const pressure = 0.3 + 0.7 * Math.min(1, waveIndex / 12) + (next.double ? 0.5 : 0);
+      player.botJumpAt = Math.random() < profile.mistake * 0.35 * pressure
         ? next.hitAt + arcade.jumpMs * 0.8
         : next.hitAt - arcade.jumpMs * 0.45 - BOT_TICK_LEAD_MS
           + (Math.random() - 0.5) * profile.spreadMs * 0.5;

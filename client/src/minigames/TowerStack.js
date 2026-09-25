@@ -48,6 +48,7 @@ export class TowerStack extends MinigameScene {
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="hud-chips" data-stack-heights></div>
       <div class="color-banner" data-stack-banner hidden></div>`;
   }
 
@@ -266,12 +267,22 @@ export class TowerStack extends MinigameScene {
     this.smoothTop += (topHeight - this.smoothTop) * frameLerp(0.08, dt);
   }
 
+  // Die Kamera steigt mit der Spitze des EIGENEN Turms — wie beim Handyspiel
+  // Stack. Vorher rahmte sie den ganzen Turm vom Boden bis oben: bei zwanzig
+  // Etagen waren die Blöcke winzig, und gegen Ende lag die Spitze mit dem
+  // gleitenden Block, auf den es ankommt, oben ausserhalb des Bildes. Wie hoch
+  // die anderen sind, steht oben in der Leiste.
   rigOptions() {
     const topY = BASE_Y + this.smoothTop * BLOCK_H;
     return {
-      look: [0, topY * 0.55 + 1.0, OWN_Z * 0.4],
-      frame: { w: 4.6, h: Math.max(3.6, topY + 2.6) }
+      look: [0, Math.max(1.4, topY + 0.2), OWN_Z * 0.4],
+      frame: { w: 4.6, h: 4.4 }
     };
+  }
+
+  keepInView(f) {
+    const own = this.kins.get(f.controlledId);
+    return own ? [own] : [];
   }
 
   drawHud(f) {
@@ -280,6 +291,18 @@ export class TowerStack extends MinigameScene {
     const own = arcade.players[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.height || 0);
+    const heights = this.hud.querySelector("[data-stack-heights]");
+    if (heights) {
+      const html = state.players.map((player) => {
+        const entry = arcade.players[player.id];
+        const cls = `hud-chip${player.id === f.controlledId ? " is-own" : ""}${entry?.toppled ? " is-out" : ""}`;
+        return `<span class="${cls}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${entry?.height || 0}</span>`;
+      }).join("");
+      if (html !== this.heightsHtml) {
+        this.heightsHtml = html;
+        heights.innerHTML = html;
+      }
+    }
     const banner = this.hud.querySelector("[data-stack-banner]");
     if (banner) {
       if ((own?.height || 0) >= arcade.total) {
@@ -298,4 +321,8 @@ export class TowerStack extends MinigameScene {
     }
     if (this.dropButton) this.dropButton.disabled = Boolean(own?.toppled || (own?.height || 0) >= arcade.total || minigame.finaleAt);
   }
+}
+
+function escapeName(name) {
+  return String(name || "?").slice(0, 6).replace(/[&<>"']/g, "");
 }

@@ -1840,3 +1840,49 @@ canvas.is-stunned {
   transform: translateX(4px);
   filter: grayscale(0.6);
 }
+
+/* --- Allgemein: Chip-Leiste mit dem Stand aller ------------------------- */
+/* Für Spiele, in denen die Kamera nur den eigenen Teil zeigt: hier steht,
+   wie weit die anderen sind. */
+.hud-chips {
+  position: absolute;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.82);
+  box-shadow: inset 0 0 0 2px var(--chip);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.hud-chip b {
+  color: var(--chip);
+  font-weight: 900;
+}
+
+.hud-chip.is-own {
+  box-shadow: inset 0 0 0 2px #ffffff;
+}
+
+.hud-chip.is-out {
+  opacity: 0.5;
+}
+
+/* Steht eine Chip-Leiste oben, rückt das Banner darunter. */
+.kinetic-hud .hud-chips ~ .color-banner {
+  top: calc(98px + env(safe-area-inset-top));
+}

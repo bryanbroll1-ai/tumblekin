@@ -4,8 +4,9 @@ import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Blob-Klopfe: aus neun Löchern kommen Blobs, wer zuerst draufhaut, bekommt
-// den Punkt. Die roten mit Stacheln tun weh.
+// Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)
+// kommen Blobs, wer zuerst draufhaut, bekommt den Punkt. Die roten mit
+// Stacheln tun weh.
 //
 // Vorher gab es keine Figuren, nur einen Hammer, der aus dem Nichts
 // erschien. Jetzt stehen alle mit ihrem Holzhammer an den Ecken des Hügels,
@@ -13,7 +14,10 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // hauen drauf. Wer einen Stachelblob erwischt, fliegt zurück und sieht
 // Sterne.
 const CELL = 1.35;
+const COLS = 3;
+const ROWS = 4;
 const HOME = 2.05;
+const HOME_Z = (ROWS / 2) * CELL + 0.1;
 const MOUND_TOP = 0.3;
 // Nach dem Schlag bleibt die Figur so lange am Loch, dann springt sie zurück.
 const STAY_MS = 650;
@@ -40,9 +44,9 @@ export class WhackBlob extends MinigameScene {
   }
 
   cellPos(cell) {
-    const gx = cell % 3;
-    const gy = Math.floor(cell / 3);
-    return { x: (gx - 1) * CELL, z: (gy - 1) * CELL };
+    const gx = cell % COLS;
+    const gy = Math.floor(cell / COLS);
+    return { x: (gx - (COLS - 1) / 2) * CELL, z: (gy - (ROWS - 1) / 2) * CELL };
   }
 
   build() {
@@ -56,9 +60,9 @@ export class WhackBlob extends MinigameScene {
     scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 4.4 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#69bd5f", "#87d276"], crownColor: "#2f7f45", crownColor2: "#4a9c58", flowers: 80 });
+    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 5.2 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#69bd5f", "#87d276"], crownColor: "#2f7f45", crownColor2: "#4a9c58", flowers: 80 });
     const mound = new THREE.Mesh(
-      new THREE.BoxGeometry(CELL * 3 + 0.9, 0.4, CELL * 3 + 0.9),
+      new THREE.BoxGeometry(CELL * COLS + 0.9, 0.4, CELL * ROWS + 0.9),
       new THREE.MeshLambertMaterial({ color: "#8ad07f" })
     );
     mound.position.y = 0.1;
@@ -66,7 +70,7 @@ export class WhackBlob extends MinigameScene {
     scene.add(mound);
     // Invisible pick plane spanning the 3x3 field for direct hole taps.
     this.cellPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(CELL * 3 + 0.6, CELL * 3 + 0.6),
+      new THREE.PlaneGeometry(CELL * COLS + 0.6, CELL * ROWS + 0.6),
       new THREE.MeshBasicMaterial({ visible: false })
     );
     this.cellPlane.rotation.x = -Math.PI / 2;
@@ -83,7 +87,7 @@ export class WhackBlob extends MinigameScene {
     const schachtMat = new THREE.MeshLambertMaterial({ color: "#4a3826" });
     const grundMat = new THREE.MeshLambertMaterial({ color: "#241a10" });
     const randMat = new THREE.MeshLambertMaterial({ color: "#8a6a45" });
-    for (let cell = 0; cell < 9; cell += 1) {
+    for (let cell = 0; cell < COLS * ROWS; cell += 1) {
       const pos = this.cellPos(cell);
       // Aufgeworfene Erde rundherum — der Teil, den man von oben zuerst sieht.
       const rand = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.08, 6, 16), randMat);
@@ -116,14 +120,14 @@ export class WhackBlob extends MinigameScene {
     // empty green.
     const fenceMat = new THREE.MeshLambertMaterial({ color: "#e8d8b0" });
     for (let i = -4; i <= 4; i += 1) {
-      [-3.4, 3.4].forEach((z) => {
+      [-4.1, 4.1].forEach((z) => {
         const picket = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.62, 0.12), fenceMat);
         picket.position.set(i * 0.85, 0.28, z);
         scene.add(picket);
       });
       const rail = i < 4 ? null : new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 0.08), fenceMat);
       if (rail) {
-        [-3.4, 3.4].forEach((z) => {
+        [-4.1, 4.1].forEach((z) => {
           const bar = rail.clone();
           bar.position.set(0, 0.44, z);
           scene.add(bar);
@@ -150,7 +154,7 @@ export class WhackBlob extends MinigameScene {
     });
 
     // A cartoon mallet that swings down on the blob you bonk.
-    const homes = [[-HOME, HOME], [HOME, HOME], [-HOME, -HOME], [HOME, -HOME]];
+    const homes = [[-HOME, HOME_Z], [HOME, HOME_Z], [-HOME, -HOME_Z], [HOME, -HOME_Z]];
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
       const [x, z] = homes[index % homes.length];
@@ -202,7 +206,8 @@ export class WhackBlob extends MinigameScene {
   shot() {
     return {
       look: [0, 0.35, 0.3],
-      frame: { w: HOME * 2 + 1.2, h: 4.4 },
+      frame: { w: HOME * 2 + 1.2, h: HOME_Z * 2 * Math.sin(0.82) + 1.6 },
+      finale: { pull: 0.6, zoom: 0.85, lift: 0.4, orbit: 0.1 },
       pitch: 0.82,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.25, zoom: 1.35 }
@@ -243,10 +248,10 @@ export class WhackBlob extends MinigameScene {
     this.raycaster.setFromCamera(ndc, this.camera);
     const hit = this.raycaster.intersectObject(this.cellPlane)[0];
     if (!hit) return -1;
-    const gx = Math.round(hit.point.x / CELL) + 1;
-    const gy = Math.round(hit.point.z / CELL) + 1;
-    if (gx < 0 || gx > 2 || gy < 0 || gy > 2) return -1;
-    return gy * 3 + gx;
+    const gx = Math.round(hit.point.x / CELL + (COLS - 1) / 2);
+    const gy = Math.round(hit.point.z / CELL + (ROWS - 1) / 2);
+    if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS) return -1;
+    return gy * COLS + gx;
   }
 
   tick(f) {
