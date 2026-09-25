@@ -72,7 +72,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆✳️ In jede Richtung wischen
 
-- **Zielgerade:** Wisch nach links oder rechts in die schnelle Bahn: grüne Felder mit Pfeilen sind Boost, Matsch bremst. Tippen springt über Hürden. Nach unten wischen wirft etwas auf den, der in DEINER Bahn dicht vor dir läuft — du hast drei Würfe.
+- **Zielgerade:** Wisch nach links oder rechts in die schnelle Bahn: grüne Felder mit Pfeilen sind Boost, Matsch bremst. Tippen springt über Hürden — in der Luft bist du etwas langsamer, also nur, wenn es nötig ist. Nach unten wischen wirft etwas auf den, der in DEINER Bahn dicht vor dir läuft — du hast drei Würfe. Zielt jemand auf dich, warnt dich die Anzeige: abspringen oder die Bahn wechseln, dann fliegt der Wurf ins Leere.
 - **Farbflucht:** Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
 
 ### 👆 Tippen

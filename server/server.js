@@ -561,9 +561,13 @@ const RUNNER_SEG_LEN = 7.5;            // Länge eines Bahnabschnitts in Metern
 // Belagfaktoren. Der Abstand zwischen Sand und Tempo ist bewusst gross: eine
 // Bahn muss sich beim Hinschauen lohnen, sonst schaut niemand hin.
 const RUNNER_SURFACE = { sand: 0.70, normal: 1.0, tempo: 1.34 };
-const RUNNER_SPRINT_FACTOR = 1.45;
-const RUNNER_SPRINT_DRAIN = 1 / 2.6;   // Schwung je Sekunde beim Sprint
-const RUNNER_SPRINT_REFILL = 1 / 4.4;  // und beim lockeren Laufen zurück
+// Ein Sprung ist eine Antwort, kein Dauerzustand. Vorher kostete er nichts:
+// wer ununterbrochen tippte, war gegen jede Hürde UND jeden Wurf gefeit, und
+// das Lesen der Bahn war wertlos. Jetzt ist man in der Luft etwas langsamer,
+// und nach der Landung dauert es einen Moment bis zum nächsten Absprung.
+const RUNNER_JUMP_MS = 650;
+const RUNNER_JUMP_REST_MS = 350;
+const RUNNER_AIR_FACTOR = 0.86;
 // Ein Stolperer muss das Rennen kosten können. Bei 1150 ms und 0.35-Tempo lag
 // der Verlust bei rund 0.75 s auf 26 s Renndauer — knapp drei Prozent, zu wenig,
 // als dass sich saubere Bahnwahl auszahlt.
@@ -578,6 +582,11 @@ const RUNNER_ATTACK_RANGE = 9;         // nur wer dicht genug auffaehrt, trifft
 const RUNNER_ATTACK_COOLDOWN_MS = 5000;
 const RUNNER_ATTACK_STUMBLE_MS = 600;
 const RUNNER_ATTACKS_PER_RACE = 3;
+// Der Wurf fliegt, bevor er trifft. Vorher traf er im selben Augenblick, in
+// dem er losging, während der Ball im Bild noch 450 ms unterwegs war — "wer
+// springt, wird verfehlt" war damit nur Glück. Jetzt entscheidet die Landung:
+// wer in der Flugzeit abspringt oder die Bahn wechselt, ist sicher.
+const RUNNER_THROW_MS = 450;
 // Farbflucht — eine Farbe wird angesagt, alle anderen Felder fallen weg.
 //
 // Die alte Fassung war im Ablauf kaputt: die Zielfarbe stand im Banner erst
@@ -2754,10 +2763,8 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.progress = 0;
       entry.nextHurdle = 0;        // Index des nächsten noch offenen Abschnitts
       entry.stumbleUntil = 0;
-      entry.sprinting = false;
-      entry.schwung = 1;           // volle Reserve am Start
       entry.attacksLeft = RUNNER_ATTACKS_PER_RACE;
-      entry.sprintMs = 0;          // wie lange insgesamt gesprintet wurde
+      entry.jumpUntil = 0;
       entry.finishedAt = null;
       entry.finishMs = null;
       entry.stumbles = 0;
@@ -3553,8 +3560,18 @@ function createRunnerCourse(seed) {
       hurdle = kandidaten[Math.floor(arcadeNoise(seed + index * 29) * kandidaten.length)];
     }
     segments.push({ index, at, lanes, hurdle, hurdleAt: at + RUNNER_SEG_LEN * 0.62 });
-    // Nächster Abschnitt: Tempo wandert um eine Bahn, Sand setzt sich woanders hin.
-    tempo = (tempo + (arcadeNoise(seed + index * 31) < 0.5 ? 1 : 2)) % 3;
+    // Nächster Abschnitt. Die Tempobahn sprang früher in JEDEM Abschnitt auf
+    // eine andere Bahn, oft von ganz links nach ganz rechts — alle 0,9 s ein
+    // neuer Wisch, zwei Bahnen weit. Das ist kein Planen mehr, sondern
+    // Hinterherwischen: gemessen fuhren alle drei Bot-Stufen im Mittel einen
+    // Belag von 1.04, kaum besser als geradeaus, und die Rangfolge war Zufall.
+    // Jetzt bleibt sie oft liegen und wandert, wenn, in die Nachbarbahn. Wer
+    // vorausschaut, fährt eine Linie; wer nur reagiert, hängt eine Bahn zurück.
+    if (arcadeNoise(seed + index * 31) >= 0.42) {
+      tempo = tempo === 1
+        ? (arcadeNoise(seed + index * 41) < 0.5 ? 0 : 2)
+        : 1;
+    }
     sand = (tempo + 1 + Math.floor(arcadeNoise(seed + index * 37) * 2)) % 3;
   }
   return segments;
@@ -3566,6 +3583,20 @@ function runnerSegmentAt(arcade, position) {
   if (segments.length === 0) return null;
   const index = Math.min(segments.length - 1, Math.max(0, Math.floor(position / RUNNER_SEG_LEN)));
   return segments[index];
+}
+
+// Wer dem Läufer gerade in den Rücken werfen könnte: dieselbe Bahn, dicht
+// dahinter, Wurf übrig und geladen. Das ist dieselbe Bedingung, unter der ein
+// Wurf trifft — die Warnung zeigt also genau die Lage, in der es gefährlich ist.
+function runnerPursuer(room, arcade, entry, now) {
+  return room.players
+    .map((p) => arcade.players[p.id])
+    .find((other) => other && other !== entry && !other.finishedAt
+      && other.lane === entry.lane
+      && other.progress < entry.progress
+      && entry.progress - other.progress <= RUNNER_ATTACK_RANGE
+      && (other.attacksLeft ?? 0) > 0
+      && now >= (other.lastAttackAt || 0) + RUNNER_ATTACK_COOLDOWN_MS) || null;
 }
 
 // Der Belagfaktor einer Bahn an einer Position.
@@ -4432,7 +4463,11 @@ function handleArcadeInput(room, player, rawInput) {
       return { ok: true };
     }
     if (input.action === "jump") {
-      arcadePlayer.jumpUntil = Date.now() + 650;
+      // Noch in der Luft oder gerade gelandet: der Tipp verfällt still. Eine
+      // Fehlermeldung je Tipp wäre beim hastigen Tippen nur Lärm.
+      if (now < (arcadePlayer.jumpUntil || 0) + RUNNER_JUMP_REST_MS) return { ok: true };
+      arcadePlayer.jumpUntil = now + RUNNER_JUMP_MS;
+      arcadePlayer.jumps = (arcadePlayer.jumps || 0) + 1;
       arcadePlayer.hasMoved = true;
       return { ok: true };
     }
@@ -4460,21 +4495,18 @@ function handleArcadeInput(room, player, rawInput) {
       // immer jemand in neun Metern. Erst die Bahn macht daraus ein Spiel — der
       // Angreifer muss sich hinter sein Opfer setzen, und das Opfer kann
       // ausweichen oder abspringen. Beides ist sichtbar und beides ist Koennen.
-      const ahead = room.players
-        .map((p) => arcade.players[p.id])
-        .filter((p) => p && p !== arcadePlayer && !p.finishedAt
+      const aheadId = room.players
+        .map((p) => ({ id: p.id, entry: arcade.players[p.id] }))
+        .filter(({ entry: p }) => p && p !== arcadePlayer && !p.finishedAt
           && p.lane === arcadePlayer.lane
           && p.progress > arcadePlayer.progress
           && p.progress - arcadePlayer.progress <= RUNNER_ATTACK_RANGE)
-        .sort((a, b) => a.progress - b.progress)[0];
+        .sort((a, b) => a.entry.progress - b.entry.progress)[0]?.id || null;
 
-      if (ahead && now >= (ahead.jumpUntil || 0)) {
-        ahead.stumbleUntil = now + RUNNER_ATTACK_STUMBLE_MS;
-        ahead.stumbles = (ahead.stumbles || 0) + 1;
-        ahead.flash = "bad";
-        ahead.lastHitAt = now;
-        arcadePlayer.attacksLanded = (arcadePlayer.attacksLanded || 0) + 1;
-      }
+      // Der Wurf ist unterwegs. Getroffen wird erst bei der Landung (siehe
+      // updateRunner) — und nur, wer dann noch in der Bahn und am Boden ist.
+      arcadePlayer.lastThrow = { at: now, hitAt: now + RUNNER_THROW_MS, targetId: aheadId, lane: arcadePlayer.lane };
+      if (aheadId) arcade.players[aheadId].incomingAt = now + RUNNER_THROW_MS;
       arcadePlayer.hasMoved = true;
       return { ok: true };
     }
@@ -5319,7 +5351,8 @@ function updateRunner(room, minigame, arcade, dt, now) {
     const surface = runnerLaneFactor(arcade, entry.progress, entry.lane);
     const speed = RUNNER_BASE_SPEED
       * surface
-      * (stumbling ? 0.32 : 1.25);
+      * (stumbling ? 0.32 : 1.25)
+      * (jumping ? RUNNER_AIR_FACTOR : 1);
     
     entry.speed = speed;
     entry.surface = runnerSegmentAt(arcade, entry.progress)?.lanes[entry.lane] || "normal";
@@ -5350,6 +5383,34 @@ function updateRunner(room, minigame, arcade, dt, now) {
       ? 10000000 - entry.finishMs
       : Math.round(entry.progress * 1000);
     syncArcadeScore(minigame, player, entry);
+  });
+  // Würfe, die jetzt landen. Getroffen wird, wer noch in der Wurfbahn läuft
+  // und nicht in der Luft ist — ausweichen und abspringen sind beide echt.
+  room.players.forEach((player) => {
+    const thrower = arcade.players[player.id];
+    const shot = thrower?.lastThrow;
+    if (!shot || shot.resolved || now < shot.hitAt) return;
+    shot.resolved = true;
+    const target = shot.targetId ? arcade.players[shot.targetId] : null;
+    if (!target) return;
+    if (target.incomingAt === shot.hitAt) target.incomingAt = 0;
+    if (target.finishedAt || target.lane !== shot.lane || now < (target.jumpUntil || 0)) {
+      shot.dodged = true;
+      target.dodges = (target.dodges || 0) + 1;
+      return;
+    }
+    target.stumbleUntil = now + RUNNER_ATTACK_STUMBLE_MS;
+    target.stumbles = (target.stumbles || 0) + 1;
+    target.flash = "bad";
+    target.lastHitAt = now;
+    shot.hit = true;
+    thrower.attacksLanded = (thrower.attacksLanded || 0) + 1;
+  });
+  // Erst nach allen Schritten: sonst sähe der erste Läufer die anderen noch
+  // auf dem Stand des letzten Ticks.
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (entry) entry.threatened = !entry.finishedAt && Boolean(runnerPursuer(room, arcade, entry, now));
   });
 }
 
@@ -7001,7 +7062,10 @@ function arcadeBotStep(room, bot) {
     const ceiling = clamp(baseCeiling - (kind.surge - 1) * 0.09, 0.5, 0.92);
     // Frueher wieder anfassen als vorher (0.42): zu langes Warten kostet Strecke,
     // und gemessen landete der vorsichtigste Bot dadurch die wenigsten Fische.
-    const resume = ceiling * 0.55;
+    // Der starke Bot fasst noch früher wieder an — genau das tut ein Mensch,
+    // der den Fisch liest: Schub vorbei, sofort weiter. Mit gleichem Faktor
+    // für alle lag er nur knapp vor dem mittleren, seit ein Riss weniger kostet.
+    const resume = ceiling * (profile.level === "hard" ? 0.8 : profile.level === "normal" ? 0.6 : 0.55);
     // Ob er den Schub überhaupt bemerkt, entscheidet sein Können — genau das
     // unterscheidet ihn vom Spieler, der ihn sieht.
     const notices = profile.level === "hard" ? 0.92 : profile.level === "normal" ? 0.72 : 0.45;
@@ -7027,11 +7091,19 @@ function arcadeBotStep(room, bot) {
     // das trennt hier Können von Glück.
     const checkMs = profile.level === "hard" ? 200 : profile.level === "normal" ? 340 : 560;
     if (player.botCheckAt === undefined) player.botCheckAt = 0;
+    // Der starke Bot lässt im Schub nicht blind los, sondern erst, wenn die
+    // Spannung bis zum nächsten Blick über die Grenze käme. Mit lockerer
+    // Schnur in einen Schub zu gehen und trotzdem einzuholen, ist genau das
+    // Können, das dieses Spiel vom Loslassen-bei-jedem-Zucken unterscheidet.
+    const surgeRoom = profile.level === "hard"
+      ? ceiling - FISH_TENSION_SURGE * kind.surge * (checkMs / 1000) * 2
+      : -1;
+    const surgeTooTight = seesSurge && player.tension >= surgeRoom;
     if (now >= player.botCheckAt) {
       player.botCheckAt = now + checkMs;
       if (player.botLetGo) {
-        if (player.tension <= resume && !seesSurge) player.botLetGo = false;
-      } else if (player.tension >= ceiling || seesSurge) {
+        if (player.tension <= resume && !surgeTooTight) player.botLetGo = false;
+      } else if (player.tension >= ceiling || surgeTooTight) {
         player.botLetGo = true;
       }
     }
@@ -7312,6 +7384,20 @@ function arcadeBotStep(room, bot) {
       return;
     }
 
+    // Ein Wurf kommt: EINMAL je Wurf entscheiden, ob der Bot ihn bemerkt und
+    // abspringt. Die Flugzeit ist kurz — wer spät hinschaut, wird getroffen.
+    if (player.incomingAt && now < player.incomingAt) {
+      if (player.botDodgeFor !== player.incomingAt) {
+        player.botDodgeFor = player.incomingAt;
+        const spots = profile.level === "hard" ? 0.8 : profile.level === "normal" ? 0.45 : 0.15;
+        player.botDodges = Math.random() < spots;
+      }
+      if (player.botDodges) {
+        handleArcadeInput(room, bot, { action: "jump" });
+        return;
+      }
+    }
+
     // Angreifen, wenn wirklich jemand in Reichweite ist. Blind alle drei
     // Sekunden zu druecken war das Gegenteil von Koennen: der Angriff traf so
     // oder so den Fuehrenden, also griffen alle gleich gut an, und weil das
@@ -7343,20 +7429,52 @@ function arcadeBotStep(room, bot) {
     // Huerden wiegen nur noch leicht, seit man springen kann: sie kosten einen
     // Sprung, nicht den Abschnitt. Sie ganz auszuschliessen hat den Bot von
     // guten Tempobahnen ferngehalten.
+    //
+    // Ein Bahnwechsel kostet nichts und geht sofort. Richtig ist also: in der
+    // besten Bahn des LAUFENDEN Abschnitts bleiben und kurz vor der Grenze in
+    // die beste des nächsten wechseln. Die alte Bewertung (jetzt·Rest + dann)
+    // verliess die Tempobahn schon nach einem Achtel des Abschnitts, um für
+    // den nächsten bereit zu stehen — und verschenkte so genau das, worum es
+    // geht. Wie genau der Bot die Grenze trifft, ist jetzt seine Spielstärke:
+    // der starke wechselt einen Schritt vorher, der schwache erst ein Stück
+    // hinter der Grenze, wenn er die neue Bahn sieht.
     let wanted = player.lane;
+    // Wie weit der Bot bis zu seinem nächsten Blick läuft. Der starke nimmt
+    // den Blick, der der Grenze am nächsten liegt; der mittlere wechselt erst,
+    // wenn er fast dran ist (und liegt damit oft ein Stück zu spät), der
+    // schwache erst, wenn er die neue Bahn unter den Füssen hat.
+    const tickSeconds = clamp((now - (player.botLastStepAt || now - 330)) / 1000, 0.08, 0.6);
+    player.botLastStepAt = now;
     if (player.botRead) {
-      const rest = clamp(((hier.at + RUNNER_SEG_LEN) - player.progress) / RUNNER_SEG_LEN, 0, 1);
-      let best = -Infinity;
-      [0, 1, 2].forEach((lane) => {
-        if (Math.abs(lane - player.lane) > 1) return;
-        const jetzt = RUNNER_SURFACE[hier.lanes[lane]] ?? 1;
-        const dann = RUNNER_SURFACE[naechster.lanes[lane]] ?? 1;
-        let wert = jetzt * rest + dann;
-        if (hier.hurdle === lane && player.progress < hier.hurdleAt) wert -= 0.25;
-        if (naechster.hurdle === lane) wert -= 0.25;
-        wert -= Math.abs(lane - player.lane) * 0.04;
-        if (wert > best) { best = wert; wanted = lane; }
-      });
+      const toNext = hier.at + RUNNER_SEG_LEN - player.progress;
+      const stride = Math.max(0.5, (player.speed || RUNNER_BASE_SPEED) * tickSeconds);
+      const nextBest = [0, 1, 2].reduce((best, lane) =>
+        ((RUNNER_SURFACE[naechster.lanes[lane]] ?? 1) > (RUNNER_SURFACE[naechster.lanes[best]] ?? 1) ? lane : best), player.lane);
+      const lead = profile.level === "hard"
+        ? stride * (Math.abs(nextBest - player.lane) > 1 ? 1.5 : 0.5)
+        : profile.level === "normal" ? 0.6 : -2.2;
+      const sinceStart = player.progress - hier.at;
+      const plan = toNext <= lead ? naechster : hier;
+      const late = lead < 0 && sinceStart < -lead;
+      // Der starke Bot schaut auch nach hinten: sitzt ihm jemand mit einem
+      // geladenen Wurf im Nacken, ist die eigene Bahn etwas weniger wert —
+      // bei gleich guten Bahnen weicht er aus. Genau das zeigt die Warnzeile
+      // dem Spieler.
+      const watched = profile.level === "hard" && player.threatened;
+      const laneValue = (segment, lane) => {
+        let wert = RUNNER_SURFACE[segment.lanes[lane]] ?? 1;
+        // Hürden kosten nur einen Sprung, nicht den Abschnitt.
+        if (segment.hurdle === lane && (segment !== hier || player.progress < hier.hurdleAt)) wert -= 0.12;
+        if (watched && lane === player.lane) wert -= 0.2;
+        return wert - Math.abs(lane - player.lane) * 0.02;
+      };
+      if (!late) {
+        let best = -Infinity;
+        [0, 1, 2].forEach((lane) => {
+          const wert = laneValue(plan, lane);
+          if (wert > best) { best = wert; wanted = lane; }
+        });
+      }
     }
 
     if (wanted !== player.lane) {

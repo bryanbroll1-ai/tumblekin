@@ -149,7 +149,9 @@ export class ColorRush extends MinigameScene {
     const spanZ = ROWS * TILE;
     return {
       look: [0, 0.2, 0.25],
-      frame: { w: spanX + 0.4, h: spanZ * Math.sin(0.86) + 1.1 },
+      // Seitlich etwas Luft: auf der vorderen, grössten Reihe stand eine Figur
+      // auf dem Randfeld sonst mit dem Namensschild fast am Bildrand.
+      frame: { w: spanX + 0.8, h: spanZ * Math.sin(0.86) + 1.1 },
       fill: 0.95,
       pitch: 0.86,
       fov: 36,

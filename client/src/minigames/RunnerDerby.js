@@ -525,9 +525,11 @@ export class RunnerDerby extends MinigameScene {
   bind() {
     this.controls.innerHTML = `
       <div class="runner-lane-controls">
+        <p class="runner-threat" data-runner-threat hidden>⚠ Verfolger dicht hinter dir!</p>
         <p class="runner-swipe-hint" data-swipe-hint>◀ Wischen ▶ · Tippen = Springen · ⬇ Angriff</p>
       </div>`;
     this.swipeHint = this.controls.querySelector("[data-swipe-hint]");
+    this.threatNode = this.controls.querySelector("[data-runner-threat]");
     this.on(this.webglCanvas, "pointerdown", (event) => {
       this.swipe = { x: event.clientX, y: event.clientY, at: performance.now(), moved: false };
     });
@@ -633,7 +635,11 @@ export class RunnerDerby extends MinigameScene {
           const ball = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.3 }));
           ball.position.copy(kin.position).add(new THREE.Vector3(0, 0.6, 0.2));
           this.scene.add(ball);
-          this.throws.push({ mesh: ball, from: ball.position.clone(), at: now });
+          // Der Ball fliegt zu dem, auf den er zielt, und landet genau dann,
+          // wenn der Server den Treffer wertet. Ohne Ziel fliegt er ins Leere.
+          const shot = entry.lastThrow;
+          const dur = shot ? Math.max(200, shot.hitAt - shot.at) : 450;
+          this.throws.push({ mesh: ball, from: ball.position.clone(), at: now, dur, target: shot?.targetId ? this.kins.get(shot.targetId) : null });
           if (isOwn) this.feedback?.sound("whoosh");
         }
       }
@@ -663,7 +669,8 @@ export class RunnerDerby extends MinigameScene {
         animator.set("run");
         animator.rate = 0.55;
         animator.expression("dizzy", 150);
-      } else if (entry.sprintingNow) {
+      } else if (entry.surface === "tempo") {
+        // Auf der Tempobahn sieht man den Schub: tiefer, weiter ausgreifend.
         animator.set("sprint");
         animator.rate = 0.9;
         animator.expression("effort", 150);
@@ -676,13 +683,23 @@ export class RunnerDerby extends MinigameScene {
 
     // Würfe fliegen ein Stück nach vorn und zerplatzen.
     this.throws = this.throws.filter((shot) => {
-      const u = (now - shot.at) / 450;
+      const u = (now - shot.at) / shot.dur;
       if (u >= 1) {
         this.burst(shot.mesh.position.clone(), [shot.mesh.material.color.getStyle(), "#ffffff"], { count: 8, speed: 1.6, up: 1.2, size: 0.06, life: 0.4 });
         this.scene.remove(shot.mesh);
+        shot.mesh.geometry.dispose();
+        shot.mesh.material.dispose();
         return false;
       }
-      shot.mesh.position.copy(shot.from).add(new THREE.Vector3(0, Math.sin(u * Math.PI) * 0.6, u * 5));
+      if (shot.target) {
+        // Auf die Bahn zielen, nicht auf die Figur: wer ausweicht, lässt den
+        // Ball ins Leere fliegen, wer springt, lässt ihn unter sich durch.
+        const to = new THREE.Vector3(shot.from.x, 0.6, shot.target.position.z);
+        shot.mesh.position.lerpVectors(shot.from, to, u);
+        shot.mesh.position.y += Math.sin(u * Math.PI) * 0.6;
+      } else {
+        shot.mesh.position.copy(shot.from).add(new THREE.Vector3(0, Math.sin(u * Math.PI) * 0.6, u * 5));
+      }
       shot.mesh.rotation.x += dt * 12;
       return true;
     });
@@ -702,10 +719,17 @@ export class RunnerDerby extends MinigameScene {
         }
       }
     }
-    const sprintet = Boolean(own?.sprintingNow);
-    if (sprintet !== this.warAmSprinten) {
-      this.warAmSprinten = sprintet;
-      this.feedback?.vibrate(sprintet ? 14 : 8);
+    // Ein Verfolger in der eigenen Bahn: einmal kurz vibrieren, wenn er
+    // auftaucht — die Warnzeile allein übersieht man im Lauf.
+    if ((own?.dodges || 0) > (this.letzteDodges ?? own?.dodges ?? 0) && ownKin) {
+      this.pop(ownKin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "AUSGEWICHEN!", { color: "#8ff5d8", size: 0.36, life: 0.8 });
+      this.feedback?.sound("whoosh");
+    }
+    this.letzteDodges = own?.dodges || 0;
+    const bedroht = (Boolean(own?.threatened) || (own?.incomingAt || 0) > this.now()) && !own?.finishedAt;
+    if (bedroht !== this.warBedroht) {
+      this.warBedroht = bedroht;
+      if (bedroht) this.feedback?.vibrate(12);
     }
 
     this.scenery.forEach((prop) => {
@@ -737,7 +761,8 @@ export class RunnerDerby extends MinigameScene {
     };
     this.courseParts?.forEach((part) => cull(part, -4 * SEGMENT, 24 * SEGMENT));
     this.spectatorParts?.forEach((part) => cull(part, -6 * SEGMENT, 26 * SEGMENT));
-    const streakSpeed = sprintet ? 1.7 : 1;
+    // Die Fahrtstreifen laufen mit dem Belag: auf der Tempobahn schneller.
+    const streakSpeed = own?.surface === "tempo" ? 1.5 : own?.surface === "sand" ? 0.7 : 1;
     this.streaks.forEach((streak) => {
       streak.position.z -= streak.userData.speed * streakSpeed * dt;
       if (streak.position.z < focusZ - 3) {
@@ -759,11 +784,7 @@ export class RunnerDerby extends MinigameScene {
     // Im Finale auf die Ziellinie, nicht zurück zum Start.
     if (f.finale) return { look: [0, 0.9, (this.trackZ || 0) - 1.2], frame: { w: 5, h: 3.4 } };
     if (!this.focus) return {};
-    const sprint = f.arcade?.players?.[f.controlledId]?.sprintingNow;
-    return {
-      look: [this.focus.x * 0.3, 0.7, this.focus.z + 2.4],
-      frame: sprint ? { w: 4.8, h: 3.2 } : undefined
-    };
+    return { look: [this.focus.x * 0.3, 0.7, this.focus.z + 2.4] };
   }
 
   drawHud(f) {
@@ -779,6 +800,13 @@ export class RunnerDerby extends MinigameScene {
         this.letzterHinweis = hinweis;
         this.swipeHint.textContent = hinweis;
       }
+    }
+    if (this.threatNode) {
+      const kommt = (controlled?.incomingAt || 0) > this.now();
+      const zeigen = (kommt || Boolean(controlled?.threatened)) && !controlled?.finishedAt;
+      const text = kommt ? "⚠ WURF KOMMT — SPRING!" : "⚠ Verfolger dicht hinter dir!";
+      if (this.threatNode.textContent !== text) this.threatNode.textContent = text;
+      if (this.threatNode.hidden === zeigen) this.threatNode.hidden = !zeigen;
     }
   }
 }

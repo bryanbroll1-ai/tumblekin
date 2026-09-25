@@ -211,50 +211,35 @@
   backdrop-filter: blur(14px);
 }
 
-/* Der Schwungbalken. Er ist die einzige Anzeige, die man WÄHREND des Laufens
-   wirklich braucht: er sagt, ob der nächste Sprint noch trägt. Deshalb liegt
-   er direkt über der Hinweiszeile und nicht oben bei der Uhr — der Blick ist
-   auf der Strecke, nicht am oberen Rand. */
-.runner-schwung {
-  position: relative;
-  height: 10px;
+/* Zielgerade: Warnung vor einem Verfolger in der eigenen Bahn. Würfe kamen
+   vorher ohne jede Vorwarnung — ausweichen oder abspringen konnte man nur
+   zufällig. Die Zeile steht direkt über dem Hinweis, wo der Blick ohnehin ist. */
+.runner-threat {
+  margin: 0 0 6px;
+  padding: 5px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-}
-
-.runner-schwung > span {
-  display: block;
-  height: 100%;
-  width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #b9a2ff, #7f5bff);
-  box-shadow: 0 0 10px rgba(155, 123, 255, 0.55);
-  transition: width 90ms linear;
-}
-
-.runner-schwung > span.leer {
-  background: linear-gradient(90deg, #6b7280, #4b5563);
-  box-shadow: none;
-}
-
-.runner-swipe-hint.sprintet {
-  color: #b9a2ff;
+  background: #ff5d73;
+  color: #fff;
   font-weight: 900;
-  animation: runner-hint-pop 0.3s ease;
+  font-size: 0.85rem;
+  text-align: center;
+  animation: runner-threat-pulse 0.6s ease-in-out infinite alternate;
 }
 
-@keyframes runner-hint-pop {
-  0% { transform: scale(0.9); }
-  70% { transform: scale(1.06); }
-  100% { transform: scale(1); }
+.runner-threat[hidden] {
+  display: none;
+}
+
+@keyframes runner-threat-pulse {
+  from { transform: scale(0.97); }
+  to { transform: scale(1.03); }
 }
 
 /* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
    dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
    Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
 /* Links und rechts gehoeren NEBENeinander. `.runner-lane-controls` ist ein
-   einspaltiges Raster — richtig fuer die Zielgerade, wo Schwungbalken und
+   einspaltiges Raster — richtig fuer die Zielgerade, wo Warnung und
    Hinweis untereinander stehen, aber bei der Fassrolle standen dadurch ◀ und ▶
    uebereinander. Zwei Richtungstasten in einer Spalte sind kein Detail: die
    Hand greift nach links und trifft "vorwaerts". */

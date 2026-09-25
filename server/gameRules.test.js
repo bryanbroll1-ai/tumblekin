@@ -388,14 +388,25 @@ test("runner course: jede Bahnlage ist fahrbar, Hürden stehen nie im Sand", () 
   });
 });
 
-test("runner: die Tempobahn wandert, sie steht nie zweimal hintereinander gleich", () => {
-  const segments = createRunnerCourse(367).filter((segment) => segment.lanes.includes("tempo"));
-  assert.ok(segments.length > 6);
-  for (let i = 1; i < segments.length; i += 1) {
-    const vorher = segments[i - 1].lanes.indexOf("tempo");
-    const jetzt = segments[i].lanes.indexOf("tempo");
-    assert.notEqual(jetzt, vorher, `Abschnitt ${i}: Tempobahn blieb auf ${jetzt}`);
-  }
+test("runner: die Tempobahn wandert so, dass man ihr folgen kann", () => {
+  // Früher sprang sie in JEDEM Abschnitt woandershin, oft über zwei Bahnen:
+  // alle 0,9 s ein neuer Wisch. Gemessen fuhren alle Bot-Stufen damit einen
+  // Belag von 1.04 — kaum besser als geradeaus. Jetzt bleibt sie auch mal
+  // liegen und wandert nur in die Nachbarbahn.
+  [367, 509, 1203].forEach((seed) => {
+    const segments = createRunnerCourse(seed).filter((segment) => segment.lanes.includes("tempo"));
+    assert.ok(segments.length > 6);
+    let moves = 0;
+    let stays = 0;
+    for (let i = 1; i < segments.length; i += 1) {
+      const vorher = segments[i - 1].lanes.indexOf("tempo");
+      const jetzt = segments[i].lanes.indexOf("tempo");
+      assert.ok(Math.abs(jetzt - vorher) <= 1, `Seed ${seed}, Abschnitt ${i}: Sprung von ${vorher} nach ${jetzt}`);
+      if (jetzt === vorher) stays += 1; else moves += 1;
+    }
+    assert.ok(moves >= 4, `Seed ${seed}: die Tempobahn muss wandern (${moves} Wechsel)`);
+    assert.ok(stays >= 3, `Seed ${seed}: sie muss auch mal liegen bleiben (${stays})`);
+  });
 });
 
 test("runner: Belagfaktor kommt aus dem Abschnitt unter der Figur", () => {
@@ -746,10 +757,18 @@ test("zielgerade: Springen und Angreifen funktionieren", () => {
   laeufer.progress = 10;
   laeufer.lane = 1;
   gegner.lane = 1;
+  laeufer.jumpUntil = 0;
+  // Der Wurf fliegt erst: getroffen wird bei der Landung, im Tick.
+  const landen = () => {
+    if (laeufer.lastThrow) laeufer.lastThrow.hitAt = Date.now() - 1;
+    arcade.lastUpdateAt = Date.now() - 16;
+    testRules.updateArcade(room);
+  };
 
   // Zu weit weg: nichts passiert.
   gegner.progress = 10 + RUNNER_ATTACK_RANGE + 5;
   assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  landen();
   assert.ok(!(gegner.stumbleUntil > Date.now()), "ausser Reichweite trifft nicht");
   // Ein Fehlgriff kostet trotzdem einen Angriff — sonst waere Dauerdruecken
   // gratis, und genau daran ist die Rangfolge vorher gekippt.
@@ -762,25 +781,81 @@ test("zielgerade: Springen und Angreifen funktionieren", () => {
   laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
   gegner.progress = 14;
   gegner.lane = 2;
+  laeufer.lane = 1;
   assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  landen();
   assert.ok(!(gegner.stumbleUntil > Date.now()), "eine andere Bahn trifft nicht");
 
-  // Gleiche Bahn, in Reichweite: trifft.
+  // Gleiche Bahn, in Reichweite: trifft — aber erst bei der Landung.
   laeufer.lastAttackAt = 0;
   laeufer.lastInputAt = 0;
   laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+  laeufer.lane = 1;
+  laeufer.progress = 10;
   gegner.lane = 1;
+  gegner.progress = 14;
   assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "im Flug hat noch niemand getroffen");
+  assert.ok(gegner.incomingAt > Date.now(), "das Ziel sieht den Wurf kommen");
+  landen();
   assert.ok(gegner.stumbleUntil > Date.now(), "gleiche Bahn in Reichweite trifft");
 
   // Wer springt, wird verfehlt.
   gegner.stumbleUntil = 0;
-  gegner.jumpUntil = Date.now() + 500;
   laeufer.lastAttackAt = 0;
   laeufer.lastInputAt = 0;
   laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+  laeufer.lane = 1;
+  laeufer.progress = 10;
+  gegner.lane = 1;
+  gegner.progress = 14;
   assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Sprung weicht dem Angriff aus");
+  gegner.jumpUntil = Date.now() + 500;
+  landen();
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Sprung in der Flugzeit weicht aus");
+
+  // Und wer in der Flugzeit die Bahn wechselt, ebenso.
+  gegner.jumpUntil = 0;
+  laeufer.lastAttackAt = 0;
+  laeufer.lastInputAt = 0;
+  laeufer.attacksLeft = RUNNER_ATTACKS_PER_RACE;
+  laeufer.lane = 1;
+  laeufer.progress = 10;
+  gegner.lane = 1;
+  gegner.progress = 14;
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "attack" }), { ok: true });
+  gegner.lane = 2;
+  landen();
+  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Bahnwechsel in der Flugzeit weicht aus");
+  assert.ok(gegner.dodges >= 2, `Ausweicher gezählt: ${gegner.dodges}`);
+});
+
+test("zielgerade: Springen hat einen Preis", () => {
+  // Ohne Preis war Dauertippen gegen jede Hürde und jeden Wurf gefeit, und das
+  // Lesen der Bahn war wertlos.
+  const runner = player({ id: "rj", name: "RJ", color: "#fff" });
+  const startedAt = Date.now() - 100;
+  const arcade = createArcadeState("finishRush", [runner], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+
+  assert.deepEqual(handleArcadeInput(room, runner, { action: "jump" }), { ok: true });
+  const first = entry.jumpUntil;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, runner, { action: "jump" });
+  assert.equal(entry.jumpUntil, first, "in der Luft springt man nicht noch einmal ab");
+
+  // In der Luft ist man langsamer als am Boden.
+  entry.progress = 1;
+  entry.lane = 1;
+  arcade.lastUpdateAt = Date.now() - 100;
+  testRules.updateArcade(room);
+  const air = entry.speed;
+  entry.jumpUntil = 0;
+  arcade.lastUpdateAt = Date.now() - 100;
+  testRules.updateArcade(room);
+  assert.ok(air < entry.speed, `Luft ${air} gegen Boden ${entry.speed}`);
 });
 
 test("zielgerade: Angriffe sind begrenzt", () => {
