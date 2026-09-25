@@ -133,7 +133,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆➡️ Nach vorne wischen
 
-- **Eisstock:** Wisch nach vorne, um einen Stein zu schieben — je länger der Wisch, desto weiter fliegt er. Drei Steine, aber immer nur einer unterwegs: der nächste geht erst, wenn deiner liegt. Gezählt wird der Abstand zum Knopf, stufenlos — jeder Zentimeter näher ist mehr wert. Steine prallen nicht ab, sie schieben sich: du kannst jemanden vom Knopf drängen, aber niemand wird quer durchs Haus geschossen.
+- **Eisstock:** Wisch nach vorne, um einen Stein zu schieben: die Richtung deines Wischs ist die Richtung auf dem Eis, und je länger der Wisch, desto weiter gleitet er — Pfeil und Balken zeigen es schon beim Ziehen. Drei Steine, aber immer nur einer unterwegs: der nächste geht erst, wenn deiner liegt. Gezählt wird der Abstand zum Knopf, stufenlos — jeder Zentimeter näher ist mehr wert. Steine prallen nicht ab, sie schieben sich: du kannst jemanden vom Knopf drängen, aber niemand wird quer durchs Haus geschossen.
 
 ### 👆🧭 Felder antippen und schliessen
 

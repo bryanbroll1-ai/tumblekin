@@ -1191,7 +1191,13 @@ const CURLING_RINGS = [
 ];
 const CURLING_STONES_PER_PLAYER = 3;
 const CURLING_STONE_RADIUS = 0.032;   // stone radius in the logical sheet
-const CURLING_FRICTION = 1.15;        // ice glide damping -> stones coast, then settle
+// Reibung auf dem Eis: ein fester Anteil (Gleitreibung) und einer, der mit
+// dem Tempo wächst. Vorher bremste der Stein rein exponentiell — er kroch am
+// Ende über drei Sekunden im Schneckentempo und blieb dann ruckartig stehen.
+// Jetzt läuft er in gut zwei Sekunden sauber aus; die Reichweite bei voller
+// Kraft ist fast dieselbe.
+const CURLING_FRICTION = 0.8;         // mit dem Tempo wachsender Anteil (1/s)
+const CURLING_GLIDE_FRICTION = 0.25;  // fester Anteil (Einheiten/s²)
 const CURLING_WALL_REST = 0.55;       // side-cushion bounce ("Rempler erlaubt")
 const CURLING_RESTITUTION = 0;      // Steine schieben sich, sie prallen nicht ab
 const CURLING_BUTTON_FACTOR = 1.6;    // Wert am Knopf, gemessen am inneren Ring
@@ -5836,6 +5842,26 @@ function curlingStonePoints(arcade, distance) {
   return 0;
 }
 
+// Wie weit ein Stein mit Anfangstempo v gleitet: dv/dt = −(μ + k·v) ergibt
+// v/k − μ/k² · ln(1 + k·v/μ).
+function curlingGlideDistance(speed) {
+  const mu = CURLING_GLIDE_FRICTION;
+  const k = CURLING_FRICTION;
+  return speed / k - (mu / (k * k)) * Math.log(1 + (k * speed) / mu);
+}
+
+// Umgekehrt: welches Anfangstempo trägt genau so weit.
+function curlingSpeedFor(distance) {
+  let low = 0;
+  let high = 4;
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (low + high) / 2;
+    if (curlingGlideDistance(mid) < distance) low = mid;
+    else high = mid;
+  }
+  return (low + high) / 2;
+}
+
 function updateCurling(room, minigame, arcade, dt, now) {
   const stoneRadius = CURLING_STONE_RADIUS;
   const sub = CURLING_SUBSTEPS;
@@ -5846,12 +5872,13 @@ function updateCurling(room, minigame, arcade, dt, now) {
     // kisses the boundary and never sinks through it.
     arcade.stones.forEach((stone) => {
       const speed = Math.hypot(stone.vx, stone.vy);
-      if (speed < 0.02) {
+      if (speed < 0.004) {
         stone.vx = 0;
         stone.vy = 0;
         return;
       }
-      const damping = Math.exp(-CURLING_FRICTION * h);
+      const slower = Math.max(0, speed - (CURLING_GLIDE_FRICTION + CURLING_FRICTION * speed) * h);
+      const damping = slower / speed;
       stone.vx *= damping;
       stone.vy *= damping;
       stone.x += stone.vx * h;
@@ -6963,10 +6990,9 @@ function arcadeBotStep(room, bot) {
     const aimErr = profile.level === "hard" ? 0.035 : profile.level === "normal" ? 0.09 : 0.19;
     const powerErr = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.12 : 0.24;
 
-    // Die Kraft, die den Stein genau ins Haus trägt, aus der Reibung gerechnet:
-    // Weg = v/Reibung · (1 − e^(−Reibung·t)), im Grenzfall also v/Reibung.
+    // Die Kraft, die den Stein genau ins Haus trägt, aus der Reibung gerechnet.
     const distance = Math.max(0.05, (arcade.sheetY - 0.14) - arcade.house.y);
-    const wantedSpeed = distance * CURLING_FRICTION;
+    const wantedSpeed = curlingSpeedFor(distance);
     const power = clamp((wantedSpeed / 1.7) * (1 + (Math.random() - 0.5) * 2 * powerErr), 0.25, 1);
 
     // Kein Rempeln mehr. Der starke Bot zielte früher auf einen fremden Stein,

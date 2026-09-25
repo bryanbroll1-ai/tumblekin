@@ -12,6 +12,21 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // liegen bleibt — oder zucken mit den Schultern.
 const SHEET_W = 4.2;
 const SHEET_LEN = 9.5;
+// Wurf: Richtung = wohin der Finger auf dem EIS zeigt (Strahl vom Bildschirm
+// auf die Eisfläche), Kraft = Länge des Wischs. Vorher wurde die Seite durch
+// die Bildbreite und die Länge durch die Bildhöhe geteilt — je nach Gerät
+// ging ein schräger Wisch ganz anders schräg als der Finger, und ein Wisch
+// nach hinten warf trotzdem.
+const FULL_SWIPE = 0.42;        // so viel Bildhöhe ist volle Kraft
+const MIN_SWIPE = 0.045;        // darunter ist es ein Tippen, kein Wurf
+const MAX_ANGLE = 0.9;          // weiter als ~50° zur Seite wird nicht geworfen
+// Wie der Server Eingaben in Tempo übersetzt (vx = dx·1.35, vy = dy·1.7) und
+// wie das Blatt ins Bild gelegt ist — daraus die Richtung in Eingabewerten.
+const GAIN_X = 1.35 * SHEET_W;
+const GAIN_Z = 1.7;
+const _ray = new THREE.Raycaster();
+const _ice = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.06);
+const _ndc = new THREE.Vector2();
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -162,7 +177,10 @@ export class IceStock extends MinigameScene {
     return {
       look: [0, 0.2, this.worldZ(sheetY * 0.52, sheetY)],
       frame: { w: SHEET_W + 0.4, h: 4.6 },
-      yaw: 0.16,
+      // Gerade von hinten: schräg gesehen zeigte "senkrecht nach oben
+      // wischen" auf dem Eis leicht zur Seite, und die Bahn lief im Bild
+      // schief nach rechts oben.
+      yaw: 0,
       pitch: 0.5,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.25, zoom: 1.3 }
@@ -170,7 +188,7 @@ export class IceStock extends MinigameScene {
   }
 
   bind() {
-    this.controls.innerHTML = `<p class="trace-hint">Nach vorne wischen — länger heisst weiter</p>`;
+    this.controls.innerHTML = `<p class="trace-hint">Nach vorne wischen — die Richtung zielt, die Länge gibt Kraft</p>`;
     this.controls.style.pointerEvents = "none";
     this.bindDrag();
   }
@@ -178,6 +196,41 @@ export class IceStock extends MinigameScene {
   unbind() {
     this.controls.style.pointerEvents = "";
     this.stoneMeshes.clear();
+  }
+
+  // Wo ein Bildschirmpunkt auf dem Eis liegt.
+  icePoint(clientX, clientY, out = new THREE.Vector3()) {
+    const rect = this.webglCanvas.getBoundingClientRect();
+    _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    _ray.setFromCamera(_ndc, this.camera);
+    return _ray.ray.intersectPlane(_ice, out);
+  }
+
+  // Der Wurf, den der Wisch gerade ergäbe: Kraft 0..1, Winkel zur
+  // Vorwärtsrichtung, und ob er überhaupt zählt.
+  aimFrom(drag) {
+    if (!drag || drag.cx === undefined) return null;
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const len = Math.hypot(drag.cx - drag.x, drag.cy - drag.y) / Math.max(1, rect.height);
+    const power = Math.min(1, len / FULL_SWIPE);
+    const a = this.icePoint(drag.x, drag.y);
+    const b = this.icePoint(drag.cx, drag.cy);
+    let angle = 0;
+    let forward = drag.cy < drag.y;
+    if (a && b) {
+      const wx = b.x - a.x;
+      const wz = b.z - a.z;
+      forward = wz < -0.02;
+      angle = Math.atan2(wx, -wz);
+    }
+    const valid = len >= MIN_SWIPE && forward && Math.abs(angle) <= MAX_ANGLE;
+    return { power, angle: clamp(angle, -MAX_ANGLE, MAX_ANGLE), valid, len, forward };
+  }
+
+  ownStoneMoving() {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const id = this.getControlledPlayerId();
+    return (arcade?.stones || []).some((stone) => stone.playerId === id && (stone.vx !== 0 || stone.vy !== 0));
   }
 
   bindDrag() {
@@ -189,29 +242,36 @@ export class IceStock extends MinigameScene {
       if (!this.drag) return;
       this.drag.cx = event.clientX;
       this.drag.cy = event.clientY;
-      // Die Kraft steht schon WÄHREND des Ziehens da. Ohne sie wirft man blind
-      // und lernt aus einem misslungenen Stein nichts — man weiss ja nicht, ob
-      // er zu kurz war oder man zu zaghaft gewischt hat.
-      this.showPower(event);
+      // Kraft und Richtung stehen schon WÄHREND des Ziehens da: der Balken
+      // zeigt die Kraft, der Pfeil auf dem Eis die Richtung.
+      this.showPower(this.aimFrom(this.drag));
     };
     this.onUp = (event) => {
       if (!this.drag) return;
-      const rect = this.webglCanvas.getBoundingClientRect();
-      const dx = (event.clientX - this.drag.x) / Math.max(1, rect.width);
-      // Nach OBEN wischen heisst nach vorne schieben — deshalb das Vorzeichen.
-      // Die Höhe des Bildes ist der Massstab, nicht die Breite: der Wisch geht
-      // im Wesentlichen längs.
-      const dy = (event.clientY - this.drag.y) / Math.max(1, rect.height);
+      this.drag.cx = event.clientX;
+      this.drag.cy = event.clientY;
+      const aim = this.aimFrom(this.drag);
       this.drag = null;
       this.hidePower();
-      const power = Math.hypot(dx, dy);
-      if (power < 0.05) return;
-      // Kraft aus der Wischlänge, gedeckelt. 55 % der Bildhöhe sind volle Kraft
-      // — mehr schafft ein Daumen in einer Bewegung ohnehin nicht.
-      const scale = Math.min(1, power / 0.55) / Math.max(1e-6, power);
+      if (!aim || aim.len < MIN_SWIPE) return;
+      const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
+      if ((own?.stonesLeft ?? 0) <= 0) return;
+      if (!aim.forward || Math.abs(aim.angle) >= MAX_ANGLE) {
+        this.hint("Nach VORNE wischen!");
+        return;
+      }
+      if (this.ownStoneMoving()) {
+        this.hint("Erst liegen lassen …");
+        return;
+      }
+      // Eingabewerte so wählen, dass der Stein genau in die gewischte Richtung
+      // läuft: vorwärts die Kraft, seitlich im Verhältnis der Server-Faktoren.
+      const dy = -aim.power * Math.cos(aim.angle);
+      const dx = aim.power * Math.sin(aim.angle) * (GAIN_Z * (SHEET_LEN / ((this.update || this.minigame)?.arcade?.sheetY || 1.3))) / GAIN_X;
       this.feedback?.sound("whoosh");
-      this.feedback?.vibrate(12);
-      this.sendInput({ action: "flick", dx: clamp(dx * scale * 2.2, -1, 1), dy: clamp(dy * scale * 2.2, -1, 0.1) }).catch(() => {});
+      this.feedback?.vibrate([10, 20, 14]);
+      this.releaseFlash(aim);
+      this.sendInput({ action: "flick", dx: clamp(dx, -1, 1), dy: clamp(dy, -1, -0.02) }).catch(() => {});
     };
     this.onCancel = () => { this.drag = null; this.hidePower(); };
 
@@ -248,23 +308,86 @@ export class IceStock extends MinigameScene {
 
   // Wie stark der Wurf gerade würde — dieselbe Rechnung wie beim Loslassen,
   // damit die Anzeige nicht etwas anderes verspricht als der Stein tut.
-  showPower(event) {
+  showPower(aim) {
     const bar = this.hud?.querySelector("[data-stock-power]");
-    if (!bar || !this.drag) return;
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const dx = (event.clientX - this.drag.x) / Math.max(1, rect.width);
-    const dy = (event.clientY - this.drag.y) / Math.max(1, rect.height);
-    const anteil = Math.min(1, Math.hypot(dx, dy) / 0.55);
+    if (!bar || !aim) return;
+    const anteil = aim.power;
     bar.hidden = false;
+    bar.classList.toggle("is-invalid", !aim.valid && aim.len >= MIN_SWIPE);
     const fill = bar.querySelector("[data-stock-power-fill]");
     const text = bar.querySelector("[data-stock-power-text]");
     if (fill) fill.style.width = `${Math.round(anteil * 100)}%`;
-    if (text) text.textContent = `${Math.round(anteil * 100)}%`;
+    if (text) text.textContent = aim.valid || aim.len < MIN_SWIPE ? `${Math.round(anteil * 100)}%` : "nach vorne!";
+    this.updateArrow(aim);
   }
 
   hidePower() {
     const bar = this.hud?.querySelector("[data-stock-power]");
     if (bar) bar.hidden = true;
+    if (this.arrow) this.arrow.visible = false;
+  }
+
+  // Zielpfeil auf dem Eis, vom eigenen Abwurfpunkt aus: Richtung wie der
+  // Wisch, Länge wie die Kraft, grün → gelb → rot.
+  ensureArrow() {
+    if (this.arrow) return this.arrow;
+    const group = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: "#7fe0a8", transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false });
+    const shaft = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1), mat);
+    shaft.rotation.x = -Math.PI / 2;
+    shaft.position.z = -0.5;
+    group.add(shaft);
+    const headShape = new THREE.Shape();
+    headShape.moveTo(-0.22, 0);
+    headShape.lineTo(0.22, 0);
+    headShape.lineTo(0, -0.34);
+    headShape.closePath();
+    const head = new THREE.Mesh(new THREE.ShapeGeometry(headShape), mat);
+    head.rotation.x = -Math.PI / 2;
+    group.add(head);
+    group.userData = { shaft, head, mat };
+    group.visible = false;
+    group.renderOrder = 3;
+    this.scene.add(group);
+    this.arrow = group;
+    return group;
+  }
+
+  updateArrow(aim) {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const own = arcade?.players?.[this.getControlledPlayerId()];
+    if (!aim || !arcade || !own || aim.len < MIN_SWIPE || !aim.forward) {
+      if (this.arrow) this.arrow.visible = false;
+      return;
+    }
+    const arrow = this.ensureArrow();
+    const sheetY = arcade.sheetY || 1.3;
+    const length = 0.4 + aim.power * 3.2;
+    arrow.visible = true;
+    arrow.position.set(this.worldX(own.startX ?? 0.5), 0.075, this.worldZ(sheetY - 0.14, sheetY));
+    arrow.rotation.y = -aim.angle;
+    const { shaft, head, mat } = arrow.userData;
+    shaft.scale.y = length;
+    shaft.position.z = -length / 2;
+    head.position.z = -length;
+    mat.color.set(!aim.valid ? "#8fa4b4" : aim.power > 0.85 ? "#ff6b7f" : aim.power > 0.55 ? "#ffd15c" : "#7fe0a8");
+  }
+
+  releaseFlash(aim) {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const own = arcade?.players?.[this.getControlledPlayerId()];
+    if (!arcade || !own) return;
+    const sheetY = arcade.sheetY || 1.3;
+    const at = new THREE.Vector3(this.worldX(own.startX ?? 0.5), 0.3, this.worldZ(sheetY - 0.14, sheetY));
+    this.burst(at, ["#ffffff", "#bfe6f7"], { count: 10, speed: 1.4, up: 0.8, size: 0.05, life: 0.45, drag: 2 });
+    this.pop(at.clone().add(new THREE.Vector3(0, 0.5, 0)), `${Math.round(aim.power * 100)} %`, { color: aim.power > 0.85 ? "#ff9aa8" : "#ffffff", size: 0.3, life: 0.7, rise: 0.5 });
+  }
+
+  hint(text) {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const sheetY = arcade?.sheetY || 1.3;
+    this.pop(new THREE.Vector3(0, 0.9, this.worldZ(sheetY - 0.3, sheetY)), text, { color: "#ffe36b", size: 0.3, life: 0.9 });
+    this.feedback?.sound("clack");
   }
 
   tick(f) {
@@ -359,10 +482,7 @@ export class IceStock extends MinigameScene {
         animator.trigger(d < outer ? "fistpump" : "headshake");
         animator.expression(d < outer ? "joy" : "sad", 900);
       } else if (player.id === controlledId && this.drag) {
-        const rect = this.webglCanvas.getBoundingClientRect();
-        const dx = ((this.drag.cx ?? this.drag.x) - this.drag.x) / Math.max(1, rect.width);
-        const dy = ((this.drag.cy ?? this.drag.y) - this.drag.y) / Math.max(1, rect.height);
-        animator.set("charge", { params: { power: Math.min(1, Math.hypot(dx, dy) / 0.55) } });
+        animator.set("charge", { params: { power: this.aimFrom(this.drag)?.power || 0 } });
       } else {
         animator.set(left > 0 ? "ready" : "idle");
       }

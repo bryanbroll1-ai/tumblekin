@@ -1841,6 +1841,16 @@
 
 .stock-power[hidden] { display: none; }
 
+/* Wisch nach hinten oder zu weit zur Seite: grau, mit Hinweis statt Zahl. */
+.stock-power.is-invalid span {
+  background: #8fa4b4;
+}
+
+.stock-power.is-invalid b {
+  min-width: 6em;
+  color: #ffe36b;
+}
+
 /* --- Blob-Klopfe: benommen nach einem Stachelblob --------------------------- */
 .whack-stun {
   background: #ff5c6e;
