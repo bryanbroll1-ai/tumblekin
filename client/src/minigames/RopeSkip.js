@@ -13,12 +13,23 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // erschrecken kurz bevor es kommt, und wer stolpert, setzt sich an den Rand.
 const PIT_TOP = 0.07;
 const KIN_Y = standOn(PIT_TOP);
-// So weit schwingt die Seilmitte um die Achse zwischen den Händen: oben über
-// die Köpfe, unten schleift es über den Sand.
-const ROPE_SWING = 0.82;
-const SPOTS = [-1.45, -0.48, 0.48, 1.45];
-const TURNER_X = 2.45;
-const JUMP_HEIGHT = 1.2;
+// So weit schwingt das Seil um die Achse zwischen den Händen: oben über die
+// Köpfe, unten schleift es über den Sand.
+//
+// Vorher 0.82 mit einem Bogen sin(πt), der zu den Enden hin schnell flach
+// wurde: an den äusseren Springern schwang das Seil nur noch mit ~0.48 und
+// ging oben auf gut einem Meter genau durch die Köpfe. Jetzt ein breiter
+// Bogen (Wurzel des Sinus), der über fast die ganze Länge voll ausschwingt.
+const ROPE_SWING = 1.12;
+const ROPE_PROFILE = 0.5;
+const SPOTS = [-1.35, -0.45, 0.45, 1.35];
+const TURNER_X = 2.6;
+const JUMP_HEIGHT = 1.15;
+const GHOSTS = [0.22, 0.44];    // Nachzieh-Schatten, so weit hinter dem Seil (rad)
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
 
 export class RopeSkip extends MinigameScene {
   constructor(ctx) {
@@ -65,12 +76,31 @@ export class RopeSkip extends MinigameScene {
     this.rope = new THREE.Group();
     this.ropeSegments = [];
     for (let i = 0; i <= 30; i += 1) {
-      const seg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.07, 0.07), new THREE.MeshLambertMaterial({ color: i % 5 === 0 ? "#ffffff" : "#e0334f" }));
+      const seg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.09, 0.09), new THREE.MeshLambertMaterial({ color: i % 5 === 0 ? "#ffffff" : "#e0334f", emissive: "#e0334f", emissiveIntensity: 0.15 }));
       this.rope.add(seg);
       this.ropeSegments.push(seg);
     }
-    this.rope.position.y = PIT_TOP + 0.62;
     scene.add(this.rope);
+    // Nachzieh-Schatten: zeigen Bogen und Drehrichtung auf einen Blick.
+    this.ghosts = GHOSTS.map((lag, g) => {
+      const material = new THREE.MeshBasicMaterial({ color: "#ff8a9c", transparent: true, opacity: g === 0 ? 0.32 : 0.14, depthWrite: false });
+      const segments = [];
+      for (let i = 0; i <= 30; i += 1) {
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.07, 0.07), material);
+        scene.add(seg);
+        segments.push(seg);
+      }
+      return { lag, segments };
+    });
+    // Der Schatten des Seils auf dem Sand: er wandert auf die Füsse zu und
+    // wird dunkler, je tiefer das Seil kommt — JETZT springen.
+    this.ropeShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(TURNER_X * 2 - 0.6, 0.16),
+      new THREE.MeshBasicMaterial({ color: "#7a3a1a", transparent: true, opacity: 0.2, depthWrite: false })
+    );
+    this.ropeShadow.rotation.x = -Math.PI / 2;
+    this.ropeShadow.position.y = PIT_TOP + 0.005;
+    scene.add(this.ropeShadow);
 
     [[-6, 5.2, -4, 5], [6, 6, -3, 6]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
@@ -87,13 +117,16 @@ export class RopeSkip extends MinigameScene {
   }
 
   shot() {
+    // Schräg von der Seite: so sieht man den Seilbogen als Bogen — wie er
+    // oben über die Köpfe und vorn auf die Füsse zu kommt. Frontal war er eine
+    // Linie, die auf- und abwippte, und die Szene hing klein oben im Bild.
     return {
-      look: [0, 0.85, 0],
-      frame: { w: 4.9, h: 2.8 },
-      yaw: 0.5,
-      pitch: 0.2,
-      fov: 36,
-      intro: { yaw: 0.4, pitch: 0.2, zoom: 1.35 }
+      look: [0, 0.75, 0.1],
+      frame: { w: 4.3, h: 3.0 },
+      yaw: 0.85,
+      pitch: 0.24,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }
     };
   }
 
@@ -131,10 +164,11 @@ export class RopeSkip extends MinigameScene {
       if (elapsed < wave.hitAt) {
         const span = wave.hitAt - previous;
         const t = span > 0 ? (elapsed - previous) / span : 0;
-        // Reverse the swing direction on every third pass.
-        const dir = Math.floor(i / 3) % 2 === 0 ? 1 : -1;
-        this.ropeReversed = dir < 0;
-        return t * Math.PI * 2 * dir;
+        // Immer dieselbe Richtung: oben über die Köpfe, VORN herunter auf die
+        // Füsse zu, hinten wieder hoch. Früher kehrte es alle drei Durchgänge
+        // um und kam dann von hinten — genau da, wo weder Figur noch Spieler
+        // hinschauen.
+        return t * Math.PI * 2;
       }
       previous = wave.hitAt;
     }
@@ -165,23 +199,40 @@ export class RopeSkip extends MinigameScene {
     const [endL, endR] = ends;
     const axisY = (endL.y + endR.y) / 2;
     const swingRadius = ROPE_SWING;
-    this.ropeSegments.forEach((seg, i) => {
-      const t = i / (this.ropeSegments.length - 1);
-      const sag = Math.sin(t * Math.PI);
-      const x = THREE.MathUtils.lerp(endL.x, endR.x, t);
-      let y = THREE.MathUtils.lerp(endL.y, endR.y, t) - swing * sag * swingRadius;
-      const z = THREE.MathUtils.lerp(endL.z, endR.z, t) + depth * sag * swingRadius;
-      // Unten schleift es über den Boden, statt hindurchzugehen.
-      if (y < groundClear) y = groundClear;
-      seg.position.set(x, y - this.rope.position.y, z);
-      seg.rotation.x = Math.atan2(depth, -swing);
-    });
+    const place = (segments, a) => {
+      const sw = Math.cos(a);
+      const dp = -Math.sin(a);   // vorn (zur Kamera) herunter
+      segments.forEach((seg, i) => {
+        const t = i / (segments.length - 1);
+        const sag = Math.pow(Math.sin(t * Math.PI), ROPE_PROFILE);
+        const x = THREE.MathUtils.lerp(endL.x, endR.x, t);
+        let y = THREE.MathUtils.lerp(endL.y, endR.y, t) - sw * sag * swingRadius;
+        const z = THREE.MathUtils.lerp(endL.z, endR.z, t) + dp * sag * swingRadius;
+        // Unten schleift es über den Boden, statt hindurchzugehen.
+        if (y < groundClear) y = groundClear;
+        seg.position.set(x, y, z);
+        seg.rotation.x = Math.atan2(dp, -sw);
+      });
+    };
+    place(this.ropeSegments, angle);
+    this.ghosts.forEach((ghost) => place(ghost.segments, angle - ghost.lag));
+    // Schatten: liegt unter dem Seil, dunkler, je tiefer es hängt.
+    const low = clamp01((swing + 0.2) / 1.2);
+    this.ropeShadow.position.z = -depth * swingRadius;
+    this.ropeShadow.material.opacity = 0.08 + low * low * 0.45;
+    // Rhythmus: Wusch oben, Klack am Boden — man hört den Takt mit.
+    const phase = (angle % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    if (this.lastPhase !== undefined) {
+      if (this.lastPhase < Math.PI && phase >= Math.PI) this.feedback?.sound("swish");
+      if (this.lastPhase > phase + 1) this.feedback?.sound("clack");
+    }
+    this.lastPhase = phase;
     let nextHitIn = null;
     (arcade.waves || []).forEach((wave) => {
       const untilHit = wave.hitAt - elapsed;
       if (untilHit > 0 && (nextHitIn === null || untilHit < nextHitIn)) nextHitIn = untilHit;
     });
-    const ropeMid = new THREE.Vector3(0, Math.max(groundClear, axisY - swing * swingRadius), depth * swingRadius);
+    const ropeMid = new THREE.Vector3(0, Math.max(groundClear, axisY - swing * swingRadius), -depth * swingRadius);
 
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];

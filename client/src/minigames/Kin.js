@@ -1141,9 +1141,11 @@ const STATES = {
   crank: {
     blend: 0.1,
     pose(p, t, a) {
+      // w = 0: das Seil ist unten — dann sind auch die Hände unten. Vorher
+      // umgekehrt, und das Seil lief an den Enden gegen die Mitte.
       const w = a.params.angle ?? a.now * 6;
-      p.aLs = 0.9 + Math.cos(w) * 0.55;
-      p.aRs = 0.9 + Math.cos(w) * 0.55;
+      p.aLs = 0.9 - Math.cos(w) * 0.55;
+      p.aRs = 0.9 - Math.cos(w) * 0.55;
       p.aLr = 0.25 + Math.sin(w) * 0.25;
       p.aRr = 0.25 - Math.sin(w) * 0.25;
       p.lean = 0.06;
