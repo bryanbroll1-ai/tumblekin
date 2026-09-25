@@ -33,6 +33,35 @@ const PODIUM = [
   { place: 2, x: -1.02, h: 0.46, color: "#dfe7ef" },
   { place: 3, x: 1.02, h: 0.28, color: "#e7a86a" }
 ];
+// Breite einer Stufe und Abstand der Figuren darauf. Teilen sich mehrere einen
+// Platz, wird die Stufe breiter und die Nachbarstufen rücken zur Seite — vorher
+// standen zwei Figuren nur ±0.22 auseinander auf einem 0.9 breiten Block und
+// steckten ineinander, eine dritte fiel ganz vom Podest.
+const STEP_W = 0.9;
+const STEP_SLOT = 0.66;
+const STEP_GAP = 0.12;
+const STEP_DEPTH = 0.8;
+const STEP_Z = -0.25;
+
+function stepWidth(count) {
+  return Math.max(STEP_W, count * STEP_SLOT + 0.24);
+}
+
+// Wo die drei Stufen stehen, wenn auf ihnen `counts[place]` Figuren stehen.
+function podiumLayout(counts = {}) {
+  const w1 = stepWidth(counts[1] || 1);
+  const w2 = stepWidth(counts[2] || 1);
+  const w3 = stepWidth(counts[3] || 1);
+  const x2 = -(w1 / 2 + STEP_GAP + w2 / 2);
+  const x3 = w1 / 2 + STEP_GAP + w3 / 2;
+  return {
+    1: { x: 0, w: w1 },
+    2: { x: x2, w: w2 },
+    3: { x: x3, w: w3 },
+    left: x2 - w2 / 2,
+    right: x3 + w3 / 2
+  };
+}
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
 // Aufstellung für n Figuren: versetzt in zwei Reihen statt in einer langen
@@ -254,21 +283,26 @@ export class MenuStage {
   buildPodium() {
     this.podium = PODIUM.map((spec) => {
       const group = new THREE.Group();
+      // Einheitswürfel: Breite und Höhe kommen aus der Skalierung der Gruppe.
       const block = new THREE.Mesh(
-        new THREE.BoxGeometry(0.9, 1, 0.8),
+        new THREE.BoxGeometry(1, 1, STEP_DEPTH),
         new THREE.MeshLambertMaterial({ color: spec.color })
       );
       block.position.y = 0.5;
       block.castShadow = true;
       block.receiveShadow = true;
       group.add(block);
-      const label = makeNumberSprite(String(spec.place));
-      label.position.set(0, 0.5, 0.41);
-      group.add(label);
-      group.position.set(spec.x, GROUND, -0.25);
-      group.scale.y = 0.001;
+      group.position.set(spec.x, GROUND, STEP_Z);
+      group.scale.set(STEP_W, 0.001, 1);
       group.visible = false;
-      group.userData = { spec, block, label, height: 0 };
+      // Die Zahl klebt als flache Tafel auf der Vorderseite, nicht als
+      // Billboard: das kippte mit dem Blickwinkel halb in den Block, und auf
+      // der niedrigen Bronzestufe ragte es oben und unten heraus. Sie hängt
+      // direkt in der Szene, damit die Skalierung der Stufe sie nicht verzerrt.
+      const label = makeNumberPlate(String(spec.place));
+      label.visible = false;
+      this.scene.add(label);
+      group.userData = { spec, block, label, height: 0, x: spec.x, width: STEP_W, targetX: spec.x, targetW: STEP_W };
       this.scene.add(group);
       return group;
     });
@@ -430,6 +464,10 @@ export class MenuStage {
       if (!groups.has(row.place)) groups.set(row.place, []);
       groups.get(row.place).push(row.playerId);
     });
+    const counts = {};
+    groups.forEach((ids, place) => { counts[place] = ids.length; });
+    const layout = podiumLayout(counts);
+    this.layoutPodium(layout);
     const floor = [];
     groups.forEach((ids, place) => {
       const step = PODIUM.find((spec) => spec.place === place);
@@ -439,9 +477,11 @@ export class MenuStage {
         entry.label.visible = true;
         entry.opacity = 1;
         entry.mood = finalePose(place, total).state;
-        if (step && i < 2) {
-          const offset = ids.length > 1 ? (i === 0 ? -0.22 : 0.22) : 0;
-          entry.target.set(step.x + offset, 0, -0.25);
+        if (step) {
+          // Alle, die sich den Platz teilen, stehen nebeneinander auf DERSELBEN
+          // Stufe — mit festem Abstand, die Stufe ist entsprechend breiter.
+          const offset = (i - (ids.length - 1) / 2) * STEP_SLOT;
+          entry.target.set(layout[place].x + offset, 0, STEP_Z);
           entry.standY = GROUND + step.h;
         } else {
           floor.push(entry);
@@ -449,15 +489,26 @@ export class MenuStage {
         this.arrive(entry, (total - place) * 0.18);
       });
     });
-    // Wer nicht aufs Podest passt, steht vorn am Rand — nicht weit daneben,
-    // sonst müsste die Kamera für einen einzigen Platz zurückweichen.
+    // Wer nicht aufs Podest passt, steht vorn neben den Stufen — nicht weit
+    // daneben, sonst müsste die Kamera für einen einzigen Platz zurückweichen.
     floor.forEach((entry, i) => {
-      entry.target.set(1.5 - i * 3.0, 0, 0.5);
+      const x = i % 2 === 0 ? layout.right + 0.1 + Math.floor(i / 2) * 0.66 : layout.left - 0.1 - Math.floor(i / 2) * 0.66;
+      entry.target.set(x, 0, 0.55);
       entry.standY = GROUND;
     });
     this.setPodium(1);
     if (final) this.confetti = 6;
-    this.setShot({ look: [0, 0.75, 0.05], w: 3.4, h: 2.0, pitch: 0.18, orbit: final ? 0.16 : 0.04 });
+    const span = Math.max(Math.abs(layout.left), Math.abs(layout.right)) * 2 + (floor.length ? 1.0 : 0.3);
+    this.setShot({ look: [0, 0.75, 0.05], w: Math.max(3.4, span), h: 2.0, pitch: 0.18, orbit: final ? 0.16 : 0.04 });
+  }
+
+  // Stufen an ihre Plätze schieben (weich, in draw()).
+  layoutPodium(layout) {
+    this.podium.forEach((group) => {
+      const place = group.userData.spec.place;
+      group.userData.targetX = layout[place].x;
+      group.userData.targetW = layout[place].w;
+    });
   }
 
   // Eine Figur kurz reagieren lassen (Tippen auf sich selbst in der Lobby,
@@ -512,18 +563,27 @@ export class MenuStage {
     const { width, height } = this.resize();
     const t = now / 1000;
 
-    // Podest wächst aus dem Boden oder versinkt.
-    this.podium.forEach((group, i) => {
-      const spec = group.userData.spec;
+    // Podest wächst aus dem Boden oder versinkt — und wird breiter, wenn sich
+    // mehrere einen Platz teilen.
+    this.podium.forEach((group) => {
+      const data = group.userData;
+      const spec = data.spec;
       const target = this.podiumTarget ? spec.h : 0;
-      const h = group.userData.height + (target - group.userData.height) * frameLerp(0.12, dt);
-      group.userData.height = h;
+      const h = data.height + (target - data.height) * frameLerp(0.12, dt);
+      data.height = h;
+      // Versunkene Stufen gehen auf ihre Grundform zurück.
+      const wantX = this.podiumTarget ? data.targetX : spec.x;
+      const wantW = this.podiumTarget ? data.targetW : STEP_W;
+      data.x += (wantX - data.x) * frameLerp(0.18, dt);
+      data.width += (wantW - data.width) * frameLerp(0.18, dt);
       group.visible = h > 0.01;
-      group.scale.y = Math.max(0.001, h);
-      group.userData.label.scale.set(0.34, 0.34 / Math.max(0.001, h), 1);
-      group.userData.label.position.y = 0.55;
-      group.userData.label.visible = h > 0.2;
-      void i;
+      group.position.x = data.x;
+      group.scale.set(data.width, Math.max(0.001, h), 1);
+      // Die Zahl: mittig auf der Vorderseite, nie grösser als die Stufe hoch ist.
+      const size = Math.min(0.34, h * 0.78);
+      data.label.visible = h > 0.12;
+      data.label.scale.set(size, size, 1);
+      data.label.position.set(data.x, GROUND + h / 2, STEP_Z + STEP_DEPTH / 2 + 0.004);
     });
 
     // Figuren: laufen zu ihrem Platz, springen aufs Podest, reagieren.
@@ -676,12 +736,13 @@ export class MenuStage {
   }
 }
 
-function makeNumberSprite(text) {
+// Die Platzzahl als flache Tafel für die Vorderseite einer Stufe.
+function makeNumberPlate(text) {
   const canvas = document.createElement("canvas");
   canvas.width = 128;
   canvas.height = 128;
   const ctx = canvas.getContext("2d");
-  ctx.font = "900 96px ui-rounded, system-ui, sans-serif";
+  ctx.font = "900 104px ui-rounded, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.lineWidth = 12;
@@ -691,9 +752,10 @@ function makeNumberSprite(text) {
   ctx.fillText(text, 64, 66);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
-  sprite.scale.set(0.34, 0.34, 1);
-  return sprite;
+  return new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false })
+  );
 }
 
 function shortName(name) {
