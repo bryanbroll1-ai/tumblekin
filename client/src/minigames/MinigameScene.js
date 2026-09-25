@@ -166,7 +166,9 @@ export class MinigameScene {
     const own = this.kins.get(f.controlledId) || null;
     // Im Finale fährt die Kamera auf den Sieger zu. Hielte sie dabei weiter
     // alle im Bild, höbe die Sicherung das Heranfahren wieder auf.
-    const winner = finaleWinner(minigame, this.kins);
+    // Spiele, deren Figuren weit auseinander liegen (Bergsteiger), bleiben
+    // mit `finaleFocus = false` bei der eigenen Figur.
+    const winner = this.finaleFocus === false ? null : finaleWinner(minigame, this.kins);
     this.rig.update(dt, now, {
       minigame,
       keep: winner ? [winner] : (this.keepInView?.(f) ?? [...this.kins.values()]),

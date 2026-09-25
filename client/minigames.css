@@ -1288,12 +1288,16 @@
 /* --- Falschsignal: Legende der echten Anzeige --------------------------- */
 /* Die Regel muss WÄHREND des Spiels lesbar bleiben, nicht nur in der Intro-
    Karte — sonst rät man beim ersten Signal und ist sofort im Minus. */
+/* Neben der Zeitanzeige, wie die Risikoanzeige in Tiefenrausch — oben links
+   im Fluss lag sie genau über der Zeit. */
 .signal-legend {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
   display: flex;
   align-items: center;
   gap: 8px;
-  align-self: center;
-  max-width: 84%;
+  max-width: calc(100% - 196px);
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);

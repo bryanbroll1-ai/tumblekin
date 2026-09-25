@@ -1,37 +1,19 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  applyFinaleMood,
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn,
-  setKinOpacity
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Farbflucht — a blocky "stand on the called colour" party round.
-// Each round a colour is announced; when the floor drops, every tile of a
-// different colour falls into the void along with anyone still on it.
-const TILE = 1.06;
+// Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
+// Wischen hüpft man Feld für Feld.
+//
+// Vorher standen die Figuren reglos auf zu grossen Feldern und rutschten
+// von Feld zu Feld. Jetzt hüpft man, schaut in Sprungrichtung, zappelt
+// ängstlich, solange man auf der falschen Farbe steht, jubelt, wenn man
+// sicher ist, und wer fällt, rudert mit den Armen in die Tiefe.
+const TILE = 0.76;
 const GRID = 6;
-// HÖHE einer Kachel, nicht ihre Oberkante — die liegt bei TILE_H / 2, weil
-// die Kacheln um y=0 zentriert sind. Der alte Name TILE_TOP las sich wie die
-// Oberkante und stellte die Figuren einen viertel Meter über die Kachel.
-const TILE_H = 0.32;
+const TILE_H = 0.3;
 const TILE_TOP_Y = TILE_H / 2;
-const KIN_Y = standOn(TILE_TOP_Y);
 const COLORS = ["#ff2e6a", "#12aaff", "#ffc400", "#33cf4d"];
 const COLOR_NAMES = ["Pink", "Blau", "Gelb", "Grün"];
 
@@ -42,58 +24,128 @@ function tileZ(gy) {
   return (gy - (GRID - 1) / 2) * TILE;
 }
 
-export class ColorRush {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class ColorRush extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.tiles = [];
-    this.kins = new Map();
-    this.animators = new Map();
     this.lastFallen = new Map();
     this.lastSurvived = new Map();
+    this.lastCell = new Map();
+    this.fallAt = new Map();
     this.lastRound = -1;
-    this.lastFrameAt = performance.now();
     this.swipe = null;
-    this.shake = 0;
     this.lastPhaseName = null;
-    this.baseCamera = new THREE.Vector3(0, 8.2, 6.6);
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Farbflucht", background: "#8fd8f2", fog: ["#9fdef5", 16, 40] });
+  stage() {
+    return {
+      label: "3D Farbflucht",
+      background: "#8fd8f2",
+      fog: ["#9fdef5", 16, 40],
+      lights: { hemiIntensity: 2.4, skyColor: 0xdfefff, groundColor: 0x6fb0c4, sunColor: 0xfff4d6 }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-      <div class="color-banner" data-color-banner hidden></div>
-      <div class="kinetic-countdown" data-kinetic-countdown></div>
-    `);
-    this.createScene();
+      <div class="color-banner" data-color-banner hidden></div>`;
+  }
 
-    // Kein Steuerkreuz. Gewischt wird auf dem ganzen Bild, und das ist auch
-    // dort, wo das Feld liegt — ein Kreuz am unteren Rand verlangte, zwischen
-    // Feld und Daumen hin und her zu schauen, während der Boden wegbricht.
+  build() {
+    const scene = this.scene;
+    const span = GRID * TILE;
+    // Die Grube liegt in einer Wiese: vier Erdblöcke mit Grasdecke rundum.
+    // Vorher stand vorn eine sieben Einheiten hohe Wand, deren Vorderseite ein
+    // Drittel des Bildes braun füllte.
+    const earth = new THREE.MeshLambertMaterial({ color: "#5a4030" });
+    const earthDark = new THREE.MeshLambertMaterial({ color: "#3c2a1e" });
+    const grass = new THREE.MeshLambertMaterial({ color: "#78c46a" });
+    const rim = span / 2 + 0.12;
+    const far = 18;
+    [
+      [0, -(rim + far / 2), far * 2 + span, far, earth],
+      [0, rim + far / 2, far * 2 + span, far, earth],
+      [-(rim + far / 2), 0, far, span + 0.24, earthDark],
+      [rim + far / 2, 0, far, span + 0.24, earthDark]
+    ].forEach(([x, z, w, d, side]) => {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(w, 7, d), [side, side, grass, side, side, side]);
+      block.position.set(x, -3.7, z);
+      block.receiveShadow = true;
+      scene.add(block);
+    });
+    for (let i = 0; i < 16; i += 1) {
+      const angle = (i / 16) * Math.PI * 2 + 0.3;
+      const radius = span / 2 + 1.4 + (i % 3) * 1.1;
+      const tuft = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2 + (i % 2) * 0.12, 0.3), new THREE.MeshLambertMaterial({ color: i % 2 ? "#5fae55" : "#8ad27a" }));
+      tuft.position.set(Math.cos(angle) * radius * 1.3, -0.1, Math.sin(angle) * radius);
+      scene.add(tuft);
+    }
+    const pit = new THREE.Mesh(
+      new THREE.BoxGeometry(span + 2.4, 0.4, span + 2.4),
+      new THREE.MeshLambertMaterial({ color: "#1c130c" })
+    );
+    pit.position.y = -7.2;
+    scene.add(pit);
+
+    // The 6×6 colour floor.
+    for (let gy = 0; gy < GRID; gy += 1) {
+      for (let gx = 0; gx < GRID; gx += 1) {
+        const tile = new THREE.Mesh(
+          new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08),
+          new THREE.MeshLambertMaterial({ color: COLORS[0] })
+        );
+        tile.position.set(tileX(gx), 0, tileZ(gy));
+        tile.receiveShadow = true;
+        tile.castShadow = true;
+        tile.userData = { gx, gy, restY: 0 };
+        scene.add(tile);
+        this.tiles[gy * GRID + gx] = tile;
+      }
+    }
+
+    // Weiter hinten und höher: durch den versetzten Blickpunkt liegt der
+    // sichtbare Himmel jetzt über der Rasterkante, nicht mehr seitlich davon.
+    [[-6.5, 4.6, -13, 5], [6.2, 6.2, -16, 6], [-1, 7.4, -20, 7]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      scene.add(cloud);
+    });
+
+
+    const players = this.getState()?.players || [];
+    const arcade = this.minigame.arcade;
+    players.forEach((player, index) => {
+      const entry = arcade?.players?.[player.id];
+      this.addKin(player, index, { x: tileX(entry?.gx ?? 2), ground: TILE_TOP_Y, z: tileZ(entry?.gy ?? 2), facing: 0 });
+    });
+  }
+
+  shot() {
+    const span = GRID * TILE;
+    return {
+      look: [0, 0.2, 0.25],
+      frame: { w: span + 0.4, h: span * Math.sin(0.86) + 1.1 },
+      fill: 0.95,
+      pitch: 0.86,
+      fov: 36,
+      intro: { yaw: 0.5, pitch: 0.25, zoom: 1.4 }
+    };
+  }
+
+  bind() {
     this.controls.innerHTML = `<p class="trace-hint">In die angesagte Farbe wischen</p>`;
     this.controls.style.pointerEvents = "none";
-    this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
-    this.onCanvasPointerUp = (event) => this.resolveSwipe(event);
-    this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
-    this.webglCanvas.addEventListener("pointerup", this.onCanvasPointerUp);
-    this.loop();
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      this.swipe = { x: event.clientX, y: event.clientY };
+    });
+    this.on(this.webglCanvas, "pointerup", (event) => this.resolveSwipe(event));
+  }
+
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.tiles = [];
   }
 
   resolveSwipe(event) {
@@ -102,7 +154,6 @@ export class ColorRush {
     const dy = event.clientY - this.swipe.y;
     this.swipe = null;
     if (Math.hypot(dx, dy) < 24) return;
-    // Screen up/down maps to moving away/toward the camera on the grid.
     const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
     this.sendStep(dir);
   }
@@ -116,106 +167,6 @@ export class ColorRush {
     this.sendInput({ action: "step", dir }).catch(() => {});
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
-    if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
-    teardownStage(this);
-    this.tiles = [];
-    this.kins.clear();
-    this.animators.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      hemiIntensity: 2.4,
-      skyColor: 0xdfefff,
-      groundColor: 0x6fb0c4,
-      sunColor: 0xfff4d6
-    });
-
-    // The canyon below: falling means dropping into a dark chasm and
-    // vanishing from sight — not floating in the sky.
-    const span = GRID * TILE;
-    const wallMat = new THREE.MeshLambertMaterial({ color: "#5a4030" });
-    const wallMatDark = new THREE.MeshLambertMaterial({ color: "#3c2a1e" });
-    [[0, -span / 2 - 0.4, span + 2.4, 0.8, wallMat], [0, span / 2 + 0.4, span + 2.4, 0.8, wallMat]].forEach(([x, z, w, d, mat]) => {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 7, d), mat);
-      wall.position.set(x, -3.7, z);
-      this.scene.add(wall);
-    });
-    [[-span / 2 - 0.4, 0, 0.8, span + 2.4, wallMatDark], [span / 2 + 0.4, 0, 0.8, span + 2.4, wallMatDark]].forEach(([x, z, w, d, mat]) => {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 7, d), mat);
-      wall.position.set(x, -3.7, z);
-      this.scene.add(wall);
-    });
-    const pit = new THREE.Mesh(
-      new THREE.BoxGeometry(span + 2.4, 0.4, span + 2.4),
-      new THREE.MeshLambertMaterial({ color: "#1c130c" })
-    );
-    pit.position.y = -7.2;
-    this.scene.add(pit);
-
-    // The 6×6 colour floor.
-    for (let gy = 0; gy < GRID; gy += 1) {
-      for (let gx = 0; gx < GRID; gx += 1) {
-        const tile = new THREE.Mesh(
-          new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08),
-          new THREE.MeshLambertMaterial({ color: COLORS[0] })
-        );
-        tile.position.set(tileX(gx), 0, tileZ(gy));
-        tile.receiveShadow = true;
-        tile.castShadow = true;
-        tile.userData = { gx, gy, restY: 0 };
-        this.scene.add(tile);
-        this.tiles[gy * GRID + gx] = tile;
-      }
-    }
-
-    // Weiter hinten und höher: durch den versetzten Blickpunkt liegt der
-    // sichtbare Himmel jetzt über der Rasterkante, nicht mehr seitlich davon.
-    [[-6.5, 4.6, -13, 5], [6.2, 6.2, -16, 6], [-1, 7.4, -20, 7]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
-    });
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
-    this.resizeRenderer();
-  }
-
-  ensureKin(player, index = 0) {
-    if (this.kins.has(player.id)) return this.kins.get(player.id);
-    const kin = createVoxelKin(player.color, index);
-    const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.y = 0.62;
-    kin.add(label);
-    const shadow = createShadowBlob(0.5);
-    this.scene.add(shadow);
-    kin.userData.label = label;
-    kin.userData.shadow = shadow;
-    kin.position.set(0, KIN_Y, 0);
-    this.scene.add(kin);
-    const animator = new KinAnimator(kin);
-    animator.groundY = KIN_Y;
-    this.kins.set(player.id, kin);
-    this.animators.set(player.id, animator);
-    return kin;
-  }
-
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
   computePhase(arcade, minigame, now) {
     const elapsed = Math.max(0, now - minigame.startedAt);
     // Mirror the server's calm lead-in before the first drop.
@@ -228,36 +179,24 @@ export class ColorRush {
     return { name: "rest", t: (roundElapsed - arcade.dropEndMs) / Math.max(1, arcade.roundMs - arcade.dropEndMs) };
   }
 
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
+  tick(f) {
+    const { now, dt, arcade, minigame, players, controlledId, finale } = f;
+    if (!arcade) return;
     const phase = this.computePhase(arcade, minigame, now);
+    this.phase = phase;
 
     if (arcade.round !== this.lastRound) {
       this.lastRound = arcade.round;
       this.feedback?.sound("countdown");
     }
-
-    // The moment the floor drops: shake the camera, thump, and blast debris
-    // out of every tile that is falling away.
     const droppedNow = phase.name === "drop" && this.lastPhaseName === "announce";
     if (droppedNow) {
-      this.shake = 1;
+      this.rig.shake(0.9);
       this.feedback?.sound("impact");
       this.feedback?.vibrate([24, 20, 34]);
     }
     this.lastPhaseName = phase.name;
 
-    // Recolour + animate tiles.
     this.tiles.forEach((tile, index) => {
       const color = arcade.grid[index];
       tile.material.color.set(COLORS[color] || COLORS[0]);
@@ -269,16 +208,13 @@ export class ColorRush {
       let jitterX = 0;
       let jitterZ = 0;
       if (phase.name === "announce" && !isTarget) {
-        // Doomed tiles tremble harder as the drop approaches (telegraph).
         const menace = Math.pow(phase.t, 2) * 0.06;
         jitterX = Math.sin(now / 40 + index) * menace;
         jitterZ = Math.cos(now / 37 + index * 1.3) * menace;
       } else if (phase.name === "drop" && !isTarget) {
         targetY = -3.4 * phase.t;
         opacity = Math.max(0, 1 - phase.t * 1.4);
-        if (droppedNow) {
-          this.bursts.spawn(new THREE.Vector3(tileX(gx), TILE_TOP_Y, tileZ(gy)), [COLORS[color], "#ffffff"], { count: 3, speed: 1.6, up: 1.4, size: 0.09, life: 0.6 });
-        }
+        if (droppedNow) this.burst(new THREE.Vector3(tileX(gx), TILE_TOP_Y, tileZ(gy)), [COLORS[color], "#ffffff"], { count: 3, speed: 1.6, up: 1.4, size: 0.09, life: 0.6 });
       } else if (phase.name === "rest" && !isTarget) {
         targetY = -3.4 * (1 - phase.t);
         opacity = Math.min(1, phase.t * 1.4);
@@ -288,10 +224,7 @@ export class ColorRush {
       tile.position.y = THREE.MathUtils.lerp(tile.position.y, targetY, frameLerp(0.3, dt));
       tile.material.transparent = opacity < 1;
       tile.material.opacity = opacity;
-      // Target tiles glow and gently bob during the warning so the safe
-      // colour pops out boldly, Mario-Party style.
       if (isTarget && (phase.name === "announce" || phase.name === "drop")) {
-        tile.material.emissive = tile.material.emissive || new THREE.Color();
         tile.material.emissive.set(COLORS[color]);
         tile.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(now / 150)) * 0.7;
         if (phase.name === "announce") tile.position.y += Math.abs(Math.sin(now / 150 + gx + gy)) * 0.06;
@@ -300,25 +233,42 @@ export class ColorRush {
       }
     });
 
-    let controlledKin = null;
-    state.players.forEach((player, index) => {
+    const targetKnown = phase.name !== "announce" || phase.t >= 0.55;
+    players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      const kin = this.ensureKin(player, index);
+      const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
+      if (!entry || !kin || !animator) return;
       const fallen = Boolean(entry.eliminated);
-
       const targetX = tileX(entry.gx);
       const targetZ = tileZ(entry.gy);
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.35, dt));
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, targetZ, frameLerp(0.35, dt));
+
+      // Ein Schritt ist ein Hüpfer in Sprungrichtung.
+      const cell = `${entry.gx},${entry.gy}`;
+      const last = this.lastCell.get(player.id);
+      if (last && last !== cell && !fallen) {
+        const [lx, ly] = last.split(",").map(Number);
+        kin.userData.hopFacing = Math.atan2(entry.gx - lx, entry.gy - ly);
+        kin.userData.hopAt = now;
+        animator.trigger("hop", { height: 0.28 });
+      }
+      this.lastCell.set(player.id, cell);
+      kin.position.x += (targetX - kin.position.x) * frameLerp(0.3, dt);
+      kin.position.z += (targetZ - kin.position.z) * frameLerp(0.3, dt);
+      const hopping = now - (kin.userData.hopAt || -1e9) < 380;
+      const facing = hopping ? kin.userData.hopFacing : 0;
+      let diff = facing - kin.rotation.y;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      kin.rotation.y += diff * frameLerp(0.3, dt);
 
       if (fallen && !this.lastFallen.get(player.id)) {
+        this.fallAt.set(player.id, now);
         animator.trigger("fall");
-        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#1b2530"], { count: 14, speed: 2.3, up: 1.6, size: 0.09, life: 0.7, drag: 1.5 });
-        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "REINGEFALLEN!", { color: "#ff6b7f", size: 0.36, life: 0.9 });
+        animator.expression("scared", 1600);
+        this.burst(kin.position.clone(), [player.color, "#ffffff", "#1b2530"], { count: 14, speed: 2.3, up: 1.6, size: 0.09, life: 0.7, drag: 1.5 });
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "REINGEFALLEN!", { color: "#ff6b7f", size: 0.36, life: 0.9 });
         if (player.id === controlledId) {
-          this.shake = Math.max(this.shake, 0.7);
+          this.rig.shake(0.7);
           this.feedback?.sound("error");
           this.feedback?.vibrate([18, 18, 18]);
         }
@@ -327,82 +277,59 @@ export class ColorRush {
 
       if ((entry.survived || 0) > (this.lastSurvived.get(player.id) || 0)) {
         this.lastSurvived.set(player.id, entry.survived);
-        this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff"], { count: 10, speed: 2, up: 2.2, size: 0.08, life: 0.6, drag: 1.8, fadePow: 1.4 });
-        this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "SICHER!", { color: "#ffe36b", size: 0.32, life: 0.65, rise: 0.7 });
+        animator.trigger("fistpump");
+        animator.expression("joy", 600);
+        this.burst(kin.position.clone(), [player.color, "#ffffff"], { count: 10, speed: 2, up: 2.2, size: 0.08, life: 0.6, drag: 1.8, fadePow: 1.4 });
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "SICHER!", { color: "#ffe36b", size: 0.32, life: 0.65, rise: 0.7 });
         if (player.id === controlledId) {
           this.feedback?.sound("pop", { pan: kin.position.x * 0.18 });
           this.feedback?.vibrate(10);
         }
       }
 
-      // Eliminated kins plunge into the chasm, fade out and disappear.
       if (fallen) {
-        animator.groundY = THREE.MathUtils.lerp(animator.groundY, KIN_Y - 7.5, frameLerp(0.06, dt));
-        const depth = KIN_Y - animator.groundY;
-        const visibility = Math.max(0, 1 - depth / 2.6);
+        // Fällt mit rudernden Armen in die Tiefe und verblasst.
+        const since = (now - (this.fallAt.get(player.id) || now)) / 1000;
+        const drop = Math.min(7.5, since * since * 4.5);
+        animator.groundY = TILE_TOP_Y + 0.3 - drop;
+        if (since > 0.5) animator.set("panic");
+        const visibility = Math.max(0, 1 - drop / 2.6);
         setKinOpacity(kin, visibility);
-        kin.userData.label.material.opacity = 0;
         kin.visible = visibility > 0.02;
+        if (kin.userData.label) kin.userData.label.material.opacity = 0;
+        return;
+      }
+      animator.groundY = TILE_TOP_Y + 0.3;
+      kin.visible = true;
+      setKinOpacity(kin, 1);
+      if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
+      if (finale) return;
+
+      const onTarget = arcade.grid[entry.gy * GRID + entry.gx] === arcade.targetColor;
+      if (phase.name === "announce" && targetKnown && !onTarget) {
+        animator.set("panic");
+        animator.expression("scared", 200);
+      } else if (phase.name === "announce" && !targetKnown) {
+        animator.set("think");
+      } else if (phase.name === "announce" && onTarget) {
+        animator.set("ready");
       } else {
-        animator.groundY = KIN_Y;
-        kin.visible = true;
-        setKinOpacity(kin, 1);
+        animator.set("idle");
       }
-      // Finale: the survivor celebrates on camera before the scoreboard.
-      if (!fallen) {
-        if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
-        else animator.set("idle", { base: true });
-        if (minigame.finaleAt && !this.finaleCelebrated) {
-          this.finaleCelebrated = true;
-          this.bursts.spawn(kin.position.clone(), [player.color, "#ffffff", "#ffc400"], { count: 24, speed: 2.8, up: 3, size: 0.1, life: 0.95, drag: 1.2 });
-          this.bursts.ring(kin.position.clone().setY(0.08), "#ffc400", { radius: 2, life: 0.65, opacity: 0.6 });
-          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "🏆", { size: 0.56, life: 1.2, rise: 1 });
-          if (player.id === controlledId) this.feedback?.sound("win");
-        }
-      }
-      animator.update(now);
-
-      kin.userData.shadow.position.set(kin.position.x, TILE_TOP_Y + 0.02, kin.position.z);
-      kin.userData.shadow.material.opacity = fallen ? 0 : 0.26;
-      kin.userData.label.material.opacity = fallen ? 0 : (player.id === controlledId ? 1 : 0.8);
-      if (player.id === controlledId) controlledKin = kin;
     });
-
-    this.bursts.update(dt);
-
-    this.floaters.update(dt, this.camera);
-
-    // Camera: gentle follow plus a drop/fall impact shake.
-    this.shake *= frameDecay(0.9, dt);
-    const focusX = controlledKin ? controlledKin.position.x : 0;
-    const focusZ = controlledKin ? controlledKin.position.z : 0;
-    const shakeX = Math.sin(now / 16) * this.shake * 0.28 * shakeScale();
-    const shakeY = Math.cos(now / 13) * this.shake * 0.2;
-    const desired = new THREE.Vector3(focusX * 0.25 + shakeX, this.baseCamera.y + shakeY, focusZ * 0.25 + this.baseCamera.z);
-    this.camera.position.lerp(desired, frameLerp(0.12, dt));
-    // Blickpunkt hinter der Feldmitte: das quadratische Raster füllt im
-    // Hochformat schon die volle Breite und kann deshalb nicht wachsen — es
-    // stand aber zu hoch im Bild, darunter lag ein Viertel Bildfläche
-    // nackte Grubenwand. Der versetzte Blickpunkt schiebt das Raster nach
-    // unten vor die Bedienleiste und die Wand aus dem Bild.
-    this.camera.lookAt(0, 0, -1.8);
-
-    this.updateHud(minigame, state, arcade, phase, now);
-    // A downward arrow marks your own kin so you never lose yourself.
-    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now);
-    this.renderer.render(this.scene, this.camera);
   }
 
-  updateHud(minigame, state, arcade, phase, now) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const controlled = arcade.players[this.getControlledPlayerId()];
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(controlled?.survived || 0);
+  keepInView(f) {
+    return f.players.filter((player) => !f.arcade?.players?.[player.id]?.eliminated).map((player) => this.kins.get(player.id)).filter(Boolean);
+  }
 
-    // Mario-Party-style colour roulette: during the announce the banner spins
-    // fast through the colours, then locks onto the target with a callout.
+  drawHud(f) {
+    const { arcade, now } = f;
+    if (!arcade || !this.phase) return;
+    const phase = this.phase;
+    const controlled = arcade.players[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(controlled?.survived || 0);
     const banner = this.hud.querySelector("[data-color-banner]");
     if (banner) {
       const showWarning = phase.name === "announce" || phase.name === "drop";
@@ -419,16 +346,5 @@ export class ColorRush {
         banner.classList.toggle("locked", !spinning);
       }
     }
-
-    // No big centre countdown — it would cover the grid.
-    const countdown = this.hud.querySelector("[data-kinetic-countdown]");
-    if (countdown) countdown.hidden = true;
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      this.baseCamera = portrait ? new THREE.Vector3(0, 12.5, 9.8) : new THREE.Vector3(0, 11.5, 9.2);
-      camera.fov = portrait ? 50 : 46;
-    });
   }
 }

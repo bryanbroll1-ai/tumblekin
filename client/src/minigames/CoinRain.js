@@ -1,88 +1,172 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  applyFinaleMood,
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  entflechteSchilder,
-  syncOwnMarker,
-  teardownStage,
-  dressMeadow
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud, flashKin } from "./VoxelKit.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Münzregen — coins and bombs rain into three lanes; hop lanes to catch
-// the gold and dodge the black fizzers.
-const LANE_WIDTH = 1.5;
-const LANE_TOP_Y = 0.07;            // Oberkante des Fangstreifens
-const KIN_Y = standOn(LANE_TOP_Y);
-const DROP_TOP_Y = 4.4;
+// Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
+// Bomben ausspuckt. Wischen wechselt die Spur.
+//
+// Vorher stand die Kamera tief, die Maschine war oben abgeschnitten und die
+// rechte Spur halb aus dem Bild. Jetzt ist alles im Bild, die Figuren schauen
+// nach oben zu dem, was in ihrer Spur fällt, strecken die Arme zum Fangen,
+// rennen seitlich in die neue Spur und fliegen bei einer Bombe rußig zurück.
+const LANE_WIDTH = 1.35;
+const DROP_TOP_Y = 3.05;
+const CATCH_Y = 1.05;
+const KIN_Z = 0.7;
 
-export class CoinRain {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
-    this.kins = new Map();
-    this.animators = new Map();
+export class CoinRain extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.dropMeshes = new Map();
     this.lastCatches = new Map();
     this.lastBombs = new Map();
-    this.lastFrameAt = performance.now();
+    this.sootUntil = new Map();
     this.swipe = null;
-    this.shake = 0;
-    this.finaleDone = false;
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Münzregen" });
+  stage() {
+    return { label: "3D Münzregen", background: "#bfe6f2", fog: ["#cdeaf2", 18, 40], lights: { shadow: { top: 10 } } };
+  }
 
-    mountHud(this, `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-    `);
-    this.createScene();
+  build() {
+    const scene = this.scene;
+    const meadow = new THREE.Mesh(new THREE.BoxGeometry(24, 0.5, 16), new THREE.MeshLambertMaterial({ color: "#a8b055" }));
+    meadow.position.y = -0.25;
+    meadow.receiveShadow = true;
+    scene.add(meadow);
+    dressMeadow(scene, {
+      seed: 9,
+      keepOut: { x: 3.6, z: 3.4 },
+      spread: { x: 17, z: 15 },
+      grassColor: "#a8b055",
+      patchColors: ["#b9b45f", "#cfc07a"],
+      crownColor: "#c9772e",
+      crownColor2: "#e0a63a",
+      trunkColor: "#6b4a2c",
+      crownShape: "blob",
+      flowerColors: ["#ffd15c", "#ff9a4d", "#ffffff"]
+    });
+    for (let lane = 0; lane < 3; lane += 1) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH - 0.1, 0.12, 2.6), new THREE.MeshLambertMaterial({ color: lane === 1 ? "#ffdd8a" : "#f4cd6e" }));
+      strip.position.set(this.laneX(lane), 0.0, KIN_Z - 0.2);
+      strip.receiveShadow = true;
+      scene.add(strip);
+    }
 
-    // Kein Knopfstreifen. Die Spur wechselt man durch Wischen auf dem ganzen
-    // Bild — ein Knopf am unteren Rand ist bei einem Spiel, in dem man nach
-    // oben schaut, nur ein zweiter Ort für den Blick.
+    // Die Münzmaschine: ein Kasten mit drei Rohren, der leicht hin und her
+    // wackelt und blinkt, wenn er etwas ausspuckt.
+    const machine = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3 + 0.4, 0.8, 0.9), new THREE.MeshLambertMaterial({ color: "#7a4ddb" }));
+    body.position.y = 0.6;
+    machine.add(body);
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3 + 0.5, 0.14, 1.0), new THREE.MeshLambertMaterial({ color: "#ffc400" }));
+    trim.position.y = 1.02;
+    machine.add(trim);
+    this.lamps = [];
+    for (let lane = 0; lane < 3; lane += 1) {
+      const x = this.laneX(lane);
+      const chute = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, 0.4, 8), new THREE.MeshLambertMaterial({ color: "#8f6ae0" }));
+      chute.position.set(x, 0.05, 0);
+      machine.add(chute);
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.06), new THREE.MeshBasicMaterial({ color: "#5a3aa8" }));
+      lamp.position.set(x, 0.62, 0.47);
+      machine.add(lamp);
+      this.lamps.push({ lamp, flash: 0 });
+    }
+    machine.position.set(0, DROP_TOP_Y + 0.1, -0.2);
+    scene.add(machine);
+    this.machine = machine;
+
+    [[-6, 4.6, -5, 5], [6.4, 5.2, -4, 6]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      scene.add(cloud);
+    });
+
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => {
+      this.addKin(player, index, { x: this.laneX(1) + this.offset(index, players.length), ground: 0.06, z: KIN_Z + this.depth(index), facing: 0 });
+    });
+  }
+
+  laneX(lane) {
+    return (lane - 1) * LANE_WIDTH;
+  }
+
+  offset(index, count) {
+    return (index - (count - 1) / 2) * 0.3;
+  }
+
+  depth(index) {
+    return (index % 2) * 0.45 - 0.2;
+  }
+
+  buildDropMesh(kind) {
+    if (kind === "coin") {
+      const coin = new THREE.Group();
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.1, 10), new THREE.MeshLambertMaterial({ color: "#ffc400", emissive: "#c98f1e", emissiveIntensity: 0.45 }));
+      disc.rotation.x = Math.PI / 2;
+      coin.add(disc);
+      const mark = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.12), new THREE.MeshLambertMaterial({ color: "#fff1a8", emissive: "#e8b84a", emissiveIntensity: 0.4 }));
+      coin.add(mark);
+      return coin;
+    }
+    if (kind === "gem") {
+      const gem = new THREE.Group();
+      const mat = new THREE.MeshLambertMaterial({ color: "#12d0ff", emissive: "#12aaff", emissiveIntensity: 0.6 });
+      const top = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.28, 6), mat);
+      top.position.y = 0.11;
+      gem.add(top);
+      const bottom = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.22, 6), mat);
+      bottom.rotation.x = Math.PI;
+      bottom.position.y = -0.1;
+      gem.add(bottom);
+      return gem;
+    }
+    const bomb = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshLambertMaterial({ color: "#1b2530" }));
+    bomb.add(core);
+    const fuse = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.06), new THREE.MeshLambertMaterial({ color: "#c9a86a" }));
+    fuse.position.y = 0.28;
+    bomb.add(fuse);
+    const spark = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#ff8b2e", emissiveIntensity: 1 }));
+    spark.position.y = 0.4;
+    bomb.add(spark);
+    return bomb;
+  }
+
+  shot() {
+    return {
+      look: [0, 1.55, 0.5],
+      frame: { w: LANE_WIDTH * 3 + 0.2, h: 3.7 },
+      fill: 0.96,
+      pitch: 0.12,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.25, zoom: 1.4 }
+    };
+  }
+
+  bind() {
     this.controls.innerHTML = `<p class="trace-hint">◀ Wischen zum Spurwechsel ▶</p>`;
     this.controls.style.pointerEvents = "none";
-    this.onCanvasPointerDown = (event) => { this.swipe = { x: event.clientX, y: event.clientY }; };
-    this.onCanvasPointerUp = (event) => {
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      this.swipe = { x: event.clientX, y: event.clientY };
+    });
+    this.on(this.webglCanvas, "pointerup", (event) => {
       if (!this.swipe) return;
       const dx = event.clientX - this.swipe.x;
       this.swipe = null;
       if (Math.abs(dx) < 24) return;
       this.sendLane(dx > 0 ? 1 : -1);
-    };
-    this.webglCanvas.addEventListener("pointerdown", this.onCanvasPointerDown);
-    this.webglCanvas.addEventListener("pointerup", this.onCanvasPointerUp);
-    this.loop();
+    });
+  }
+
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.dropMeshes.clear();
   }
 
   sendLane(dir) {
@@ -91,238 +175,67 @@ export class CoinRain {
     this.sendInput({ action: "lane", dir }).catch(() => {});
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale } = f;
+    if (!arcade) return;
+    const elapsed = Math.max(0, now - f.minigame.startedAt);
+    const fallMs = arcade.fallMs || 1400;
+    this.machine.position.x = Math.sin(now / 1600) * 0.12;
 
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    if (this.onCanvasPointerDown) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
-    if (this.onCanvasPointerUp) this.webglCanvas.removeEventListener("pointerup", this.onCanvasPointerUp);
-    teardownStage(this);
-    this.kins.clear();
-    this.animators.clear();
-    this.dropMeshes.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, { shadow: { top: 10 } });
-
-    // Meadow with three catch lanes.
-    const meadow = new THREE.Mesh(
-      new THREE.BoxGeometry(24, 0.5, 16),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
-    );
-    meadow.position.y = -0.25;
-    meadow.receiveShadow = true;
-    this.scene.add(meadow);
-    // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
-    // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 9, keepOut: { x: 4.2, z: 4.0 }, spread: { x: 17, z: 15 }, grassColor: "#a8b055", patchColors: ["#b9b45f", "#cfc07a"], crownColor: "#c9772e", crownColor2: "#e0a63a", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ffd15c", "#ff9a4d", "#ffffff"] });
-    for (let lane = 0; lane < 3; lane += 1) {
-      const strip = new THREE.Mesh(
-        new THREE.BoxGeometry(LANE_WIDTH - 0.12, 0.3, 2.8),
-        new THREE.MeshLambertMaterial({ color: lane === 1 ? "#ffdd8a" : "#f4cd6e" })
-      );
-      strip.position.set(this.laneX(lane), -0.08, 0.4);
-      strip.receiveShadow = true;
-      this.scene.add(strip);
-      // Bright catch marker so the landing spot is obvious.
-      const marker = new THREE.Mesh(
-        new THREE.BoxGeometry(LANE_WIDTH - 0.3, 0.04, 0.16),
-        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7 })
-      );
-      marker.position.set(this.laneX(lane), 0.09, 0);
-      this.scene.add(marker);
-    }
-    // Drei einzelne Schütten statt eines durchgehenden Trichters.
-    //
-    // Der alte Trichter war 5.2 breit, dann 4.0 — in beiden Fällen breiter als
-    // das Bild: auf Höhe der Maschine zeigt das Hochformat nur gut 4.2
-    // Einheiten. Was man sah, war ein violettes Band quer über den Bildschirm,
-    // oben von der Anzeigeleiste abgeschnitten, mit drei losen Klötzen
-    // darunter. Ein Trichter, der die drei Bahnen (Abstand 1.5) überspannt,
-    // KANN in diesem Bild nicht als Gegenstand lesbar sein — also bekommt
-    // jede Bahn ihre eigene, schmale Schütte mit einem Rohr nach oben aus dem
-    // Bild. Die Münzen kommen von oben, das erklärt sich von selbst.
-    const machine = new THREE.Group();
-    for (let lane = 0; lane < 3; lane += 1) {
-      const x = this.laneX(lane);
-      const rohr = new THREE.Mesh(
-        new THREE.BoxGeometry(0.46, 2.6, 0.46),
-        new THREE.MeshLambertMaterial({ color: "#7a4ddb" })
-      );
-      rohr.position.set(x, 1.5, 0.3);
-      machine.add(rohr);
-      const kragen = new THREE.Mesh(
-        new THREE.BoxGeometry(0.66, 0.24, 0.66),
-        new THREE.MeshLambertMaterial({ color: "#a888ee" })
-      );
-      kragen.position.set(x, 0.18, 0.3);
-      machine.add(kragen);
-      const trichter = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.32, 0.5, 0.5, 6),
-        new THREE.MeshLambertMaterial({ color: "#8f6ae0" })
-      );
-      trichter.position.set(x, -0.2, 0.3);
-      machine.add(trichter);
-      const lippe = new THREE.Mesh(
-        new THREE.BoxGeometry(0.62, 0.1, 0.62),
-        new THREE.MeshLambertMaterial({ color: "#6f45c4" })
-      );
-      lippe.position.set(x, -0.48, 0.3);
-      machine.add(lippe);
-    }
-    machine.position.set(0, DROP_TOP_Y + 0.85, -0.9);
-    this.scene.add(machine);
-    this.machine = machine;
-
-    [[-7, 5.2, -5, 5], [7, 6, -3, 6]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
-    });
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
-    this.resizeRenderer();
-    this.camera.position.set(0, this.baseCamY || 3.2, this.baseCamZ || 7.2);
-    this.camera.lookAt(0, 2, 0);
-  }
-
-  laneX(lane) {
-    return (lane - 1) * LANE_WIDTH;
-  }
-
-  buildDropMesh(kind) {
-    if (kind === "coin") {
-      const coin = new THREE.Group();
-      const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.3, 0.3, 0.12, 8),
-        new THREE.MeshLambertMaterial({ color: "#ffc400", emissive: "#c98f1e", emissiveIntensity: 0.4 })
-      );
-      body.rotation.x = Math.PI / 2;
-      coin.add(body);
-      return coin;
-    }
-    if (kind === "gem") {
-      // A sparkly triple-value gem — two stacked pyramids.
-      const gem = new THREE.Group();
-      const mat = new THREE.MeshLambertMaterial({ color: "#12d0ff", emissive: "#12aaff", emissiveIntensity: 0.6 });
-      const top = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.3, 6), mat);
-      top.position.y = 0.12;
-      gem.add(top);
-      const bottom = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.24, 6), mat);
-      bottom.rotation.x = Math.PI;
-      bottom.position.y = -0.11;
-      gem.add(bottom);
-      return gem;
-    }
-    const bomb = new THREE.Group();
-    const core = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.42, 0.42),
-      new THREE.MeshLambertMaterial({ color: "#1b2530" })
-    );
-    bomb.add(core);
-    const spark = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.12, 0.12),
-      new THREE.MeshLambertMaterial({ color: "#ffd15c", emissive: "#ff8b2e", emissiveIntensity: 1 })
-    );
-    spark.position.y = 0.32;
-    bomb.add(spark);
-    return bomb;
-  }
-
-  ensureKin(player, index = 0) {
-    if (this.kins.has(player.id)) return this.kins.get(player.id);
-    const kin = createVoxelKin(player.color, index);
-    const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.y = 0.62;
-    kin.add(label);
-    const shadow = createShadowBlob(0.5);
-    this.scene.add(shadow);
-    kin.userData.label = label;
-    kin.userData.shadow = shadow;
-    kin.userData.stagger = (index - 1.5) * 0.42;
-    kin.position.set(this.laneX(1), KIN_Y, 1 + kin.userData.stagger);
-    this.scene.add(kin);
-    const animator = new KinAnimator(kin);
-    animator.groundY = KIN_Y;
-    this.kins.set(player.id, kin);
-    this.animators.set(player.id, animator);
-    return kin;
-  }
-
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
-    const elapsed = Math.max(0, now - minigame.startedAt);
-
-    this.machine.position.x = Math.sin(now / 1600) * 0.2;
-
-    // Falling drops: spawn a mesh during the fall window, land at catchAt.
+    // Was gerade fällt, und das Nächste je Spur (dorthin schauen die Figuren).
     const active = new Set();
+    const nextInLane = [null, null, null];
     (arcade.drops || []).forEach((drop) => {
-      const fallFrom = drop.catchAt - (arcade.fallMs || 1400);
+      const fallFrom = drop.catchAt - fallMs;
       if (elapsed < fallFrom || elapsed > drop.catchAt + 120) return;
       active.add(drop.id);
       let mesh = this.dropMeshes.get(drop.id);
       if (!mesh) {
         mesh = this.buildDropMesh(drop.kind);
-        mesh.userData = { kind: drop.kind };
         this.scene.add(mesh);
         this.dropMeshes.set(drop.id, mesh);
+        const lamp = this.lamps[drop.lane];
+        if (lamp) lamp.flash = 1;
       }
-      const t = Math.min(1, (elapsed - fallFrom) / (arcade.fallMs || 1400));
-      mesh.position.set(this.laneX(drop.lane), DROP_TOP_Y - t * (DROP_TOP_Y - 0.5), 0);
-      mesh.rotation.y = now / 300 + drop.id;
-      if (drop.kind === "bomb") mesh.rotation.z = Math.sin(now / 120) * 0.2;
+      const t = Math.min(1, (elapsed - fallFrom) / fallMs);
+      mesh.position.set(this.laneX(drop.lane) + this.machine.position.x * (1 - t), DROP_TOP_Y - t * t * (DROP_TOP_Y - CATCH_Y), KIN_Z - 0.1);
+      mesh.rotation.y = now / 260 + drop.id;
+      if (drop.kind === "bomb") mesh.rotation.z = Math.sin(now / 120) * 0.25;
+      const current = nextInLane[drop.lane];
+      if (!current || drop.catchAt < current.catchAt) nextInLane[drop.lane] = { catchAt: drop.catchAt, mesh, kind: drop.kind };
     });
     this.dropMeshes.forEach((mesh, id) => {
       if (active.has(id)) return;
       this.scene.remove(mesh);
       this.dropMeshes.delete(id);
     });
+    this.lamps.forEach((entry) => {
+      entry.flash = Math.max(0, entry.flash - dt * 3);
+      entry.lamp.material.color.set(entry.flash > 0.05 ? "#ffe36b" : "#5a3aa8");
+    });
 
-    state.players.forEach((player, index) => {
+    players.forEach((player, index) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      const kin = this.ensureKin(player, index);
+      const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
-      // Versatz je Spieler, damit sich vier Figuren in derselben Bahn nicht
-      // ineinander stellen. 0.26 war zu wenig: ein Rumpf ist 0.42 breit, und
-      // im Bild stand ein Klumpen aus vier Figuren mit einem Stapel Namen
-      // darüber. Ein halber Rumpf Abstand reiht sie auf, ohne dass sie die
-      // Bahn verlassen.
-      const targetX = this.laneX(entry.lane) + (index - (state.players.length - 1) / 2) * 0.44;
-      const moving = Math.abs(kin.position.x - targetX) > 0.05;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, targetX, frameLerp(0.3, dt));
+      if (!entry || !kin || !animator) return;
+      const targetX = this.laneX(entry.lane) + this.offset(index, players.length);
+      const gap = targetX - kin.position.x;
+      const moving = Math.abs(gap) > 0.06;
+      kin.position.x += gap * frameLerp(0.22, dt);
+      // Beim Spurwechsel seitlich laufen, sonst zur Kamera.
+      const facing = moving ? Math.sign(gap) * Math.PI * 0.42 : 0;
+      kin.rotation.y += (facing - kin.rotation.y) * frameLerp(0.3, dt);
 
       if ((entry.catches || 0) > (this.lastCatches.get(player.id) || 0)) {
         const gained = (entry.catches || 0) - (this.lastCatches.get(player.id) || 0);
         this.lastCatches.set(player.id, entry.catches);
-        animator.trigger("jump");
-        const catchPos = kin.position.clone().add(new THREE.Vector3(0, 0.6, 0));
-        this.bursts.spawn(catchPos, ["#ffc400", "#ffd15c", "#ffffff"], { count: 9, speed: 1.9, up: 2, size: 0.08, life: 0.6, drag: 1.8, fadePow: 1.4 });
-        this.bursts.ring(kin.position.clone().setY(0.07), "#ffd15c", { radius: 1, life: 0.4, opacity: 0.45 });
-        this.floaters.pop(catchPos, `+${gained}`, { color: "#ffe36b", size: 0.36, life: 0.7, rise: 0.75 });
+        animator.trigger("catch");
+        animator.trigger("hop", { height: gained > 1 ? 0.3 : 0.16 });
+        animator.expression(gained > 1 ? "joy" : "happy", 500);
+        const at = kin.position.clone().add(new THREE.Vector3(0, 0.75, 0));
+        this.burst(at, ["#ffc400", "#ffd15c", "#ffffff"], { count: 9, speed: 1.9, up: 2, size: 0.08, life: 0.6, drag: 1.8, fadePow: 1.4 });
+        this.pop(at, `+${gained}`, { color: "#ffe36b", size: 0.36, life: 0.7, rise: 0.75 });
         if (player.id === controlledId) {
           this.feedback?.sound(gained > 1 ? "sparkle" : "coin", { pan: kin.position.x * 0.2 });
           this.feedback?.vibrate(gained > 1 ? [8, 12, 10] : 10);
@@ -330,61 +243,38 @@ export class CoinRain {
       }
       if ((entry.bombs || 0) > (this.lastBombs.get(player.id) || 0)) {
         this.lastBombs.set(player.id, entry.bombs);
-        animator.trigger("hit");
-        const bombPos = kin.position.clone().add(new THREE.Vector3(0, 0.4, 0));
-        this.bursts.spawn(bombPos, ["#1b2530", "#ff8b2e", "#ffffff"], { count: 14, speed: 2.5, up: 2, size: 0.09, life: 0.72, drag: 1.5 });
-        this.bursts.ring(kin.position.clone().setY(0.07), "#ff8b2e", { radius: 1.5, life: 0.5, opacity: 0.5 });
-        this.floaters.pop(bombPos, "AUTSCH!", { color: "#ff8b2e", size: 0.36, life: 0.8 });
+        animator.trigger("knockback");
+        animator.expression("dizzy", 1400);
+        this.sootUntil.set(player.id, now + 1400);
+        const at = kin.position.clone().add(new THREE.Vector3(0, 0.6, 0));
+        this.burst(at, ["#1b2530", "#ff8b2e", "#ffffff"], { count: 16, speed: 2.6, up: 2.1, size: 0.09, life: 0.72, drag: 1.5 });
+        this.bursts.ring(kin.position.clone().setY(0.08), "#ff8b2e", { radius: 1.4, life: 0.5, opacity: 0.5, y: 0.08 });
+        this.pop(at.clone().add(new THREE.Vector3(0, 0.4, 0)), "AUTSCH!", { color: "#ff8b2e", size: 0.36, life: 0.8 });
         if (player.id === controlledId) {
-          this.shake = Math.max(this.shake, 0.8);
+          this.rig.shake(0.8);
           this.feedback?.sound("error");
           this.feedback?.vibrate([24, 18, 30]);
         }
       }
+      // Rußig nach einer Bombe, dann wieder sauber.
+      const soot = Math.max(0, ((this.sootUntil.get(player.id) || 0) - now) / 1400);
+      flashKin(kin, "#1b2530", soot * 0.7);
 
-      if (minigame.finaleAt) {
-        applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
-      } else {
-        animator.set(moving ? "run" : "idle", { base: true });
-      }
-      animator.update(now);
-      kin.userData.shadow.position.set(kin.position.x, 0.06, kin.position.z);
-      kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
+      if (finale) return;
+      const next = nextInLane[entry.lane];
+      animator.lookAt(next ? next.mesh.position : null);
+      if (moving) animator.set("run");
+      else if (next && next.catchAt - elapsed < 450 && next.kind !== "bomb") animator.set("reach", { params: { side: 0 } });
+      else if (next && next.kind === "bomb" && next.catchAt - elapsed < 700) {
+        animator.set("cower");
+        animator.expression("scared", 200);
+      } else animator.set("ready");
     });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.9, dt);
-    const shakeX = Math.sin(now / 15) * this.shake * 0.22 * shakeScale();
-    const desired = new THREE.Vector3(shakeX, this.baseCamY || 3.2, this.baseCamZ || 7.2);
-    this.camera.position.lerp(desired, frameLerp(0.1, dt));
-    this.camera.lookAt(0, 2, 0);
-
-    this.updateHud(minigame, arcade, state, now);
-    // A downward arrow marks your own kin so you never lose yourself.
-    // Flacher Pfeil: die Figuren stehen hier am unteren Bildrand, der übliche
-    // Abstand von 0.9 hängte den Pfeil sichtbar losgelöst über ihnen.
-    syncOwnMarker(this, this.kins?.get(this.getControlledPlayerId()), now, 0.35, 0.45);
-    // Drei Bahnen, vier Figuren: mindestens zwei stehen immer nebeneinander.
-    entflechteSchilder([...this.kins.values()].map((k) => k.userData.label), this.camera, { grundY: 0.62 });
-    this.renderer.render(this.scene, this.camera);
   }
 
-  updateHud(minigame, arcade, state, now) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const own = arcade.players[this.getControlledPlayerId()];
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(own?.catches || 0);
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      this.baseCamY = portrait ? 3.4 : 3.2;
-      this.baseCamZ = portrait ? 8 : 7.2;
-      camera.fov = portrait ? 58 : 50;
-    });
+  drawHud(f) {
+    const own = f.arcade?.players?.[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(own?.catches || 0);
   }
 }

@@ -215,9 +215,11 @@ export class CameraRig {
       keep.forEach((object) => {
         if (!object || object.visible === false) return;
         const world = object.getWorldPosition(new THREE.Vector3());
-        // Figurenmitte und Kopf mit Schild: beide sollen ins Bild.
-        [0, 0.55].forEach((lift) => {
-          const rel = world.clone().add(new THREE.Vector3(0, lift, 0)).sub(camera.position);
+        // Figurenmitte, Kopf mit Schild und die beiden Seiten: die ganze
+        // Figur soll ins Bild, nicht nur ihre Mitte — sonst stand sie am Rand
+        // halb draussen und galt trotzdem als "im Bild".
+        [[0, 0], [0, 0.55], [-0.3, 0.2], [0.3, 0.2]].forEach(([side, lift]) => {
+          const rel = world.clone().addScaledVector(_right, side).add(new THREE.Vector3(0, lift, 0)).sub(camera.position);
           const { z, need } = neededDepth(rel, tanV, tanH, base.keepMargin);
           wantPush = Math.max(wantPush, need - z);
         });
@@ -291,7 +293,7 @@ function normalizeShot(shot) {
     insets: shot.insets ?? null,
     shakeScale: qualityTier() === "low" ? 0.8 : 1,
     intro: shot.intro === false ? null : { yaw: 0.55, pitch: 0.22, zoom: 1.5, ...(shot.intro || {}) },
-    finale: shot.finale === false ? null : { pull: 0.55, zoom: 0.62, lift: 0.4, orbit: 0.18, ...(shot.finale || {}) }
+    finale: shot.finale === false ? null : { pull: 0.8, zoom: 0.62, lift: 0.4, orbit: 0.18, ...(shot.finale || {}) }
   };
 }
 

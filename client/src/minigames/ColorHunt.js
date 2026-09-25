@@ -1,138 +1,48 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  applyFinaleMood,
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  KIN_SOLE
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  syncOwnMarker,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { addStageLights } from "./SceneKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin200";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Farbenjagd — EINE geteilte Fläche für alle. Jeder Kin färbt das Feld, auf dem
-// er steht, in seine Farbe, auch wenn dort schon eine fremde liegt. Damit ist es
-// das erste Minispiel, in dem man sich gegenseitig Boden abnimmt statt
-// nebeneinander zu punkten: ein fremdes Feld zu übermalen bringt dir eines UND
-// nimmt dem anderen eines.
+// Farbenjagd: jeder schiebt einen Farbroller in seiner Farbe über das Feld und
+// färbt, was er überrollt. Wer die meisten Felder hält, gewinnt.
 //
-// Am Bild gerechnet, zweimal. Zuerst das Seitenverhältnis: mit 7 x 9 Feldern
-// lagen die vorderen Ecken bei 1.83 NDC, also weit ausserhalb des Bildes; 5 x 11
-// passt zum hohen Handybild (0.45 gegen 0.46).
-//
-// Dann die Lage: mit der ersten Kamera reichte das Feld bis 879 px hinunter und
-// die beiden untersten Reihen lagen unter dem Stick. In einem Spiel um Fläche
-// muss man aber seine eigene Ecke SEHEN. Der freie Bereich ist 60 bis 750 px
-// (oben die Leisten, unten ab ~760 der Stick); bei 0.54 pro Feld und dieser
-// Kamera liegt das Feld bei 194 bis 747 px, ist also ganz frei, und ein Feld ist
-// vorne 77 px breit. Die Kamera bleibt geneigt, damit die Figuren Volumen haben.
+// Vorher liefen winzige Figuren mit leeren Händen über ein Brett, das aus
+// grosser Höhe gefilmt war. Jetzt hat jeder seinen Roller vor sich, der bei
+// der "breiten Rolle" sichtbar breiter wird, die Figuren schieben im Schritt,
+// prallen beim Zusammenstoss zurück, und das Brett füllt das Bild.
 const TILE = 0.54;
-const KIN_SCALE = 0.55;
-// Die Kacheln sind 0.06 hoch und liegen bei y=0.01, eingefärbte bei y=0.04 —
-// ihre Oberkante also bei 0.07. Ohne eigene Höhe standen die Kins auf y=0 und
-// steckten damit BIS ZU DEN KNÖCHELN IN der Platte statt darauf.
-const TILE_TOP_Y = 0.07;            // Oberkante eines eingefärbten Feldes
-// Die Figur steht AUF dem Feld, nicht darin — und weil sie verkleinert ist,
-// schrumpft der Sohlenabstand mit. standOn() rechnet mit voller Grösse und
-// hätte sie um denselben Betrag zu hoch gesetzt, um den sie vorher zu tief
-// stand.
-const KIN_Y = TILE_TOP_Y + KIN_SOLE * KIN_SCALE;
+const KIN_SCALE = 0.66;
+const TILE_TOP_Y = 0.07;
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-export class ColorHunt {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class ColorHunt extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.tiles = [];
     this.tileOwner = [];
     this.tileCharge = [];
-    this.kins = new Map();
-    this.animators = new Map();
     this.pickupMeshes = new Map();
+    this.rollers = new Map();
     this.lastBumpAt = new Map();
-    this.lastPickupAt = 0;
+    this.lastPickupAt = new Map();
     this.cols = 0;
     this.rows = 0;
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
+    this.labelY = 0.95;
+    this.markerOffset = 0.75;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Farbenjagd", background: "#8fd6ef", fog: ["#a9e0f2", 14, 34], fov: 58, far: 70 });
+  stage() {
+    return { label: "3D Farbenjagd", background: "#8fd6ef", fog: ["#a9e0f2", 16, 38], lights: false };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="paint-share" data-paint-share></div>
-      <div class="color-banner paint-banner" data-paint-banner hidden></div>
-    `);
-    this.createScene();
-
-    this.controls.innerHTML = `
-      <div class="mobile-stick-controls joystick-only">
-        <div class="joystick-slot"></div>
-      </div>
-    `;
-    this.joystick = new VirtualJoystick({
-      root: this.controls.querySelector(".joystick-slot"),
-      label: "Farbenjagd: Fläche färben",
-      intervalMs: 70,
-      feedback: this.feedback,
-      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
-      onEngage: () => {
-        this.feedback?.sound("move");
-        this.feedback?.vibrate(10);
-      }
-    });
-    this.loop();
+      <div class="color-banner paint-banner" data-paint-banner hidden></div>`;
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.joystick?.destroy?.();
-    this.controls.innerHTML = "";
-    teardownStage(this);
-    this.tiles.length = 0;
-    this.tileOwner.length = 0;
-    this.kins.clear();
-    this.animators.clear();
-    this.pickupMeshes.clear();
-  }
-
-  // Feldkoordinaten (0 … cols) in Weltkoordinaten. Die Mitte des Feldes liegt im
-  // Ursprung, damit die Kamera nicht nachgeführt werden muss.
   worldX(col) {
     return (col - this.cols / 2) * TILE;
   }
@@ -141,31 +51,20 @@ export class ColorHunt {
     return (row - this.rows / 2) * TILE;
   }
 
-  createScene() {
+  build() {
+    const scene = this.scene;
     const arcade = this.minigame?.arcade;
     this.cols = arcade?.cols || 5;
     this.rows = arcade?.rows || 11;
+    this.addLights();
 
-    addStageLights(this.scene, {
-      sunPosition: [-4, 10, 5],
-      shadow: {
-        left: -this.cols * TILE,
-        right: this.cols * TILE,
-        top: this.rows * TILE,
-        bottom: -this.rows * TILE
-      },
-      hemiIntensity: 2.7
-    });
-
-    // Rahmen unter dem Feld: gibt der Fläche einen Rand, damit man die Grenze
-    // sieht, an der man abprallt.
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(this.cols * TILE + 0.24, 0.18, this.rows * TILE + 0.24),
       new THREE.MeshLambertMaterial({ color: "#6b5b46" })
     );
     frame.position.y = -0.1;
     frame.receiveShadow = true;
-    this.scene.add(frame);
+    scene.add(frame);
 
     // Ein Mesh je Feld: 55 Kacheln sind billig, und die Farbe eines einzelnen
     // Feldes zu setzen ist damit ein Einzeiler.
@@ -177,7 +76,7 @@ export class ColorHunt {
         );
         tile.position.set(this.worldX(col + 0.5), 0.01, this.worldZ(row + 0.5));
         tile.receiveShadow = true;
-        this.scene.add(tile);
+        scene.add(tile);
         this.tiles.push(tile);
         this.tileOwner.push(null);
         this.tileCharge.push(0);
@@ -195,7 +94,7 @@ export class ColorHunt {
     );
     becken.position.set(0, -0.62, -6);
     becken.receiveShadow = true;
-    this.scene.add(becken);
+    scene.add(becken);
 
     const stegBreit = this.cols * TILE + 1.5;
     const stegLang = this.rows * TILE + 1.5;
@@ -205,7 +104,7 @@ export class ColorHunt {
     );
     steg.position.y = -0.24;
     steg.receiveShadow = true;
-    this.scene.add(steg);
+    scene.add(steg);
     // Bohlenfugen auf dem umlaufenden Rand.
     const bohlen = new THREE.InstancedMesh(
       new THREE.BoxGeometry(stegBreit, 0.03, 0.08),
@@ -219,7 +118,7 @@ export class ColorHunt {
       bohlen.setMatrixAt(i, fuge.matrix);
     }
     bohlen.instanceMatrix.needsUpdate = true;
-    this.scene.add(bohlen);
+    scene.add(bohlen);
 
     // Seerosenblätter im Becken, ausserhalb des Stegs.
     const blaetter = new THREE.InstancedMesh(
@@ -239,133 +138,173 @@ export class ColorHunt {
       blaetter.setMatrixAt(i, blatt.matrix);
     }
     blaetter.instanceMatrix.needsUpdate = true;
-    this.scene.add(blaetter);
+    scene.add(blaetter);
 
     [[-3.4, 4.4, -5, 6], [3.2, 5.0, -6, 1]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+      scene.add(cloud);
     });
 
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
+
     const players = this.getState()?.players || [];
-    players.forEach((player, index) => this.ensureKin(player, index));
-    this.resizeRenderer();
-    this.camera.position.set(0, 6.0, 4.6);
-    this.camera.lookAt(0, 0, 0.6);
+    players.forEach((player, index) => {
+      const entry = arcade?.players?.[player.id];
+      const kin = this.addKin(player, index, {
+        x: this.worldX(entry?.px ?? this.cols / 2),
+        ground: TILE_TOP_Y,
+        z: this.worldZ(entry?.py ?? this.rows / 2),
+        scale: KIN_SCALE
+      });
+      this.rollers.set(player.id, this.addRoller(kin, player.color));
+    });
   }
 
-  ensureKin(player, index = 0) {
-    if (this.kins.has(player.id)) return this.kins.get(player.id);
-    const kin = createVoxelKin(player.color, index);
-    kin.scale.setScalar(KIN_SCALE);
-    kin.position.y = KIN_Y;
-    const label = createNameLabel(player.name.slice(0, 6), player.color);
-    label.position.y = 0.85;
-    kin.add(label);
-    kin.userData.label = label;
-    const shadow = createShadowBlob(0.3);
-    this.scene.add(shadow);
-    kin.userData.shadow = shadow;
-    this.scene.add(kin);
-    this.kins.set(player.id, kin);
-    this.animators.set(player.id, new KinAnimator(kin));
-    return kin;
+  addLights() {
+    // Das Schattenfenster über das ganze Brett.
+    addStageLights(this.scene, {
+      sunPosition: [-4, 10, 5],
+      shadow: { left: -this.cols * TILE, right: this.cols * TILE, top: this.rows * TILE, bottom: -this.rows * TILE },
+      hemiIntensity: 2.7
+    });
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
+  // Der Farbroller: Griff von den Händen schräg nach vorn unten, die Walze in
+  // der Spielerfarbe vorn auf dem Boden. Er hängt an der Figur und dreht sich
+  // mit ihr.
+  addRoller(kin, color) {
+    const roller = new THREE.Group();
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.42), new THREE.MeshLambertMaterial({ color: "#6b4f35" }));
+    handle.position.set(0, -0.12, 0.36);
+    handle.rotation.x = 0.55;
+    roller.add(handle);
+    const fork = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.04), new THREE.MeshLambertMaterial({ color: "#8a8f99" }));
+    fork.position.set(0, -0.23, 0.55);
+    roller.add(fork);
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.46, 12), new THREE.MeshLambertMaterial({ color }));
+    drum.rotation.z = Math.PI / 2;
+    drum.position.set(0, -0.19, 0.6);
+    drum.castShadow = true;
+    roller.add(drum);
+    kin.add(roller);
+    roller.userData = { drum, fork, width: 1 };
+    return roller;
+  }
 
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
+  shot() {
+    const w = this.cols * TILE;
+    const d = this.rows * TILE;
+    return {
+      look: [0, 0, 0.25],
+      frame: { w: w + 0.3, h: d * Math.sin(0.8) + 0.8 },
+      fill: 0.96,
+      pitch: 0.8,
+      fov: 36,
+      intro: { yaw: 0.5, pitch: 0.3, zoom: 1.35 },
+      finale: { pull: 0.85, zoom: 0.6, lift: 0.3, orbit: 0.12 }
+    };
+  }
 
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
+  bind() {
+    this.controls.innerHTML = `
+      <div class="mobile-stick-controls joystick-only">
+        <div class="joystick-slot"></div>
+      </div>`;
+    this.joystick = new VirtualJoystick({
+      root: this.controls.querySelector(".joystick-slot"),
+      label: "Farbenjagd: Fläche färben",
+      intervalMs: 70,
+      feedback: this.feedback,
+      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onEngage: () => {
+        this.feedback?.sound("move");
+        this.feedback?.vibrate(10);
+      }
+    });
+  }
 
+  unbind() {
+    this.joystick?.destroy?.();
+    this.joystick = null;
+    this.tiles.length = 0;
+    this.tileOwner.length = 0;
+    this.pickupMeshes.clear();
+  }
+
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, state } = f;
+    if (!arcade) return;
     this.syncTiles(arcade, state);
     this.syncPickups(arcade, now);
 
-    state.players.forEach((player, index) => {
+    players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      const kin = this.ensureKin(player, index);
+      const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
+      const roller = this.rollers.get(player.id);
+      if (!entry || !kin || !animator) return;
       const x = this.worldX(entry.px);
       const z = this.worldZ(entry.py);
-      kin.position.x += (x - kin.position.x) * 0.4;
-      kin.position.z += (z - kin.position.z) * 0.4;
+      kin.position.x += (x - kin.position.x) * frameLerp(0.4, dt);
+      kin.position.z += (z - kin.position.z) * frameLerp(0.4, dt);
 
       const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
-      if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
-      else animator.set(speed > 0.35 ? "run" : "idle", { base: true });
-      // Blickrichtung in die Fahrtrichtung, damit man sieht, wohin einer will.
-      if (speed > 0.2) {
+      if (speed > 0.2 && !finale) {
         const want = Math.atan2(entry.vx, entry.vy);
-        kin.rotation.y += ((want - kin.rotation.y + Math.PI * 3) % (Math.PI * 2) - Math.PI) * 0.25;
+        let diff = want - kin.rotation.y;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        kin.rotation.y += diff * frameLerp(0.25, dt);
       }
-      animator.update(now);
+      if (finale) {
+        kin.rotation.y += Math.atan2(Math.sin(-kin.rotation.y), Math.cos(-kin.rotation.y)) * frameLerp(0.1, dt);
+      } else if (speed > 0.3) {
+        animator.set("shove");
+        animator.rate = 0.7 + speed * 0.35;
+      } else {
+        animator.set("ready");
+        animator.rate = 1;
+      }
 
-      kin.userData.shadow.position.set(kin.position.x, TILE_TOP_Y + 0.01, kin.position.z);
-      kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.7;
-
-      // Rempler: kurzer Funkenschlag, damit man merkt, dass man geschoben wurde.
-      const seen = this.lastBumpAt.get(player.id) || 0;
-      if (entry.lastBumpAt && entry.lastBumpAt !== seen) {
-        this.lastBumpAt.set(player.id, entry.lastBumpAt);
-        this.bursts.spawn(new THREE.Vector3(kin.position.x, 0.3, kin.position.z), [player.color, "#ffffff"], {
-          count: 6, speed: 1.2, up: 0.9, size: 0.05, life: 0.35, drag: 2.6
-        });
-        if (player.id === controlledId) {
-          this.feedback?.sound("pop");
-          this.feedback?.vibrate(12);
-          this.shake = Math.max(this.shake, 0.22);
+      // Walze dreht sich mit der Fahrt, wird bei der breiten Rolle breiter.
+      if (roller) {
+        const u = roller.userData;
+        u.drum.rotation.x += speed * dt * 6;
+        u.width += ((entry.wide ? 2.1 : 1) - u.width) * frameLerp(0.2, dt);
+        u.drum.scale.y = u.width;
+        u.fork.scale.x = u.width;
+        roller.visible = !finale;
+        if (speed > 0.3 && Math.random() < frameChance(0.25, dt)) {
+          const at = roller.localToWorld(new THREE.Vector3(0, -0.3, 0.6));
+          this.burst(at, [player.color], { count: 1, speed: 0.4, up: 0.4, size: 0.05, life: 0.35 });
         }
       }
 
-      // Breite Rolle: aufgesammelt gibt es einen Ruf, und der Kin trägt sie
-      // sichtbar (grösserer Schatten).
-      if (player.id === controlledId && entry.lastPickupAt && entry.lastPickupAt !== this.lastPickupAt) {
-        this.lastPickupAt = entry.lastPickupAt;
-        this.floaters.pop(new THREE.Vector3(kin.position.x, 0.9, kin.position.z), "BREITE ROLLE!", {
-          color: "#ffe36b", size: 0.3, life: 0.9
-        });
-        this.feedback?.sound("perfect");
-        this.feedback?.vibrate([8, 12, 16]);
+      const seen = this.lastBumpAt.get(player.id) || 0;
+      if (entry.lastBumpAt && entry.lastBumpAt !== seen) {
+        this.lastBumpAt.set(player.id, entry.lastBumpAt);
+        animator.trigger("flinch");
+        animator.expression("surprised", 400);
+        this.burst(new THREE.Vector3(kin.position.x, 0.35, kin.position.z), [player.color, "#ffffff"], { count: 6, speed: 1.2, up: 0.9, size: 0.05, life: 0.35, drag: 2.6 });
+        if (player.id === controlledId) {
+          this.feedback?.sound("pop");
+          this.feedback?.vibrate(12);
+          this.rig.shake(0.22);
+        }
       }
-      kin.userData.shadow.scale.setScalar(entry.wide ? 1.7 : 1);
+      if (entry.lastPickupAt && entry.lastPickupAt !== (this.lastPickupAt.get(player.id) || 0)) {
+        this.lastPickupAt.set(player.id, entry.lastPickupAt);
+        animator.trigger("fistpump");
+        animator.expression("joy", 700);
+        if (player.id === controlledId) {
+          this.pop(new THREE.Vector3(kin.position.x, 1, kin.position.z), "BREITE ROLLE!", { color: "#ffe36b", size: 0.3, life: 0.9 });
+          this.feedback?.sound("perfect");
+          this.feedback?.vibrate([8, 12, 16]);
+        }
+      }
+      if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
     });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.88, dt);
-    const shakeX = Math.sin(now / 13) * this.shake * 0.12 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * 0.4;
-    this.camera.position.y = this.baseCamY || 6.0;
-    this.camera.position.z = this.baseCamZ || 4.6;
-    this.camera.lookAt(0, 0, this.baseLookZ ?? 0.6);
-
-    // Steile Aufsicht: 0.3 statt der üblichen 0.9 Pfeilhöhe, sonst steht der
-    // Pfeil im Bild weit über seiner Figur statt auf ihr.
-    syncOwnMarker(this, this.kins.get(controlledId), now, 0.45, 0.14);
-    this.updateHud(minigame, arcade, state, now);
-    this.renderer.render(this.scene, this.camera);
   }
 
-  // Nur geänderte Felder anfassen: über 55 Kacheln je Bild neu zu setzen wäre
-  // Verschwendung. Neben dem Besitzer zählt der Anspruch — ein Feld, das gerade
-  // abgetragen wird, blasst sichtbar aus, und genau daran sieht man, dass sich
-  // jemand an seinem Revier zu schaffen macht.
   syncTiles(arcade, state) {
     const colors = new Map(state.players.map((player) => [player.id, player.color]));
     const grid = arcade.grid || [];
@@ -426,16 +365,13 @@ export class ColorHunt {
     });
   }
 
-  updateHud(minigame, arcade, state, now) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
+  drawHud(f) {
+    const { arcade, state, now, minigame } = f;
+    if (!arcade) return;
     const own = arcade.players[this.getControlledPlayerId()];
     const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(Math.max(0, Math.round(own?.score || 0)));
-
-    // Ein Balken, in dem alle vier Anteile nebeneinander liegen: das ist die
-    // Wertung selbst, nicht nur eine Zahl, und man sieht sofort, wer führt.
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(Math.max(0, Math.round(own?.score || 0)));
     const share = this.hud.querySelector("[data-paint-share]");
     if (share) {
       const total = (arcade.grid || []).length || 1;
@@ -473,16 +409,5 @@ export class ColorHunt {
     } else {
       banner.hidden = true;
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Am Bild gerechnet: äusserste Feldecke bei 0.90 NDC, Feld 77 px breit,
-      // und das Feld endet bei 747 px — also über dem Stick.
-      this.baseCamY = portrait ? 6.0 : 5.6;
-      this.baseCamZ = portrait ? 4.6 : 5.0;
-      this.baseLookZ = portrait ? 0.6 : 0.4;
-      camera.fov = portrait ? 58 : 46;
-    });
   }
 }

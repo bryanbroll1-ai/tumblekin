@@ -1102,6 +1102,45 @@ const STATES = {
       face(p, "effort");
     }
   },
+  // Schieben im Gehen: Hände vorn am Griff, Beine im Schritt — Farbroller,
+  // Schubkarre, Rasenmäher. Das Tempo kommt wie beim Laufen über `rate`.
+  shove: {
+    blend: 0.12,
+    pose(p, t, a) {
+      const c = a.cycle * TAU * 1.9 + a.phase;
+      stride(p, c, 0.75, 0);
+      p.aLs = 1.2;
+      p.aRs = 1.2;
+      p.aLr = 0.12;
+      p.aRr = 0.12;
+      p.lean = 0.28;
+      p.y = abs(sin(c)) * 0.03;
+      face(p, "effort");
+      p.mouth = "grin";
+    }
+  },
+  // Klettern Griff für Griff: `params.up` sagt, welcher Arm gerade oben
+  // greift (-1 links, 1 rechts, im Gerüst gesehen), `params.grab` läuft nach
+  // jedem Griff von 1 auf 0 — der Körper zieht sich dabei ein Stück hoch.
+  clamber: {
+    blend: 0.09,
+    pose(p, t, a) {
+      const up = a.params.up ?? 1;
+      const g = a.params.grab ?? 0;
+      const n = a.now + a.phase;
+      const leftUp = up < 0;
+      p.aLr = leftUp ? 2.75 : 1.7 + g * 0.25;
+      p.aRr = leftUp ? 1.7 + g * 0.25 : 2.75;
+      p.aLs = leftUp ? 0.2 : 0.5;
+      p.aRs = leftUp ? 0.5 : 0.2;
+      p.lL = leftUp ? 0.1 : 0.9 - g * 0.3;
+      p.lR = leftUp ? 0.9 - g * 0.3 : 0.1;
+      p.tilt = up * 0.07 * (0.5 + g);
+      p.y = g * 0.06 + sin(n * 2.1) * 0.012;
+      p.hX = -0.32;
+      face(p, "effort");
+    }
+  },
   hang: {
     blend: 0.15,
     pose(p, t, a) {
