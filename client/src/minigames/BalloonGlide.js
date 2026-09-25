@@ -1,33 +1,21 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createCloud,
-  createNameLabel,
-  createVoxelKin
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  entflechteSchilder,
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud, createNameLabel } from "./VoxelKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
-// Ballonfahrt — halten steigt, loslassen sinkt, und der Kurs kommt in Toren auf
-// einen zu. Alle vier fliegen denselben Kurs gleichzeitig und nebeneinander:
-// man sieht die ganze Zeit, wer vorn liegt, und das ist der halbe Spass.
+// Ballonfahrt: Halten zündet den Brenner und lässt steigen, Loslassen sinken.
+// Durch die Tore fliegen, möglichst mittig; wer aneckt, verliert kurz den
+// Brenner.
 //
-// Der Blick liegt seitlich auf den Schacht, wie bei einem Jump-and-Run. Auf dem
-// hohen Handybild ist das die einzige Anordnung, in der man die eigene Höhe UND
-// die nächsten zwei Tore gleichzeitig lesen kann.
+// Vorher stand im Korb eine Figur in einem Fünftel ihrer Grösse, kaum zu
+// sehen. Jetzt steht sie gross im Korb, reisst beim Halten an der
+// Brennerleine, sieht nach dem Anecken Sterne und reckt die Faust, wenn sie
+// ein Tor genau in der Mitte trifft. Die Tore stehen dichter, damit man im
+// Hochformat sieht, was kommt.
 const SHAFT_HEIGHT = 7.2;      // Weltmass fuer Hoehenanteil 0..1
 const SHAFT_BOTTOM = 0.4;
-const GATE_SPACING_X = 5.4;    // Weltabstand zweier Tore
+// Enger als früher (5.4): im Hochformat sieht man so zwei Tore voraus.
+const GATE_SPACING_X = 3.4;
 // Die Bahnen liegen in der TIEFE, nicht seitlich — sie müssen es: der Kurs
 // läuft in x, alle vier sind am selben Punkt des Kurses. Von vorn deckt der
 // vorderste Ballon die drei anderen dadurch fast vollständig ab.
@@ -49,107 +37,50 @@ function shaftY(share) {
   return SHAFT_BOTTOM + clamp(share, 0, 1) * SHAFT_HEIGHT;
 }
 
-export class BalloonGlide {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class BalloonGlide extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.balloons = new Map();
     this.gateVisuals = [];
-    this.lastGateAt = 0;
-    this.lastBumpCount = 0;
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
     this.holding = false;
-    this.flame = 0;
+    this.labelY = 0.74;
+    this.ownY = shaftY(0.5);
+    this.ownMarker = false;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Ballonfahrt", background: "#9fd8f2", fog: ["#cbe9f8", 26, 64], fov: 54, far: 120 });
+  stage() {
+    return {
+      label: "3D Ballonfahrt",
+      background: "#9fd8f2",
+      fog: ["#cbe9f8", 26, 64],
+      lights: { sunPosition: [-6, 14, 9], shadow: { left: -9, right: 9, top: 11, bottom: -3 } }
+    };
+  }
 
-    mountHud(this, `
-      <div class="kinetic-scorebar"><span data-glide-time>0s</span><strong data-glide-score>0</strong></div>
+  hudHtml() {
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-glide-score>0</strong></div>
       <div class="glide-gates" data-glide-gates>0 Tore</div>
       <div class="glide-chips" data-glide-chips></div>
-      <div class="color-banner glide-banner" data-glide-banner hidden></div>
-    `);
-    this.createScene();
-
-    // Keine Knoepfe: der ganze Bildschirm ist der Brenner. Ein Knopfstreifen
-    // waere hier nur ein kleineres Ziel fuer dieselbe eine Geste.
-    this.controls.innerHTML = `<p class="trace-hint">Halten = steigen · Loslassen = sinken</p>`;
-    this.controls.style.pointerEvents = "none";
-
-    this.setHolding = (down) => {
-      if (down === this.holding) return;
-      this.holding = down;
-      if (down) this.feedback?.sound("whoosh");
-      this.sendInput({ action: "lift", down }).catch(() => {});
-    };
-    this.onDown = (event) => { event.preventDefault(); this.setHolding(true); };
-    this.onUp = () => this.setHolding(false);
-
-    this.webglCanvas.addEventListener("pointerdown", this.onDown);
-    window.addEventListener("pointerup", this.onUp);
-    window.addEventListener("pointercancel", this.onUp);
-    this.loop();
+      <div class="color-banner glide-banner" data-glide-banner hidden></div>`;
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    this.webglCanvas?.removeEventListener("pointerdown", this.onDown);
-    window.removeEventListener("pointerup", this.onUp);
-    window.removeEventListener("pointercancel", this.onUp);
-    teardownStage(this);
-    this.balloons.clear();
-    this.gateVisuals.length = 0;
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-6, 14, 9],
-      shadow: { left: -9, right: 9, top: 11, bottom: -3 }
-    });
-
-    // Boden und Decke sind die harten Grenzen des Schachts. Sie muessen als
-    // solche zu lesen sein: an ihnen bleibt man haengen.
-    // 34 tief statt 7: der Boden endete bei z = 3.5, die Kamera steht bei
-    // 12.5 — im Bild lief unter dem Grün wieder Himmel durch, ein
-    // schwebender Bodenstreifen quer über den Bildschirm.
+  build() {
+    const scene = this.scene;
     this.floor = new THREE.Mesh(
       new THREE.BoxGeometry(60, 0.6, 34),
       new THREE.MeshLambertMaterial({ color: "#7bbf5e" })
     );
     this.floor.position.set(0, SHAFT_BOTTOM - 0.3, -3);
     this.floor.receiveShadow = true;
-    this.scene.add(this.floor);
+    scene.add(this.floor);
 
     this.ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(60, 0.5, 7),
       new THREE.MeshLambertMaterial({ color: "#8d9bb5" })
     );
     this.ceiling.position.set(0, SHAFT_BOTTOM + SHAFT_HEIGHT + 0.25, 0);
-    this.scene.add(this.ceiling);
+    scene.add(this.ceiling);
 
     // Zacken an Boden und Decke: sie sagen ohne Worte, dass Anecken wehtut.
     const spikeGeo = new THREE.ConeGeometry(0.26, 0.5, 4);
@@ -159,33 +90,25 @@ export class BalloonGlide {
       const down = new THREE.Mesh(spikeGeo, spikeMat);
       down.position.set(x, SHAFT_BOTTOM + SHAFT_HEIGHT - 0.25, 0);
       down.rotation.x = Math.PI;
-      this.scene.add(down);
+      scene.add(down);
       const up = new THREE.Mesh(spikeGeo, new THREE.MeshLambertMaterial({ color: "#5f9c47" }));
       up.position.set(x, SHAFT_BOTTOM + 0.25, 0);
-      this.scene.add(up);
+      scene.add(up);
     }
 
     for (let i = 0; i < 6; i += 1) {
       const cloud = createCloud(i * 3);
       cloud.position.set(-20 + i * 9, 2 + (i % 3) * 2.4, -7 - (i % 2) * 4);
       cloud.scale.setScalar(1.3);
-      this.scene.add(cloud);
+      scene.add(cloud);
       if (!this.clouds) this.clouds = [];
       this.clouds.push(cloud);
     }
 
     this.buildGates();
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
     this.buildBalloons();
-    this.resizeRenderer();
-    this.camera.position.set(0, 4.0, 12.5);
-    this.camera.lookAt(0, 4.0, 0);
   }
 
-  // Torkoerper werden EINMAL gebaut und weiterverwendet — es laufen ueber eine
-  // Runde gut zwanzig durchs Bild, und neue Meshes dafuer waeren auf dem Handy
-  // der teuerste Teil der Szene.
   buildGates() {
     for (let i = 0; i < GATE_LOOKAHEAD + 1; i += 1) {
       const group = new THREE.Group();
@@ -260,7 +183,7 @@ export class BalloonGlide {
       group.add(stripe2);
 
       const basket = new THREE.Mesh(
-        new THREE.BoxGeometry(0.5, 0.4, 0.5),
+        new THREE.BoxGeometry(0.74, 0.36, 0.74),
         huelle("#a9763f")
       );
       basket.position.y = 0.15;
@@ -285,11 +208,6 @@ export class BalloonGlide {
       flame.position.y = 0.8;
       group.add(flame);
 
-      const kin = createVoxelKin(player.color, index);
-      kin.scale.setScalar(0.2); // Tiny kin in a huge balloon
-      kin.position.y = 0.15;
-      group.add(kin);
-
       const label = createNameLabel(player.name, player.color);
       label.position.y = 3.5;
       group.add(label);
@@ -297,9 +215,14 @@ export class BalloonGlide {
       group.position.set(0, shaftY(0.5), LANE_Z[index % LANE_Z.length]);
       this.scene.add(group);
 
+      // Die Figur steht im Korb; addKin legt sie in die Szene, sie wird dem
+      // Ballon nachgeführt (siehe tick).
+      const kin = this.addKin(player, index, { x: 0, ground: 0, z: group.position.z, facing: 0.3, label: false, scale: 0.82 });
+      this.shadows.get(player.id).visible = false;
+      this.shadows.get(player.id).userData.manual = true;
+      if (fremd) this.fade(player.id, 0.55);
       this.balloons.set(player.id, {
         group, envelope, basket, flame, kin, label,
-        animator: new KinAnimator(kin),
         bob: Math.random() * 6.28,
         lastBumps: 0,
         lastGateIndex: -1
@@ -307,55 +230,40 @@ export class BalloonGlide {
     });
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const elapsed = Math.max(0, now - minigame.startedAt);
-    const own = arcade.players[this.getControlledPlayerId()];
-
-    this.syncGates(arcade, elapsed, dt, own);
-    this.syncBalloons(minigame, arcade, state, now, dt);
-    this.scrollBackground(dt);
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.86, dt);
-    const jolt = Math.sin(now / 11) * this.shake * 0.22 * shakeScale();
-
-    // Die Kamera folgt der eigenen Hoehe, aber gedaempft und nur zur Haelfte:
-    // eine Kamera, die jeder Bewegung voll folgt, laesst den eigenen Ballon
-    // stillstehen — dann sieht man nicht mehr, ob man steigt oder faellt.
-    const ownY = own ? shaftY(own.y ?? 0.5) : 4.0;
-    const wanted = 4.0 + (ownY - 4.0) * 0.45;
-    this.camY = (this.camY ?? wanted) + (wanted - (this.camY ?? wanted)) * frameLerp(0.09, dt);
-    this.camera.position.set(jolt, this.camY, this.baseCamZ || 12.5);
-    this.camera.lookAt(0, this.camY - 0.2, 0);
-
-    this.updateHud(minigame, arcade, state, now, own);
-    // Vier Ballons in derselben Bildspalte heisst vier Namensschilder
-    // übereinander. Die Staffelung macht sie wieder lesbar.
-    entflechteSchilder([...this.balloons.values()].map((b) => b.label), this.camera,
-      { grundY: 1.75, stufe: 0.42, naehe: 0.2 });
-    this.renderer.render(this.scene, this.camera);
+  shot() {
+    return {
+      look: [0.9, shaftY(0.5), 0],
+      frame: { w: 5.0, h: SHAFT_HEIGHT + 0.6 },
+      pitch: 0.04,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.15, zoom: 1.2 },
+      finale: { pull: 0.6, zoom: 0.6, lift: 1.2, orbit: 0.12 }
+    };
   }
 
-  // Die Tore stehen in Weltkoordinaten und wandern nach links. Welches Tor auf
-  // welchem Koerper liegt, entscheidet allein die verstrichene Zeit — der
-  // Server rechnet mit derselben Zahl, also stimmt Bild und Wertung ueberein.
+  bind() {
+    this.controls.innerHTML = `<p class="trace-hint">Halten = steigen · Loslassen = sinken</p>`;
+    this.controls.style.pointerEvents = "none";
+    const set = (down) => {
+      if (down === this.holding) return;
+      this.holding = down;
+      if (down) this.feedback?.sound("whoosh");
+      this.sendInput({ action: "lift", down }).catch(() => {});
+    };
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      event.preventDefault();
+      set(true);
+    });
+    this.on(window, "pointerup", () => set(false));
+    this.on(window, "pointercancel", () => set(false));
+  }
+
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.balloons.clear();
+    this.gateVisuals.length = 0;
+  }
+
   syncGates(arcade, elapsed, dt, own) {
     const gates = arcade.gates || [];
     const spacingMs = gates.length > 1 ? gates[1].at - gates[0].at : 1500;
@@ -393,100 +301,103 @@ export class BalloonGlide {
     });
   }
 
-  syncBalloons(minigame, arcade, state, now, dt) {
-    state.players.forEach((player) => {
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (!arcade) return;
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    const own = arcade.players[controlledId];
+    this.syncGates(arcade, elapsed, dt, own);
+    players.forEach((player) => {
       const visual = this.balloons.get(player.id);
       const entry = arcade.players[player.id];
-      if (!visual || !entry) return;
-
+      const animator = this.animators.get(player.id);
+      if (!visual || !entry || !animator) return;
+      const isOwn = player.id === controlledId;
       const y = shaftY(entry.y ?? 0.5);
       visual.group.position.y += (y - visual.group.position.y) * frameLerp(0.55, dt);
-
-      // Neigung nach der Steiggeschwindigkeit: das ist die schnellste Art, ohne
-      // Zahlen zu zeigen, ob es gerade hoch oder runter geht.
       const vy = entry.vy || 0;
       visual.group.rotation.z += ((-vy * 0.35) - visual.group.rotation.z) * frameLerp(0.2, dt);
       visual.bob += dt * (2.2 + Math.abs(vy) * 2);
       visual.group.position.x = Math.sin(visual.bob) * 0.07;
-
       const burning = entry.holding && !entry.stalled;
       const target = burning ? 0.85 + Math.sin(now / 45) * 0.15 : 0;
       visual.flame.material.opacity += (target - visual.flame.material.opacity) * frameLerp(0.3, dt);
       visual.flame.scale.y = 0.7 + visual.flame.material.opacity * 0.8;
-
-      // Stockung nach dem Anecken: der Ballon flackert grau, damit klar ist,
-      // warum der Brenner gerade nichts bringt.
       visual.envelope.material.color.set(entry.stalled ? "#8d9bb5" : player.color);
+      if (isOwn) this.ownY = visual.group.position.y;
+      // Die Figur fährt im Korb mit.
+      visual.kin.position.x = visual.group.position.x;
+      visual.kin.position.z = visual.group.position.z + 0.02;
+      visual.kin.rotation.z = visual.group.rotation.z;
+      animator.groundY = visual.group.position.y + 0.02 + 0.3 * 0.82;
 
       if ((entry.bumps || 0) > visual.lastBumps) {
         visual.lastBumps = entry.bumps;
-        if (player.id === this.getControlledPlayerId()) {
-          this.shake = Math.max(this.shake, 0.5);
+        animator.trigger("flinch");
+        animator.expression("dizzy", 1200);
+        if (isOwn) {
+          this.rig.shake(0.5);
           this.feedback?.sound("impact");
           this.feedback?.vibrate(24);
         }
-        this.bursts.spawn(visual.group.position.clone().setY(y + 0.4), ["#c9d3e4", player.color],
-          { count: 8 * fxScale(), speed: 1.6, up: 0.6, size: 0.07, life: 0.5, drag: 2.2 });
+        this.burst(visual.group.position.clone().setY(y + 0.4), ["#c9d3e4", player.color], { count: 8 * fxScale(), speed: 1.6, up: 0.6, size: 0.07, life: 0.5, drag: 2.2 });
       }
-
       const gate = entry.lastGate;
       if (gate && gate.index !== visual.lastGateIndex) {
         visual.lastGateIndex = gate.index;
         const at = visual.group.position.clone().setY(y + 1.1);
         if (gate.hit) {
-          this.bursts.spawn(at, ["#ffd15c", "#ffffff"],
-            { count: 12 * fxScale(), speed: 2.0, up: 1.2, size: 0.07, life: 0.5, drag: 2.0 });
-          if (player.id === this.getControlledPlayerId()) {
+          if (gate.centre >= 38) animator.trigger("fistpump");
+          animator.expression(gate.centre >= 38 ? "joy" : "happy", 600);
+          this.burst(at, ["#ffd15c", "#ffffff"], { count: 12 * fxScale(), speed: 2.0, up: 1.2, size: 0.07, life: 0.5, drag: 2.0 });
+          if (isOwn) {
             this.feedback?.sound(gate.centre >= 38 ? "perfect" : "coin");
             this.feedback?.vibrate(gate.centre >= 38 ? 16 : 10);
-            this.floaters.pop(at, gate.centre >= 38 ? "MITTE!" : `+${100 + gate.centre}`,
-              { color: gate.centre >= 38 ? "#ffe9a8" : "#c6ffb0", size: 0.34, life: 0.7 });
+            this.pop(at, gate.centre >= 38 ? "MITTE!" : `+${100 + gate.centre}`, { color: gate.centre >= 38 ? "#ffe9a8" : "#c6ffb0", size: 0.34, life: 0.7 });
           }
-        } else if (player.id === this.getControlledPlayerId()) {
-          this.feedback?.sound("error");
-          this.floaters.pop(at, "VORBEI", { color: "#ff9aa8", size: 0.34, life: 0.7 });
+        } else {
+          animator.trigger("headshake");
+          animator.expression("sad", 700);
+          if (isOwn) {
+            this.feedback?.sound("error");
+            this.pop(at, "VORBEI", { color: "#ff9aa8", size: 0.34, life: 0.7 });
+          }
         }
       }
-
-      if (minigame.finaleAt) {
-        const place = this.finalePlace(arcade, state, player.id);
-        applyFinaleMood(visual.animator, place, state.players.length);
-      } else if (entry.stalled) {
-        visual.animator.set("hit");
-      } else if (burning) {
-        visual.animator.set("cheer", { base: true });
-      } else {
-        visual.animator.set("idle", { base: true });
-      }
-      visual.animator.update(now);
+      if (finale) return;
+      animator.lookAt(new THREE.Vector3(visual.group.position.x + 3, y + 0.5, 0));
+      if (entry.stalled) animator.set("dizzy");
+      else if (burning) {
+        // An der Brennerleine ziehen.
+        animator.set("reach", { params: { side: 1 } });
+        animator.set("focus");
+        animator.expression("effort", 150);
+      } else animator.set("idle");
     });
+    if (this.clouds) {
+      this.clouds.forEach((cloud) => {
+        cloud.position.x -= dt * 1.1;
+        if (cloud.position.x < -26) cloud.position.x += 52;
+      });
+    }
   }
 
-  scrollBackground(dt) {
-    if (!this.clouds) return;
-    // Die Wolken laufen langsamer als die Tore. Das ist der billigste
-    // Tiefeneindruck, den es gibt, und er macht den Schacht sofort raeumlich.
-    this.clouds.forEach((cloud) => {
-      cloud.position.x -= dt * 1.1;
-      if (cloud.position.x < -26) cloud.position.x += 52;
-    });
+  // Die ganze Höhe bleibt im Bild; die Kamera folgt der eigenen Höhe nur
+  // ein wenig.
+  keepInView() {
+    return [];
   }
 
-  finalePlace(arcade, state, playerId) {
-    const scored = state.players
-      .map((player) => ({ id: player.id, score: arcade.players[player.id]?.score || 0 }))
-      .sort((a, b) => b.score - a.score);
-    const index = scored.findIndex((entry) => entry.id === playerId);
-    return index < 0 ? state.players.length : index + 1;
+  rigOptions() {
+    return { look: [0.9, shaftY(0.5) + (this.ownY - shaftY(0.5)) * 0.2, 0] };
   }
 
-  updateHud(minigame, arcade, state, now, own) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-glide-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-glide-score]").textContent = String(Math.max(0, Math.round(own?.score || 0)));
-
+  drawHud(f) {
+    const { arcade, state } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-glide-score]");
+    this.scoreNode.textContent = String(Math.max(0, Math.round(own?.score || 0)));
     const gates = this.hud.querySelector("[data-glide-gates]");
     if (gates) gates.textContent = `${own?.gatesPassed || 0}/${arcade.gateCount || 0} Tore`;
 
@@ -509,14 +420,5 @@ export class BalloonGlide {
     } else {
       banner.hidden = true;
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Im Hochformat weiter weg: der Schacht ist hoch, und die naechsten zwei
-      // Tore muessen mit ins Bild, sonst fliegt man blind.
-      this.baseCamZ = portrait ? 12.5 : 14.5;
-      camera.fov = portrait ? 54 : 42;
-    });
   }
 }

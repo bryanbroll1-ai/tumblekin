@@ -1,87 +1,135 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  createCloud,
-  createNameLabel,
-  createOwnMarker,
-  updateOwnMarker
-} from "./VoxelKit.js?v=tumblekin200";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Turmbau — a block slides back and forth over each player's tower; tap to
-// drop it. Overhang is trimmed off, a perfect stack keeps full width, and a
-// total miss topples the tower. Tallest tower wins.
-// Vier Türme nebeneinander sind auf einem hochkanten Handy das Breiteste, was
-// die Szene hat — und die Breite entscheidet, wie weit die Kamera weg muss.
-// Bei 1.85 Abstand stand der äusserste Turm gemessen ausserhalb des Bildes.
-const COL_GAP = 1.62;
-// Wie stark die Kamera zum eigenen Turm rückt. Der Wert MUSS in die Rechnung
-// für die Kameradistanz eingehen (siehe resizeRenderer) — bei 0.18 fraß der
-// Versatz den ganzen Rand auf und der äusserste Turm stand wieder halb
-// ausserhalb des Bildes, obwohl die Distanz vorher genau dafür gerechnet war.
-const OWN_BIAS = 0.10;
-// Höhere Klötze. Bei 0.32 war ein Turm aus zehn Steinen drei Einheiten hoch,
-// während die Kamera vierzehn Einheiten Höhe zeigte: das Bild war zur Hälfte
-// Himmel und zur Hälfte Wiese, und dazwischen lagen drei flache Bretter.
+// Turmbau: über dem eigenen Turm pendelt der nächste Block, ein Tipp lässt ihn
+// fallen. Was übersteht, wird abgeschnitten — wer am höchsten baut, gewinnt.
+//
+// Vorher gab es gar keine Figuren, nur Türme und Namensschilder. Jetzt steht
+// auf jedem Turm sein Baumeister. Der nächste Block hängt am Haken darüber;
+// fällt er, springt die Figur auf den neuen Block, jubelt bei einem perfekten
+// Treffer und steckt am Ende ihre Fahne auf.
+const COL_GAP = 1.5;
 const BLOCK_H = 0.46;
 const BASE_Y = 0.2;
-const WORLD_W = 1.35;      // world width of a full-width (=1) block
-const SLIDE_W = 1.15;      // world half-range of the sliding block
+const WORLD_W = 1.35;
+const SLIDE_W = 1.15;
+const HOVER = 1.55;
+const DROP_MS = 200;
 
-export class TowerStack {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
-    this.towers = new Map();       // playerId -> { group, blocks:[], slider, x, color }
+export class TowerStack extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
+    this.towers = new Map();
     this.lastHeight = new Map();
     this.lastToppled = new Map();
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
+    this.labelY = 0.74;
+    this.smoothTop = 0;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Turmbau", fog: ["#a8e2f4", 20, 46], fov: 46, far: 90 });
+  stage() {
+    return {
+      label: "3D Turmbau",
+      background: "#a8e2f4",
+      fog: ["#a8e2f4", 20, 46],
+      lights: { sunPosition: [-4, 12, 6], shadow: { top: 12, bottom: -6 } }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-      <div class="color-banner" data-stack-banner hidden></div>
-    `);
-    this.createScene();
+      <div class="color-banner" data-stack-banner hidden></div>`;
+  }
 
+  build() {
+    const scene = this.scene;
+    const ground = new THREE.Mesh(
+      new THREE.BoxGeometry(44, 0.5, 40),
+      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+    );
+    ground.position.y = -0.25;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Kulisse statt leerer Wiese: Büschel, Blumen, Steine und ein Baumkranz,
+    // der dem Bild einen Horizont gibt. Freigehalten wird der Streifen mit den
+    // vier Türmen.
+    dressMeadow(this.scene, { seed: 14, keepOut: { x: 4.2, z: 2.6 }, spread: { x: 16, z: 14 }, grassColor: "#6cb95c", patchColors: ["#74c465", "#8ad97a"], crownColor: "#4a9c4e", crownColor2: "#6ab857", crownShape: "blob" });
+
+    [[-7, 5.4, -4, 5], [7, 6, -3, 6]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      scene.add(cloud);
+    });
+
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => this.addTower(player, index, players.length));
+  }
+
+  columnX(index, count) {
+    return (index - (count - 1) / 2) * COL_GAP;
+  }
+
+  levelTop(level) {
+    return BASE_Y + 0.2 + level * BLOCK_H - BLOCK_H / 2;
+  }
+
+  addTower(player, index, count) {
+    const x = this.columnX(index, count);
+    const group = new THREE.Group();
+    group.position.x = x;
+    this.scene.add(group);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(WORLD_W, 0.4, 1.1), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
+    base.receiveShadow = true;
+    base.castShadow = true;
+    group.add(base);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(WORLD_W + 0.06, 0.1, 1.16), new THREE.MeshLambertMaterial({ color: player.color }));
+    stripe.position.y = 0.2;
+    group.add(stripe);
+    // Der Haken, an dem der nächste Block hängt.
+    const hook = new THREE.Group();
+    const rope = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1, 0.04), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
+    rope.position.y = BLOCK_H / 2 + 0.5;
+    hook.add(rope);
+    const slider = new THREE.Mesh(new THREE.BoxGeometry(WORLD_W, BLOCK_H, 1), new THREE.MeshLambertMaterial({ color: player.color, transparent: true, opacity: 0.92 }));
+    slider.castShadow = true;
+    hook.add(slider);
+    group.add(hook);
+    // Der Baumeister oben drauf.
+    this.addKin(player, index, { x, ground: BASE_Y + 0.2, z: 0.1, facing: 0, scale: 0.9 });
+    this.towers.set(player.id, { group, blocks: [], hook, slider, x, color: player.color, dropping: null, flagged: false });
+  }
+
+  shot() {
+    const count = Math.max(1, this.towers.size);
+    return {
+      look: [0, 1.4, 0],
+      frame: { w: count * COL_GAP + 1.2, h: 3.4 },
+      pitch: 0.16,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }
+    };
+  }
+
+  bind() {
     this.controls.innerHTML = `
       <button type="button" class="nerve-button" data-stack-drop>
         <span class="nerve-button-face">SETZEN!</span>
-      </button>
-    `;
+      </button>`;
     this.dropButton = this.controls.querySelector("[data-stack-drop]");
-    this.onDropDown = (event) => {
+    const press = (event) => {
       event.preventDefault();
       this.pressDrop();
     };
-    this.dropButton.addEventListener("pointerdown", this.onDropDown);
-    this.onCanvasTap = (event) => {
-      event.preventDefault();
-      this.pressDrop();
-    };
-    this.webglCanvas.addEventListener("pointerdown", this.onCanvasTap);
-    this.loop();
+    this.on(this.dropButton, "pointerdown", press);
+    this.on(this.webglCanvas, "pointerdown", press);
+  }
+
+  unbind() {
+    this.towers.clear();
   }
 
   pressDrop() {
@@ -93,262 +141,122 @@ export class TowerStack {
     this.sendInput({ action: "drop" }).catch(() => {});
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    if (this.onCanvasTap) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasTap);
-    teardownStage(this);
-    this.towers.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, { sunPosition: [-4, 12, 6], shadow: { top: 12, bottom: -6 } });
-
-    // Gross genug, dass ihr Rand nie ins Bild kommt. Bei 22×12 sah man aus der
-    // tieferen Kameralage unter der Wiese hindurch in den Himmel — ein blaues
-    // Band quer unter dem Boden.
-    const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(44, 0.5, 40),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
-    );
-    ground.position.y = -0.25;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
-
-    // Kulisse statt leerer Wiese: Büschel, Blumen, Steine und ein Baumkranz,
-    // der dem Bild einen Horizont gibt. Freigehalten wird der Streifen mit den
-    // vier Türmen.
-    dressMeadow(this.scene, { seed: 14, keepOut: { x: 4.2, z: 2.6 }, spread: { x: 16, z: 14 }, grassColor: "#6cb95c", patchColors: ["#74c465", "#8ad97a"], crownColor: "#4a9c4e", crownColor2: "#6ab857", crownShape: "blob" });
-
-    [[-7, 5.4, -4, 5], [7, 6, -3, 6]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
-    });
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    const players = this.getState()?.players || [];
-    players.forEach((player, index) => this.ensureTower(player, index, players.length));
-    this.resizeRenderer();
-    this.camera.position.set(0, this.baseCamY || 3.2, this.baseCamZ || 13.9);
-    this.camera.lookAt(0, BASE_Y + 0.5, 0);
-  }
-
-  columnX(index, count) {
-    return (index - (count - 1) / 2) * COL_GAP;
-  }
-
-  ensureTower(player, index, count) {
-    if (this.towers.has(player.id)) return this.towers.get(player.id);
-    const isOwn = player.id === this.getControlledPlayerId();
-    const x = this.columnX(index, count);
-    const group = new THREE.Group();
-    group.position.x = x;
-    this.scene.add(group);
-    // Sockel je Turm. Er war 0.2 BREITER als der Spaltabstand — damit stiessen
-    // die vier Sockel aneinander und das Bild zeigte statt vier Türmen eine
-    // durchgehende Bank. Jetzt bleibt sichtbar Luft dazwischen, und die
-    // Spielerfarbe als Streifen sagt sofort, welcher Turm wem gehört.
-    const base = new THREE.Mesh(
-      new THREE.BoxGeometry(WORLD_W, 0.4, 1.1),
-      new THREE.MeshLambertMaterial({ color: "#8a5a2c" })
-    );
-    base.position.y = 0;
-    base.receiveShadow = true;
-    base.castShadow = true;
-    group.add(base);
-    const streifen = new THREE.Mesh(
-      new THREE.BoxGeometry(WORLD_W + 0.06, 0.1, 1.16),
-      new THREE.MeshLambertMaterial({ color: player.color })
-    );
-    streifen.position.y = 0.2;
-    group.add(streifen);
-    const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.set(0, -0.5, 0.7);
-    label.material.opacity = isOwn ? 1 : 0.8;
-    group.add(label);
-    // The sliding preview block (only really matters on your own tower).
-    const slider = new THREE.Mesh(
-      new THREE.BoxGeometry(WORLD_W, BLOCK_H, 1),
-      new THREE.MeshLambertMaterial({ color: player.color, transparent: true, opacity: isOwn ? 0.9 : 0.07 })
-    );
-    slider.castShadow = isOwn;
-    group.add(slider);
-
-    const tower = { group, blocks: [], slider, label, x, color: player.color };
-    this.towers.set(player.id, tower);
-    return tower;
-  }
-
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
-    const players = state.players || [];
     let topHeight = 0;
-
-    players.forEach((player, index) => {
+    players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      const tower = this.ensureTower(player, index, players.length);
-
-      // Reconcile placed blocks up to the server height. Placed blocks are
-      // solid for every tower; only the sliding preview block of rivals is
-      // faded (see the slider below).
+      const tower = this.towers.get(player.id);
+      const kin = this.kins.get(player.id);
+      const animator = this.animators.get(player.id);
+      if (!entry || !tower || !kin || !animator) return;
       const isOwn = player.id === controlledId;
+      // Neue Blöcke fallen vom Haken, die Figur springt hinauf.
       while (tower.blocks.length < (entry.height || 0)) {
         const level = tower.blocks.length;
         const block = new THREE.Mesh(
           new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1),
-          new THREE.MeshLambertMaterial({
-            color: tower.color,
-            emissive: tower.color,
-            emissiveIntensity: isOwn ? (level % 2 ? 0.12 : 0.04) : 0
-          })
+          new THREE.MeshLambertMaterial({ color: tower.color, emissive: tower.color, emissiveIntensity: level % 2 ? 0.1 : 0.03 })
         );
-        block.position.set(entry.offset * WORLD_W, BASE_Y + 0.2 + level * BLOCK_H, 0);
+        const restY = BASE_Y + 0.2 + level * BLOCK_H;
+        block.position.set(entry.offset * WORLD_W, restY, 0);
         block.castShadow = true;
         block.receiveShadow = true;
         tower.group.add(block);
         tower.blocks.push(block);
+        tower.dropping = { block, from: tower.hook.position.y, to: restY, at: now };
+        animator.trigger("jump");
+      }
+      if (tower.dropping) {
+        const u = Math.min(1, (now - tower.dropping.at) / DROP_MS);
+        tower.dropping.block.position.y = THREE.MathUtils.lerp(tower.dropping.from, tower.dropping.to, u * u);
+        if (u >= 1) tower.dropping = null;
       }
       const height = tower.blocks.length;
       topHeight = Math.max(topHeight, height);
-
-      // Grow/topple feedback.
       if (height > (this.lastHeight.get(player.id) || 0)) {
         this.lastHeight.set(player.id, height);
         const top = tower.blocks[height - 1];
         const topPos = top.getWorldPosition(new THREE.Vector3());
+        topPos.y = BASE_Y + 0.2 + (height - 1) * BLOCK_H;
         const perfect = entry.flash === "good";
-        this.bursts.spawn(topPos, [tower.color, "#ffffff"], {
-          count: perfect ? 10 : 5,
-          speed: perfect ? 1.7 : 1.2,
-          up: perfect ? 1.6 : 1.2,
-          size: 0.06,
-          life: 0.45,
-          drag: 2.2,
-          fadePow: 1.6
-        });
+        this.burst(topPos, [tower.color, "#ffffff"], { count: perfect ? 10 : 5, speed: perfect ? 1.7 : 1.2, up: perfect ? 1.6 : 1.2, size: 0.06, life: 0.45, drag: 2.2, fadePow: 1.6 });
         if (perfect) {
+          animator.trigger("fistpump");
+          animator.expression("joy", 700);
           this.bursts.ring(topPos, "#fff2b0", { radius: 1.2, life: 0.5, opacity: 0.6, tilt: null });
-          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.35, 0)), "PERFEKT!", { color: "#ffe36b", size: 0.42 });
+          this.pop(topPos.clone().add(new THREE.Vector3(0, 1.1, 0)), "PERFEKT!", { color: "#ffe36b", size: 0.4 });
         } else {
-          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.3, 0)), "+1", { color: "#ffffff", size: 0.34, life: 0.7, rise: 0.7 });
+          animator.expression("effort", 500);
         }
-        if (player.id === controlledId) {
+        if (isOwn) {
           this.feedback?.sound(perfect ? "perfect" : "pop", { pan: tower.x * 0.25 });
           this.feedback?.vibrate(perfect ? [8, 20, 12] : 8);
         }
       }
-      // Sealed tower (a miss or a full stack): plant a little flag on top as
-      // the end marker — the tower never falls over.
+      // Die Figur steht auf dem obersten Block, mittig darüber.
+      const top = tower.blocks[height - 1];
+      const standY = height ? BASE_Y + 0.2 + (height - 1) * BLOCK_H + BLOCK_H / 2 : BASE_Y + 0.2;
+      animator.groundY = standY + 0.3 * 0.9;
+      const topX = tower.x + (top ? top.position.x : 0);
+      kin.position.x += (topX - kin.position.x) * frameLerp(0.3, dt);
+
       const capped = entry.toppled || height >= arcade.total;
       if (capped && !this.lastToppled.get(player.id)) {
         this.lastToppled.set(player.id, true);
-        const top = tower.blocks[height - 1];
+        const complete = !entry.toppled || height >= arcade.total;
         if (top) {
-          const pole = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.6, 0.06), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
-          pole.position.set(top.position.x, top.position.y + BLOCK_H / 2 + 0.3, 0);
+          const pole = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
+          pole.position.set(top.position.x + 0.42, top.position.y + BLOCK_H / 2 + 0.4, -0.2);
           tower.group.add(pole);
           const flag = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, 0.05), new THREE.MeshLambertMaterial({ color: tower.color, emissive: tower.color, emissiveIntensity: 0.2 }));
-          flag.position.set(top.position.x + 0.24, top.position.y + BLOCK_H / 2 + 0.42, 0);
+          flag.position.set(top.position.x + 0.66, top.position.y + BLOCK_H / 2 + 0.66, -0.2);
           tower.group.add(flag);
-          const topPos = top.getWorldPosition(new THREE.Vector3());
-          const complete = !entry.toppled || height >= arcade.total;
-          this.bursts.spawn(topPos, [tower.color, "#ffffff", "#ffe36b"], {
-            count: complete ? 16 : 8,
-            speed: complete ? 2.2 : 1.6,
-            up: complete ? 2.2 : 1.8,
-            size: 0.08,
-            life: 0.7,
-            drag: 1.6
-          });
-          this.bursts.ring(topPos, complete ? "#ffe36b" : "#ffffff", { radius: complete ? 2 : 1.3, life: 0.6, opacity: 0.6, tilt: null });
-          this.floaters.pop(topPos.clone().add(new THREE.Vector3(0, 0.5, 0)), complete ? "🏆" : "🚩", { size: complete ? 0.6 : 0.42, life: 1.1, rise: 1.1 });
+          this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), complete ? "🏆" : "🚩", { size: complete ? 0.6 : 0.42, life: 1.1, rise: 1.1 });
         }
-        if (player.id === controlledId) {
-          this.shake = Math.max(this.shake, 0.6);
+        animator.trigger(complete ? "celebrate" : "wave");
+        if (isOwn) {
+          this.rig.shake(0.5);
           this.feedback?.sound(entry.toppled && height < arcade.total ? "pop" : "win");
           this.feedback?.vibrate(entry.toppled && height < arcade.total ? 12 : [20, 20, 40]);
         }
       }
-
-      // The sliding preview block sits one level above the tower.
-      const active = !capped && !minigame.finaleAt;
-      tower.slider.visible = active;
+      // Der Haken pendelt über der Figur.
+      const active = !capped && !finale;
+      tower.hook.visible = active;
       if (active) {
         const speed = 1.1 + height * 0.06;
-        const swing = Math.sin(elapsed / 1000 * speed + (entry.phase || 0) * Math.PI * 2);
+        const swing = Math.sin((elapsed / 1000) * speed + (entry.phase || 0) * Math.PI * 2);
         const blockCentre = swing * (0.85 - height * 0.01);
         tower.slider.geometry.dispose();
         tower.slider.geometry = new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1);
-        tower.slider.position.set(blockCentre * (SLIDE_W / 0.85), BASE_Y + 0.2 + height * BLOCK_H, 0);
+        tower.hook.position.set(blockCentre * (SLIDE_W / 0.85), standY + HOVER, 0);
+        tower.slider.material.opacity = isOwn ? 0.95 : 0.55;
       }
-
-      tower.label.material.opacity = player.id === controlledId ? 1 : 0.8;
+      if (finale) return;
+      animator.lookAt(active ? tower.slider.getWorldPosition(new THREE.Vector3()) : null);
+      animator.set(capped ? "happy" : "ready");
     });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    // Camera rises smoothly with the tallest tower (a damped height avoids the
-    // jump when a block lands).
-    this.shake *= frameDecay(0.9, dt);
-    this.smoothTop = THREE.MathUtils.lerp(this.smoothTop ?? topHeight, topHeight, Math.min(1, dt * 4));
-    // Der Blick liegt auf der Turmspitze, nicht darüber. Vorher waren es feste
-    // 1.3 Einheiten — bei einem Turm aus zwei Steinen also gut einen halben
-    // Meter über allem, was gerade passierte.
-    const focusY = BASE_Y + 0.5 + this.smoothTop * BLOCK_H * 0.55;
-    // Bias slightly toward the own tower so it's never cut off, while all four
-    // stay in frame.
-    const ownX = (this.towers.get(controlledId)?.x || 0) * OWN_BIAS;
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
-    const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 3.2) + this.smoothTop * BLOCK_H * 0.55, this.baseCamZ || 13.9);
-    this.camera.position.lerp(desired, frameLerp(0.12, dt));
-    this.camera.lookAt(ownX, focusY, 0);
-
-    // Arrow over your own tower so you always know which one is yours.
-    const ownTower = this.towers.get(controlledId);
-    if (ownTower) {
-      if (!this.ownMarker) { this.ownMarker = createOwnMarker(); this.scene.add(this.ownMarker); }
-      const oh = arcade.players[controlledId]?.height || 0;
-      this.ownMarker.visible = true;
-      this.ownMarker.position.set(ownTower.x, 0, 0);
-      updateOwnMarker(this.ownMarker, now, BASE_Y + 0.2 + oh * BLOCK_H + 0.5);
-    }
-
-    this.updateHud(minigame, arcade, state, now);
-    this.renderer.render(this.scene, this.camera);
+    this.smoothTop += (topHeight - this.smoothTop) * frameLerp(0.08, dt);
   }
 
-  updateHud(minigame, arcade, state, now) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const own = arcade.players[this.getControlledPlayerId()];
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(own?.height || 0);
+  rigOptions() {
+    const count = Math.max(1, this.towers.size);
+    const topY = BASE_Y + this.smoothTop * BLOCK_H;
+    return {
+      look: [0, topY * 0.55 + 1.0, 0],
+      frame: { w: count * COL_GAP + 1.2, h: Math.max(3.4, topY + 2.6) }
+    };
+  }
 
+  drawHud(f) {
+    const { arcade, state, minigame } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(own?.height || 0);
     const banner = this.hud.querySelector("[data-stack-banner]");
     if (banner) {
       if ((own?.height || 0) >= arcade.total) {
@@ -366,19 +274,5 @@ export class TowerStack {
       }
     }
     if (this.dropButton) this.dropButton.disabled = Boolean(own?.toppled || (own?.height || 0) >= arcade.total || minigame.finaleAt);
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Abstand gerechnet, nicht geschätzt: vier Säulen im Abstand COL_GAP
-      // plus eine halbe Klotzbreite sind 3.105 Einheiten halbe Breite. Dazu
-      // kommt der Kameraversatz zum eigenen Turm, 1.5·COL_GAP·OWN_BIAS =
-      // 0.243 — der verschiebt den Ausschnitt und muss mitgerechnet werden.
-      // Sichtbar sind bei 58° und diesem Seitenverhältnis 0.2554 Einheiten je
-      // Einheit Abstand: (3.105 + 0.243) · 1.06 / 0.2554 = 13.9.
-      this.baseCamY = portrait ? 3.2 : 2.6;
-      this.baseCamZ = portrait ? 13.9 : 8.5;
-      camera.fov = portrait ? 58 : 48;
-    });
   }
 }

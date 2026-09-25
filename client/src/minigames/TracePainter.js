@@ -1,32 +1,16 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  applyFinaleMood,
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  createCloud,
-  createNameLabel,
-  createVoxelKin
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Spurmaler — eine geschwungene Spur läuft von unten nach oben. Der eigene Kin
-// reitet als Pinsel darauf und malt sie aus, solange der Finger im Toleranzband
-// bleibt. Verlässt er es, reisst der Strich ab und man muss an der Bruchstelle
-// neu ansetzen. Jede geschaffte Runde bringt eine neue Kurve.
+// Spurmaler: der Finger zieht die Spur nach — bleibt er im Band, färbt sich
+// die Spur, rutscht er ab, reisst der Strich.
 //
-// Die Eingabe wird per Strahl auf die Brettebene gerechnet, nicht über die
-// Bildschirmmitte geschätzt: bei einem Präzisionsspiel muss der Pinsel genau
-// dort sitzen, wo der Finger liegt — auch wenn die Kamera leicht schräg steht.
-//
-// Kurve und Toleranz kommen aus derselben Formel wie auf dem Server.
+// Vorher hing eine kleine Figur vor einer senkrechten Tafel in der Luft und
+// "lief" auf der Stelle. Jetzt liegt das Brett flach, die Figur läuft die
+// Spur entlang und schiebt einen Farbroller, der die Linie malt, stolpert,
+// wenn der Strich reisst, und jubelt nach jeder sauberen Runde. Die Kamera
+// schaut steil von oben, damit das Nachziehen weiter "nach oben" geht.
 const TOLERANCE = 0.085;
 const BOARD_W = 3.0;
 // Am gemessenen Bild gerechnet: die Tafel darf NICHT das ganze Fenster füllen.
@@ -41,8 +25,7 @@ const SEGMENTS = 72;          // Auflösung von Band und Spur
 // die Tafel selbst schon etwas breiter ist als das sichtbare Fenster — die
 // Rivalenpunkte waren damit unsichtbar. Die Spur reicht bis x=1.02, hier ist
 // also Platz.
-const RAIL_X = BOARD_W / 2 - 0.14;
-const KIN_LIFT = 0.3;      // hebt die Figur auf die Spur statt unter sie
+const RAIL_X = BOARD_W / 2 + 0.3;
 
 function noise(seed) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
@@ -81,210 +64,119 @@ function widthAt(seed, lap, t) {
 }
 
 const boardX = (nx) => (nx - 0.5) * BOARD_W;
-const boardY = (ny) => ny * BOARD_H;
+// Das Brett liegt flach: t = 0 vorn bei der Kamera, t = 1 hinten.
+const boardZ = (t) => BOARD_H / 2 - t * BOARD_H;
 
-export class TracePainter {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class TracePainter extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
-    this.boardPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    this.boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.rails = new Map();
     this.drawnLap = -1;
     this.paintedUpTo = -1;
     this.lastSlipAt = 0;
     this.lastLapAt = 0;
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
+    this.lastGemAt = 0;
     this.dragging = false;
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Spurmaler", background: "#8fd3ef", fog: ["#a8e2f4", 22, 60], fov: 60, far: 90 });
+  stage() {
+    return {
+      label: "3D Spurmaler",
+      background: "#8fd3ef",
+      fog: ["#a8e2f4", 22, 60],
+      lights: { sunPosition: [-4, 12, 9], shadow: { left: -5, right: 5, top: 5, bottom: -5 }, hemiIntensity: 2.6 }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="trace-lapbar" data-trace-laps></div>
-      <div class="color-banner trace-banner" data-trace-banner hidden></div>
-    `);
-    this.createScene();
-
-    // Keine Knopfleiste: die ganze Fläche IST die Steuerung. Ein Knopf würde nur
-    // Platz von der Spur nehmen. Die Leiste muss Zeigerereignisse durchlassen,
-    // sonst schluckt sie genau die Berührungen am unteren Ende der Spur.
-    this.controls.innerHTML = `<p class="trace-hint">Zieh den Finger auf der Spur nach oben</p>`;
-    this.controls.style.pointerEvents = "none";
-
-    this.onDown = (event) => {
-      event.preventDefault();
-      this.dragging = true;
-      this.webglCanvas.setPointerCapture?.(event.pointerId);
-      this.sendPointer(event);
-    };
-    this.onMove = (event) => {
-      if (!this.dragging) return;
-      event.preventDefault();
-      this.sendPointer(event);
-    };
-    this.onUp = (event) => {
-      if (!this.dragging) return;
-      this.dragging = false;
-      this.webglCanvas.releasePointerCapture?.(event.pointerId);
-      this.sendInput({ action: "lift" }).catch(() => {});
-    };
-    this.webglCanvas.addEventListener("pointerdown", this.onDown);
-    this.webglCanvas.addEventListener("pointermove", this.onMove);
-    this.webglCanvas.addEventListener("pointerup", this.onUp);
-    this.webglCanvas.addEventListener("pointercancel", this.onUp);
-    this.webglCanvas.addEventListener("pointerleave", this.onUp);
-    this.loop();
+      <div class="color-banner trace-banner" data-trace-banner hidden></div>`;
   }
 
-  // Fingerposition → Punkt auf dem Brett → normierte Spurkoordinaten.
-  sendPointer(event) {
-    const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt || !this.camera) return;
-    const rect = this.webglCanvas.getBoundingClientRect();
-    this.pointer.set(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -(((event.clientY - rect.top) / rect.height) * 2 - 1)
-    );
-    this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = new THREE.Vector3();
-    if (!this.raycaster.ray.intersectPlane(this.boardPlane, hit)) return;
-    const x = clamp(hit.x / BOARD_W + 0.5, 0, 1);
-    const y = clamp(hit.y / BOARD_H, 0, 1);
-    // Der Strich macht ein Geräusch. Bisher war Malen völlig lautlos — obwohl
-    // es in der Klangwerkstatt seit je einen "paint" gibt, den nie jemand
-    // gerufen hat. Getaktet, sonst prasselt es bei jeder Fingerbewegung.
-    const jetzt = performance.now();
-    if (jetzt - (this.letzterStrich || 0) > 110) {
-      this.letzterStrich = jetzt;
-      this.feedback?.sound("paint", { pan: (x - 0.5) * 0.6 });
-    }
-    this.sendInput({ action: "trace", x, y }).catch(() => {});
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    this.webglCanvas?.removeEventListener("pointerdown", this.onDown);
-    this.webglCanvas?.removeEventListener("pointermove", this.onMove);
-    this.webglCanvas?.removeEventListener("pointerup", this.onUp);
-    this.webglCanvas?.removeEventListener("pointercancel", this.onUp);
-    this.webglCanvas?.removeEventListener("pointerleave", this.onUp);
-    teardownStage(this);
-    this.rails.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-4, 12, 9],
-      shadow: { left: -5, right: 5, top: 9, bottom: -1 },
-      hemiIntensity: 2.6
-    });
-
-    // Leinwand: eine helle Tafel, auf der gemalt wird.
-    const board = new THREE.Mesh(
-      new THREE.BoxGeometry(BOARD_W + 0.34, BOARD_H + 0.34, 0.24),
-      new THREE.MeshLambertMaterial({ color: "#fdf6e6" })
-    );
-    board.position.set(0, BOARD_H / 2, -0.18);
+  build() {
+    const scene = this.scene;
+    const lawn = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 30), new THREE.MeshLambertMaterial({ color: "#7fce6f" }));
+    lawn.position.y = -0.34;
+    lawn.receiveShadow = true;
+    scene.add(lawn);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.6, 0.16, BOARD_H + 0.6), new THREE.MeshLambertMaterial({ color: "#8a6b4a" }));
+    frame.position.y = -0.1;
+    scene.add(frame);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.34, 0.1, BOARD_H + 0.34), new THREE.MeshLambertMaterial({ color: "#fdf6e6" }));
+    board.position.y = -0.05;
     board.receiveShadow = true;
-    this.scene.add(board);
-
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(BOARD_W + 0.6, BOARD_H + 0.6, 0.16),
-      new THREE.MeshLambertMaterial({ color: "#8a6b4a" })
-    );
-    frame.position.set(0, BOARD_H / 2, -0.32);
-    this.scene.add(frame);
-
+    scene.add(board);
     this.buildRibbons();
     this.buildGems();
-    this.buildRail();
-
-    [[-4.6, 6.4, -8, 3], [4.4, 7.2, -9, 8]].forEach(([x, y, z, seed]) => {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, BOARD_H), new THREE.MeshLambertMaterial({ color: "#7d8f84" }));
+    rail.position.set(RAIL_X, 0, 0);
+    scene.add(rail);
+    [[-4.6, 5.4, -8, 3], [4.4, 6.2, -9, 8]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+      scene.add(cloud);
     });
 
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.buildBrush();
-    this.resizeRenderer();
-    this.camera.position.set(0, BOARD_H / 2, 6.0);
-    this.camera.lookAt(0, BOARD_H / 2, 0);
+    // Die eigene Figur mit Farbroller; die anderen als Punkte am Rand.
+    const players = this.getState()?.players || [];
+    const index = Math.max(0, players.findIndex((player) => player.id === this.getControlledPlayerId()));
+    const me = players[index];
+    this.ownColor = me?.color || "#ff5d73";
+    if (me) {
+      const kin = this.addKin(me, index, { x: 0, ground: 0, z: boardZ(0), facing: Math.PI, scale: 0.72 });
+      const roller = new THREE.Group();
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.4), new THREE.MeshLambertMaterial({ color: "#6b4f35" }));
+      handle.position.set(0, -0.12, 0.34);
+      handle.rotation.x = 0.55;
+      roller.add(handle);
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.36, 12), new THREE.MeshLambertMaterial({ color: this.ownColor }));
+      drum.rotation.z = Math.PI / 2;
+      drum.position.set(0, -0.2, 0.56);
+      roller.add(drum);
+      kin.add(roller);
+      this.drum = drum;
+    }
   }
 
-  // Band und Spur als je ein Streifen mit Eckfarben. Beim Malen werden nur die
-  // Farben aktualisiert — deutlich billiger als 72 einzelne Meshes.
   buildRibbons() {
-    const make = (halfWidth, z, baseColor) => {
+    const make = (halfWidth, lift, opacity) => {
       const count = SEGMENTS + 1;
       const positions = new Float32Array(count * 2 * 3);
       const colors = new Float32Array(count * 2 * 3);
       const indices = [];
       for (let i = 0; i < SEGMENTS; i += 1) {
         const a = i * 2;
-        indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+        indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
       }
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
       geometry.setIndex(indices);
-      const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-        vertexColors: true,
-        transparent: true,
-        opacity: baseColor.opacity,
-        depthWrite: false,
-        toneMapped: false
-      }));
-      mesh.position.z = z;
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+      mesh.position.y = lift;
       this.scene.add(mesh);
       return { mesh, geometry, halfWidth, scaleWidth: false };
     };
-
-    this.band = make(TOLERANCE, 0.02, { opacity: 0.55 });
+    this.band = make(TOLERANCE, 0.012, 0.55);
     this.band.scaleWidth = true;
-    this.trail = make(0.032, 0.05, { opacity: 1 });
+    this.trail = make(0.032, 0.024, 1);
   }
 
-  // Legt Band und Spur auf die Kurve der angegebenen Runde.
   layoutRibbons(seed, lap) {
     [this.band, this.trail].forEach((ribbon) => {
       const pos = ribbon.geometry.attributes.position;
       for (let i = 0; i <= SEGMENTS; i += 1) {
         const t = i / SEGMENTS;
         const px = pathX(seed, lap, t);
-        // Nur das Toleranzband verengt sich; der gemalte Strich behält seine
-        // Breite, sonst sähe die fertige Spur an den Engstellen aus wie ein
-        // Fehler statt wie eine Engstelle.
         const half = ribbon.scaleWidth ? ribbon.halfWidth * widthAt(seed, lap, t) : ribbon.halfWidth;
-        pos.setXYZ(i * 2, boardX(px - half), boardY(t), 0);
-        pos.setXYZ(i * 2 + 1, boardX(px + half), boardY(t), 0);
+        pos.setXYZ(i * 2, boardX(px - half), 0, boardZ(t));
+        pos.setXYZ(i * 2 + 1, boardX(px + half), 0, boardZ(t));
       }
       pos.needsUpdate = true;
       ribbon.geometry.computeBoundingSphere();
@@ -293,8 +185,6 @@ export class TracePainter {
     this.paintedUpTo = -1;
   }
 
-  // Färbt die Spur bis `progress` in der Spielerfarbe. Alles darüber bleibt
-  // blass — man sieht auf einen Blick, wie weit man ist.
   paintRibbons(progress, color) {
     const step = Math.round(progress * SEGMENTS);
     if (step === this.paintedUpTo) return;
@@ -324,29 +214,18 @@ export class TracePainter {
   buildGems() {
     this.gems = [];
     for (let i = 0; i < 8; i += 1) {
-      const gem = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.11),
-        new THREE.MeshBasicMaterial({ color: "#ffe36b", toneMapped: false })
-      );
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.11), new THREE.MeshBasicMaterial({ color: "#ffe36b", toneMapped: false }));
       gem.visible = false;
-      gem.position.z = 0.09;
       this.scene.add(gem);
-      // Ein Ring darum, damit man ihn auch dann sieht, wenn er farblich im Band
-      // liegt — und damit klar ist, dass er eingesammelt werden will.
-      const halo = new THREE.Mesh(
-        new THREE.RingGeometry(0.14, 0.19, 18),
-        new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false })
-      );
-      halo.position.z = 0.07;
+      const halo = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.19, 18), new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false }));
+      halo.rotation.x = -Math.PI / 2;
       halo.visible = false;
       this.scene.add(halo);
       this.gems.push({ gem, halo });
     }
   }
 
-  // Setzt die Kristalle der aktuellen Runde und blendet eingesammelte aus.
   syncGems(own, now) {
-    if (!this.gems) return;
     const list = own.gems || [];
     this.gems.forEach((visual, i) => {
       const data = list[i];
@@ -356,175 +235,171 @@ export class TracePainter {
       visual.halo.visible = show;
       if (!show) return;
       const x = boardX(data.x);
-      const y = boardY(data.t);
-      visual.gem.position.set(x, y, 0.09);
-      visual.halo.position.set(x, y, 0.07);
+      const z = boardZ(data.t);
+      visual.gem.position.set(x, 0.22 + Math.sin(now / 300 + i) * 0.04, z);
+      visual.halo.position.set(x, 0.03, z);
       visual.gem.rotation.y = now / 420 + i;
-      visual.gem.rotation.z = Math.sin(now / 600 + i) * 0.3;
-      const pulse = 1 + Math.sin(now / 260 + i) * 0.12;
-      visual.halo.scale.setScalar(pulse);
+      visual.halo.scale.setScalar(1 + Math.sin(now / 260 + i) * 0.12);
     });
-  }
-
-  // Rivalen laufen auf einer Leiste am Rand mit. Sie auf die Tafel zu setzen
-  // wäre irreführend: ab der zweiten Runde malt jeder eine andere Kurve.
-  buildRail() {
-    const rail = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, BOARD_H, 0.06),
-      new THREE.MeshLambertMaterial({ color: "#7d8f84" })
-    );
-    rail.position.set(RAIL_X, BOARD_H / 2, 0);
-    this.scene.add(rail);
   }
 
   ensureRail(player) {
     if (this.rails.has(player.id)) return this.rails.get(player.id);
-    const pip = new THREE.Mesh(
-      new THREE.SphereGeometry(0.11, 12, 10),
-      new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.3 })
-    );
-    pip.position.set(RAIL_X, 0, 0.14);
+    const pip = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.3 }));
+    pip.position.set(RAIL_X, 0.14, boardZ(0));
     this.scene.add(pip);
     const entry = { pip, color: player.color };
     this.rails.set(player.id, entry);
     return entry;
   }
 
-  // Der eigene Kin ist der Pinsel: er reitet auf der Spur und malt sie aus.
-  buildBrush() {
-    const state = this.getState();
-    const me = state?.players?.find((player) => player.id === this.getControlledPlayerId())
-      || state?.players?.[0];
-    this.ownColor = me?.color || "#ff5d73";
-    const kin = createVoxelKin(this.ownColor, 0);
-    kin.scale.setScalar(0.62);
-    const label = createNameLabel("du", this.ownColor);
-    label.position.y = 0.7;
-    kin.add(label);
-    kin.position.set(0, 0, 0.34);
-    this.scene.add(kin);
-    this.brush = kin;
-    this.brushAnimator = new KinAnimator(kin);
-    this.brushAnimator.groundY = 0;
+  shot() {
+    return {
+      look: [0.1, 0, 0.1],
+      frame: { w: BOARD_W + 1.2, h: BOARD_H * Math.sin(1.1) + 0.9 },
+      fill: 0.95,
+      pitch: 1.1,
+      fov: 36,
+      intro: { yaw: 0.4, pitch: 0.3, zoom: 1.3 }
+    };
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
+  bind() {
+    this.controls.innerHTML = `<p class="trace-hint">Zieh den Finger auf der Spur nach oben</p>`;
+    this.controls.style.pointerEvents = "none";
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      event.preventDefault();
+      this.dragging = true;
+      this.webglCanvas.setPointerCapture?.(event.pointerId);
+      this.sendPointer(event);
+    });
+    this.on(this.webglCanvas, "pointermove", (event) => {
+      if (!this.dragging) return;
+      event.preventDefault();
+      this.sendPointer(event);
+    });
+    const up = (event) => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      this.webglCanvas.releasePointerCapture?.(event.pointerId);
+      this.sendInput({ action: "lift" }).catch(() => {});
+    };
+    this.on(this.webglCanvas, "pointerup", up);
+    this.on(this.webglCanvas, "pointercancel", up);
+    this.on(this.webglCanvas, "pointerleave", up);
+  }
 
-  draw() {
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.rails.clear();
+  }
+
+  sendPointer(event) {
     const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
+    if (!minigame || minigame.finaleAt || !this.camera) return;
+    const rect = this.webglCanvas.getBoundingClientRect();
+    this.pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -(((event.clientY - rect.top) / rect.height) * 2 - 1));
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hit = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.boardPlane, hit)) return;
+    const x = clamp(hit.x / BOARD_W + 0.5, 0, 1);
+    const y = clamp((BOARD_H / 2 - hit.z) / BOARD_H, 0, 1);
+    const jetzt = performance.now();
+    if (jetzt - (this.letzterStrich || 0) > 110) {
+      this.letzterStrich = jetzt;
+      this.feedback?.sound("paint", { pan: (x - 0.5) * 0.6 });
+    }
+    this.sendInput({ action: "trace", x, y }).catch(() => {});
+  }
 
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale } = f;
+    if (!arcade) return;
     const own = arcade.players[controlledId];
-
-    if (own) {
+    const kin = this.kins.get(controlledId);
+    const animator = this.animators.get(controlledId);
+    if (own && kin && animator) {
       if (own.lap !== this.drawnLap) this.layoutRibbons(arcade.seed, own.lap);
       this.paintRibbons(own.progress || 0, this.ownColor);
-      this.moveBrush(own, arcade, now, dt);
-      if (minigame.finaleAt) {
-        applyFinaleMood(this.brushAnimator, arcade.places?.[controlledId], state.players.length);
-        this.brushAnimator.update(now);
+      // Die Figur läuft die Spur entlang, in Laufrichtung gedreht.
+      const t = clamp(own.progress || 0, 0, 1);
+      const px = pathX(arcade.seed, own.lap, t);
+      const ahead = pathX(arcade.seed, own.lap, Math.min(1, t + 0.03));
+      const targetX = boardX(px);
+      const targetZ = boardZ(t);
+      kin.position.x += (targetX - kin.position.x) * frameLerp(0.3, dt);
+      kin.position.z += (targetZ - kin.position.z) * frameLerp(0.3, dt);
+      animator.groundY = 0.3 * 0.72;
+      const heading = Math.atan2(boardX(ahead) - targetX, -BOARD_H * 0.03);
+      if (!finale) kin.rotation.y += Math.atan2(Math.sin(heading - kin.rotation.y), Math.cos(heading - kin.rotation.y)) * frameLerp(0.2, dt);
+      if (this.drum && own.brushDown) this.drum.rotation.x += dt * 10;
+      if (!finale) {
+        if (own.brushDown) {
+          animator.set("shove");
+          animator.rate = 0.9;
+        } else {
+          animator.set("ready");
+          animator.rate = 1;
+        }
+      }
+      if (own.brushDown && Math.random() < frameChance(0.4, dt)) {
+        this.burst(new THREE.Vector3(targetX, 0.1, targetZ - 0.2), [this.ownColor, "#ffffff"], { count: 1, speed: 0.4, up: 0.4, size: 0.045, life: 0.4, drag: 2.4 });
       }
       this.syncGems(own, now);
-      this.reactToEvents(own, now);
+      this.reactToEvents(own, kin, animator);
     }
-
-    state.players.forEach((player) => {
+    players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
+      if (!entry || player.id === controlledId) return;
       const rail = this.ensureRail(player);
-      const target = boardY(clamp(entry.progress || 0, 0, 1));
-      rail.pip.position.y += (target - rail.pip.position.y) * 0.2;
-      rail.pip.visible = player.id !== controlledId;
+      const target = boardZ(clamp(entry.progress || 0, 0, 1));
+      rail.pip.position.z += (target - rail.pip.position.z) * frameLerp(0.2, dt);
     });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.88, dt);
-    const shakeX = Math.sin(now / 13) * this.shake * 0.14 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * 0.4;
-    this.camera.position.y = this.baseCamY || BOARD_H / 2;
-    this.camera.position.z = this.baseCamZ || 6.0;
-    this.camera.lookAt(0, BOARD_H / 2, 0);
-
-    this.updateHud(minigame, arcade, state, now, own);
-    this.renderer.render(this.scene, this.camera);
   }
 
-  moveBrush(own, arcade, now, dt) {
-    // Der Pinsel sitzt auf dem gewerteten Fortschritt, nicht auf der rohen
-    // Fingerposition — sonst würde er dem Strich davonlaufen und der Spieler
-    // hielte den Vorsprung für echt.
-    const t = clamp(own.progress || 0, 0, 1);
-    const px = pathX(arcade.seed, own.lap, t);
-    const targetX = boardX(px);
-    // KIN_LIFT hebt die Figur auf die Spur: der Animator setzt die Höhe auf den
-    // Ursprung des Modells, und der liegt in der Körpermitte. Ohne den Versatz
-    // steckte der Pinsel-Kin am Anfang der Spur halb unter dem Bildrand.
-    const targetY = boardY(t) + KIN_LIFT;
-    this.brush.position.x += (targetX - this.brush.position.x) * 0.28;
-    this.brushAnimator.groundY = targetY;
-    const lifted = !own.brushDown;
-    this.brush.position.z = lifted ? 0.78 : 0.34;
-    this.brushAnimator.set(lifted ? "sad" : "run", { base: true });
-    this.brushAnimator.update(now);
-    // Farbklecks am Pinsel: solange gemalt wird, sprüht es leicht.
-    if (own.brushDown && Math.random() < dt * 12) {
-      this.bursts.spawn(
-        new THREE.Vector3(targetX, targetY, 0.2),
-        [this.ownColor, "#ffffff"],
-        { count: 2, speed: 0.5, up: 0.5, size: 0.045, life: 0.4, drag: 2.4 }
-      );
-    }
-  }
-
-  reactToEvents(own, now) {
+  reactToEvents(own, kin, animator) {
     if (own.lastSlipAt && own.lastSlipAt !== this.lastSlipAt) {
       this.lastSlipAt = own.lastSlipAt;
-      const at = new THREE.Vector3(this.brush.position.x, this.brushAnimator.groundY + 0.3, 0.3);
-      this.bursts.spawn(at, ["#ff6b7f", "#ffffff"], { count: 12, speed: 1.4, up: 1.0, size: 0.06, life: 0.5, drag: 2.2 });
-      this.floaters.pop(at, "ABGERUTSCHT", { color: "#ff9aa8", size: 0.3, life: 0.8 });
+      animator.trigger("stumble");
+      animator.expression("surprised", 700);
+      const at = kin.position.clone().add(new THREE.Vector3(0, 0.5, 0));
+      this.burst(at, ["#ff6b7f", "#ffffff"], { count: 12, speed: 1.4, up: 1.0, size: 0.06, life: 0.5, drag: 2.2 });
+      this.pop(at.clone().add(new THREE.Vector3(0, 0.5, 0)), "ABGERUTSCHT", { color: "#ff9aa8", size: 0.3, life: 0.8 });
       this.feedback?.sound("error");
       this.feedback?.vibrate(20);
-      this.shake = Math.max(this.shake, 0.4);
+      this.rig.shake(0.4);
     }
     if (own.lastGemAt && own.lastGemAt !== this.lastGemAt) {
       this.lastGemAt = own.lastGemAt;
       const gem = own.lastGem;
-      const at = new THREE.Vector3(boardX(gem?.x ?? 0.5), boardY(gem?.t ?? 0.5), 0.3);
-      this.bursts.spawn(at, ["#ffe36b", "#ffffff"], { count: 10, speed: 1.6, up: 1.2, size: 0.055, life: 0.5, drag: 2.0 });
-      this.floaters.pop(at, "+70", { color: "#ffe36b", size: 0.3, life: 0.6 });
+      const at = new THREE.Vector3(boardX(gem?.x ?? 0.5), 0.4, boardZ(gem?.t ?? 0.5));
+      this.burst(at, ["#ffe36b", "#ffffff"], { count: 10, speed: 1.6, up: 1.2, size: 0.055, life: 0.5, drag: 2.0 });
+      this.pop(at, "+70", { color: "#ffe36b", size: 0.3, life: 0.6 });
       this.feedback?.sound("coin");
       this.feedback?.vibrate(8);
     }
     if (own.lastLapAt && own.lastLapAt !== this.lastLapAt) {
       this.lastLapAt = own.lastLapAt;
-      const at = new THREE.Vector3(0, BOARD_H * 0.55, 0.4);
-      this.bursts.spawn(at, [this.ownColor, "#ffe36b", "#ffffff"], { count: 20, speed: 2.2, up: 2.4, size: 0.08, life: 0.7, drag: 1.6 });
-      this.floaters.pop(at, own.lapSlips === 0 ? "SAUBER!" : "RUNDE!", { color: "#ffe36b", size: 0.42, life: 0.9 });
+      animator.trigger("celebrate");
+      animator.expression("joy", 900);
+      const at = new THREE.Vector3(0, 1, 0);
+      this.burst(at, [this.ownColor, "#ffe36b", "#ffffff"], { count: 20, speed: 2.2, up: 2.4, size: 0.08, life: 0.7, drag: 1.6 });
+      this.pop(at, own.lapSlips === 0 ? "SAUBER!" : "RUNDE!", { color: "#ffe36b", size: 0.42, life: 0.9 });
       this.feedback?.sound("perfect");
       this.feedback?.vibrate([10, 14, 18]);
     }
   }
 
-  updateHud(minigame, arcade, state, now, own) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(Math.max(0, Math.round(own?.score || 0)));
+  keepInView() {
+    return [...this.kins.values()];
+  }
 
+  drawHud(f) {
+    const { arcade, state, now } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(Math.max(0, Math.round(own?.score || 0)));
     const laps = this.hud.querySelector("[data-trace-laps]");
     if (laps) {
       laps.innerHTML = state.players.map((player) => {
@@ -556,19 +431,5 @@ export class TracePainter {
     } else {
       banner.hidden = true;
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Die Tafel soll gross sein, aber ganz im freien Bereich liegen. Gemessen:
-      // bei z=6.0 nimmt sie die mittleren 75% der Höhe ein, ihr oberer Rand
-      // liegt bei 116 px. Im Dev-Modus reicht die Spielerleiste bis 135 px —
-      // dort also etwas weiter weg, sonst ist das Ende der Spur beim Testen
-      // nicht erreichbar. Im Querformat ist die Höhe der Engpass.
-      const dev = Boolean(this.getState()?.devMode);
-      this.baseCamY = BOARD_H / 2;
-      this.baseCamZ = portrait ? (dev ? 6.7 : 6.0) : 8.2;
-      camera.fov = portrait ? 60 : 46;
-    });
   }
 }

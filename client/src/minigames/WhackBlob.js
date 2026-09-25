@@ -1,90 +1,34 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { CubeBurst, FloatingText, createCloud } from "./VoxelKit.js?v=tumblekin200";
-import { mountStage, mountHud, addStageLights, resizeStage, teardownStage, dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Blob-Klopfe — blobs pop out of a 3x3 field of holes. Tap the matching
-// grid button fast; the spiky red ones bite back.
+// Blob-Klopfe: aus neun Löchern kommen Blobs, wer zuerst draufhaut, bekommt
+// den Punkt. Die roten mit Stacheln tun weh.
+//
+// Vorher gab es keine Figuren, nur einen Hammer, der aus dem Nichts
+// erschien. Jetzt stehen alle mit ihrem Holzhammer an den Ecken des Hügels,
+// springen zum Loch, in dem sie getroffen haben, holen über den Kopf aus und
+// hauen drauf. Wer einen Stachelblob erwischt, fliegt zurück und sieht
+// Sterne.
 const CELL = 1.35;
+const HOME = 2.05;
+const MOUND_TOP = 0.3;
 
-export class WhackBlob {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class WhackBlob extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.blobs = new Map();
-    this.lastHits = new Map();
+    this.hitsSeen = new Map();
     this.lastBad = new Map();
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
-  }
-
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Blob-Klopfe", fog: ["#a8e2f4", 16, 40] });
-
-    mountHud(this, `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-    `);
-    this.createScene();
-
-    // No button pad — you simply tap the holes on the 3D field directly.
-    this.controls.innerHTML = "";
+    this.swings = new Map();
     this.raycaster = new THREE.Raycaster();
-    this.onCanvasWhack = (event) => {
-      event.preventDefault();
-      const cell = this.cellFromPointer(event);
-      if (cell >= 0) this.sendWhack(cell);
-    };
-    this.webglCanvas.addEventListener("pointerdown", this.onCanvasWhack);
-    this.loop();
+    this.labelY = 0.74;
   }
 
-  cellFromPointer(event) {
-    if (!this.camera || !this.cellPlane) return -1;
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-    this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = this.raycaster.intersectObject(this.cellPlane)[0];
-    if (!hit) return -1;
-    // Map the hit point on the field back to a 0..8 grid cell.
-    const gx = Math.round(hit.point.x / CELL) + 1;
-    const gy = Math.round(hit.point.z / CELL) + 1;
-    if (gx < 0 || gx > 2 || gy < 0 || gy > 2) return -1;
-    return gy * 3 + gx;
-  }
-
-  sendWhack(cell) {
-    this.feedback?.vibrate(8);
-    this.sendInput({ action: "whack", cell }).catch(() => {});
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    if (this.onCanvasWhack) this.webglCanvas.removeEventListener("pointerdown", this.onCanvasWhack);
-    this.controls.innerHTML = "";
-    teardownStage(this);
-    this.blobs.clear();
+  stage() {
+    return { label: "3D Blob-Klopfe", background: "#a8e2f4", fog: ["#a8e2f4", 16, 40], lights: { shadow: { left: -6, right: 6, top: 6, bottom: -6 } } };
   }
 
   cellPos(cell) {
@@ -93,17 +37,15 @@ export class WhackBlob {
     return { x: (gx - 1) * CELL, z: (gy - 1) * CELL };
   }
 
-  createScene() {
-    addStageLights(this.scene, { shadow: { left: -6, right: 6, top: 6, bottom: -6 } });
-
-    // Grass mound with nine dark holes.
+  build() {
+    const scene = this.scene;
     const meadow = new THREE.Mesh(
       new THREE.BoxGeometry(22, 0.5, 16),
       new THREE.MeshLambertMaterial({ color: "#7fce6f" })
     );
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
-    this.scene.add(meadow);
+    scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
     dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 4.4 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#69bd5f", "#87d276"], crownColor: "#2f7f45", crownColor2: "#4a9c58", flowers: 80 });
@@ -113,7 +55,7 @@ export class WhackBlob {
     );
     mound.position.y = 0.1;
     mound.receiveShadow = true;
-    this.scene.add(mound);
+    scene.add(mound);
     // Invisible pick plane spanning the 3x3 field for direct hole taps.
     this.cellPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(CELL * 3 + 0.6, CELL * 3 + 0.6),
@@ -121,7 +63,7 @@ export class WhackBlob {
     );
     this.cellPlane.rotation.x = -Math.PI / 2;
     this.cellPlane.position.y = 0.34;
-    this.scene.add(this.cellPlane);
+    scene.add(this.cellPlane);
     // Echte Erdlöcher statt schwarzer Quadrate.
     //
     // Vorher lag über jeder Zelle eine dunkle Platte — und zwar OBERHALB der
@@ -140,7 +82,7 @@ export class WhackBlob {
       rand.rotation.x = Math.PI / 2;
       rand.position.set(pos.x, GRAS_Y + 0.03, pos.z);
       rand.receiveShadow = true;
-      this.scene.add(rand);
+      scene.add(rand);
       // Der dunkle Grund liegt ÜBER der Grasnarbe, nicht darunter.
       //
       // Naheliegend wäre ein echter Schacht: Wand nach unten, Boden tief drin.
@@ -153,13 +95,13 @@ export class WhackBlob {
       const grund = new THREE.Mesh(new THREE.CircleGeometry(0.42, 16), grundMat);
       grund.rotation.x = -Math.PI / 2;
       grund.position.set(pos.x, GRAS_Y + 0.02, pos.z);
-      this.scene.add(grund);
+      scene.add(grund);
       // Ein zweiter, kleinerer Ring gibt der Öffnung Tiefe, ohne dass ein
       // einziges Dreieck mehr im Boden verschwindet.
       const tiefe = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), schachtMat);
       tiefe.rotation.x = -Math.PI / 2;
       tiefe.position.set(pos.x, GRAS_Y + 0.025, pos.z - 0.06);
-      this.scene.add(tiefe);
+      scene.add(tiefe);
     }
 
     // A picket fence and flowers frame the field so it doesn't float in
@@ -169,14 +111,14 @@ export class WhackBlob {
       [-3.4, 3.4].forEach((z) => {
         const picket = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.62, 0.12), fenceMat);
         picket.position.set(i * 0.85, 0.28, z);
-        this.scene.add(picket);
+        scene.add(picket);
       });
       const rail = i < 4 ? null : new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 0.08), fenceMat);
       if (rail) {
         [-3.4, 3.4].forEach((z) => {
           const bar = rail.clone();
           bar.position.set(0, 0.44, z);
-          this.scene.add(bar);
+          scene.add(bar);
         });
       }
     }
@@ -184,53 +126,41 @@ export class WhackBlob {
     [[-3.4, -2.2], [3.5, -1.4], [-3.6, 1.8], [3.3, 2.4], [-2.6, 3.1], [2.4, -3.1]].forEach(([x, z], index) => {
       const stem = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, 0.07), new THREE.MeshLambertMaterial({ color: "#4f9b4a" }));
       stem.position.set(x, 0.15, z);
-      this.scene.add(stem);
+      scene.add(stem);
       const bloom = new THREE.Mesh(
         new THREE.BoxGeometry(0.2, 0.2, 0.2),
         new THREE.MeshLambertMaterial({ color: flowerColors[index % flowerColors.length] })
       );
       bloom.position.set(x, 0.36, z);
-      this.scene.add(bloom);
+      scene.add(bloom);
     });
 
     [[-6, 5, -4, 5], [6, 5.6, -3, 6]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+      scene.add(cloud);
     });
 
     // A cartoon mallet that swings down on the blob you bonk.
-    this.hammer = new THREE.Group();
-    const handle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 1.1, 0.14),
-      new THREE.MeshLambertMaterial({ color: "#8a5a2c" })
-    );
-    handle.position.y = 0.55;
-    this.hammer.add(handle);
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.5, 0.5),
-      new THREE.MeshLambertMaterial({ color: "#e04a58" })
-    );
-    head.position.y = 1.15;
-    this.hammer.add(head);
-    const band = new THREE.Mesh(
-      new THREE.BoxGeometry(0.74, 0.14, 0.54),
-      new THREE.MeshLambertMaterial({ color: "#ffffff" })
-    );
-    band.position.y = 1.15;
-    this.hammer.add(band);
-    this.hammer.visible = false;
-    this.scene.add(this.hammer);
-    this.hammerHit = null;   // { cell, startedAt }
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.resizeRenderer();
-    this.camera.position.set(0, this.baseCamY || 5.2, this.baseCamZ || 7);
-    this.camera.lookAt(0, 0.2, -0.4);
+    const homes = [[-HOME, HOME], [HOME, HOME], [-HOME, -HOME], [HOME, -HOME]];
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => {
+      const [x, z] = homes[index % homes.length];
+      const kin = this.addKin(player, index, { x, ground: MOUND_TOP, z, facing: Math.atan2(-x, -z) });
+      // Holzhammer in der rechten Hand, Kopf in der Spielerfarbe.
+      const mallet = new THREE.Group();
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.46), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
+      handle.position.z = 0.2;
+      mallet.add(handle);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.2), new THREE.MeshLambertMaterial({ color: player.color }));
+      head.position.z = 0.44;
+      mallet.add(head);
+      mallet.position.set(0, -0.18, 0.02);
+      kin.userData.arms?.[1]?.add(mallet);
+      this.swings.set(player.id, { home: new THREE.Vector3(x, 0, z), target: null, at: -1e9 });
+    });
   }
 
-  // A cheeky blob: round body, eyes; spiky red ones get thorns.
   buildBlob(kind) {
     const blob = new THREE.Group();
     const color = kind === "bad" ? "#ff2038" : "#8f6ae0";
@@ -261,30 +191,57 @@ export class WhackBlob {
     return blob;
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
+  shot() {
+    return {
+      look: [0, 0.35, 0.3],
+      frame: { w: HOME * 2 + 1.2, h: 4.4 },
+      pitch: 0.82,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.25, zoom: 1.35 }
+    };
+  }
 
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
+  hudHtml() {
+    return `<div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>`;
+  }
 
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
+  bind() {
+    this.controls.innerHTML = "";
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      event.preventDefault();
+      const cell = this.cellFromPointer(event);
+      if (cell >= 0) {
+        this.feedback?.vibrate(8);
+        this.sendInput({ action: "whack", cell }).catch(() => {});
+      }
+    });
+  }
+
+  unbind() {
+    this.blobs.clear();
+  }
+
+  cellFromPointer(event) {
+    if (!this.camera || !this.cellPlane) return -1;
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hit = this.raycaster.intersectObject(this.cellPlane)[0];
+    if (!hit) return -1;
+    const gx = Math.round(hit.point.x / CELL) + 1;
+    const gy = Math.round(hit.point.z / CELL) + 1;
+    if (gx < 0 || gx > 2 || gy < 0 || gy > 2) return -1;
+    return gy * 3 + gx;
+  }
+
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
-    const own = arcade.players[controlledId];
-
-    // Blobs rise and sink according to the shared schedule; the ones the own
-    // player already whacked collapse instantly.
     const active = new Set();
+    const popById = new Map();
     (arcade.pops || []).forEach((pop) => {
+      popById.set(pop.id, pop);
       if (elapsed < pop.from - 100 || elapsed > pop.until + 150) return;
       active.add(pop.id);
       let blob = this.blobs.get(pop.id);
@@ -292,32 +249,15 @@ export class WhackBlob {
         blob = this.buildBlob(pop.kind);
         const pos = this.cellPos(pop.cell);
         blob.position.set(pos.x, -0.3, pos.z);
-        blob.userData = { hitShown: false };
+        blob.userData = { whacked: false };
         this.scene.add(blob);
         this.blobs.set(pop.id, blob);
       }
       const upTime = Math.min(1, Math.max(0, (elapsed - pop.from) / 160));
       const downTime = Math.min(1, Math.max(0, (elapsed - (pop.until - 200)) / 200));
-      const whackedByMe = Boolean(own?.hitPopIds?.[pop.id]);
-      if (whackedByMe && !blob.userData.hitShown) {
-        blob.userData.hitShown = true;
-        const pos = this.cellPos(pop.cell);
-        const bad = pop.kind === "bad";
-        this.bursts.spawn(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : ["#8f6ae0", "#ffd15c", "#ffffff"], { count: 11, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
-        this.bursts.ring(new THREE.Vector3(pos.x, 0.42, pos.z), bad ? "#ff2038" : "#ffd15c", { radius: bad ? 1.3 : 1, life: 0.45, opacity: 0.5, tilt: null });
-        this.floaters.pop(new THREE.Vector3(pos.x, 1.2, pos.z), bad ? "AUA!" : "+1", {
-          color: bad ? "#ff6b7f" : "#ffe36b",
-          size: bad ? 0.38 : 0.32,
-          life: bad ? 0.8 : 0.65,
-          rise: 0.7
-        });
-        // Swing the mallet down on this cell.
-        this.hammerHit = { cell: pop.cell, startedAt: now };
-      }
-      const squash = whackedByMe ? 0.15 : 1;
-      const height = (upTime - downTime) * 0.95;
-      blob.position.y = -0.35 + Math.max(0, height) * squash;
-      blob.scale.y = whackedByMe ? 0.3 : (1 + Math.sin(now / 140 + pop.id) * 0.05);
+      const squash = blob.userData.whacked ? 0.15 : 1;
+      blob.position.y = -0.35 + Math.max(0, (upTime - downTime) * 0.95) * squash;
+      blob.scale.y = blob.userData.whacked ? 0.3 : 1 + Math.sin(now / 140 + pop.id) * 0.05;
       blob.rotation.y = Math.sin(now / 400 + pop.id * 2) * 0.3;
     });
     this.blobs.forEach((blob, id) => {
@@ -326,69 +266,68 @@ export class WhackBlob {
       this.blobs.delete(id);
     });
 
-    // Own hit feedback (sound/vibration + shake on bad).
-    if ((own?.hits || 0) > (this.lastHits.get(controlledId) || 0)) {
-      this.lastHits.set(controlledId, own.hits);
-      this.feedback?.sound("pop");
-      this.feedback?.vibrate(10);
-    }
-    if ((own?.badHits || 0) > (this.lastBad.get(controlledId) || 0)) {
-      this.lastBad.set(controlledId, own.badHits);
-      this.shake = Math.max(this.shake, 0.7);
-      this.feedback?.sound("error");
-      this.feedback?.vibrate([22, 16, 28]);
-    }
-
-    // Mallet swing: rear back, slam down at ~110ms, then lift and vanish.
-    if (this.hammerHit) {
-      const age = now - this.hammerHit.startedAt;
-      const life = 320;
-      if (age > life) {
-        this.hammer.visible = false;
-        this.hammerHit = null;
-      } else {
-        const pos = this.cellPos(this.hammerHit.cell);
-        this.hammer.visible = true;
-        this.hammer.position.set(pos.x + 0.35, 0.3, pos.z + 0.3);
-        const t = age / life;
-        // 0→0.35 wind up (tilted back), 0.35→0.5 slam, then recover.
-        const swing = t < 0.4 ? -1.1 + t / 0.4 * 0.2 : (t < 0.55 ? -0.9 + (t - 0.4) / 0.15 * 1.5 : 0.6 - (t - 0.55) / 0.45 * 1.7);
-        this.hammer.rotation.z = swing;
-        if (age > 110 && !this.hammerHit.thumped) {
-          this.hammerHit.thumped = true;
-          this.shake = Math.max(this.shake, 0.4);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const kin = this.kins.get(player.id);
+      const animator = this.animators.get(player.id);
+      const swing = this.swings.get(player.id);
+      if (!entry || !kin || !animator || !swing) return;
+      const isOwn = player.id === controlledId;
+      // Neue Treffer: zum Loch springen und draufhauen.
+      const seen = this.hitsSeen.get(player.id) || new Set();
+      Object.keys(entry.hitPopIds || {}).forEach((key) => {
+        if (seen.has(key)) return;
+        seen.add(key);
+        const pop = popById.get(Number(key)) || popById.get(key);
+        if (!pop) return;
+        const pos = this.cellPos(pop.cell);
+        const bad = pop.kind === "bad";
+        const away = new THREE.Vector3(swing.home.x - pos.x, 0, swing.home.z - pos.z).normalize().multiplyScalar(0.5);
+        swing.target = new THREE.Vector3(pos.x + away.x, 0, pos.z + away.z);
+        swing.at = now;
+        swing.face = Math.atan2(pos.x - swing.target.x, pos.z - swing.target.z);
+        animator.trigger("dig");
+        const blob = this.blobs.get(pop.id);
+        if (blob) blob.userData.whacked = true;
+        this.burst(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : ["#8f6ae0", "#ffd15c", player.color], { count: 11, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
+        this.bursts.ring(new THREE.Vector3(pos.x, 0.42, pos.z), bad ? "#ff2038" : "#ffd15c", { radius: bad ? 1.3 : 1, life: 0.45, opacity: 0.5, tilt: null });
+        this.pop(new THREE.Vector3(pos.x, 1.3, pos.z), bad ? "AUA!" : "+1", { color: bad ? "#ff6b7f" : player.color, size: bad ? 0.38 : 0.32, life: bad ? 0.8 : 0.65, rise: 0.7 });
+        if (bad) {
+          animator.trigger("knockback");
+          animator.expression("dizzy", 1300);
+        } else {
+          animator.expression("joy", 500);
         }
-      }
-    }
+        if (isOwn) {
+          this.feedback?.sound(bad ? "error" : "pop");
+          this.feedback?.vibrate(bad ? [22, 16, 28] : 10);
+          this.rig.shake(bad ? 0.7 : 0.35);
+        }
+      });
+      this.hitsSeen.set(player.id, seen);
 
-    this.bursts.update(dt);
-
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.9, dt);
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
-    const desired = new THREE.Vector3(shakeX, this.baseCamY || 5.2, this.baseCamZ || 7);
-    this.camera.position.lerp(desired, frameLerp(0.1, dt));
-    this.camera.lookAt(0, 0.2, -0.4);
-
-    this.updateHud(minigame, arcade, state, now);
-    this.renderer.render(this.scene, this.camera);
-  }
-
-  updateHud(minigame, arcade, state, now) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const own = arcade.players[this.getControlledPlayerId()];
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(own?.hits || 0);
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      this.baseCamY = portrait ? 5.8 : 5.2;
-      this.baseCamZ = portrait ? 7.6 : 7;
-      camera.fov = portrait ? 54 : 48;
+      // Nach dem Schlag zurück an die Ecke.
+      const since = now - swing.at;
+      const goal = swing.target && since < 650 ? swing.target : swing.home;
+      const gap = new THREE.Vector3(goal.x - kin.position.x, 0, goal.z - kin.position.z);
+      const moving = gap.length() > 0.08;
+      kin.position.x += gap.x * frameLerp(since < 650 ? 0.45 : 0.18, dt);
+      kin.position.z += gap.z * frameLerp(since < 650 ? 0.45 : 0.18, dt);
+      if (finale) return;
+      const face = since < 650 ? swing.face : moving ? Math.atan2(gap.x, gap.z) : Math.atan2(-swing.home.x, -swing.home.z * 0.3 - 1.2);
+      kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.35, dt);
+      if (moving && since >= 650) animator.set("run");
+      else animator.set("ready");
     });
+  }
+
+  keepInView() {
+    return [...this.kins.values()];
+  }
+
+  drawHud(f) {
+    const own = f.arcade?.players?.[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(own?.hits || 0);
   }
 }

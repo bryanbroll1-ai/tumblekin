@@ -1,33 +1,17 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  syncOwnMarker,
-  teardownStage,
-  dressMeadow
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Trampolin — ein Takt schlägt gleichmässig; tippt man IM Takt, federt der Kin
-// höher. Treffer in Folge bauen Resonanz auf, ein Fehltritt bricht sie. Der Takt
-// wird schneller, man muss sich also immer neu einhören.
-// Die Taktzeiten kommen jetzt aus dem Spielzustand (arcade.tempos und
-// arcade.barBeats), NICHT aus abgeschriebenen Konstanten. Vorher standen hier
-// drei Zahlen, die mit dem Server übereinstimmen mussten; wich eine davon ab,
-// zeigte die Taktanzeige einen anderen Schlag an als der Server wertete, und der
-// Versatz wuchs mit jeder Sekunde der Runde.
+// Trampolin: im Takt tippen — jeder Treffer trägt höher hinaus, ein
+// Fehlgriff kostet Höhe. Der Takt wird mit der Zeit schneller.
+//
+// Vorher hüpften die Figuren in derselben Haltung auf und ab und drehten
+// sich ab einer gewissen Höhe um die eigene Achse. Jetzt federn sie sichtbar
+// ins Tuch, stossen sich ab, rudern in der Luft, machen weiter oben Saltos
+// und fliegen ganz oben wie Superhelden. Die Kamera steigt mit der eigenen
+// Figur.
 const FALLBACK_TEMPOS = [900, 800, 720, 650, 590, 540];
 const FALLBACK_BAR = 8;
 // Bahnabstand ist am Portrait-Bild gerechnet, nicht geschätzt: bei z=9.6 und
@@ -69,99 +53,46 @@ function beatWindow(elapsed, arcade) {
   return { index, start: time, interval, inBar, bar, step, beatsToChange: faster ? bar - inBar : null };
 }
 
-export class Trampoline {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
-    this.kins = new Map();
-    this.animators = new Map();
+export class Trampoline extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.pads = new Map();
     this.lastTapAt = new Map();
     this.tierSeen = new Map();
     this.lastBarStep = null;
     this.lastBeatSeen = -1;
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
+    this.labelY = 0.74;
+    this.ownPeak = PAD_Y + 0.4;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Trampolin", fog: ["#a8e2f4", 18, 46], fov: 50, far: 90 });
+  stage() {
+    return {
+      label: "3D Trampolin",
+      background: "#a8e2f4",
+      fog: ["#a8e2f4", 18, 46],
+      lights: { sunPosition: [-4, 14, 7], shadow: { left: -8, right: 8, top: 14, bottom: -4 } }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="beat-strip" data-beat-strip>
         <div class="beat-pulse" data-beat-pulse></div>
         <span data-beat-label>Im Takt tippen</span>
       </div>
-      <div class="color-banner" data-bounce-banner hidden></div>
-    `);
-    this.createScene();
-
-    this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-bounce-jump>
-        <span class="nerve-button-face">HÜPFEN!</span>
-      </button>
-    `;
-    this.button = this.controls.querySelector("[data-bounce-jump]");
-    this.onTap = (event) => {
-      event.preventDefault();
-      this.pressJump();
-    };
-    this.button.addEventListener("pointerdown", this.onTap);
-    this.webglCanvas.addEventListener("pointerdown", this.onTap);
-    this.loop();
+      <div class="color-banner" data-bounce-banner hidden></div>`;
   }
 
-  pressJump() {
-    const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt) return;
-    this.feedback?.sound("tap");
-    this.sendInput({ action: "jump" }).catch(() => {});
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.button?.removeEventListener("pointerdown", this.onTap);
-    this.webglCanvas?.removeEventListener("pointerdown", this.onTap);
-    teardownStage(this);
-    this.kins.clear();
-    this.animators.clear();
-    this.pads.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-4, 14, 7],
-      shadow: { left: -8, right: 8, top: 14, bottom: -4 }
-    });
-
+  build() {
+    const scene = this.scene;
     const meadow = new THREE.Mesh(
       new THREE.BoxGeometry(26, 0.5, 16),
       new THREE.MeshLambertMaterial({ color: "#7fce6f" })
     );
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
-    this.scene.add(meadow);
+    scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
     dressMeadow(this.scene, { seed: 18, keepOut: { x: 5.0, z: 3.4 }, spread: { x: 18, z: 15 }, grassColor: "#74c46a", patchColors: ["#84cf78", "#9bdd8c"], crownColor: "#e88fb5", crownColor2: "#f2b3cd", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ff8fb1", "#ffffff", "#ffd15c"] });
@@ -174,221 +105,76 @@ export class Trampoline {
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.28, depthWrite: false })
       );
       bar.position.set(0, PAD_Y + mark * WORLD_PER_HEIGHT, -1.4);
-      this.scene.add(bar);
+      scene.add(bar);
     }
 
     [[-7, 6.4, -6, 5], [7, 7.2, -4, 6]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+      scene.add(cloud);
     });
 
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
-    players.forEach((player, index) => this.ensurePad(player, index, players.length));
-    this.resizeRenderer();
-    this.camera.position.set(0, 2.6, 7.4);
-    this.camera.lookAt(0, 1.6, 0);
+    players.forEach((player, index) => this.addPad(player, index, players.length));
   }
 
   laneX(index, count) {
     return (index - (count - 1) / 2) * LANE_GAP;
   }
 
-  ensurePad(player, index = 0, count = 4) {
-    if (this.pads.has(player.id)) return this.pads.get(player.id);
+  addPad(player, index, count) {
     const x = this.laneX(index, count);
-
-    // Trampolin: Rahmen plus federndes Tuch.
-    const frame = new THREE.Mesh(
-      new THREE.TorusGeometry(PAD_R, 0.07, 6, 18),
-      new THREE.MeshLambertMaterial({ color: "#40506a" })
-    );
+    const frame = new THREE.Mesh(new THREE.TorusGeometry(PAD_R, 0.07, 6, 18), new THREE.MeshLambertMaterial({ color: "#40506a" }));
     frame.rotation.x = Math.PI / 2;
     frame.position.set(x, PAD_Y, 0);
     this.scene.add(frame);
-    const cloth = new THREE.Mesh(
-      new THREE.CylinderGeometry(PAD_R - 0.06, PAD_R - 0.06, 0.05, 18),
-      new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.15 })
-    );
+    const cloth = new THREE.Mesh(new THREE.CylinderGeometry(PAD_R - 0.06, PAD_R - 0.06, 0.05, 18), new THREE.MeshLambertMaterial({ color: player.color, emissive: player.color, emissiveIntensity: 0.15 }));
     cloth.position.set(x, PAD_Y, 0);
     cloth.receiveShadow = true;
     this.scene.add(cloth);
     [-1, 1].forEach((side) => {
-      const leg = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, PAD_Y, 0.08),
-        new THREE.MeshLambertMaterial({ color: "#40506a" })
-      );
-      leg.position.set(x + side * (PAD_R - 0.1), PAD_Y / 2, 0);
-      this.scene.add(leg);
+      [-1, 1].forEach((depth) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, PAD_Y, 0.07), new THREE.MeshLambertMaterial({ color: "#40506a" }));
+        leg.position.set(x + side * (PAD_R - 0.12), PAD_Y / 2, depth * (PAD_R - 0.12));
+        this.scene.add(leg);
+      });
     });
-
-    const kin = createVoxelKin(player.color, index);
-    const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.y = 0.62;
-    kin.add(label);
-    const shadow = createShadowBlob(0.5);
-    this.scene.add(shadow);
-    kin.userData.label = label;
-    kin.userData.shadow = shadow;
-    kin.position.set(x, PAD_Y + 0.4, 0);
-    this.scene.add(kin);
-    const animator = new KinAnimator(kin);
-    animator.groundY = PAD_Y + 0.4;
-    this.kins.set(player.id, kin);
-    this.animators.set(player.id, animator);
-
-    const pad = { x, cloth, frame, color: player.color };
-    this.pads.set(player.id, pad);
-    return pad;
+    this.addKin(player, index, { x, ground: PAD_Y + 0.1, z: 0, facing: 0 });
+    this.pads.set(player.id, { x, cloth, color: player.color, flip: 0, lastSwing: 0 });
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
+  shot() {
+    const count = Math.max(1, this.pads.size);
+    return {
+      look: [0, 1.3, 0],
+      frame: { w: count * LANE_GAP + 0.6, h: 3.2 },
+      pitch: 0.12,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }
+    };
+  }
 
-  draw() {
+  bind() {
+    this.controls.innerHTML = `
+      <button type="button" class="nerve-button" data-bounce-jump>
+        <span class="nerve-button-face">HÜPFEN!</span>
+      </button>`;
+    this.button = this.controls.querySelector("[data-bounce-jump]");
+    const tap = (event) => {
+      event.preventDefault();
+      this.pressJump();
+    };
+    this.on(this.button, "pointerdown", tap);
+    this.on(this.webglCanvas, "pointerdown", tap);
+  }
+
+  pressJump() {
     const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
-    const elapsed = Math.max(0, now - minigame.startedAt);
-
-    // Takt: wo stehen wir zwischen zwei Schlägen?
-    const window = beatWindow(elapsed, arcade);
-    this.lastWindow = window;
-    const phase = Math.min(1, Math.max(0, (elapsed - window.start) / window.interval));
-    // Hörbarer Taktschlag, damit man sich einhören kann statt nur zu schauen.
-    if (window.index !== this.lastBeatSeen) {
-      this.lastBeatSeen = window.index;
-      // Die EINS eines Taktes klingt anders als die übrigen sieben. Genau daran
-      // hört man, wo der Takt anfängt — ohne diese Betonung ist ein
-      // gleichmässiger Puls nur ein Ticken, in das man sich nicht einhören kann.
-      this.feedback?.sound(window.inBar === 0 ? "clack" : "plink");
-    }
-    // Tempowechsel: er kommt an einer Taktgrenze und wird angekündigt, statt
-    // schleichend zu passieren.
-    if (window.step !== this.lastBarStep) {
-      if (this.lastBarStep !== undefined && this.lastBarStep !== null) {
-        this.floaters.pop(new THREE.Vector3(0, 3.2, 0), "SCHNELLER!", { color: "#ffe36b", size: 0.44, life: 1 });
-        this.feedback?.sound("combo");
-      }
-      this.lastBarStep = window.step;
-    }
-
-    state.players.forEach((player, index) => {
-      const entry = arcade.players[player.id];
-      if (!entry) return;
-      const pad = this.ensurePad(player, index, state.players.length);
-      const kin = this.kins.get(player.id);
-      const animator = this.animators.get(player.id);
-
-      // Höhe federn: der Kin schwingt zwischen Tuch und erreichter Höhe.
-      const peak = PAD_Y + 0.4 + (entry.height || 0) * WORLD_PER_HEIGHT;
-      const swing = Math.abs(Math.sin(phase * Math.PI));
-      animator.groundY = THREE.MathUtils.lerp(
-        animator.groundY,
-        PAD_Y + 0.4 + ((peak - PAD_Y - 0.4) * swing),
-        0.35
-      );
-      // Tuch dellt sich, wenn der Kin unten ist.
-      pad.cloth.scale.y = 1 - (1 - swing) * 0.5;
-      pad.cloth.position.y = PAD_Y - (1 - swing) * 0.06;
-
-      // Rückmeldung zum letzten Tipp.
-      const tap = entry.lastTap;
-      const seen = this.lastTapAt.get(player.id);
-      if (tap && tap.at !== seen) {
-        this.lastTapAt.set(player.id, tap.at);
-        const at = new THREE.Vector3(pad.x, animator.groundY + 0.5, 0);
-        if (tap.grade === "perfect") {
-          this.bursts.spawn(at, [pad.color, "#ffe36b", "#ffffff"], { count: 12, speed: 1.8, up: 2, size: 0.07, life: 0.6, drag: 1.8 });
-          this.floaters.pop(at, entry.streak > 2 ? `${entry.streak}× IM TAKT!` : "IM TAKT!", { color: "#ffe36b", size: 0.38, life: 0.8 });
-          if (player.id === controlledId) { this.feedback?.sound("perfect"); this.feedback?.vibrate([8, 12, 14]); }
-        } else if (tap.grade === "good") {
-          this.floaters.pop(at, "fast", { color: "#bfe9ff", size: 0.3, life: 0.6, rise: 0.6 });
-          if (player.id === controlledId) this.feedback?.sound("pop");
-        } else {
-          this.bursts.spawn(at, ["#ff6b7f", "#ffffff"], { count: 8, speed: 1.4, up: 1, size: 0.06, life: 0.5, drag: 2.2 });
-          this.floaters.pop(at, "DANEBEN", { color: "#ff9aa8", size: 0.32, life: 0.7 });
-          if (player.id === controlledId) {
-            this.feedback?.sound("error");
-            this.feedback?.vibrate(20);
-            this.shake = Math.max(this.shake, 0.3);
-          }
-        }
-      }
-
-      // Je höher man kommt, desto ausgelassener wird die Figur. Vorher gab es
-      // genau zwei Zustände (springt / steht) — auf 30 Höhenmetern sah das
-      // exakt so aus wie auf dreien, und der ganze Aufstieg fühlte sich
-      // folgenlos an.
-      const tier = this.heightTier(entry.height || 0);
-      if (minigame.finaleAt) {
-        const place = this.finalePlace(arcade, state, player.id);
-        applyFinaleMood(animator, place, state.players.length);
-      } else if (swing > 0.35) {
-        animator.set(tier >= 2 ? "cheer" : "jump", { base: true });
-      } else {
-        animator.set("idle", { base: true });
-      }
-      // Der Kin dreht sich in der Luft, sobald es richtig hoch geht — das ist
-      // die Belohnung dafür, den Takt gehalten zu haben.
-      kin.rotation.y = tier >= 1 ? kin.rotation.y + dt * (1.6 + tier * 1.8) * swing : 0;
-      // Und er streckt sich am höchsten Punkt.
-      kin.scale.setScalar(1 + swing * 0.06 * tier);
-      animator.update(now);
-
-      // Beim Überschreiten einer Höhenstufe gibt es einen sichtbaren Moment.
-      const known = this.tierSeen.get(player.id) ?? 0;
-      if (tier > known) {
-        this.tierSeen.set(player.id, tier);
-        const at = new THREE.Vector3(pad.x, animator.groundY + 0.7, 0);
-        this.bursts.spawn(at, [pad.color, "#ffffff", "#ffe36b"],
-          { count: 10 + tier * 6, speed: 2.0 + tier * 0.4, up: 2.2, size: 0.08, life: 0.8, drag: 1.5 });
-        this.floaters.pop(at, TIER_LABELS[Math.min(tier, TIER_LABELS.length - 1)],
-          { color: "#ffe36b", size: 0.4 + tier * 0.04, life: 1 });
-        if (player.id === controlledId) {
-          this.feedback?.sound("sparkle");
-          this.feedback?.vibrate([10, 8, 16]);
-        }
-      }
-
-      kin.userData.shadow.position.set(pad.x, 0.05, 0);
-      kin.userData.shadow.material.opacity = 0.1 + (1 - swing) * 0.2;
-      kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
-    });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    // Kamera steigt mit der höchsten Figur, damit der Rekord im Bild bleibt.
-    const highest = Math.max(0, ...state.players.map((p) => arcade.players[p.id]?.height || 0));
-    this.shake *= frameDecay(0.9, dt);
-    const shakeX = Math.sin(now / 15) * this.shake * 0.2 * shakeScale();
-    const lift = highest * WORLD_PER_HEIGHT * 0.5;
-    // Leichte Vorspannung zur eigenen Bahn, damit man sich immer sieht, ohne
-    // die Rivalen aus dem Bild zu schieben.
-    const ownX = (this.pads.get(controlledId)?.x || 0) * 0.35;
-    const desired = new THREE.Vector3(ownX + shakeX, (this.baseCamY || 2.6) + lift, (this.baseCamZ || 8.0) + lift * 0.5);
-    this.camera.position.lerp(desired, frameLerp(0.08, dt));
-    this.camera.lookAt(ownX * 0.6, 1.6 + lift, 0);
-
-    this.updateHud(minigame, arcade, state, now, phase);
-    syncOwnMarker(this, this.kins?.get(controlledId), now);
-    this.renderer.render(this.scene, this.camera);
+    if (!minigame || minigame.finaleAt) return;
+    this.feedback?.sound("tap");
+    this.sendInput({ action: "jump" }).catch(() => {});
   }
 
-  // Welche Höhenstufe gerade erreicht ist. 0 = noch am Boden herumfedern.
   heightTier(height) {
     let tier = 0;
     for (let i = 0; i < TIER_HEIGHTS.length; i += 1) {
@@ -397,24 +183,123 @@ export class Trampoline {
     return tier;
   }
 
-  finalePlace(arcade, state, playerId) {
-    const scored = state.players
-      .map((player) => ({ id: player.id, height: arcade.players[player.id]?.height || 0 }))
-      .sort((a, b) => b.height - a.height);
-    const index = scored.findIndex((entry) => entry.id === playerId);
-    return index < 0 ? state.players.length : index + 1;
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (!arcade) return;
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    const beat = beatWindow(elapsed, arcade);
+    this.lastWindow = beat;
+    const phase = Math.min(1, Math.max(0, (elapsed - beat.start) / beat.interval));
+    this.phase = phase;
+    if (beat.index !== this.lastBeatSeen) {
+      this.lastBeatSeen = beat.index;
+      this.feedback?.sound(beat.inBar === 0 ? "clack" : "plink");
+    }
+    if (beat.step !== this.lastBarStep) {
+      if (this.lastBarStep !== null) {
+        this.pop(new THREE.Vector3(0, this.ownPeak + 1.2, 0), "SCHNELLER!", { color: "#ffe36b", size: 0.44, life: 1 });
+        this.feedback?.sound("combo");
+      }
+      this.lastBarStep = beat.step;
+    }
+    const swing = Math.abs(Math.sin(phase * Math.PI));
+
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const pad = this.pads.get(player.id);
+      const kin = this.kins.get(player.id);
+      const animator = this.animators.get(player.id);
+      if (!entry || !pad || !kin || !animator) return;
+      const isOwn = player.id === controlledId;
+      const rest = PAD_Y + 0.4 - (1 - swing) * 0.08;
+      const peak = PAD_Y + 0.4 + (entry.height || 0) * WORLD_PER_HEIGHT;
+      animator.groundY = THREE.MathUtils.lerp(animator.groundY, rest + (peak - PAD_Y - 0.4) * swing, frameLerp(0.35, dt));
+      // Das Tuch gibt unten nach.
+      const dip = Math.max(0, 0.35 - swing) / 0.35;
+      pad.cloth.position.y = PAD_Y - dip * 0.12;
+      pad.cloth.scale.set(1 + dip * 0.05, 1, 1 + dip * 0.05);
+      if (isOwn) this.ownPeak = peak;
+
+      const tap = entry.lastTap;
+      if (tap && tap.at !== this.lastTapAt.get(player.id)) {
+        this.lastTapAt.set(player.id, tap.at);
+        const at = kin.position.clone().add(new THREE.Vector3(0, 0.6, 0));
+        if (tap.grade === "perfect") {
+          animator.expression("joy", 500);
+          this.burst(at, [pad.color, "#ffe36b", "#ffffff"], { count: 12, speed: 1.8, up: 2, size: 0.07, life: 0.6, drag: 1.8 });
+          this.pop(at, entry.streak > 2 ? `${entry.streak}× IM TAKT!` : "IM TAKT!", { color: "#ffe36b", size: 0.36, life: 0.8 });
+          if (isOwn) {
+            this.feedback?.sound("perfect");
+            this.feedback?.vibrate([8, 12, 14]);
+          }
+        } else if (tap.grade === "good") {
+          animator.expression("happy", 400);
+          this.pop(at, "fast", { color: "#bfe9ff", size: 0.28, life: 0.6, rise: 0.6 });
+          if (isOwn) this.feedback?.sound("pop");
+        } else {
+          animator.trigger("flinch");
+          animator.expression("scared", 600);
+          this.burst(at, ["#ff6b7f", "#ffffff"], { count: 8, speed: 1.4, up: 1, size: 0.06, life: 0.5, drag: 2.2 });
+          this.pop(at, "DANEBEN", { color: "#ff9aa8", size: 0.3, life: 0.7 });
+          if (isOwn) {
+            this.feedback?.sound("error");
+            this.feedback?.vibrate(20);
+            this.rig.shake(0.3);
+          }
+        }
+      }
+      const tier = this.heightTier(entry.height || 0);
+      const known = this.tierSeen.get(player.id) ?? 0;
+      if (tier > known) {
+        this.tierSeen.set(player.id, tier);
+        const at = kin.position.clone().add(new THREE.Vector3(0, 0.8, 0));
+        this.burst(at, [pad.color, "#ffffff", "#ffe36b"], { count: 10 + tier * 6, speed: 2.0 + tier * 0.4, up: 2.2, size: 0.08, life: 0.8, drag: 1.5 });
+        this.pop(at, TIER_LABELS[Math.min(tier, TIER_LABELS.length - 1)], { color: "#ffe36b", size: 0.38 + tier * 0.04, life: 1 });
+        if (isOwn) {
+          this.feedback?.sound("sparkle");
+          this.feedback?.vibrate([10, 8, 16]);
+        }
+      }
+      // Aufsetzen: kurz stauchen.
+      if (pad.lastSwing > 0.2 && swing <= 0.2) animator.trigger("land");
+      pad.lastSwing = swing;
+      if (finale) {
+        kin.rotation.x = 0;
+        return;
+      }
+      // Salto ab der zweiten Stufe, einmal je Sprung über den Scheitel.
+      if (tier >= 2 && swing > 0.3) pad.flip = Math.min(Math.PI * 2, pad.flip + dt * Math.PI * 2 / Math.max(0.25, beat.interval / 1000 * 0.7));
+      if (swing < 0.3) pad.flip = 0;
+      kin.rotation.x = tier >= 2 && tier < 4 ? -pad.flip : 0;
+      if (swing < 0.3) animator.set("ready");
+      else if (tier >= 4) animator.set("fly");
+      else if (tier >= 1) animator.set("float");
+      else animator.set("float");
+    });
   }
 
-  updateHud(minigame, arcade, state, now, phase) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const own = arcade.players[this.getControlledPlayerId()];
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = (own?.height || 0).toFixed(1);
+  // Mit der eigenen Figur steigen.
+  keepInView(f) {
+    const own = this.kins.get(f.controlledId);
+    return own ? [own] : [...this.kins.values()];
+  }
 
-    // Taktanzeige: der Puls läuft von links nach rechts, der Treffer liegt am
-    // rechten Ende. So sieht man den Schlag kommen statt ihn zu erraten.
+  rigOptions(f) {
+    const count = Math.max(1, this.pads.size);
+    const top = this.ownPeak;
+    return {
+      look: [0, Math.max(1.3, top * 0.55 + 0.6), 0],
+      frame: { w: count * LANE_GAP + 0.6, h: Math.max(3.2, top + 1.4) }
+    };
+  }
+
+  drawHud(f) {
+    const { arcade, state } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    const phase = this.phase || 0;
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = (own?.height || 0).toFixed(1);
     const pulse = this.hud.querySelector("[data-beat-pulse]");
     if (pulse) {
       pulse.style.transform = `scaleX(${phase.toFixed(3)})`;
@@ -445,17 +330,5 @@ export class Trampoline {
         banner.hidden = true;
       }
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      this.baseCamY = portrait ? 2.9 : 2.6;
-            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
-      // +0.02 über den Bildrand hinaus — meist das Namensschild, das
-      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
-      // schmal, und die Reihe steht quer dazu.
-this.baseCamZ = portrait ? 10.5 : 8.0;
-      camera.fov = portrait ? 62 : 52;
-    });
   }
 }

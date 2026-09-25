@@ -1,73 +1,46 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  applyFinaleMood,
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn,
-  setKinOpacity
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  syncOwnMarker,
-  teardownStage,
-  fitKinsInView
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud, createShadowBlob, setKinOpacity, standOn } from "./VoxelKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Sumo-Schubs — alle stehen im Ring um einen schweren Stein. Halten lädt auf,
-// Loslassen stösst. Zu lange gehalten heisst ausrutschen: kein Stoss und eine
-// Auszeit. Rollt der Stein über deine Kante, kassierst du einen Treffer.
-// Weltradius des Rings. Der Server rechnet in 0..1, die Zahl hier ist reine
-// Darstellung — und bei 2.6 berührte eine Figur am Ringrand samt Namensschild
-// den Bildrand. Der ganze Ring schrumpft mit, die Regel bleibt dieselbe.
+// Sumo-Schubs: in der Mitte liegt ein Stein. Halten lädt auf, loslassen
+// stösst ihn weg — wer ihn abbekommt, verliert ein Herz, ohne Herzen ist man
+// raus. Man selbst steht immer unten im Bild.
+//
+// Vorher standen kleine Figuren reglos am Ring, und nur Schriftzüge sagten,
+// was passiert. Jetzt sind es stämmige Ringer: sie gehen beim Aufladen in die
+// Knie und zittern vor Kraft, stossen mit beiden Armen, werden vom Stein
+// zurückgeworfen und fallen, wenn sie raus sind, vom Ring ins Wasser.
 const RING_WORLD = 2.35;
-const MAT_TOP_Y = 0.09;             // Oberkante der Ringmatte
+const MAT_TOP_Y = 0.09;
 const KIN_Y = standOn(MAT_TOP_Y);
 const STONE_R = 0.44;
+const KIN_SCALE = 1.18;
 
-export class SumoPush {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
-    this.kins = new Map();
-    this.animators = new Map();
-    this.meters = new Map();       // playerId -> Ladebalken über dem Kin
+export class SumoPush extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
+    this.meters = new Map();
     this.lastShoveAt = new Map();
     this.lastHits = new Map();
     this.lastEliminated = new Map();
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
-    // Lokaler Ladezustand für die Anzeige; verbindlich ist der Server.
+    this.fallAt = new Map();
     this.holdStart = null;
+    this.labelY = 0.8;
+    this.markerOffset = 0.9;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Sumo-Schubs", fog: ["#a8e2f4", 16, 40], fov: 46, far: 80 });
+  stage() {
+    return {
+      label: "3D Sumo-Schubs",
+      background: "#a8e2f4",
+      fog: ["#a8e2f4", 16, 40],
+      lights: { sunPosition: [3, 11, 5], shadow: { left: -6, right: 6, top: 6, bottom: -6 } }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="sumo-charge" data-sumo-charge hidden>
         <div class="sumo-charge-track">
@@ -76,27 +49,185 @@ export class SumoPush {
         </div>
         <span data-sumo-charge-label>Aufladen …</span>
       </div>
-      <div class="color-banner" data-sumo-banner hidden></div>
-    `);
-    this.createScene();
+      <div class="color-banner" data-sumo-banner hidden></div>`;
+  }
 
+  build() {
+    const scene = this.scene;
+    const water = new THREE.Mesh(
+      new THREE.BoxGeometry(30, 0.5, 30),
+      new THREE.MeshLambertMaterial({ color: "#3cb0cf", transparent: true, opacity: 0.94 })
+    );
+    water.position.y = -2.4;
+    scene.add(water);
+
+    // Rundes Podest.
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(RING_WORLD + 0.25, RING_WORLD + 0.45, 1.6, 24),
+      new THREE.MeshLambertMaterial({ color: "#c9a06b" })
+    );
+    base.position.y = -0.85;
+    base.castShadow = true;
+    scene.add(base);
+    const mat = new THREE.Mesh(
+      new THREE.CylinderGeometry(RING_WORLD, RING_WORLD, 0.14, 24),
+      new THREE.MeshLambertMaterial({ color: "#f0dcae" })
+    );
+    mat.position.y = 0.02;
+    mat.receiveShadow = true;
+    scene.add(mat);
+
+    // Ringkante — die Linie, über die der Stein nicht darf.
+    this.edge = new THREE.Mesh(
+      new THREE.TorusGeometry(RING_WORLD, 0.075, 6, 40),
+      new THREE.MeshLambertMaterial({ color: "#e0334f", emissive: "#e0334f", emissiveIntensity: 0.45 })
+    );
+    this.edge.rotation.x = Math.PI / 2;
+    this.edge.position.y = 0.1;
+    scene.add(this.edge);
+
+    // Der Stein — das wichtigste Objekt der Szene und deshalb bewusst
+    // kontraststark: dunkler Kern mit leuchtendem Band. Ein graues Modell auf
+    // der beigen Matte war auf einen Blick kaum zu finden.
+    this.stone = new THREE.Group();
+    const rock = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(STONE_R, 0),
+      new THREE.MeshLambertMaterial({ color: "#3b4654" })
+    );
+    rock.castShadow = true;
+    this.stone.add(rock);
+    // Leuchtband, damit die Drehrichtung und die Lage sofort lesbar sind.
+    const band = new THREE.Mesh(
+      new THREE.TorusGeometry(STONE_R * 0.86, STONE_R * 0.16, 6, 12),
+      new THREE.MeshLambertMaterial({ color: "#ffe36b", emissive: "#ffb400", emissiveIntensity: 0.55 })
+    );
+    band.rotation.x = Math.PI / 2;
+    this.stone.add(band);
+    this.stoneBand = band;
+    this.stoneRock = rock;
+    this.stone.position.y = STONE_R + 0.08;
+    scene.add(this.stone);
+    this.stoneShadow = createShadowBlob(0.6);
+    scene.add(this.stoneShadow);
+
+    // Vier Quastenpfosten an den Ringecken. Der Ring stand bisher als nackte
+    // Scheibe in einer leeren Fläche Cyan — hier sagen sie auf einen Blick,
+    // dass das ein Ring ist und kein Teller. Sie stehen auf den Diagonalen:
+    // seitlich wäre bei diesem Hochformat kein Platz, der sichtbare Halbraum
+    // ist in Ringtiefe nur gut zwei Einheiten breit.
+    [[0.7854, "#e0334f"], [2.3562, "#3fc5e8"], [3.9270, "#ffd15c"], [5.4978, "#71d97b"]]
+      .forEach(([winkel, farbe]) => {
+      const px = Math.cos(winkel) * (RING_WORLD + 0.34);
+      const pz = Math.sin(winkel) * (RING_WORLD + 0.34);
+      const pfosten = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 1.5, 0.12),
+        new THREE.MeshLambertMaterial({ color: "#7a4a2c" })
+      );
+      pfosten.position.set(px, 0.75, pz);
+      pfosten.castShadow = true;
+      scene.add(pfosten);
+      const quaste = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, 0.44, 0.26),
+        new THREE.MeshLambertMaterial({ color: farbe })
+      );
+      quaste.position.set(px, 1.32, pz);
+      scene.add(quaste);
+    });
+
+    // Schaumkämme auf dem Wasser — eine Instanz statt vieler Meshes.
+    const wellen = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1.5, 0.06, 0.22),
+      new THREE.MeshLambertMaterial({ color: "#bfeaf5" }),
+      26
+    );
+    const kamm = new THREE.Object3D();
+    for (let i = 0; i < 26; i += 1) {
+      // Fester Streuer, damit das Meer bei jedem Start gleich aussieht.
+      const winkel = (i * 2.399) % (Math.PI * 2);
+      const radius = 4.2 + ((i * 13) % 9) * 1.1;
+      kamm.position.set(Math.cos(winkel) * radius, -2.12, Math.sin(winkel) * radius);
+      kamm.rotation.y = winkel + 1.2;
+      kamm.scale.setScalar(0.7 + ((i * 7) % 5) * 0.28);
+      kamm.updateMatrix();
+      wellen.setMatrixAt(i, kamm.matrix);
+    }
+    wellen.instanceMatrix.needsUpdate = true;
+    scene.add(wellen);
+
+    // Inseln am Horizont: sie geben dem Wasser eine Kante.
+    [[-9, -13, 1.6, 3.4], [8, -15, 2.1, 4.6], [-2.5, -18, 1.2, 5.2]].forEach(([x, z, h, w]) => {
+      const insel = new THREE.Mesh(
+        new THREE.CylinderGeometry(w * 0.55, w * 0.8, h, 7),
+        new THREE.MeshLambertMaterial({ color: "#5f9c6f" })
+      );
+      insel.position.set(x, -2.3 + h / 2, z);
+      scene.add(insel);
+    });
+
+    [[-6, 4.4, -5, 5], [6, 5, -3, 6]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      scene.add(cloud);
+    });
+
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => {
+      const kin = this.addKin(player, index, { x: 0, ground: MAT_TOP_Y, z: RING_WORLD - 0.5, facing: Math.PI, scale: KIN_SCALE });
+      const meter = this.buildMeter(player.color);
+      kin.add(meter);
+      meter.position.y = 0.95;
+      this.meters.set(player.id, meter);
+    });
+  }
+
+  buildMeter(color) {
+    const group = new THREE.Group();
+    const back = new THREE.Mesh(
+      new THREE.BoxGeometry(0.62, 0.09, 0.03),
+      new THREE.MeshBasicMaterial({ color: "#16222a", transparent: true, opacity: 0.75, depthWrite: false })
+    );
+    group.add(back);
+    const fill = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.07, 0.04),
+      new THREE.MeshBasicMaterial({ color, depthWrite: false })
+    );
+    fill.position.z = 0.01;
+    group.add(fill);
+    // Markierung, wo das Überladen beginnt.
+    const limit = new THREE.Mesh(
+      new THREE.BoxGeometry(0.025, 0.13, 0.05),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", depthWrite: false })
+    );
+    limit.position.z = 0.02;
+    group.add(limit);
+    group.userData = { fill, limit };
+    group.visible = false;
+    group.renderOrder = 900;
+    return group;
+  }
+
+  shot() {
+    return {
+      look: [0, 0.3, 0.35],
+      frame: { w: RING_WORLD * 2 + 0.9, h: 3.8 },
+      pitch: 0.72,
+      fov: 38,
+      intro: { yaw: 0.6, pitch: 0.2, zoom: 1.35 }
+    };
+  }
+
+  bind() {
     this.controls.innerHTML = `
       <button type="button" class="sumo-button" data-sumo-push>
         <span class="sumo-button-face">HALTEN &amp; STOSSEN</span>
-      </button>
-    `;
+      </button>`;
     this.button = this.controls.querySelector("[data-sumo-push]");
-
-    // Halten = laden, Loslassen = stossen. Auch auf der Szene, damit der Daumen
-    // nicht wandern muss.
-    this.onHoldStart = (event) => this.beginHold(event);
-    this.onHoldEnd = (event) => this.endHold(event);
-    [this.button, this.webglCanvas].forEach((element) => {
-      element.addEventListener("pointerdown", this.onHoldStart);
-    });
-    window.addEventListener("pointerup", this.onHoldEnd);
-    window.addEventListener("pointercancel", this.onHoldEnd);
-    this.loop();
+    const start = (event) => this.beginHold(event);
+    const end = (event) => this.endHold(event);
+    this.on(this.button, "pointerdown", start);
+    this.on(this.webglCanvas, "pointerdown", start);
+    this.on(window, "pointerup", end);
+    this.on(window, "pointercancel", end);
   }
 
   ownEntry() {
@@ -159,381 +290,139 @@ export class SumoPush {
     this.sendInput({ action: "shove" }).catch(() => {});
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    [this.button, this.webglCanvas].forEach((element) => {
-      element?.removeEventListener("pointerdown", this.onHoldStart);
-    });
-    window.removeEventListener("pointerup", this.onHoldEnd);
-    window.removeEventListener("pointercancel", this.onHoldEnd);
-    teardownStage(this);
-    this.kins.clear();
-    this.animators.clear();
-    this.meters.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [3, 11, 5],
-      shadow: { left: -6, right: 6, top: 6, bottom: -6 }
-    });
-
-    // Wasser weit unten — der Stein fällt sichtbar irgendwohin.
-    const water = new THREE.Mesh(
-      new THREE.BoxGeometry(30, 0.5, 30),
-      new THREE.MeshLambertMaterial({ color: "#3cb0cf", transparent: true, opacity: 0.94 })
-    );
-    water.position.y = -2.4;
-    this.scene.add(water);
-
-    // Rundes Podest.
-    const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(RING_WORLD + 0.25, RING_WORLD + 0.45, 1.6, 24),
-      new THREE.MeshLambertMaterial({ color: "#c9a06b" })
-    );
-    base.position.y = -0.85;
-    base.castShadow = true;
-    this.scene.add(base);
-    const mat = new THREE.Mesh(
-      new THREE.CylinderGeometry(RING_WORLD, RING_WORLD, 0.14, 24),
-      new THREE.MeshLambertMaterial({ color: "#f0dcae" })
-    );
-    mat.position.y = 0.02;
-    mat.receiveShadow = true;
-    this.scene.add(mat);
-
-    // Ringkante — die Linie, über die der Stein nicht darf.
-    this.edge = new THREE.Mesh(
-      new THREE.TorusGeometry(RING_WORLD, 0.075, 6, 40),
-      new THREE.MeshLambertMaterial({ color: "#e0334f", emissive: "#e0334f", emissiveIntensity: 0.45 })
-    );
-    this.edge.rotation.x = Math.PI / 2;
-    this.edge.position.y = 0.1;
-    this.scene.add(this.edge);
-
-    // Der Stein — das wichtigste Objekt der Szene und deshalb bewusst
-    // kontraststark: dunkler Kern mit leuchtendem Band. Ein graues Modell auf
-    // der beigen Matte war auf einen Blick kaum zu finden.
-    this.stone = new THREE.Group();
-    const rock = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(STONE_R, 0),
-      new THREE.MeshLambertMaterial({ color: "#3b4654" })
-    );
-    rock.castShadow = true;
-    this.stone.add(rock);
-    // Leuchtband, damit die Drehrichtung und die Lage sofort lesbar sind.
-    const band = new THREE.Mesh(
-      new THREE.TorusGeometry(STONE_R * 0.86, STONE_R * 0.16, 6, 12),
-      new THREE.MeshLambertMaterial({ color: "#ffe36b", emissive: "#ffb400", emissiveIntensity: 0.55 })
-    );
-    band.rotation.x = Math.PI / 2;
-    this.stone.add(band);
-    this.stoneBand = band;
-    this.stoneRock = rock;
-    this.stone.position.y = STONE_R + 0.08;
-    this.scene.add(this.stone);
-    this.stoneShadow = createShadowBlob(0.6);
-    this.scene.add(this.stoneShadow);
-
-    // Vier Quastenpfosten an den Ringecken. Der Ring stand bisher als nackte
-    // Scheibe in einer leeren Fläche Cyan — hier sagen sie auf einen Blick,
-    // dass das ein Ring ist und kein Teller. Sie stehen auf den Diagonalen:
-    // seitlich wäre bei diesem Hochformat kein Platz, der sichtbare Halbraum
-    // ist in Ringtiefe nur gut zwei Einheiten breit.
-    [[0.7854, "#e0334f"], [2.3562, "#3fc5e8"], [3.9270, "#ffd15c"], [5.4978, "#71d97b"]]
-      .forEach(([winkel, farbe]) => {
-      const px = Math.cos(winkel) * (RING_WORLD + 0.34);
-      const pz = Math.sin(winkel) * (RING_WORLD + 0.34);
-      const pfosten = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 1.5, 0.12),
-        new THREE.MeshLambertMaterial({ color: "#7a4a2c" })
-      );
-      pfosten.position.set(px, 0.75, pz);
-      pfosten.castShadow = true;
-      this.scene.add(pfosten);
-      const quaste = new THREE.Mesh(
-        new THREE.BoxGeometry(0.26, 0.44, 0.26),
-        new THREE.MeshLambertMaterial({ color: farbe })
-      );
-      quaste.position.set(px, 1.32, pz);
-      this.scene.add(quaste);
-    });
-
-    // Schaumkämme auf dem Wasser — eine Instanz statt vieler Meshes.
-    const wellen = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1.5, 0.06, 0.22),
-      new THREE.MeshLambertMaterial({ color: "#bfeaf5" }),
-      26
-    );
-    const kamm = new THREE.Object3D();
-    for (let i = 0; i < 26; i += 1) {
-      // Fester Streuer, damit das Meer bei jedem Start gleich aussieht.
-      const winkel = (i * 2.399) % (Math.PI * 2);
-      const radius = 4.2 + ((i * 13) % 9) * 1.1;
-      kamm.position.set(Math.cos(winkel) * radius, -2.12, Math.sin(winkel) * radius);
-      kamm.rotation.y = winkel + 1.2;
-      kamm.scale.setScalar(0.7 + ((i * 7) % 5) * 0.28);
-      kamm.updateMatrix();
-      wellen.setMatrixAt(i, kamm.matrix);
-    }
-    wellen.instanceMatrix.needsUpdate = true;
-    this.scene.add(wellen);
-
-    // Inseln am Horizont: sie geben dem Wasser eine Kante.
-    [[-9, -13, 1.6, 3.4], [8, -15, 2.1, 4.6], [-2.5, -18, 1.2, 5.2]].forEach(([x, z, h, w]) => {
-      const insel = new THREE.Mesh(
-        new THREE.CylinderGeometry(w * 0.55, w * 0.8, h, 7),
-        new THREE.MeshLambertMaterial({ color: "#5f9c6f" })
-      );
-      insel.position.set(x, -2.3 + h / 2, z);
-      this.scene.add(insel);
-    });
-
-    [[-6, 4.4, -5, 5], [6, 5, -3, 6]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
-    });
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.getState()?.players?.forEach((player, index) => this.ensureKin(player, index));
-    this.resizeRenderer();
-    this.camera.position.set(0, 5.4, 6.2);
-    this.camera.lookAt(0, 0.4, 0);
-  }
-
-  // Ladebalken über dem Kopf: grün im nutzbaren Bereich, rot ab dem Überladen.
-  buildMeter(color) {
-    const group = new THREE.Group();
-    const back = new THREE.Mesh(
-      new THREE.BoxGeometry(0.62, 0.09, 0.03),
-      new THREE.MeshBasicMaterial({ color: "#16222a", transparent: true, opacity: 0.75, depthWrite: false })
-    );
-    group.add(back);
-    const fill = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.07, 0.04),
-      new THREE.MeshBasicMaterial({ color, depthWrite: false })
-    );
-    fill.position.z = 0.01;
-    group.add(fill);
-    // Markierung, wo das Überladen beginnt.
-    const limit = new THREE.Mesh(
-      new THREE.BoxGeometry(0.025, 0.13, 0.05),
-      new THREE.MeshBasicMaterial({ color: "#ffffff", depthWrite: false })
-    );
-    limit.position.z = 0.02;
-    group.add(limit);
-    group.userData = { fill, limit };
-    group.visible = false;
-    group.renderOrder = 900;
-    return group;
-  }
-
-  ensureKin(player, index = 0) {
-    if (this.kins.has(player.id)) return this.kins.get(player.id);
-    const kin = createVoxelKin(player.color, index);
-    const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.y = 0.62;
-    kin.add(label);
-    const shadow = createShadowBlob(0.5);
-    this.scene.add(shadow);
-    kin.userData.label = label;
-    kin.userData.shadow = shadow;
-    this.scene.add(kin);
-    const animator = new KinAnimator(kin);
-    animator.groundY = KIN_Y;
-    this.kins.set(player.id, kin);
-    this.animators.set(player.id, animator);
-
-    const meter = this.buildMeter(player.color);
-    kin.add(meter);
-    meter.position.y = 0.92;
-    this.meters.set(player.id, meter);
-    return kin;
-  }
-
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
-
-    // Ansicht so drehen, dass der eigene Platz immer vorne an der Kamera liegt.
-    // Ohne das hing der eigene Kin je nach Spielerindex am oberen Bildrand,
-    // während ein Gegner vorne stand — man sah nicht, ob der Stein auf die
-    // EIGENE Kante zurollt, und genau das ist die entscheidende Information.
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale } = f;
+    if (!arcade) return;
+    // Das Bild dreht sich so, dass die eigene Figur unten steht.
     const ownEntry = arcade.players[controlledId];
     const ownAngle = ownEntry ? Math.atan2(ownEntry.spotY, ownEntry.spotX) : -Math.PI / 2;
     const viewRot = Math.PI / 2 - ownAngle;
     const rotX = (x, y) => x * Math.cos(viewRot) - y * Math.sin(viewRot);
     const rotY = (x, y) => x * Math.sin(viewRot) + y * Math.cos(viewRot);
-
-    // Stein: Serverkoordinaten (Einheitskreis) auf die Weltgrösse abbilden.
     const stone = arcade.stone || { x: 0, y: 0 };
     this.stone.position.x = rotX(stone.x, stone.y) * RING_WORLD;
     this.stone.position.z = rotY(stone.x, stone.y) * RING_WORLD;
     this.stone.position.y = STONE_R + 0.08;
-    // Rollrichtung: der Stein dreht sich passend zur Bewegung.
     this.stoneRock.rotation.z -= (stone.vx || 0) * dt * 6;
     this.stoneRock.rotation.x += (stone.vy || 0) * dt * 6;
     this.stoneBand.rotation.z += Math.hypot(stone.vx || 0, stone.vy || 0) * dt * 3;
     this.stoneShadow.position.set(this.stone.position.x, 0.11, this.stone.position.z);
-    // Kräftigerer Schatten: verankert den Stein sichtbar auf der Matte.
     this.stoneShadow.material.opacity = 0.4;
+    this.edge.material.emissiveIntensity = 0.3 + Math.min(1, Math.hypot(stone.x, stone.y)) * 0.7;
 
-    // Die Ringkante glüht auf der Seite, zu der der Stein läuft.
-    const drift = Math.hypot(stone.x, stone.y);
-    this.edge.material.emissiveIntensity = 0.3 + Math.min(1, drift) * 0.7;
-
-    state.players.forEach((player, index) => {
+    players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      const kin = this.ensureKin(player, index);
+      const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       const meter = this.meters.get(player.id);
+      if (!entry || !kin || !animator) return;
+      const isOwn = player.id === controlledId;
       const out = Boolean(entry.eliminated);
-
-      // Platz am Ringrand (in Ansichtsdrehung), Blick zur Mitte.
       const viewX = rotX(entry.spotX, entry.spotY);
       const viewZ = rotY(entry.spotX, entry.spotY);
-      const spotX = viewX * (RING_WORLD - 0.42);
-      const spotZ = viewZ * (RING_WORLD - 0.42);
-      // Ausgeschiedene treten einen Schritt zurück und werden blass.
-      const push = out ? 1.5 : 1;
-      kin.position.x = THREE.MathUtils.lerp(kin.position.x, spotX * push, frameLerp(0.12, dt));
-      kin.position.z = THREE.MathUtils.lerp(kin.position.z, spotZ * push, frameLerp(0.12, dt));
-      kin.rotation.y = Math.atan2(-viewX, -viewZ);
-      setKinOpacity(kin, out ? 0.4 : 1);
+      const spotX = viewX * (RING_WORLD - 0.5);
+      const spotZ = viewZ * (RING_WORLD - 0.5);
 
-      // Ladebalken: nur beim eigenen Laden sichtbar (Server kennt chargeStart).
-      const charging = entry.chargeStart !== null && entry.chargeStart !== undefined && !out;
+      if (out && !this.lastEliminated.get(player.id)) {
+        this.lastEliminated.set(player.id, true);
+        this.fallAt.set(player.id, now);
+        animator.trigger("tumble");
+        animator.expression("scared", 1200);
+      }
+      if (out) {
+        // Vom Ring ins Wasser, dann treiben.
+        const since = (now - (this.fallAt.get(player.id) || now)) / 1000;
+        const outX = viewX * (RING_WORLD + 1.1);
+        const outZ = viewZ * (RING_WORLD + 1.1);
+        kin.position.x += (outX - kin.position.x) * frameLerp(0.1, dt);
+        kin.position.z += (outZ - kin.position.z) * frameLerp(0.1, dt);
+        animator.groundY = Math.max(-2.1, KIN_Y - since * since * 5);
+        setKinOpacity(kin, 0.85);
+        if (meter) meter.visible = false;
+        if (!finale && since > 0.6) animator.set("float");
+        return;
+      }
+      kin.position.x += (spotX - kin.position.x) * frameLerp(0.12, dt);
+      kin.position.z += (spotZ - kin.position.z) * frameLerp(0.12, dt);
+      animator.groundY = KIN_Y;
+      setKinOpacity(kin, 1);
+
+      const charging = entry.chargeStart !== null && entry.chargeStart !== undefined;
+      const ratio = charging ? Math.min(1, Math.max(0, now - entry.chargeStart) / arcade.chargeMs) : 0;
       if (meter) {
         meter.visible = charging;
         if (charging) {
-          const held = Math.max(0, now - entry.chargeStart);
-          const ratio = Math.min(1, held / arcade.chargeMs);
           meter.userData.fill.scale.x = Math.max(0.02, ratio);
           meter.userData.fill.position.x = -0.3 + (0.6 * ratio) / 2;
-          // Grün, sobald voll — halten kostet nichts mehr, es IST die Deckung.
           meter.userData.fill.material.color.set(ratio >= 1 ? "#7fe06f" : "#ffe36b");
           meter.userData.limit.position.x = 0.3;
-          meter.rotation.y = -kin.rotation.y;      // Balken bleibt zur Kamera
+          meter.rotation.y = -kin.rotation.y;
         }
       }
 
-      // Stoss: Ausfallschritt zur Mitte.
       const shove = entry.lastShove;
-      const seen = this.lastShoveAt.get(player.id);
-      if (shove && shove.at !== seen) {
+      if (shove && shove.at !== this.lastShoveAt.get(player.id)) {
         this.lastShoveAt.set(player.id, shove.at);
         if (shove.whiffed) {
-          animator?.trigger("stumble");
-          this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "INS LEERE!", { color: "#ff9aa8", size: 0.36, life: 1 });
-          if (player.id === controlledId) this.shake = Math.max(this.shake, 0.3);
+          animator.trigger("push");
+          animator.trigger("stumble");
+          animator.expression("surprised", 700);
+          this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "INS LEERE!", { color: "#ff9aa8", size: 0.36, life: 1 });
+          if (isOwn) this.rig.shake(0.3);
         } else {
-          animator?.trigger("jump");
-          const at = new THREE.Vector3(viewX * (RING_WORLD - 0.9), 0.4, viewZ * (RING_WORLD - 0.9));
-          // Die Wucht ist Kraft mal Konter — der Funkenschlag zeigt beides.
+          animator.trigger("push");
+          animator.expression("angry", 500);
+          const at = new THREE.Vector3(viewX * (RING_WORLD - 1.0), 0.4, viewZ * (RING_WORLD - 1.0));
           const force = shove.power * (shove.meet ?? 1);
-          this.bursts.spawn(at, ["#f0dcae", "#ffffff"], { count: 8 + Math.round(force * 8), speed: 1.6, up: 1.2, size: 0.06, life: 0.5, drag: 2.2 });
-          // Den Konter ausdrücklich benennen: dass ein entgegenrollender Stein
-          // härter zurückgeht, ist der Kniff, den man dem Spiel ansehen muss.
+          this.burst(at, ["#f0dcae", "#ffffff"], { count: 8 + Math.round(force * 8), speed: 1.6, up: 1.2, size: 0.06, life: 0.5, drag: 2.2 });
           if ((shove.meet ?? 1) > 1.25 && shove.power > 0.8) {
-            this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "KONTER!", { color: "#7fe06f", size: 0.4, life: 1 });
+            this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "KONTER!", { color: "#7fe06f", size: 0.4, life: 1 });
           } else if (shove.power > 0.85) {
-            this.floaters.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "VOLLE KRAFT!", { color: "#ffe36b", size: 0.38, life: 0.9 });
+            this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "VOLLE KRAFT!", { color: "#ffe36b", size: 0.38, life: 0.9 });
           }
         }
       }
-
-      // Treffer: der Stein ist über diese Kante gerollt.
       if ((entry.hits || 0) > (this.lastHits.get(player.id) || 0)) {
         this.lastHits.set(player.id, entry.hits);
-        animator?.trigger("hit");
+        animator.trigger("knockback");
+        animator.expression("dizzy", 900);
         const edgeAt = new THREE.Vector3(viewX * RING_WORLD, 0.2, viewZ * RING_WORLD);
-        this.bursts.spawn(edgeAt, ["#e0334f", "#ffffff", player.color], { count: 16, speed: 2.2, up: 1.8, size: 0.08, life: 0.7, drag: 1.5 });
+        this.burst(edgeAt, ["#e0334f", "#ffffff", player.color], { count: 16, speed: 2.2, up: 1.8, size: 0.08, life: 0.7, drag: 1.5 });
         this.bursts.ring(edgeAt.clone().setY(0.12), "#e0334f", { radius: 1.6, life: 0.55, y: 0.12 });
         const left = Math.max(0, arcade.hitsOut - entry.hits);
-        this.floaters.pop(
-          kin.position.clone().add(new THREE.Vector3(0, 1.3, 0)),
-          left > 0 ? `TREFFER! ${left} übrig` : "RAUS!",
-          { color: "#ff6b7f", size: 0.4, life: 1.1 }
-        );
-        if (player.id === controlledId) {
-          this.shake = Math.max(this.shake, 0.9);
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.4, 0)), left > 0 ? `TREFFER! ${left} übrig` : "RAUS!", { color: "#ff6b7f", size: 0.4, life: 1.1 });
+        if (isOwn) {
+          this.rig.shake(0.9);
           this.feedback?.sound("collision");
           this.feedback?.vibrate([28, 20, 34]);
         }
       }
 
-      if (out && !this.lastEliminated.get(player.id)) {
-        this.lastEliminated.set(player.id, true);
-        animator?.trigger("fall");
-      }
-
-      if (minigame.finaleAt) applyFinaleMood(animator, arcade.places?.[player.id], state.players.length);
-      else animator?.set(out ? "sad" : "idle", { base: true });
-      animator?.update(now);
-
-      kin.userData.shadow.position.set(kin.position.x, 0.11, kin.position.z);
-      kin.userData.shadow.material.opacity = out ? 0.12 : 0.26;
-      kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
+      if (finale) return;
+      // Zur Ringmitte gedreht, den Stein im Blick.
+      kin.rotation.y = Math.atan2(-viewX, -viewZ);
+      animator.lookAt(this.stone.position);
+      const reach = (stone.x * entry.spotX + stone.y * entry.spotY) / Math.max(1e-6, arcade.ringRadius || 1);
+      if (charging) animator.set("charge", { params: { power: ratio } });
+      else if (now < (entry.recoverUntil || 0)) animator.set("idle");
+      else if (reach >= (arcade.zone ?? 0.35)) {
+        animator.set("brace");
+        animator.expression("scared", 150);
+      } else animator.set("ready");
     });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    // Kamera schaut von oben in den Ring und folgt dem Stein ein Stück.
-    this.shake *= frameDecay(0.9, dt);
-    const shakeX = Math.sin(now / 15) * this.shake * 0.24 * shakeScale();
-    const desired = new THREE.Vector3(
-      this.stone.position.x * 0.18 + shakeX,
-      this.baseCamY || 5.4,
-      (this.baseCamZ || 6.2) + this.stone.position.z * 0.14
-    );
-    this.camera.position.lerp(desired, frameLerp(0.1, dt));
-    this.camera.lookAt(this.stone.position.x * 0.3, 0.35, this.stone.position.z * 0.3);
-
-    this.updateHud(minigame, arcade, state, now);
-    syncOwnMarker(this, this.kins?.get(controlledId), now);
-    // Auch die Mitspieler gehören ins Bild — sonst weiss man nicht, wie man
-    // gerade dasteht. Rand 1.35 statt der voreingestellten 1.1: die Funktion
-    // hält den MITTELPUNKT der Figur im Bild. Gemessen lag der Mittelpunkt bei
-    // 1.22 genau auf 0.83 der halben Bildbreite — der Körper reicht von dort
-    // noch 0.16 weiter, und mit dem Kamerawackeln stand er wieder draussen.
-    fitKinsInView(this, { margin: 1.35 });
-    this.renderer.render(this.scene, this.camera);
   }
 
-  updateHud(minigame, arcade, state, now) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const own = arcade.players[this.getControlledPlayerId()];
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    const left = own ? Math.max(0, arcade.hitsOut - (own.hits || 0)) : 0;
-    this.hud.querySelector("[data-kinetic-score]").textContent = `♥ ${left}`;
+  keepInView(f) {
+    return f.players.filter((player) => !f.arcade?.players?.[player.id]?.eliminated).map((player) => this.kins.get(player.id)).filter(Boolean);
+  }
 
-    // Eigener Ladebalken im HUD — grösser und damit besser dosierbar als der
-    // kleine Balken über dem Kopf.
+  drawHud(f) {
+    const { arcade, state, now } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    const left = own ? Math.max(0, arcade.hitsOut - (own.hits || 0)) : 0;
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = `♥ ${left}`;
     const charge = this.hud.querySelector("[data-sumo-charge]");
     if (charge) {
       const charging = this.holdStart !== null;
@@ -590,17 +479,5 @@ export class SumoPush {
       }
     }
     if (this.button) this.button.disabled = !this.canAct();
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      this.baseCamY = portrait ? 6.0 : 5.4;
-            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
-      // -0.035 über den Bildrand hinaus — meist das Namensschild, das
-      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
-      // schmal, und die Reihe steht quer dazu.
-this.baseCamZ = portrait ? 9.0 : 6.2;
-      camera.fov = portrait ? 54 : 46;
-    });
   }
 }

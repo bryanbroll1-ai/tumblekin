@@ -1,38 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
-// Augenmaß — ein Schwarm Glühkäfer blitzt anderthalb Sekunden auf, danach
-// schätzt man, wie viele es waren.
+// Augenmaß: ein Schwarm Glühwürmchen leuchtet kurz auf — wie viele waren es?
+// Geschätzt wird mit dem Schieber.
 //
-// Das ganze Spiel hängt daran, dass man NICHT zählen kann. Drei Dinge sorgen
-// dafür, und jedes ist Absicht:
-//
-//  * Die Käfer treiben. Ein stehendes Raster liesse sich in Reihen abzählen,
-//    ein Gewimmel nicht — man nimmt die Menge als Fläche wahr, nicht als Folge.
-//  * Sie stehen im Raum, nicht auf einer Ebene. Perspektive macht hintere Käfer
-//    kleiner und enger, und genau das ist die Wahrnehmungsaufgabe.
-//  * Anderthalb Sekunden. Lang genug für einen Eindruck, zu kurz zum Zählen —
-//    ab etwa dreissig Stück verlässt sich auch ein geübtes Auge aufs Schätzen.
-//
-// Beim Auflösen werden sie einzeln hochgezählt. Das ist der Moment, auf den die
-// Runde wartet, und er darf nicht als blosse Zahl vorbeigehen.
+// Vorher stand eine kleine Figur allein unter einem grossen Nachthimmel.
+// Jetzt sitzen alle zusammen auf einem Baumstamm vor dem Schwarm, folgen ihm
+// mit den Augen, grübeln beim Schätzen und drehen sich bei der Auflösung um:
+// wer richtig lag, springt auf, wer daneben lag, schlägt die Hände vors
+// Gesicht.
 const MAX_SWARM = 95;
 // Der Schwarm muss GANZ ins Bild — wer einen Teil nicht sieht, schätzt nicht,
 // sondern rät. Bei 4.1 ragten die äusseren Käfer links und rechts aus dem Bild:
@@ -54,119 +31,48 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-export class SwarmCount {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+const LOG_Z = 2.5;
+const LOG_TOP = 0.42;
+
+export class SwarmCount extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.flies = [];
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
     this.shownRound = -1;
     this.shownPhase = "";
-    this.shownRevealAt = 0;
     this.countUpUntil = 0;
     this.lastSentGuess = null;
     this.sendTimer = 0;
+    this.reacted = new Map();
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Augenmaß", background: "#101a2c", fog: ["#16233b", 16, 46], fov: 58, far: 80 });
+  stage() {
+    return {
+      label: "3D Augenmaß",
+      background: "#101a2c",
+      fog: ["#16233b", 16, 46],
+      lights: { sunPosition: [-4, 10, 6], shadow: { left: -6, right: 6, top: 8, bottom: -4 } }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="simon-round" data-swarm-round>Durchgang 1/4</div>
       <div class="simon-chips" data-swarm-chips></div>
-      <div class="color-banner" data-swarm-banner hidden></div>
-    `);
-    this.createScene();
-    this.buildControls();
-    this.loop();
+      <div class="color-banner" data-swarm-banner hidden></div>`;
   }
 
-  // Ein echter Schieberegler statt eines selbstgebauten Balkens: er lässt sich
-  // mit dem Daumen greifen, ohne dass die Szene darunter mitscrollt, und
-  // Bedienhilfen kennen ihn.
-  buildControls() {
-    this.controls.innerHTML = `
-      <div class="estimate-pad">
-        <div class="estimate-value"><strong data-estimate-value>?</strong><span>Stück</span></div>
-        <input type="range" class="estimate-slider" data-estimate-slider
-          min="0" max="10" step="1" value="5" aria-label="Deine Schätzung" disabled>
-        <div class="estimate-scale"><span data-estimate-low>0</span><span data-estimate-high>10</span></div>
-      </div>
-    `;
-    this.slider = this.controls.querySelector("[data-estimate-slider]");
-    this.valueLabel = this.controls.querySelector("[data-estimate-value]");
-    this.lowLabel = this.controls.querySelector("[data-estimate-low]");
-    this.highLabel = this.controls.querySelector("[data-estimate-high]");
-
-    this.onSlide = () => {
-      const value = Number(this.slider.value);
-      if (this.valueLabel) this.valueLabel.textContent = String(value);
-      // Beim Ziehen fliegen sonst dutzende Pakete je Sekunde los. Gesendet wird
-      // gedrosselt — und beim Loslassen in jedem Fall, damit der letzte Stand
-      // ankommt.
-      const now = this.now();
-      if (now - this.sendTimer < 90) return;
-      this.sendTimer = now;
-      this.pushGuess(value);
-    };
-    this.onSlideEnd = () => this.pushGuess(Number(this.slider.value));
-
-    this.slider.addEventListener("input", this.onSlide);
-    this.slider.addEventListener("change", this.onSlideEnd);
-    this.slider.addEventListener("pointerup", this.onSlideEnd);
-  }
-
-  pushGuess(value) {
-    if (this.lastSentGuess === value) return;
-    this.lastSentGuess = value;
-    this.feedback?.sound("step");
-    this.sendInput({ action: "guess", value }).catch(() => {});
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.slider?.removeEventListener("input", this.onSlide);
-    this.slider?.removeEventListener("change", this.onSlideEnd);
-    this.slider?.removeEventListener("pointerup", this.onSlideEnd);
-    this.controls.innerHTML = "";
-    teardownStage(this);
-    this.flies.length = 0;
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-4, 10, 6],
-      shadow: { left: -6, right: 6, top: 8, bottom: -4 }
-    });
-
+  build() {
+    const scene = this.scene;
     const meadow = new THREE.Mesh(
       new THREE.BoxGeometry(60, 0.5, 60),
       new THREE.MeshLambertMaterial({ color: "#1c3324" })
     );
     meadow.position.set(0, -0.25, -12);
     meadow.receiveShadow = true;
-    this.scene.add(meadow);
+    scene.add(meadow);
 
     // Die Szene war ein Nachthimmel ohne alles: flaches Marineblau über
     // flachem Dunkelgrün, dazwischen eine harte Kante. Ein Mond, ein
@@ -177,7 +83,7 @@ export class SwarmCount {
       new THREE.MeshBasicMaterial({ color: "#f3f0d8", fog: false })
     );
     mond.position.set(-5.5, 8.2, -24);
-    this.scene.add(mond);
+    scene.add(mond);
     // Der Hof braucht einen weichen Rand. Als gleichmässig gefüllter Kreis mit
     // 14 % Deckkraft war er im Bild eine graue Scheibe mit sichtbarer Kante —
     // er sah aus wie ein zweiter Himmelskörper, nicht wie Mondschein.
@@ -198,7 +104,7 @@ export class SwarmCount {
       new THREE.MeshBasicMaterial({ map: hofTex, transparent: true, fog: false, depthWrite: false })
     );
     hof.position.set(-5.5, 8.2, -24.1);
-    this.scene.add(hof);
+    scene.add(hof);
 
     const sterne = new THREE.InstancedMesh(
       new THREE.BoxGeometry(0.13, 0.13, 0.13),
@@ -214,7 +120,7 @@ export class SwarmCount {
       sterne.setMatrixAt(i, punkt.matrix);
     }
     sterne.instanceMatrix.needsUpdate = true;
-    this.scene.add(sterne);
+    scene.add(sterne);
 
     // Baumsaum am Horizont, als Silhouette.
     const saum = new THREE.InstancedMesh(
@@ -230,7 +136,7 @@ export class SwarmCount {
       saum.setMatrixAt(i, baum.matrix);
     }
     saum.instanceMatrix.needsUpdate = true;
-    this.scene.add(saum);
+    scene.add(saum);
 
     // Der Schwarm wird EINMAL angelegt und danach nur ein- und ausgeblendet.
     // 95 Käfer je Durchgang neu zu bauen hiesse, im Lauf eines Abends tausende
@@ -248,39 +154,28 @@ export class SwarmCount {
         })
       );
       mesh.visible = false;
-      this.scene.add(mesh);
+      scene.add(mesh);
       this.flies.push({ mesh, home: new THREE.Vector3(), drift: 0, speed: 1, lit: 0 });
     }
 
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.buildWatcher();
-    this.resizeRenderer();
-    this.camera.position.set(0, 3.4, 8.4);
-    this.camera.lookAt(0, 2.8, 0);
+    // Ein Baumstamm, auf dem alle sitzen.
+    const players = this.getState()?.players || [];
+    const count = Math.max(1, players.length);
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, count * 0.95 + 0.8, 10), new THREE.MeshLambertMaterial({ color: "#6b4a2c" }));
+    log.rotation.z = Math.PI / 2;
+    log.position.set(0, 0.24, LOG_Z);
+    log.castShadow = true;
+    scene.add(log);
+    // Ein kleines Lagerfeuer-Licht, damit man die Figuren in der Nacht sieht.
+    const glow = new THREE.PointLight(0xffc27a, 3.2, 7, 2);
+    glow.position.set(0.4, 1.4, LOG_Z + 1.4);
+    scene.add(glow);
+    players.forEach((player, index) => {
+      const x = (index - (count - 1) / 2) * 0.95;
+      this.addKin(player, index, { x, ground: LOG_TOP - 0.13, z: LOG_Z, facing: Math.PI });
+    });
   }
 
-  buildWatcher() {
-    const state = this.getState();
-    const me = state?.players?.find((player) => player.id === this.getControlledPlayerId()) || state?.players?.[0];
-    const kin = createVoxelKin(me?.color || "#ff5d73", 0);
-    kin.scale.setScalar(0.7);
-    const label = createNameLabel("du", me?.color || "#ff5d73");
-    label.position.y = 0.72;
-    kin.add(label);
-    kin.position.set(0, standOn(0), 2.2);
-    this.scene.add(kin);
-    const shadow = createShadowBlob(0.4);
-    shadow.position.set(0, 0.06, 2.2);
-    this.scene.add(shadow);
-    this.watcher = kin;
-    this.watcherAnimator = new KinAnimator(kin);
-    this.watcherAnimator.groundY = standOn(0);
-    this.watcherCheerUntil = 0;
-  }
-
-  // Die Käfer eines Durchgangs im Raum verteilen. Aus dem Durchgang gerechnet,
-  // damit alle dasselbe Bild sehen.
   layoutSwarm(round) {
     const random = seededRandom(round.index * 977 + round.count * 31 + 7);
     for (let index = 0; index < MAX_SWARM; index += 1) {
@@ -316,41 +211,73 @@ export class SwarmCount {
     return { round, phase, elapsed };
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
+  activeRound() {
     const minigame = this.update || this.minigame;
-    const state = this.getState();
     const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
+    if (!arcade?.rounds) return null;
+    const elapsed = Math.max(0, this.now() - minigame.startedAt);
+    const round = arcade.rounds.find((candidate) => elapsed >= candidate.showFrom && elapsed < candidate.until);
+    if (!round) return null;
+    const phase = elapsed < round.guessFrom ? "show" : elapsed < round.revealFrom ? "guess" : "reveal";
+    return { round, phase, elapsed };
+  }
 
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const own = arcade.players[this.getControlledPlayerId()];
-    const active = this.activeRound();
+  shot() {
+    return {
+      look: [0, 2.0, 0.6],
+      frame: { w: SPAWN_RADIUS * 2 + 0.8, h: 4.6 },
+      yaw: 0.28,
+      pitch: 0.06,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.3 }
+    };
+  }
 
-    this.syncPhase(active, own, now);
-    this.syncSwarm(active, dt, now);
-    this.syncWatcher(minigame, arcade, state, now);
+  bind() {
+    this.buildControls();
+  }
 
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
+  unbind() {
+    this.flies.length = 0;
+  }
 
-    this.shake *= frameDecay(0.87, dt);
-    const shakeX = Math.sin(now / 11) * this.shake * 0.2 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
-    this.camera.position.y = this.baseCamY || 3.4;
-    this.camera.position.z = this.baseCamZ || 8.4;
-    this.camera.lookAt(0, 2.8, 0);
+  buildControls() {
+    this.controls.innerHTML = `
+      <div class="estimate-pad">
+        <div class="estimate-value"><strong data-estimate-value>?</strong><span>Stück</span></div>
+        <input type="range" class="estimate-slider" data-estimate-slider
+          min="0" max="10" step="1" value="5" aria-label="Deine Schätzung" disabled>
+        <div class="estimate-scale"><span data-estimate-low>0</span><span data-estimate-high>10</span></div>
+      </div>
+    `;
+    this.slider = this.controls.querySelector("[data-estimate-slider]");
+    this.valueLabel = this.controls.querySelector("[data-estimate-value]");
+    this.lowLabel = this.controls.querySelector("[data-estimate-low]");
+    this.highLabel = this.controls.querySelector("[data-estimate-high]");
 
-    this.updateHud(minigame, arcade, state, now, own, active);
-    this.renderer.render(this.scene, this.camera);
+    this.onSlide = () => {
+      const value = Number(this.slider.value);
+      if (this.valueLabel) this.valueLabel.textContent = String(value);
+      // Beim Ziehen fliegen sonst dutzende Pakete je Sekunde los. Gesendet wird
+      // gedrosselt — und beim Loslassen in jedem Fall, damit der letzte Stand
+      // ankommt.
+      const now = this.now();
+      if (now - this.sendTimer < 90) return;
+      this.sendTimer = now;
+      this.pushGuess(value);
+    };
+    this.onSlideEnd = () => this.pushGuess(Number(this.slider.value));
+
+    this.on(this.slider, "input", this.onSlide);
+    this.on(this.slider, "change", this.onSlideEnd);
+    this.on(this.slider, "pointerup", this.onSlideEnd);
+  }
+
+  pushGuess(value) {
+    if (this.lastSentGuess === value) return;
+    this.lastSentGuess = value;
+    this.feedback?.sound("step");
+    this.sendInput({ action: "guess", value }).catch(() => {});
   }
 
   syncPhase(active, own, now) {
@@ -403,27 +330,24 @@ export class SwarmCount {
       if (this.slider) this.slider.disabled = true;
       // Beim Auflösen tauchen die Käfer wieder auf und werden hochgezählt.
       this.countUpUntil = now + 1100;
-      const mine = (own?.guesses || []).find((entry) => entry.round === round.index);
-      if (mine) this.celebrate(mine, round, now);
+      // Die Reaktion übernimmt tick() — für alle, nicht nur die eigene Figur.
     }
   }
 
-  celebrate(result, round, now) {
+  celebrate(result, round) {
     const at = new THREE.Vector3(0, 3.2, 0);
     if (result.error === 0) {
-      this.bursts.spawn(at, ["#ffe36b", "#ffffff"], { count: Math.round(20 * fxScale()), speed: 2.4, up: 2.0, size: 0.08, life: 0.8, drag: 1.6 });
-      this.floaters.pop(at, "GENAU!", { color: "#ffe36b", size: 0.46, life: 1.0 });
-      this.shake = Math.min(1, this.shake + 1);
+      this.burst(at, ["#ffe36b", "#ffffff"], { count: Math.round(20 * fxScale()), speed: 2.4, up: 2.0, size: 0.08, life: 0.8, drag: 1.6 });
+      this.pop(at, "GENAU!", { color: "#ffe36b", size: 0.46, life: 1.0 });
+      this.rig.shake(0.6);
       this.feedback?.sound("win");
     } else if (result.points > 0) {
-      this.floaters.pop(at, `+${result.points}`, { color: "#c6ffb0", size: 0.38, life: 0.9 });
+      this.pop(at, `+${result.points}`, { color: "#c6ffb0", size: 0.38, life: 0.9 });
       this.feedback?.sound("coin");
     } else {
-      this.floaters.pop(at, `${result.guess} statt ${round.count}`, { color: "#ff9aa8", size: 0.34, life: 0.9 });
+      this.pop(at, `${result.guess} statt ${round.count}`, { color: "#ff9aa8", size: 0.34, life: 0.9 });
       this.feedback?.sound("error");
     }
-    this.watcherCheerUntil = result.points > 0 ? now + 900 : 0;
-    this.watcherSadUntil = result.points > 0 ? 0 : now + 900;
   }
 
   syncSwarm(active, dt, now) {
@@ -457,35 +381,57 @@ export class SwarmCount {
     });
   }
 
-  syncWatcher(minigame, arcade, state, now) {
-    if (!this.watcherAnimator) return;
-    if (minigame.finaleAt) {
-      applyFinaleMood(this.watcherAnimator, this.finalePlace(arcade, state), state.players.length);
-    } else if (this.watcherCheerUntil && now < this.watcherCheerUntil) {
-      this.watcherAnimator.set("cheer");
-    } else if (this.watcherSadUntil && now < this.watcherSadUntil) {
-      this.watcherAnimator.set("sad");
-    } else {
-      this.watcherAnimator.set("idle", { base: true });
-    }
-    this.watcherAnimator.update(now);
+  tick(f) {
+    const { now, dt, arcade, players, finale } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    const active = this.activeRound();
+    this.syncPhase(active, own, now);
+    this.syncSwarm(active, dt, now);
+    const swarmCentre = new THREE.Vector3(0, 2.6, -0.4);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const kin = this.kins.get(player.id);
+      const animator = this.animators.get(player.id);
+      if (!entry || !kin || !animator) return;
+      const revealing = active?.phase === "reveal";
+      const key = active ? active.round.index : -1;
+      if (revealing && this.reacted.get(player.id) !== key) {
+        this.reacted.set(player.id, key);
+        const mine = (entry.guesses || []).find((guess) => guess.round === active.round.index);
+        if (mine?.error === 0) {
+          animator.trigger("celebrate");
+          animator.expression("joy", 1500);
+        } else if (mine?.points > 0) {
+          animator.trigger("clap");
+          animator.expression("happy", 1200);
+        } else {
+          animator.trigger("facepalm");
+          animator.expression("sad", 1400);
+        }
+        if (player.id === f.controlledId && mine) this.celebrate(mine, active.round);
+      }
+      if (finale) return;
+      // Beim Auflösen zur Kamera gedreht, sonst zum Schwarm.
+      const face = revealing ? 0.2 : Math.PI;
+      kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.12, dt);
+      animator.lookAt(revealing ? null : swarmCentre);
+      animator.set("sit");
+      if (active?.phase === "guess") animator.expression("focus", 150);
+    });
   }
 
-  finalePlace(arcade, state) {
-    const scored = state.players
-      .map((player) => ({ id: player.id, score: arcade.players[player.id]?.score || 0 }))
-      .sort((a, b) => b.score - a.score);
-    const index = scored.findIndex((entry) => entry.id === this.getControlledPlayerId());
-    return index < 0 ? state.players.length : index + 1;
+  keepInView(f) {
+    return f.players.map((player) => this.kins.get(player.id)).filter(Boolean);
   }
 
-  updateHud(minigame, arcade, state, now, own, active) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(Math.round(own?.score || 0));
-
+  drawHud(f) {
+    const { arcade, state } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    const active = this.activeRound();
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(Math.round(own?.score || 0));
     const roundLabel = this.hud.querySelector("[data-swarm-round]");
     if (roundLabel) {
       const total = arcade.rounds?.length || 0;
@@ -527,14 +473,5 @@ export class SwarmCount {
       : `Es waren ${active.round.count}`;
     banner.style.background = mine && mine.error === 0 ? "#ffe36b" : "#9fc7ff";
     banner.style.color = "#152436";
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Weit genug weg für den ganzen Schwarm, siehe SPAWN_RADIUS.
-      this.baseCamY = portrait ? 3.0 : 2.8;
-      this.baseCamZ = portrait ? 10.5 : 9.0;
-      camera.fov = portrait ? 58 : 50;
-    });
   }
 }

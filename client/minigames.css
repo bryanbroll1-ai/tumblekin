@@ -1262,11 +1262,14 @@
 }
 
 /* --- Trampolin: Taktanzeige --------------------------------------------- */
+/* Neben der Zeitanzeige; oben im Fluss lag der Takt genau darüber. */
 .beat-strip {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 132px;
+  right: 64px;
   display: grid;
   gap: 4px;
-  align-self: center;
-  min-width: 58%;
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);
