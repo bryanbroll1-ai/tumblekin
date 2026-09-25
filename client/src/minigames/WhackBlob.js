@@ -5,8 +5,14 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
 // Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)
-// kommen Blobs, wer zuerst draufhaut, bekommt den Punkt. Die roten mit
-// Stacheln tun weh.
+// kommen Blobs. Wer schnell draufhaut, bekommt mehr (3/2/1 Punkte), der
+// goldene bringt 5. Die dunkelroten mit Stachelkrone tun weh: zwei Punkte weg
+// und kurz benommen.
+//
+// Getroffen wird, was man SIEHT: ein Tipp auf den Blob zählt für sein Loch.
+// Vorher wurde auf eine Ebene in Bodenhöhe gezielt — der Blob ragt aber fast
+// einen Meter heraus, und bei der schrägen Kamera landete ein Tipp auf seinen
+// Kopf oft in der Reihe dahinter.
 //
 // Vorher gab es keine Figuren, nur einen Hammer, der aus dem Nichts
 // erschien. Jetzt stehen alle mit ihrem Holzhammer an den Ecken des Hügels,
@@ -173,33 +179,99 @@ export class WhackBlob extends MinigameScene {
     });
   }
 
+  // Blobs mit Charakter: gerundeter Körper aus drei Lagen, grosse Augen mit
+  // Pupillen, Mund, rote Bäckchen. Stachelblobs sind dunkelrot, mit
+  // Stachelkrone, bösen Brauen und Zähnen — von weitem an der Form zu
+  // erkennen, nicht nur an der Farbe. Der goldene glänzt und funkelt.
   buildBlob(kind) {
     const blob = new THREE.Group();
-    const color = kind === "bad" ? "#ff2038" : "#8f6ae0";
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.62, 0.6, 0.62),
-      new THREE.MeshLambertMaterial({ color })
-    );
-    body.castShadow = true;
+    const palette = kind === "bad"
+      ? { body: "#b3122a", belly: "#d8344a", dark: "#5a0612" }
+      : kind === "gold"
+        ? { body: "#ffc52e", belly: "#ffe07a", dark: "#a8741a" }
+        : { body: "#8f6ae0", belly: "#b39af0", dark: "#4a2f9a" };
+    const mat = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
+    const bodyMat = mat(palette.body, kind === "gold" ? { emissive: "#c48a1a", emissiveIntensity: 0.35 } : {});
+    const body = new THREE.Group();
+    [[0.7, 0.26, 0.7, 0.13], [0.62, 0.22, 0.62, 0.37], [0.46, 0.14, 0.46, 0.55]].forEach(([w, h, d, y]) => {
+      const layer = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
+      layer.position.y = y;
+      layer.castShadow = true;
+      body.add(layer);
+    });
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.22, 0.04), mat(palette.belly));
+    belly.position.set(0, 0.2, 0.36);
+    body.add(belly);
     blob.add(body);
-    [[-0.14, 0.1], [0.14, 0.1]].forEach(([x, y]) => {
-      const eye = new THREE.Mesh(
-        new THREE.BoxGeometry(0.09, 0.12, 0.05),
-        new THREE.MeshLambertMaterial({ color: "#1b2530" })
-      );
-      eye.position.set(x, y, 0.33);
-      blob.add(eye);
+    // Augen: weiss mit Pupille, schauen zur Kamera.
+    [[-0.14], [0.14]].forEach(([x]) => {
+      const white = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.17, 0.04), mat("#ffffff"));
+      white.position.set(x, 0.42, 0.315);
+      blob.add(white);
+      const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.03), mat("#1b2530"));
+      pupil.position.set(x, 0.41, 0.34);
+      blob.add(pupil);
     });
     if (kind === "bad") {
-      [[0, 0.42, 0], [-0.25, 0.36, 0], [0.25, 0.36, 0]].forEach(([x, y, z]) => {
-        const spike = new THREE.Mesh(
-          new THREE.BoxGeometry(0.12, 0.24, 0.12),
-          new THREE.MeshLambertMaterial({ color: "#8a0f1e" })
-        );
-        spike.position.set(x, y, z);
-        blob.add(spike);
+      // Böse Brauen, Zähne und eine Krone aus Stacheln.
+      [[-0.14, 0.2], [0.14, -0.2]].forEach(([x, tilt]) => {
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.04), mat(palette.dark));
+        brow.position.set(x, 0.53, 0.33);
+        brow.rotation.z = tilt;
+        blob.add(brow);
       });
+      const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.04), mat("#2a0508"));
+      mouth.position.set(0, 0.26, 0.37);
+      blob.add(mouth);
+      [-0.08, 0.08].forEach((x) => {
+        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.03), mat("#ffffff"));
+        tooth.position.set(x, 0.29, 0.39);
+        blob.add(tooth);
+      });
+      const spikeMat = mat("#ffe1e1", { emissive: "#ff4d5e", emissiveIntensity: 0.25 });
+      for (let i = 0; i < 6; i += 1) {
+        const angle = (i / 6) * Math.PI * 2;
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.24, 5), spikeMat);
+        spike.position.set(Math.cos(angle) * 0.2, 0.7, Math.sin(angle) * 0.2);
+        spike.rotation.set(Math.sin(angle) * 0.5, 0, -Math.cos(angle) * 0.5);
+        blob.add(spike);
+      }
+      const top = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.3, 5), spikeMat);
+      top.position.y = 0.76;
+      blob.add(top);
+    } else {
+      const smile = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.04), mat("#3a1f4a"));
+      smile.position.set(0, 0.27, 0.37);
+      blob.add(smile);
+      [-0.24, 0.24].forEach((x) => {
+        const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.03), mat("#ff9ac0"));
+        cheek.position.set(x, 0.31, 0.35);
+        blob.add(cheek);
+      });
+      // Ein kleiner Schopf — der gute Blob ist rund und freundlich.
+      const tuft = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.08), bodyMat);
+      tuft.position.set(0.04, 0.68, 0);
+      tuft.rotation.z = -0.3;
+      blob.add(tuft);
+      if (kind === "gold") {
+        const crown = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), mat("#ffffff", { emissive: "#ffe36b", emissiveIntensity: 0.9 }));
+        crown.position.y = 0.82;
+        blob.add(crown);
+        blob.userData.sparkle = crown;
+      }
     }
+    // Trefferfläche: etwas grösser als der Körper, damit ein Tipp auf den
+    // Rand nicht danebengeht. Unsichtbar.
+    const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.1, 0.95), new THREE.MeshBasicMaterial({ visible: false }));
+    hitbox.position.y = 0.4;
+    blob.add(hitbox);
+    blob.userData.hitbox = hitbox;
+    blob.userData.body = body;
+    // Die Kamera schaut steil von oben — damit man das Gesicht sieht, lehnt
+    // sich der Blob zurück und schaut zu ihr hoch.
+    blob.rotation.order = "YXZ";
+    blob.rotation.x = -0.42;
+    blob.userData.baseScale = 1.18;
     return blob;
   }
 
@@ -246,6 +318,13 @@ export class WhackBlob extends MinigameScene {
     const rect = this.webglCanvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
+    // Zuerst die Blobs selbst: getroffen wird, was man sieht.
+    const boxes = [];
+    this.blobs.forEach((blob) => {
+      if (blob.userData.up && !blob.userData.whacked) boxes.push(blob.userData.hitbox);
+    });
+    const onBlob = this.raycaster.intersectObjects(boxes, false)[0];
+    if (onBlob) return onBlob.object.parent.userData.cell;
     const hit = this.raycaster.intersectObject(this.cellPlane)[0];
     if (!hit) return -1;
     const gx = Math.round(hit.point.x / CELL + (COLS - 1) / 2);
@@ -269,16 +348,35 @@ export class WhackBlob extends MinigameScene {
         blob = this.buildBlob(pop.kind);
         const pos = this.cellPos(pop.cell);
         blob.position.set(pos.x, -0.3, pos.z);
-        blob.userData = { whacked: false };
+        Object.assign(blob.userData, { whacked: false, cell: pop.cell, kind: pop.kind, whackedAt: 0 });
         this.scene.add(blob);
         this.blobs.set(pop.id, blob);
       }
-      const upTime = Math.min(1, Math.max(0, (elapsed - pop.from) / 160));
-      const downTime = Math.min(1, Math.max(0, (elapsed - (pop.until - 200)) / 200));
-      const squash = blob.userData.whacked ? 0.15 : 1;
-      blob.position.y = -0.35 + Math.max(0, (upTime - downTime) * 0.95) * squash;
-      blob.scale.y = blob.userData.whacked ? 0.3 : 1 + Math.sin(now / 140 + pop.id) * 0.05;
-      blob.rotation.y = Math.sin(now / 400 + pop.id * 2) * 0.3;
+      // Heraus mit Schwung (überschiessen, zurückfedern), oben wippen, dann
+      // wieder hinab. Getroffen: plattgedrückt.
+      const since = elapsed - pop.from;
+      const upTime = Math.min(1, Math.max(0, since / 180));
+      const overshoot = upTime < 1 ? upTime * (1 + Math.sin(upTime * Math.PI) * 0.25) : 1;
+      const downTime = Math.min(1, Math.max(0, (elapsed - (pop.until - 180)) / 180));
+      const height = Math.max(0, overshoot - downTime);
+      blob.userData.up = height > 0.4;
+      if (blob.userData.whacked) {
+        const t = Math.min(1, (now - blob.userData.whackedAt) / 220);
+        const k = blob.userData.baseScale || 1;
+        blob.scale.set(k * (1 + t * 0.35), k * Math.max(0.25, 1 - t * 0.75), k * (1 + t * 0.35));
+        blob.position.y = -0.1 + (1 - t) * 0.5;
+      } else {
+        blob.position.y = -0.35 + height * 0.7;
+        const wobble = Math.sin(now / 120 + pop.id) * 0.05;
+        const k = blob.userData.baseScale || 1;
+        blob.scale.set(k * (1 - wobble * 0.5), k * (1 + wobble), k * (1 - wobble * 0.5));
+        // Stachelblobs drohen: sie zittern. Gute schauen neugierig herum.
+        blob.rotation.y = pop.kind === "bad" ? Math.sin(now / 35) * 0.08 : Math.sin(now / 400 + pop.id * 2) * 0.35;
+      }
+      if (blob.userData.sparkle) {
+        blob.userData.sparkle.rotation.y = now / 200;
+        if (Math.random() < 0.08) this.burst(blob.position.clone().add(new THREE.Vector3(0, 0.9, 0)), ["#ffe36b", "#ffffff"], { count: 1, speed: 0.6, up: 0.6, size: 0.05, life: 0.4 });
+      }
     });
     this.blobs.forEach((blob, id) => {
       if (active.has(id)) return;
@@ -311,10 +409,17 @@ export class WhackBlob extends MinigameScene {
         swing.face = Math.atan2(pos.x - swing.target.x, pos.z - swing.target.z);
         animator.trigger("dig");
         const blob = this.blobs.get(pop.id);
-        if (blob) blob.userData.whacked = true;
-        this.burst(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : ["#8f6ae0", "#ffd15c", player.color], { count: 11, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
+        if (blob && !blob.userData.whacked) {
+          blob.userData.whacked = true;
+          blob.userData.whackedAt = now;
+        }
+        const gold = pop.kind === "gold";
+        const points = entry.lastWhack?.popId === pop.id ? entry.lastWhack.points : (bad ? -2 : 1);
+        const label = bad ? `AUA! ${points}` : gold ? `GOLD +${points}` : points >= 3 ? `+3 BLITZ!` : `+${points}`;
+        this.burst(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : gold ? ["#ffe36b", "#ffffff", "#ffc52e"] : ["#8f6ae0", "#ffd15c", player.color], { count: gold ? 22 : 12, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
         this.bursts.ring(new THREE.Vector3(pos.x, 0.42, pos.z), bad ? "#ff2038" : "#ffd15c", { radius: bad ? 1.3 : 1, life: 0.45, opacity: 0.5, tilt: null });
-        this.pop(new THREE.Vector3(pos.x, 1.3, pos.z), bad ? "AUA!" : "+1", { color: bad ? "#ff6b7f" : player.color, size: bad ? 0.38 : 0.32, life: bad ? 0.8 : 0.65, rise: 0.7 });
+        // Nur die eigenen Zahlen gross; fremde Treffer sieht man am Sprung.
+        if (isOwn || bad) this.pop(new THREE.Vector3(pos.x, 1.3, pos.z), label, { color: bad ? "#ff6b7f" : gold ? "#ffe36b" : player.color, size: isOwn ? (bad ? 0.38 : 0.34) : 0.26, life: bad ? 0.8 : 0.65, rise: 0.7 });
         if (bad) {
           animator.trigger("knockback");
           animator.expression("dizzy", 1300);
@@ -322,7 +427,7 @@ export class WhackBlob extends MinigameScene {
           animator.expression("joy", 500);
         }
         if (isOwn) {
-          this.feedback?.sound(bad ? "error" : "pop");
+          this.feedback?.sound(bad ? "error" : gold ? "win" : points >= 3 ? "combo" : "pop");
           this.feedback?.vibrate(bad ? [22, 16, 28] : 10);
           this.rig.shake(bad ? 0.7 : 0.35);
         }
@@ -376,10 +481,15 @@ export class WhackBlob extends MinigameScene {
   drawHud(f) {
     const own = f.arcade?.players?.[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = String(own?.hits || 0);
+    this.scoreNode.textContent = String(own?.points || 0);
     this.stunNode ||= this.hud.querySelector("[data-whack-stun]");
     const stunned = f.now < (own?.stunUntil || 0);
     this.stunNode.hidden = !stunned;
+    if (stunned) {
+      // Wie lange noch — in Zehnteln, damit man den Moment zum Weiterhauen sieht.
+      const text = `Aua! Benommen · ${((own.stunUntil - f.now) / 1000).toFixed(1)} s`;
+      if (this.stunNode.textContent !== text) this.stunNode.textContent = text;
+    }
     this.webglCanvas?.classList.toggle("is-stunned", stunned);
   }
 }

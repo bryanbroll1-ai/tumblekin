@@ -1403,6 +1403,63 @@ test("blobklopfe: wer einen Stachelblob trifft, ist kurz benommen", () => {
   assert.equal(entry.hits, 1, "danach zählt es wieder");
 });
 
+test("blobklopfe: schnell sein bringt mehr", () => {
+  const { WHACK_FAST_MS, WHACK_OK_MS } = testRules;
+  const hit = (delay, kind = "good") => {
+    const whacker = player({ id: "wf", name: "WF", color: "#fff" });
+    const startedAt = Date.now();
+    const arcade = createArcadeState("blobklopfe", [whacker], startedAt);
+    const minigame = { arcade, scores: {}, startedAt, duration: 25000, finishing: false };
+    const room = { currentMinigame: minigame, players: [whacker] };
+    const entry = arcade.players[whacker.id];
+    const pop = arcade.pops.find((candidate) => candidate.kind === kind);
+    minigame.startedAt = Date.now() - pop.from - delay;
+    handleArcadeInput(room, whacker, { action: "whack", cell: pop.cell });
+    return entry;
+  };
+  assert.equal(hit(200).points, 3, "blitzschnell");
+  assert.equal(hit(WHACK_FAST_MS + 100).points, 2);
+  assert.equal(hit(WHACK_OK_MS + 50).points, 1, "spät, aber getroffen");
+  assert.equal(hit(200, "gold").points, testRules.WHACK_GOLD_POINTS, "der goldene");
+  const detail = arcadeResultDetail(createArcadeState("blobklopfe", [player({ id: "x", name: "X", color: "#fff" })], Date.now()), { points: 7, hits: 3 });
+  assert.equal(detail.kind, "points");
+  assert.equal(detail.value, 7, "die Anzeige ist die Wertung");
+});
+
+test("blobklopfe: ein Stachelblob kostet zwei Punkte, nie unter null", () => {
+  const whacker = player({ id: "wb", name: "WB", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("blobklopfe", [whacker], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 25000, finishing: false };
+  const room = { currentMinigame: minigame, players: [whacker] };
+  const entry = arcade.players[whacker.id];
+  entry.points = 5;
+  const bad = arcade.pops.find((pop) => pop.kind === "bad");
+  minigame.startedAt = Date.now() - bad.from - 50;
+  handleArcadeInput(room, whacker, { action: "whack", cell: bad.cell });
+  assert.equal(entry.points, 5 - testRules.WHACK_BAD_COST);
+  entry.points = 1;
+  const second = arcade.pops.find((pop) => pop.kind === "bad" && pop.id !== bad.id);
+  entry.stunUntil = 0;
+  entry.lastInputAt = 0;
+  minigame.startedAt = Date.now() - second.from - 50;
+  handleArcadeInput(room, whacker, { action: "whack", cell: second.cell });
+  assert.equal(entry.points, 0, "nie ins Minus");
+});
+
+test("blobklopfe: nie zwei Blobs zugleich im selben Loch, und es gibt alle drei Sorten", () => {
+  const pops = testRules.buildWhackPops(431, 25000);
+  const kinds = new Set(pops.map((pop) => pop.kind));
+  ["good", "bad", "gold"].forEach((kind) => assert.ok(kinds.has(kind), `keine ${kind}`));
+  for (let i = 0; i < pops.length; i += 1) {
+    for (let j = i + 1; j < pops.length; j += 1) {
+      if (pops[i].cell !== pops[j].cell) continue;
+      const overlap = pops[i].from < pops[j].until && pops[j].from < pops[i].until;
+      assert.ok(!overlap, `Loch ${pops[i].cell}: Blob ${pops[i].id} und ${pops[j].id} gleichzeitig`);
+    }
+  }
+});
+
 test("kanonenflug: erster Tipp Kraft, zweiter Winkel, Punkte für die Nähe zur Flagge", () => {
   const { cannonDistance, cannonPoints } = testRules;
   const gunner = player({ id: "ka", name: "KA", color: "#fff" });

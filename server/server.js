@@ -970,8 +970,16 @@ const WHACK_COLS = 3;
 const WHACK_CELLS = 12;
 // Wer auf einen Stachelblob haut, ist kurz benommen und kann nicht klopfen.
 // Ein Punkt Abzug allein machte Draufhauen auf alles billig: wer blind jedes
-// Loch trifft, verliert einen Punkt und hat drei gewonnen.
-const WHACK_STUN_MS = 1400;
+// Loch trifft, verliert einen Punkt und hat drei gewonnen. 1.4 s waren aber
+// zu hart — man verpasste danach zwei, drei Blobs und fühlte sich bestraft,
+// nicht gewarnt. Jetzt eine Sekunde und zwei Punkte.
+const WHACK_STUN_MS = 1000;
+const WHACK_BAD_COST = 2;
+// Tempo zählt: wer schnell ist, bekommt mehr. Vorher war jeder Treffer gleich
+// viel wert, und ob man nach 300 oder 900 ms zuschlug, war egal.
+const WHACK_FAST_MS = 450;             // bis hier 3 Punkte
+const WHACK_OK_MS = 750;               // bis hier 2, danach 1
+const WHACK_GOLD_POINTS = 5;
 
 // Kanonenflug — erster Tipp Kraft, zweiter Winkel, dann fliegt man. Getroffen
 // werden soll die ZIELFLAGGE, nicht die grösste Weite.
@@ -2181,8 +2189,8 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.max(0, 50000 + (arcadePlayer.catches || 0) * 1000);
   }
   if (arcade.family === "whack") {
-    // Der Abzug steckt seit dem Eingabe-Handler schon in `hits`.
-    return Math.max(0, 50000 + (arcadePlayer.hits || 0) * 1000);
+    // Punkte zuerst (Tempo und Abzüge stecken schon drin), dann Treffer.
+    return Math.max(0, 50000 + (arcadePlayer.points || 0) * 1000 + (arcadePlayer.hits || 0));
   }
   if (arcade.family === "cannon") {
     if (!arcadePlayer.launchedAt) return 0;
@@ -2320,7 +2328,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "coins", value: arcadePlayer.catches || 0, label: "Münzen" };
   }
   if (arcade.family === "whack") {
-    return { kind: "targets", value: arcadePlayer.hits || 0, label: "Treffer" };
+    return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte" };
   }
   if (arcade.family === "cannon") {
     return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte" };
@@ -2917,12 +2925,16 @@ function createArcadeState(type, players, startedAt, options = {}) {
     // Salt the fixed per-game seed with time so the blobs pop in a fresh random
     // pattern every round instead of the identical fixed sequence.
     arcade.pops = buildWhackPops(arcade.seed + (Date.now() % 9973), 60000);
+    arcade.fastMs = WHACK_FAST_MS;
+    arcade.okMs = WHACK_OK_MS;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.hits = 0;
+      entry.points = 0;
       entry.badHits = 0;
       entry.hitPopIds = {};
       entry.stunUntil = 0;
+      entry.lastWhack = null;          // { popId, cell, kind, points, at }
     });
   }
   if (config.family === "cannon") {
@@ -3431,26 +3443,26 @@ function buildCatchDrops(seed, totalMs) {
   return drops;
 }
 
-// Blobs pop out of the holes — some are spiky troublemakers.
+// Die Blobs der Runde. Der Plan steht beim Start fest und gilt für alle.
+//
+// Es kommen immer öfter mehrere gleichzeitig, und die Zeit oben wird kürzer.
+// Rund jeder fünfte ist ein Stachelblob, selten kommt ein goldener, der
+// schnell wieder abtaucht. Zwei Blobs nie im selben Loch zur selben Zeit.
 function buildWhackPops(seed, totalMs) {
   const pops = [];
-  let at = 2500;
+  let at = 2200;
   let index = 0;
-  let lastCell = -1;
+  const busy = new Map();              // Loch -> bis wann belegt
   while (at < totalMs) {
     let cell = Math.floor(arcadeNoise(seed + index * 17) * WHACK_CELLS);
-    if (cell === lastCell) cell = (cell + 1 + Math.floor(arcadeNoise(seed + index * 23) * (WHACK_CELLS - 1))) % WHACK_CELLS;
-    lastCell = cell;
-    // A calmer pace than before: blobs stay up longer and spawn less often.
-    const upMs = 1150 - Math.min(280, index * 7);
-    pops.push({
-      id: index + 1,
-      from: Math.round(at),
-      until: Math.round(at + upMs),
-      cell,
-      kind: arcadeNoise(seed + index * 37) < 0.18 ? "bad" : "good"
-    });
-    at += Math.max(560, 920 - index * 8) + arcadeNoise(seed + index * 43) * 220;
+    for (let k = 0; k < WHACK_CELLS && (busy.get(cell) || 0) > at - 150; k += 1) cell = (cell + 5) % WHACK_CELLS;
+    const roll = arcadeNoise(seed + index * 37);
+    // Der goldene kommt selten, aber sicher: mindestens jeder dreizehnte.
+    const kind = roll < 0.2 ? "bad" : (roll > 0.93 || index % 13 === 8) ? "gold" : "good";
+    const upMs = kind === "gold" ? 700 : Math.max(820, 1250 - index * 9);
+    pops.push({ id: index + 1, from: Math.round(at), until: Math.round(at + upMs), cell, kind });
+    busy.set(cell, at + upMs);
+    at += Math.max(380, 820 - index * 11) + arcadeNoise(seed + index * 43) * 200;
     index += 1;
   }
   return pops;
@@ -3880,30 +3892,31 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "whack") {
-    if (input.action !== "whack") return { ok: false, error: "Tippe auf das Feld mit dem Blob." };
+    if (input.action !== "whack") return { ok: false, error: "Tippe auf den Blob." };
     const cell = clamp(Math.round(inputNumber(input.cell) || 0), 0, WHACK_CELLS - 1);
     if (now < (arcadePlayer.stunUntil || 0)) return { ok: true };   // noch benommen
     const elapsed = now - room.currentMinigame.startedAt;
     const pop = arcade.pops.find((candidate) =>
-      candidate.cell === cell && elapsed >= candidate.from && elapsed <= candidate.until && !arcadePlayer.hitPopIds[candidate.id]);
+      candidate.cell === cell && elapsed >= candidate.from && elapsed <= candidate.until + 80 && !arcadePlayer.hitPopIds[candidate.id]);
     if (!pop) return { ok: true };
     arcadePlayer.hitPopIds[pop.id] = true;
     arcadePlayer.hasMoved = true;
+    let points;
     if (pop.kind === "bad") {
-      // Ein Stachelblob kostet einen Treffer — derselbe Grund wie beim
-      // Muenzregen: angezeigt wurden die Treffer, gewertet Treffer minus
-      // Fehlgriffe. Zwei Zahlen fuer dieselbe Sache widersprechen sich
-      // frueher oder spaeter.
+      points = -WHACK_BAD_COST;
       arcadePlayer.badHits += 1;
-      arcadePlayer.hits = Math.max(0, arcadePlayer.hits - 1);
       arcadePlayer.flash = "bad";
       arcadePlayer.stunUntil = now + WHACK_STUN_MS;
     } else {
+      const since = elapsed - pop.from;
+      points = pop.kind === "gold" ? WHACK_GOLD_POINTS : since <= WHACK_FAST_MS ? 3 : since <= WHACK_OK_MS ? 2 : 1;
       arcadePlayer.hits += 1;
       arcadePlayer.flash = "good";
     }
+    arcadePlayer.points = Math.max(0, arcadePlayer.points + points);
+    arcadePlayer.lastWhack = { popId: pop.id, cell, kind: pop.kind, points, at: now };
     arcadePlayer.lastHitAt = now;
-    arcadePlayer.score = arcadePlayer.hits * 10;
+    arcadePlayer.score = arcadePlayer.points;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
   }
@@ -7019,25 +7032,26 @@ function arcadeBotStep(room, bot) {
     const now = Date.now();
     const profile = botProfile(player);
     const elapsed = now - minigame.startedAt;
-    // Auch Stachelblobs kommen in Frage — ein Bot, der nur die guten überhaupt
-    // ansieht, kann sich nie vergreifen, und gemessen hatte KEINE Stufe je einen
-    // Fehlschlag.
     if (now < (player.stunUntil || 0)) return;
-    const active = arcade.pops.find((pop) =>
-      !player.hitPopIds[pop.id]
-      && elapsed >= pop.from + profile.reactionMs * 0.7 && elapsed <= pop.until);
-    if (!active) return;
-    // Je Blob wird EINMAL entschieden. Als Wurf je Tick summierte sich die Chance
-    // über das rund sekundenlange Fenster auf: selbst der schwache Bot traf damit
-    // fast jeden Blob, und die drei Stufen lagen praktisch gleichauf.
-    if (player.botPopId !== active.id) {
-      player.botPopId = active.id;
-      player.botPopSwing = active.kind === "bad"
-        ? Math.random() < profile.mistake * 0.9   // Stachel übersehen
-        : Math.random() > profile.mistake;        // guten Blob erwischen
-    }
-    if (player.botPopSwing) {
-      handleArcadeInput(room, bot, { action: "whack", cell: active.cell });
+    // Wie schnell der Bot einen Blob sieht, ist seine Spielstärke — Tempo gibt
+    // jetzt Punkte. Je Blob EINMAL gewürfelt: Reaktion und ob er sich
+    // vergreift. Pro Tick gewürfelt liefe jede Chance gegen Gewissheit.
+    const reaction = profile.level === "hard" ? 330 : profile.level === "normal" ? 560 : 820;
+    const candidates = arcade.pops.filter((pop) => !player.hitPopIds[pop.id] && elapsed >= pop.from && elapsed <= pop.until);
+    for (const pop of candidates) {
+      player.botPlans ||= {};
+      let plan = player.botPlans[pop.id];
+      if (!plan) {
+        const swing = pop.kind === "bad"
+          ? Math.random() < profile.mistake * 0.8          // Stachel übersehen
+          : Math.random() > profile.mistake * 0.6;        // guten Blob erwischen
+        plan = { swing, at: pop.from + reaction * (0.75 + Math.random() * 0.5) };
+        player.botPlans[pop.id] = plan;
+      }
+      if (plan.swing && elapsed >= plan.at) {
+        handleArcadeInput(room, bot, { action: "whack", cell: pop.cell });
+        return;
+      }
     }
     return;
   }
@@ -8002,6 +8016,11 @@ module.exports = {
     cannonPoints,
     cannonTri,
     WHACK_STUN_MS,
+    WHACK_BAD_COST,
+    WHACK_FAST_MS,
+    WHACK_OK_MS,
+    WHACK_GOLD_POINTS,
+    buildWhackPops,
     startGame,
     finishMinigame,
     continueAfterResult,
