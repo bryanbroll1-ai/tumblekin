@@ -252,9 +252,22 @@ export class BalloonGlide extends MinigameScene {
       const row = this.rowOf.get(player.id) || 0;
       const balloon = buildBalloon(player.color);
       balloon.position.set(0, BASKET + (arcade?.players?.[player.id]?.y ?? 0.45) * HEIGHT, ROW_Z[row]);
-      if (player.id !== own) balloon.scale.setScalar(0.85);
+      if (player.id !== own) {
+        // Die anderen fliegen als halb durchsichtige Schatten mit: alle vier
+        // hängen an derselben Stelle der Strecke, und der eigene Ballon ging
+        // hinter den fremden verloren.
+        balloon.scale.setScalar(0.85);
+        balloon.traverse((part) => {
+          if (!part.material) return;
+          part.material = part.material.clone();
+          part.material.transparent = true;
+          part.material.opacity = Math.min(part.material.opacity ?? 1, 0.42);
+          part.material.depthWrite = false;
+        });
+      }
       scene.add(balloon);
       const kin = this.addKin(player, index, { x: 0, ground: 0, z: ROW_Z[row], facing: 0.4, scale: player.id === own ? 0.75 : 0.65 });
+      if (player.id !== own) this.fade(player.id, 0.5);
       this.shadows.get(player.id).userData.manual = true;
       this.shadows.get(player.id).visible = false;
       this.balloons.set(player.id, { balloon, kin, row });

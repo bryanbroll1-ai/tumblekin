@@ -999,6 +999,7 @@ const SINGULAR_NOUNS = {
   "Pumps": "Pump",
   "Etagen": "Etage",
   "Sprossen": "Sprosse",
+  "Griffe": "Griff",
   "Pakete": "Paket",
   "Ring-Punkte": "Ring-Punkt"
 };

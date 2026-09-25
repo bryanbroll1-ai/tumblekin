@@ -227,20 +227,22 @@ export class Trampoline extends MinigameScene {
         if (tap.grade === "perfect") {
           animator.expression("joy", 500);
           this.burst(at, [pad.color, "#ffe36b", "#ffffff"], { count: 12, speed: 1.8, up: 2, size: 0.07, life: 0.6, drag: 1.8 });
-          this.pop(at, entry.streak > 2 ? `${entry.streak}× IM TAKT!` : "IM TAKT!", { color: "#ffe36b", size: 0.36, life: 0.8 });
+          // Schrift nur über der eigenen Figur: bei vier Springern stapelten
+          // sich sonst "33× IM TAKT!" und "fast" zu einem Textberg.
+          if (isOwn) this.pop(at, entry.streak > 2 ? `${entry.streak}× IM TAKT!` : "IM TAKT!", { color: "#ffe36b", size: 0.36, life: 0.8 });
           if (isOwn) {
             this.feedback?.sound("perfect");
             this.feedback?.vibrate([8, 12, 14]);
           }
         } else if (tap.grade === "good") {
           animator.expression("happy", 400);
-          this.pop(at, "fast", { color: "#bfe9ff", size: 0.28, life: 0.6, rise: 0.6 });
+          if (isOwn) this.pop(at, "fast", { color: "#bfe9ff", size: 0.28, life: 0.6, rise: 0.6 });
           if (isOwn) this.feedback?.sound("pop");
         } else {
           animator.trigger("flinch");
           animator.expression("scared", 600);
           this.burst(at, ["#ff6b7f", "#ffffff"], { count: 8, speed: 1.4, up: 1, size: 0.06, life: 0.5, drag: 2.2 });
-          this.pop(at, "DANEBEN", { color: "#ff9aa8", size: 0.3, life: 0.7 });
+          if (isOwn) this.pop(at, "DANEBEN", { color: "#ff9aa8", size: 0.3, life: 0.7 });
           if (isOwn) {
             this.feedback?.sound("error");
             this.feedback?.vibrate(20);
@@ -254,7 +256,7 @@ export class Trampoline extends MinigameScene {
         this.tierSeen.set(player.id, tier);
         const at = kin.position.clone().add(new THREE.Vector3(0, 0.8, 0));
         this.burst(at, [pad.color, "#ffffff", "#ffe36b"], { count: 10 + tier * 6, speed: 2.0 + tier * 0.4, up: 2.2, size: 0.08, life: 0.8, drag: 1.5 });
-        this.pop(at, TIER_LABELS[Math.min(tier, TIER_LABELS.length - 1)], { color: "#ffe36b", size: 0.38 + tier * 0.04, life: 1 });
+        if (isOwn) this.pop(at, TIER_LABELS[Math.min(tier, TIER_LABELS.length - 1)], { color: "#ffe36b", size: 0.38 + tier * 0.04, life: 1 });
         if (isOwn) {
           this.feedback?.sound("sparkle");
           this.feedback?.vibrate([10, 8, 16]);

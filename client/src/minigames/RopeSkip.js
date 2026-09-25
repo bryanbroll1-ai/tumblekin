@@ -215,7 +215,9 @@ export class RopeSkip extends MinigameScene {
       }
       if (!out && (entry.survived || 0) > (this.lastSurvived.get(player.id) || 0)) {
         this.lastSurvived.set(player.id, entry.survived);
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), `${entry.survived}`, { color: "#ffe36b", size: 0.3, life: 0.6, rise: 0.6 });
+        // Die Wellenzahl nur über der eigenen Figur — vier Zahlen je Welle
+        // waren ein Flackern, das niemand lesen konnte.
+        if (isOwn) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), `${entry.survived}`, { color: "#ffe36b", size: 0.3, life: 0.6, rise: 0.6 });
         if (isOwn) {
           this.feedback?.sound("pop", { pan: kin.position.x * 0.18 });
           this.feedback?.vibrate(8);

@@ -618,7 +618,7 @@ export class CliffClimb extends MinigameScene {
       banner.hidden = false;
       banner.textContent = own?.finishedAt
         ? `PLATZ ${place} · oben in ${((own.finishMs || 0) / 1000).toFixed(1)} s${place === 1 ? " 🏔️" : ""}`
-        : `PLATZ ${place} · ${own?.rung || 0} von ${this.summit || 70} Sprossen`;
+        : `PLATZ ${place} · ${own?.rung || 0} von ${this.summit || 70} Griffen`;
       banner.style.background = place === 1 ? "#ffc400" : "#0b1419";
       banner.style.color = place === 1 ? "#5c4508" : "#ffffff";
     } else {

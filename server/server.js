@@ -2359,7 +2359,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
   if (arcade.family === "climb") {
     return arcadePlayer.finishedAt
       ? { kind: "time", value: arcadePlayer.finishMs, label: "Gipfelzeit" }
-      : { kind: "points", value: arcadePlayer.rung || 0, label: "Sprossen" };
+      : { kind: "points", value: arcadePlayer.rung || 0, label: "Griffe" };
   }
   return null;
 }

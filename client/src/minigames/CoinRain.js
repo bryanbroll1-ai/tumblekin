@@ -298,12 +298,14 @@ export class CoinRain extends MinigameScene {
         const at = kin.position.clone().add(new THREE.Vector3(0, 0.75, 0));
         const big = gained >= 10;
         this.burst(at, ["#ffc400", "#ffd15c", "#ffffff"], { count: big ? 40 : 9, speed: big ? 3.4 : 1.9, up: big ? 3 : 2, size: 0.08, life: big ? 1.1 : 0.6, drag: 1.8, fadePow: 1.4 });
-        this.pop(at, big ? `SCHATZ! +${gained}` : `+${gained}`, { color: "#ffe36b", size: big ? 0.5 : 0.36, life: big ? 1.3 : 0.7, rise: 0.75 });
+        // Zahlen nur über der eigenen Figur (und der Schatz für alle): vier
+        // Figuren in einer Spur stapelten sonst "+2 +2 +2 +2" übereinander.
+        if (player.id === controlledId || big) this.pop(at, big ? `SCHATZ! +${gained}` : `+${gained}`, { color: "#ffe36b", size: big ? 0.5 : 0.36, life: big ? 1.3 : 0.7, rise: 0.75 });
         if (big) animator.trigger("celebrate");
         // Neuer Faktor erreicht.
         const mult = entry.multiplier || 1;
         if (mult > (this.lastMult.get(player.id) || 1)) {
-          this.pop(at.clone().add(new THREE.Vector3(0, 0.55, 0)), `×${mult}!`, { color: mult >= 3 ? "#ff6bd6" : "#7fe0a8", size: 0.46, life: 1, rise: 0.6 });
+          if (player.id === controlledId) this.pop(at.clone().add(new THREE.Vector3(0, 0.55, 0)), `×${mult}!`, { color: mult >= 3 ? "#ff6bd6" : "#7fe0a8", size: 0.46, life: 1, rise: 0.6 });
           if (player.id === controlledId) this.feedback?.sound("perfect");
         }
         this.lastMult.set(player.id, mult);
@@ -321,7 +323,7 @@ export class CoinRain extends MinigameScene {
         const at = kin.position.clone().add(new THREE.Vector3(0, 0.6, 0));
         this.burst(at, ["#1b2530", "#ff8b2e", "#ffffff"], { count: 16, speed: 2.6, up: 2.1, size: 0.09, life: 0.72, drag: 1.5 });
         this.bursts.ring(kin.position.clone().setY(0.08), "#ff8b2e", { radius: 1.4, life: 0.5, opacity: 0.5, y: 0.08 });
-        this.pop(at.clone().add(new THREE.Vector3(0, 0.4, 0)), "AUTSCH!", { color: "#ff8b2e", size: 0.36, life: 0.8 });
+        if (player.id === controlledId) this.pop(at.clone().add(new THREE.Vector3(0, 0.4, 0)), "AUTSCH!", { color: "#ff8b2e", size: 0.36, life: 0.8 });
         if (player.id === controlledId) {
           this.rig.shake(0.8);
           this.feedback?.sound("error");
