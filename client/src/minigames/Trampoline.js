@@ -95,7 +95,7 @@ export class Trampoline extends MinigameScene {
     scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 18, keepOut: { x: 5.0, z: 3.4 }, spread: { x: 18, z: 15 }, grassColor: "#74c46a", patchColors: ["#84cf78", "#9bdd8c"], crownColor: "#e88fb5", crownColor2: "#f2b3cd", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ff8fb1", "#ffffff", "#ffd15c"] });
+    dressMeadow(this.scene, { seed: 18, keepOut: { x: 5.0, z: 2.2 }, spread: { x: 18, z: 15 }, grassColor: "#74c46a", patchColors: ["#84cf78", "#9bdd8c"], crownColor: "#e88fb5", crownColor2: "#f2b3cd", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ff8fb1", "#ffffff", "#ffd15c"] });
 
     // Höhenmarken an einem Messpfosten — die Höhe ist die Wertung, also muss
     // man sie ablesen können.
@@ -108,14 +108,130 @@ export class Trampoline extends MinigameScene {
       scene.add(bar);
     }
 
-    [[-7, 6.4, -6, 5], [7, 7.2, -4, 6]].forEach(([x, y, z, seed]) => {
+    const players = this.getState()?.players || [];
+    this.buildWorld(players.length);
+    players.forEach((player, index) => this.addPad(player, index, players.length));
+  }
+
+  // Die Welt nach oben. Die Stufen heissen "Über den Wolken", "Schwerelos",
+  // "In den Sternen" — vorher flog man in einen leeren, überall gleich
+  // blassen Himmel, und die Kamera zeigte oben wie unten dasselbe Nichts.
+  // Jetzt wird der Himmel mit der Höhe dunkler, auf Höhe der Wolken-Stufe
+  // liegt eine Wolkenschicht, darüber treiben Heissluftballons, ganz oben
+  // stehen Sterne und ein Mond. Hinten liegen Hügel in der Ferne, über den
+  // Trampolinen hängen Wimpelketten.
+  buildWorld(count) {
+    const scene = this.scene;
+    const heightOf = (tier) => PAD_Y + tier * WORLD_PER_HEIGHT;
+
+    // Himmelskuppel mit Verlauf: hell am Horizont, tiefblau oben. Ohne Nebel,
+    // sonst verschwindet der Verlauf im Dunst.
+    const skyGeo = new THREE.SphereGeometry(52, 24, 16);
+    const colors = [];
+    const low = new THREE.Color("#bfe9f7");
+    const mid = new THREE.Color("#6fbde9");
+    const high = new THREE.Color("#1c2560");
+    const pos = skyGeo.attributes.position;
+    for (let i = 0; i < pos.count; i += 1) {
+      const y = pos.getY(i);
+      // Der Verlauf beginnt knapp über dem Horizont: die Kamera schaut nur
+      // flach nach oben, und erst ab halber Kuppel wurde es sonst blauer.
+      const c = y < 2 ? low.clone() : y < 12 ? low.clone().lerp(mid, (y - 2) / 10) : mid.clone().lerp(high, Math.min(1, (y - 12) / 14));
+      colors.push(c.r, c.g, c.b);
+    }
+    skyGeo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false, toneMapped: false }));
+    sky.renderOrder = -10;
+    scene.add(sky);
+
+    // Hügel in der Ferne, zwei Reihen, vom Dunst aufgehellt.
+    [[-16, -24, 9, "#8fd18a"], [-4, -28, 12, "#84c98a"], [10, -25, 10, "#8fd18a"], [22, -30, 13, "#7fc28a"], [-26, -30, 11, "#7fc28a"]].forEach(([x, z, r, color]) => {
+      const hill = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshLambertMaterial({ color }));
+      hill.scale.y = 0.45;
+      hill.position.set(x, -r * 0.12, z);
+      scene.add(hill);
+    });
+
+    // Wimpelketten über den Trampolinen, knapp dahinter — man springt davor
+    // hindurch nach oben.
+    const span = count * LANE_GAP / 2 + 1.1;
+    const poleMat = new THREE.MeshLambertMaterial({ color: "#f3e6cf" });
+    [-1, 1].forEach((side) => {
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.9, 0.1), poleMat);
+      pole.position.set(side * span, 1.45, -1.2);
+      pole.castShadow = true;
+      scene.add(pole);
+    });
+    const flagColors = ["#ff5d73", "#ffd15c", "#4bb8ff", "#7fe06f", "#ff9f43", "#c38cff"];
+    [2.75, 2.35].forEach((y, row) => {
+      const flags = 16;
+      for (let i = 0; i < flags; i += 1) {
+        const t = (i + 0.5) / flags;
+        const x = -span + t * span * 2;
+        const sag = Math.sin(t * Math.PI) * 0.35;
+        const flag = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.24, 3), new THREE.MeshLambertMaterial({ color: flagColors[(i + row * 3) % flagColors.length] }));
+        flag.rotation.x = Math.PI;
+        flag.position.set(x, y - sag - 0.12, -1.2 - row * 0.05);
+        scene.add(flag);
+      }
+    });
+
+    // Wolkenschicht auf Höhe der Stufe "Über den Wolken" — seitlich und
+    // dahinter, nie vor den Springern.
+    this.skyClouds = [];
+    for (let i = 0; i < 9; i += 1) {
+      const cloud = createCloud(i + 3);
+      const side = i % 2 ? 1 : -1;
+      const x = side * (1.8 + (i * 1.7) % 7.5);
+      cloud.position.set(x, heightOf(16) + ((i * 0.37) % 1) * 1.2 - 0.4, -2.5 - (i % 3) * 2.2);
+      cloud.scale.setScalar(1.1 + (i % 3) * 0.35);
+      scene.add(cloud);
+      this.skyClouds.push({ cloud, speed: 0.12 + (i % 3) * 0.05, baseX: x });
+    }
+    // Zwei tiefere Wolken für den Horizont.
+    [[-7, 3.6, -9, 1], [7.5, 3.1, -10, 2]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
+      cloud.scale.setScalar(1.4);
       scene.add(cloud);
     });
 
-    const players = this.getState()?.players || [];
-    players.forEach((player, index) => this.addPad(player, index, players.length));
+    // Heissluftballons auf Höhe von "Schwerelos".
+    this.balloons = [];
+    [[-2.9, heightOf(26), -7, "#ff5d73", "#ffd15c"], [3.4, heightOf(31), -9, "#4bb8ff", "#ffffff"]].forEach(([x, y, z, a, b], i) => {
+      const group = new THREE.Group();
+      for (let k = 0; k < 6; k += 1) {
+        const stripe = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10, (k / 6) * Math.PI * 2, Math.PI / 3), new THREE.MeshLambertMaterial({ color: k % 2 ? a : b }));
+        stripe.scale.y = 1.15;
+        group.add(stripe);
+      }
+      const basket = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.4), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
+      basket.position.y = -1.45;
+      group.add(basket);
+      group.position.set(x, y, z);
+      scene.add(group);
+      this.balloons.push({ group, baseY: y, phase: i * 2.1 });
+    });
+
+    // Sterne und Mond ganz oben ("In den Sternen").
+    const starCount = 70;
+    const stars = new THREE.InstancedMesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), new THREE.MeshBasicMaterial({ color: "#fff7c9", fog: false }), starCount);
+    const m = new THREE.Object3D();
+    for (let i = 0; i < starCount; i += 1) {
+      const r1 = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;
+      const r2 = Math.abs(Math.sin(i * 78.233) * 12345.678) % 1;
+      const r3 = Math.abs(Math.sin(i * 39.425) * 24634.634) % 1;
+      m.position.set((r1 - 0.5) * 30, heightOf(36) + r2 * 9, -10 - r3 * 10);
+      m.rotation.set(r1 * 3, r2 * 3, 0);
+      m.scale.setScalar(0.7 + r3 * 1.3);
+      m.updateMatrix();
+      stars.setMatrixAt(i, m.matrix);
+    }
+    stars.instanceMatrix.needsUpdate = true;
+    scene.add(stars);
+    const moon = new THREE.Mesh(new THREE.SphereGeometry(1.1, 16, 12), new THREE.MeshBasicMaterial({ color: "#fff3c4", fog: false }));
+    moon.position.set(6.5, heightOf(44), -16);
+    scene.add(moon);
   }
 
   laneX(index, count) {
@@ -184,6 +300,15 @@ export class Trampoline extends MinigameScene {
   }
 
   tick(f) {
+    // Wolken ziehen, Ballons schweben.
+    const drift = (f.dt || 0);
+    this.skyClouds?.forEach((entry) => {
+      entry.cloud.position.x += drift * entry.speed;
+      if (entry.cloud.position.x > 11) entry.cloud.position.x -= 22;
+    });
+    this.balloons?.forEach((entry) => {
+      entry.group.position.y = entry.baseY + Math.sin(f.now / 1400 + entry.phase) * 0.25;
+    });
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
