@@ -1735,7 +1735,8 @@ function startGame(room) {
     player.isHost = player.id === room.hostId;
     player.minigameScore = 0;
   });
-  room.match = modes.createMatch(room.mode, room.settings, room.players, MINIGAMES.map((game) => game.type));
+  const lastPlayed = room.match?.playlist?.[Math.max(0, (room.match.round || 1) - 1)] ?? null;
+  room.match = modes.createMatch(room.mode, room.settings, room.players, MINIGAMES.map((game) => game.type), Math.random, lastPlayed);
   startNextRound(room);
 }
 

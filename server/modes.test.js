@@ -96,6 +96,26 @@ test("Spielliste: ein Einzelspiel spielt genau das gewählte Spiel", () => {
   assert.ok(ALL.includes(random.playlist[0]));
 });
 
+test("Spielliste: Zufall im Einzelspiel zieht aus der Spielauswahl und wiederholt nicht", () => {
+  const pool = ALL.slice(0, 3);
+  const settings = modes.mergeSettings(modes.defaultSettings(), { pool }, ALL);
+  const seen = new Set();
+  let last = null;
+  for (let i = 0; i < 200; i += 1) {
+    const match = modes.createMatch("single", settings, players(2), ALL, Math.random, last);
+    const type = match.playlist[0];
+    assert.ok(pool.includes(type), `${type} ist nicht in der Auswahl`);
+    assert.notEqual(type, last, "dasselbe Spiel nicht zweimal hintereinander");
+    seen.add(type);
+    last = type;
+  }
+  assert.equal(seen.size, pool.length, "jedes Spiel der Auswahl kommt dran");
+  // Ohne Auswahl: alle Spiele sind möglich, und über viele Ziehungen kommt jedes.
+  const all = new Set();
+  for (let i = 0; i < 2000; i += 1) all.add(modes.createMatch("single", modes.defaultSettings(), players(2), ALL).playlist[0]);
+  assert.equal(all.size, ALL.length, "Zufall erreicht jedes verfügbare Spiel");
+});
+
 // --- Einstellungen ------------------------------------------------------------
 
 test("Einstellungen: Unsinn vom Client ändert nichts", () => {
