@@ -51,12 +51,19 @@ const SIMON_DURATION_MS = 36000;
 const DIVE_DURATION_MS = 36000;
 const FISH_DURATION_MS = 34000;
 const PAINT_DURATION_MS = 32000;
-// Fassmut — drei Fässer, jedes ein eigener Versuch.
-const DARE_ROUNDS = 3;
-const DARE_LEAD_IN_MS = 1400;          // Ruhe, bevor das erste Fass losrollt
-const DARE_ROLL_MS = 4200;             // so lange rollt eines höchstens
-const DARE_SHOW_MS = 2200;             // Auflösung: Abstand wird eingeblendet
-const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_ROUNDS * (DARE_ROLL_MS + DARE_SHOW_MS) + 600;
+// Fassmut — über jedem hängt ein Fass am Seil. Es wird losgelassen und fällt;
+// EIN Tipp spannt das Seil und fängt es ab. Wer es am dichtesten über dem
+// eigenen Kopf zum Stehen bringt, gewinnt — wer zu spät zieht, bekommt es ab.
+// Ein einziger Versuch: vorher waren es drei Durchgänge, und der dritte war
+// nur noch eine Wiederholung des ersten. Wann losgelassen wird, ist jede
+// Runde anders (aber für alle gleich), damit man nicht vom Countdown aus
+// mitzählen kann.
+const DARE_ROUNDS = 1;
+const DARE_LEAD_IN_MS = 1400;          // mindestens so lange hängt das Fass still
+const DARE_LEAD_SPREAD_MS = 1300;      // plus bis zu so viel, zufällig
+const DARE_ROLL_MS = 4200;             // so lange fällt eines höchstens
+const DARE_SHOW_MS = 2600;             // Auflösung: Abstand wird eingeblendet
+const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_LEAD_SPREAD_MS + DARE_ROUNDS * (DARE_ROLL_MS + DARE_SHOW_MS) + 600;
 
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
@@ -578,10 +585,19 @@ const REDLIGHT_PENALTY = 7;           // metres lost when caught moving on red
 const REDLIGHT_GRACE_MS = 300;        // reaction grace after the light flips red
 const REDLIGHT_HOLD_FRESH_MS = 220;   // "holding" = a run ping this recent
 
-// Seilspringen — jump the swinging rope; mistime one and you trip out.
-const WAVE_JUMP_MS = 650;             // airtime of a jump
-const WAVE_FIRST_AT = 3200;           // first pass after the start
-const WAVE_MIN_GAP = 1150;            // passes accelerate down to this gap
+// Seilspringen — spring über das Seil; wer es einmal nicht schafft, ist raus.
+//
+// Es war zu leicht: 650 ms in der Luft hiess, jeder Sprung irgendwo in einer
+// Zweidrittelsekunde vor dem Seil reichte, und schneller als alle 1,15 s kam
+// es nie. Jetzt ist man kürzer in der Luft, das Seil zieht bis auf gut eine
+// Dreiviertelsekunde an, der Abstand schwankt, und ab dem sechsten Durchgang
+// kommen Doppelschläge — zwei Durchgänge kurz hintereinander.
+const WAVE_JUMP_MS = 470;             // so lange ist man in der Luft
+const WAVE_FIRST_AT = 3200;           // erster Durchgang nach dem Start
+const WAVE_START_GAP = 2300;          // Abstand am Anfang
+const WAVE_GAP_STEP = 130;            // je Durchgang so viel schneller
+const WAVE_MIN_GAP = 760;             // schneller wird es nicht
+const WAVE_DOUBLE_GAP = 560;          // Doppelschlag: der zweite kommt so schnell
 
 // Fassrolle — everyone balances on one giant rolling barrel; run against the
 // spin or slide off. Last Kin on the barrel wins.
@@ -2559,7 +2575,7 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "daredevil") {
     arcade.rounds = DARE_ROUNDS;
-    arcade.leadIn = DARE_LEAD_IN_MS;
+    arcade.leadIn = DARE_LEAD_IN_MS + Math.round(arcadeNoise(config.seed + (Date.now() % 7919)) * DARE_LEAD_SPREAD_MS);
     arcade.rollMs = DARE_ROLL_MS;
     arcade.showMs = DARE_SHOW_MS;
     arcade.startM = DARE_START_M;
@@ -3180,8 +3196,11 @@ function buildWaveSchedule(seed, totalMs) {
     // the hit so the timing is identical and fair.
     const dir = Math.floor(index / 3) % 2 === 0 ? 1 : -1;
     waves.push({ hitAt: Math.round(at), dir, processed: false });
-    // A gentler, steadier ramp so the speed-up feels moderate.
-    const gap = Math.max(WAVE_MIN_GAP, 2900 - index * 110) + arcadeNoise(seed + index * 23) * 500;
+    const base = Math.max(WAVE_MIN_GAP, WAVE_START_GAP - index * WAVE_GAP_STEP);
+    // Doppelschlag ab dem sechsten Durchgang, etwa jeder vierte.
+    const double = index >= 5 && arcadeNoise(seed + index * 31) < 0.27 && waves[waves.length - 2]?.double !== true;
+    const gap = double ? WAVE_DOUBLE_GAP : base + arcadeNoise(seed + index * 23) * Math.min(420, base * 0.3);
+    if (double) waves[waves.length - 1].double = true;
     at += gap;
     index += 1;
   }
@@ -3366,7 +3385,7 @@ function handleArcadeInput(room, player, rawInput) {
     // bis zu einen Tick hinterher — der erste Tap eines Durchgangs ginge
     // verloren, und das ist genau der, auf den es ankommt.
     const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
-    const seit = elapsed - DARE_LEAD_IN_MS;
+    const seit = elapsed - (arcade.leadIn ?? DARE_LEAD_IN_MS);
     if (seit < 0) return { ok: true };                          // noch im Vorlauf
     const zyklus = DARE_ROLL_MS + DARE_SHOW_MS;
     const runde = Math.floor(seit / zyklus);
@@ -4862,7 +4881,7 @@ function updateRedlight(room, minigame, arcade, dt, now) {
 function updateDaredevil(room, minigame, arcade, now) {
   const elapsed = Math.max(0, now - minigame.startedAt);
   const zyklus = DARE_ROLL_MS + DARE_SHOW_MS;
-  const seit = elapsed - DARE_LEAD_IN_MS;
+  const seit = elapsed - (arcade.leadIn ?? DARE_LEAD_IN_MS);
   const roh = seit < 0 ? -1 : Math.floor(seit / zyklus);
   const runde = Math.min(DARE_ROUNDS - 1, roh);
   const imZyklus = seit < 0 ? 0 : seit - runde * zyklus;

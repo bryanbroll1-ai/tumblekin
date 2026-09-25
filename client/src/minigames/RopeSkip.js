@@ -13,7 +13,9 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // erschrecken kurz bevor es kommt, und wer stolpert, setzt sich an den Rand.
 const PIT_TOP = 0.07;
 const KIN_Y = standOn(PIT_TOP);
-const ROPE_R = 3.1;
+// So weit schwingt die Seilmitte um die Achse zwischen den Händen: oben über
+// die Köpfe, unten schleift es über den Sand.
+const ROPE_SWING = 0.82;
 const SPOTS = [-1.45, -0.48, 0.48, 1.45];
 const TURNER_X = 2.45;
 const JUMP_HEIGHT = 1.2;
@@ -147,29 +149,39 @@ export class RopeSkip extends MinigameScene {
     const swing = Math.cos(angle);
     const depth = Math.sin(angle);
     const groundClear = PIT_TOP + 0.03;
-    const swingRadius = this.rope.position.y - groundClear;
-    const span = TURNER_X * 2 - 0.5;
-    this.ropeSegments.forEach((seg, i) => {
-      const t = i / (this.ropeSegments.length - 1);
-      const x = -span / 2 + t * span;
-      const sag = Math.sin(t * Math.PI);
-      let localY = -swing * sag * swingRadius;
-      if (this.rope.position.y + localY < groundClear) localY = groundClear - this.rope.position.y;
-      seg.position.set(x, localY, depth * sag * ROPE_R * 0.38);
-      seg.rotation.x = Math.atan2(depth, -swing);
-    });
-    // Die Dreher kurbeln im Takt des Seils.
-    this.turners.forEach((animator, i) => {
+    // Die Dreher kurbeln im Takt des Seils — und das Seil hängt an ihren
+    // HÄNDEN. Vorher lagen die Seilenden fest auf Kopfhöhe neben den Drehern,
+    // und es sah aus, als hielten sie es mit der Stirn.
+    const ends = this.turners.map((animator, i) => {
       animator.set("crank", { params: { angle: angle * (i === 0 ? 1 : -1) } });
       animator.update(now);
+      const turner = animator.kin;
+      turner.updateMatrixWorld(true);
+      const [a, b] = turner.userData.arms;
+      const left = a.localToWorld(new THREE.Vector3(0, -0.17, 0));
+      const right = b.localToWorld(new THREE.Vector3(0, -0.17, 0));
+      return left.add(right).multiplyScalar(0.5);
     });
-
+    const [endL, endR] = ends;
+    const axisY = (endL.y + endR.y) / 2;
+    const swingRadius = ROPE_SWING;
+    this.ropeSegments.forEach((seg, i) => {
+      const t = i / (this.ropeSegments.length - 1);
+      const sag = Math.sin(t * Math.PI);
+      const x = THREE.MathUtils.lerp(endL.x, endR.x, t);
+      let y = THREE.MathUtils.lerp(endL.y, endR.y, t) - swing * sag * swingRadius;
+      const z = THREE.MathUtils.lerp(endL.z, endR.z, t) + depth * sag * swingRadius;
+      // Unten schleift es über den Boden, statt hindurchzugehen.
+      if (y < groundClear) y = groundClear;
+      seg.position.set(x, y - this.rope.position.y, z);
+      seg.rotation.x = Math.atan2(depth, -swing);
+    });
     let nextHitIn = null;
     (arcade.waves || []).forEach((wave) => {
       const untilHit = wave.hitAt - elapsed;
       if (untilHit > 0 && (nextHitIn === null || untilHit < nextHitIn)) nextHitIn = untilHit;
     });
-    const ropeMid = new THREE.Vector3(0, this.rope.position.y - swing * swingRadius, depth * ROPE_R * 0.38);
+    const ropeMid = new THREE.Vector3(0, Math.max(groundClear, axisY - swing * swingRadius), depth * swingRadius);
 
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
@@ -241,11 +253,11 @@ export class RopeSkip extends MinigameScene {
     if (!arcade) return;
     const own = arcade.players[controlledId];
     const elapsed = Math.max(0, now - minigame.startedAt);
-    let nextHitIn = null;
-    (arcade.waves || []).forEach((wave) => {
-      const untilHit = wave.hitAt - elapsed;
-      if (untilHit > 0 && (nextHitIn === null || untilHit < nextHitIn)) nextHitIn = untilHit;
-    });
+    // Nur ein Doppelschlag wird angesagt — der bricht den Takt. Das frühere
+    // "JETZT!" vor JEDEM Durchgang hat den Sprung vorgesagt, und schneller als
+    // eine Sekunde stand es dauernd da.
+    const upcoming = (arcade.waves || []).find((wave) => wave.hitAt > elapsed);
+    const doubleSoon = Boolean(upcoming?.double) && upcoming.hitAt - elapsed < 1400;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.survived || 0);
     const banner = this.hud.querySelector("[data-rope-banner]");
@@ -255,9 +267,9 @@ export class RopeSkip extends MinigameScene {
         banner.textContent = "Gestolpert!";
         banner.style.background = "#40506a";
         banner.style.color = "#ffffff";
-      } else if (nextHitIn !== null && nextHitIn < 900) {
+      } else if (doubleSoon) {
         banner.hidden = false;
-        banner.textContent = "JETZT!";
+        banner.textContent = "DOPPELT! ×2";
         banner.style.background = "#e0334f";
         banner.style.color = "#ffffff";
       } else {

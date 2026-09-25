@@ -770,13 +770,27 @@ function dareRoom(players = [{ id: "fa", name: "FA", isBot: false }]) {
   };
   // In Runde `r` zum Zeitpunkt `t` (Sekunden nach Rollbeginn) bremsen.
   const bremse = (r, t) => {
-    minigame.startedAt = Date.now() - (DARE_LEAD_IN_MS + r * (DARE_ROLL_MS + DARE_SHOW_MS) + t * 1000);
+    minigame.startedAt = Date.now() - (arcade.leadIn + r * (DARE_ROLL_MS + DARE_SHOW_MS) + t * 1000);
     entry.lastInputAt = 0;
     return handleArcadeInput(room, me, { action: "brake" });
   };
-  const rundeAb = (r) => DARE_LEAD_IN_MS + r * (DARE_ROLL_MS + DARE_SHOW_MS);
+  const rundeAb = (r) => arcade.leadIn + r * (DARE_ROLL_MS + DARE_SHOW_MS);
   return { room, me, arcade, entry, minigame, bei, bremse, rundeAb };
 }
+
+test("fassmut: ein einziger Versuch, losgelassen wird nicht immer gleich", () => {
+  assert.equal(DARE_ROUNDS, 1, "ein Fass, ein Versuch");
+  const leads = new Set();
+  for (let i = 0; i < 6; i += 1) {
+    const { arcade } = dareRoom([{ id: `fl${i}`, name: "FL", isBot: false }]);
+    assert.ok(arcade.leadIn >= DARE_LEAD_IN_MS, "nie früher als der Mindestvorlauf");
+    leads.add(Math.round(arcade.leadIn / 50));
+    // Warten, damit der Zeitstempel im Seed sich ändert.
+    const until = Date.now() + 3;
+    while (Date.now() < until) { /* kurz */ }
+  }
+  assert.ok(leads.size > 1, "der Moment des Loslassens ändert sich");
+});
 
 test("fassmut: das Punktefenster ist breit genug zum Spielen", () => {
   // Gemessen statt geglaubt: wie lange dauert die Phase, in der ein Stopp
