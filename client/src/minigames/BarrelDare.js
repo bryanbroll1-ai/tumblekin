@@ -15,8 +15,18 @@ import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 // Die Fallkurve rechnet der Client mit denselben Zahlen wie der Server nach
 // (dareBarrelAt dort). Zwischen zwei Servertakten würde das Fass sonst in
 // Sprüngen fallen — und genau auf das Fallen schaut man hier.
+//
+// Lesbarkeit: Nach dem Tipp rutscht das Fass noch ein Stück, und dieses Stück
+// wächst mit dem Tempo. Das war der Kern des Spiels und nirgends zu sehen —
+// man zog "rechtzeitig" und bekam trotzdem eine Beule. Ein Schatten unter dem
+// Fass zeigt jetzt, wo es stehen bliebe, wenn man JETZT zieht: grün dicht über
+// dem Kopf, gelb weiter oben, rot heisst zu spät. Wer sein Fass gefangen hat,
+// schaut den anderen zu, und am Ende wird Bahn für Bahn aufgelöst, vom
+// Vorsichtigsten bis zum Mutigsten.
 const LANE_GAP = 1.4;
-const METER = 0.3;                    // Weltmass je Meter Fallhöhe
+// Weltmass je Meter Fallhöhe. Kleiner als früher: die Kamera muss vom Balken
+// bis zu den Füssen alles zeigen, und mit 0.3 war die Figur darunter winzig.
+const METER = 0.24;
 const HEAD_TOP = 0.86;                // Oberkante des Kopfes
 const BARREL_R = 0.3;
 const BARREL_H = 0.62;
@@ -25,6 +35,22 @@ const SPEED0 = 1.8;                   // wie DARE_SPEED0 auf dem Server
 const ACCEL = 1.0;                    // wie DARE_ACCEL
 const BRAKE = 3.33;                   // wie DARE_BRAKE
 const FALLOFF_M = 9;                  // ab hier gibt es keine Punkte mehr
+
+// Wo das Fass stehen bliebe, wenn zum Zeitpunkt `brakeAt` gezogen wird — wie
+// dareRestingDistance auf dem Server.
+function restingDistance(brakeAt, startM) {
+  const speed = SPEED0 + ACCEL * brakeAt;
+  const rolled = SPEED0 * brakeAt + 0.5 * ACCEL * brakeAt * brakeAt;
+  return startM - rolled - (speed * speed) / (2 * BRAKE);
+}
+
+// Ein Spruch zur Weite — das Spiel ist eine Mutprobe, also wird kommentiert.
+function verdict(distance) {
+  if (distance < 0.5) return { word: "WAHNSINN!", color: "#ffd15c" };
+  if (distance < 1.2) return { word: "MUTIG!", color: "#7fe0a8" };
+  if (distance < 3) return { word: "SOLIDE", color: "#ffe9a8" };
+  return { word: "ANGSTHASE!", color: "#dfe7ff" };
+}
 
 function barrelAt(t, brakeAt, startM) {
   const rollTime = brakeAt === null || brakeAt === undefined ? t : Math.min(t, brakeAt);
@@ -54,11 +80,16 @@ export class BarrelDare extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.lanes = new Map();
-    this.lastResults = new Map();
     this.lastHitAt = new Map();
     this.lastBrake = new Map();
     this.localBrake = null;
-    this.labelY = 0.95;
+    // Namensschild unter die Füsse und keine Markierung über dem Kopf: genau
+    // dort, eine Handbreit über dem Kopf, soll das Fass stehen bleiben — und
+    // Schild und Pfeil lagen mitten in der grünen Zielzone.
+    this.labelY = -0.5;
+    this.ownMarker = false;
+    this.showSeenAt = null;
+    this.reveal = new Map();
   }
 
   stage() {
@@ -90,23 +121,26 @@ export class BarrelDare extends MinigameScene {
     const width = count * LANE_GAP;
 
     // Ein Holzhof: Dielen, dahinter eine Lagerhalle mit gestapelten Fässern.
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(width + 18, 0.3, 14), new THREE.MeshLambertMaterial({ color: "#c9a26f" }));
-    deck.position.set(0, -0.15, -2);
+    // Tief genug, dass auch die weite Kamera der Auflösung nie über die
+    // Vorderkante hinaus in den leeren Himmel schaut.
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(width + 24, 0.3, 34), new THREE.MeshLambertMaterial({ color: "#c9a26f" }));
+    deck.position.set(0, -0.15, 8);
     deck.receiveShadow = true;
     this.scene.add(deck);
     const plankMat = new THREE.MeshLambertMaterial({ color: "#b58c5a" });
-    for (let i = 0; i < 12; i += 1) {
-      const seam = new THREE.Mesh(new THREE.BoxGeometry(width + 18, 0.01, 0.04), plankMat);
-      seam.position.set(0, 0.006, 4 - i * 1.1);
+    for (let i = 0; i < 20; i += 1) {
+      const seam = new THREE.Mesh(new THREE.BoxGeometry(width + 24, 0.01, 0.04), plankMat);
+      seam.position.set(0, 0.006, 12 - i * 1.1);
       this.scene.add(seam);
     }
-    const hall = new THREE.Mesh(new THREE.BoxGeometry(width + 16, this.beamY + 2.6, 0.5), new THREE.MeshLambertMaterial({ color: "#d86b52" }));
-    hall.position.set(0, (this.beamY + 2.6) / 2, -3.2);
+    const hallH = this.beamY + 7;
+    const hall = new THREE.Mesh(new THREE.BoxGeometry(width + 22, hallH, 0.5), new THREE.MeshLambertMaterial({ color: "#d86b52" }));
+    hall.position.set(0, hallH / 2, -3.2);
     hall.receiveShadow = true;
     this.scene.add(hall);
     const trim = new THREE.MeshLambertMaterial({ color: "#f3e6cf" });
-    for (let i = 0; i < 4; i += 1) {
-      const band = new THREE.Mesh(new THREE.BoxGeometry(width + 16, 0.12, 0.08), trim);
+    for (let i = 0; i < 6; i += 1) {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(width + 22, 0.12, 0.08), trim);
       band.position.set(0, 1.4 + i * 1.8, -2.93);
       this.scene.add(band);
     }
@@ -191,6 +225,36 @@ export class BarrelDare extends MinigameScene {
     const barrel = buildBarrel();
     this.scene.add(barrel);
 
+    // Der Schatten: wo das Fass stehen bliebe, wenn man jetzt zieht. Nur auf
+    // der eigenen Bahn — dort schaut man hin, und vier Schatten wären Lärm.
+    let ghost = null;
+    if (player.id === this.getControlledPlayerId()) {
+      ghost = new THREE.Group();
+      const ghostMat = new THREE.MeshBasicMaterial({ color: "#57d27a", transparent: true, opacity: 0.32, depthWrite: false, toneMapped: false });
+      const shell = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R + 0.02, BARREL_R * 0.96, BARREL_H, 14), ghostMat);
+      shell.position.y = BARREL_H / 2;
+      ghost.add(shell);
+      const rimMat = new THREE.MeshBasicMaterial({ color: "#57d27a", transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false });
+      [0.02, BARREL_H].forEach((y) => {
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(BARREL_R + 0.03, 0.022, 6, 18), rimMat);
+        rim.rotation.x = Math.PI / 2;
+        rim.position.y = y;
+        ghost.add(rim);
+      });
+      ghost.userData.mats = [ghostMat, rimMat];
+      ghost.visible = false;
+      ghost.renderOrder = 2;
+      this.scene.add(ghost);
+    }
+
+    // Die Tafel für die Auflösung, eine je Bahn auf gleicher Höhe unter dem
+    // Balken. Vorher schwebten die Weiten als Schriftzüge über den Fässern und
+    // lagen bei ähnlichen Höhen übereinander.
+    const plate = makePlate();
+    plate.position.set(x, this.beamY - 0.95, 0.35);
+    plate.visible = false;
+    this.scene.add(plate);
+
     const ropeMat = new THREE.MeshLambertMaterial({ color: "#e2c48a" });
     const ropeGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
     const ropeTop = new THREE.Mesh(ropeGeo, ropeMat);
@@ -212,7 +276,7 @@ export class BarrelDare extends MinigameScene {
 
     this.addKin(player, index, { x, ground: 0, z: KIN_Z, facing: 0 });
     this.lanes.set(player.id, {
-      x, barrel, ropeTop, ropeHand, ropeTail, knots, coil, pulleyY,
+      x, barrel, ropeTop, ropeHand, ropeTail, knots, coil, pulleyY, ghost, plate,
       shown: this.startM, settledAt: null, squashAt: null, fell: null
     });
   }
@@ -232,16 +296,25 @@ export class BarrelDare extends MinigameScene {
   rigOptions(f) {
     const arcade = f.arcade;
     const own = this.lanes.get(f.controlledId);
-    const all = !arcade || arcade.phase === "show" || f.finale;
+    const all = !arcade || arcade.phase === "show" || f.finale || this.ownSettled(f);
     if (all || !own) {
       return { look: [0, this.beamY * 0.45, 0.2], frame: { w: this.count * LANE_GAP + 0.6, h: this.beamY + 0.9 } };
     }
     return { look: [own.x * 0.9, this.beamY * 0.5, 0.2], frame: { w: 2.9, h: this.beamY + 0.9 } };
   }
 
+  // Wer sein Fass gefangen hat (oder es abbekommen hat), schaut den anderen
+  // zu, statt drei Sekunden auf die eigene, stillstehende Bahn zu starren.
+  ownSettled(f) {
+    const own = this.lanes.get(f.controlledId);
+    if (!own) return false;
+    return (own.settledAt !== null && f.now - own.settledAt > 700)
+      || (own.squashAt !== null && f.now - own.squashAt > 1100);
+  }
+
   keepInView(f) {
     const arcade = f.arcade;
-    if (arcade && arcade.phase !== "show" && !f.finale) {
+    if (arcade && arcade.phase !== "show" && !f.finale && !this.ownSettled(f)) {
       const own = this.kins.get(f.controlledId);
       return own ? [own] : [];
     }
@@ -294,6 +367,16 @@ export class BarrelDare extends MinigameScene {
     const t = this.fallTime(arcade, minigame, now);
     const rollMs = arcade.rollMs || 4200;
     const falling = t >= 0 && t * 1000 < rollMs;
+    // Das Loslassen hört und sieht man: ein Klacken und Staub an den Rollen.
+    if (t >= 0 && !this.released) {
+      this.released = true;
+      this.feedback?.sound("clack");
+      this.lanes.forEach((lane) => {
+        this.burst(new THREE.Vector3(lane.x, lane.pulleyY - 0.1, 0.1), ["#e9d7b0", "#ffffff"], { count: 6, speed: 0.9, up: 0.4, size: 0.05, life: 0.5, gravity: 1.2, drag: 2 });
+      });
+    }
+    if (arcade.phase === "show" && this.showSeenAt === null) this.startReveal(arcade, players, now);
+    this.runReveal(arcade, players, controlledId, now);
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -327,7 +410,16 @@ export class BarrelDare extends MinigameScene {
       const caught = brakeAt !== null && brakeAt !== undefined && !hit && speed < 0.02 && t >= 0;
       if (caught && lane.settledAt === null) {
         lane.settledAt = now;
-        if (mine) this.feedback?.sound("pop");
+        if (mine) {
+          // Sofort sagen, wie mutig das war — nicht erst in der Auflösung.
+          const rest = Math.max(0, restingDistance(brakeAt, startM));
+          const judged = verdict(rest);
+          const at = lane.barrel.position.clone().add(new THREE.Vector3(0, BARREL_H + 0.25, 0.35));
+          this.pop(at.clone().add(new THREE.Vector3(0, 0.42, 0)), judged.word, { color: judged.color, size: 0.5, life: 1.6, rise: 0.5 });
+          this.pop(at, `${rest.toFixed(2)} m`, { color: "#ffffff", size: 0.34, life: 1.6, rise: 0.5 });
+          this.feedback?.sound(rest < 1.2 ? "perfect" : "pop");
+          if (rest < 1.2) animator.trigger("celebrate");
+        }
       }
       const since = lane.settledAt === null ? 0 : (now - lane.settledAt) / 1000;
       const lift = caught ? Math.sin(Math.min(1, since / 0.35) * Math.PI) * 0.35 * Math.exp(-since * 1.5) + Math.min(0.12, since * 0.4) : 0;
@@ -349,6 +441,20 @@ export class BarrelDare extends MinigameScene {
         lane.barrel.position.set(lane.x, bottom, 0);
         lane.barrel.rotation.set(0, 0, swing);
         kin.scale.set(1, 1, 1);
+      }
+
+      // Der Schatten: Haltepunkt bei einem Zug JETZT.
+      if (lane.ghost) {
+        const aiming = falling && !hit && (brakeAt === null || brakeAt === undefined);
+        lane.ghost.visible = aiming;
+        if (aiming) {
+          const rest = restingDistance(t, startM);
+          const late = rest <= 0;
+          const color = late ? "#ff3b55" : rest < 1 ? "#57d27a" : rest < 3 ? "#ffd15c" : "#ffffff";
+          lane.ghost.userData.mats.forEach((mat) => mat.color.set(color));
+          lane.ghost.userData.mats[0].opacity = late ? 0.22 + Math.abs(Math.sin(now / 70)) * 0.25 : 0.32;
+          lane.ghost.position.set(lane.x, HEAD_TOP + Math.max(0, rest) * METER, 0);
+        }
       }
 
       // Seile: oben von der Rolle zum Fass, vorn von der Rolle in die Hände,
@@ -394,20 +500,6 @@ export class BarrelDare extends MinigameScene {
         }
       }
 
-      // Ergebnis: Zahl über dem Fass.
-      const results = entry.results || [];
-      if (results.length !== (this.lastResults.get(player.id) || 0)) {
-        this.lastResults.set(player.id, results.length);
-        const last = results[results.length - 1];
-        if (last && !last.hit) {
-          const at = lane.barrel.position.clone().add(new THREE.Vector3(0, BARREL_H + 0.45, 0.3));
-          const great = last.distance < 1;
-          this.pop(at, `${last.distance.toFixed(2)} m`, { color: great ? "#7fe0a8" : "#ffe36b", size: 0.44, life: 1.8, rise: 0.6 });
-          if (mine) this.feedback?.sound(great ? "perfect" : "coin");
-          animator.trigger(great ? "celebrate" : "hop");
-        }
-      }
-
       animator.lookAt(hit ? null : lane.barrel.position);
       if (finale) return;
       if (hit) animator.set("dizzy");
@@ -419,6 +511,60 @@ export class BarrelDare extends MinigameScene {
       const tremble = falling && !caught && !hit && (brakeAt === null || brakeAt === undefined) ? near : 0;
       kin.position.x = lane.x + Math.sin(now / 45) * 0.03 * tremble;
       if (tremble > 0.5) animator.expression("scared", 200);
+    });
+  }
+
+  // Auflösung: vom schlechtesten zum besten Ergebnis, eine Tafel nach der
+  // anderen. Das Beste kommt zuletzt und bekommt die Krone.
+  startReveal(arcade, players, now) {
+    this.showSeenAt = now;
+    const ranked = players
+      .map((player) => {
+        const last = arcade.players[player.id]?.results?.slice(-1)[0];
+        return { id: player.id, hit: !last || last.hit, distance: last?.distance ?? Infinity };
+      })
+      .sort((a, b) => (b.hit - a.hit) || (b.distance - a.distance));
+    const bestDistance = ranked.length ? ranked[ranked.length - 1].distance : Infinity;
+    ranked.forEach((row, k) => {
+      this.reveal.set(row.id, {
+        at: now + 250 + k * 430,
+        done: false,
+        hit: row.hit,
+        distance: row.distance,
+        best: !row.hit && row.distance === bestDistance
+      });
+    });
+  }
+
+  runReveal(arcade, players, controlledId, now) {
+    this.reveal.forEach((row, id) => {
+      const lane = this.lanes.get(id);
+      if (!lane) return;
+      if (row.done) {
+        // Die Tafel springt kurz auf und setzt sich.
+        const age = (now - row.at) / 1000;
+        const s = age < 0.18 ? 0.4 + (age / 0.18) * 0.8 : 1.2 - Math.min(0.2, (age - 0.18) * 1.2);
+        lane.plate.scale.set(PLATE_W * s, PLATE_H * s, 1);
+        return;
+      }
+      if (now < row.at) return;
+      row.done = true;
+      const text = row.hit ? "BONK" : `${row.best ? "👑 " : ""}${row.distance.toFixed(2)} m`;
+      const style = row.hit ? ["#ff5c6e", "#ffffff"] : row.best ? ["#ffc400", "#4a3400"] : ["#fff8ea", "#3a2a1a"];
+      paintPlate(lane.plate, text, style[0], style[1]);
+      lane.plate.visible = true;
+      const animator = this.animators.get(id);
+      const kin = this.kins.get(id);
+      if (row.best) {
+        const at = lane.barrel.position.clone().add(new THREE.Vector3(0, BARREL_H + 0.3, 0.2));
+        this.burst(at, ["#ffd15c", "#ffffff", "#ff7ab8", "#7fe0a8"], { count: 26, speed: 2.8, up: 3, size: 0.08, life: 1.1, drag: 1.1 });
+        this.feedback?.sound(id === controlledId ? "win" : "perfect");
+        animator?.trigger("celebrate");
+      } else {
+        this.feedback?.sound(row.hit ? "clack" : "pop");
+        if (!row.hit) animator?.trigger("hop");
+      }
+      if (kin && id === controlledId) this.feedback?.vibrate(row.best ? [20, 30, 40] : 10);
     });
   }
 
@@ -459,14 +605,15 @@ export class BarrelDare extends MinigameScene {
     }
 
     const banner = this.hud.querySelector("[data-dare-banner]");
+    banner.style.whiteSpace = "pre-line";
     if (t < 0) {
       banner.hidden = false;
-      banner.textContent = "Gleich lässt es los …";
+      banner.textContent = "Gleich lässt es los …\nZieh, wenn der Schatten im Grünen ist!";
       banner.style.background = "#ffd15c";
       banner.style.color = "#3a2a05";
-    } else if (falling && own && !braked && !own.hit) {
+    } else if (falling && own && !braked && !own.hit && t < 1.4) {
       banner.hidden = false;
-      banner.textContent = "ZIEHEN!";
+      banner.textContent = "Es fällt! Schatten beobachten …";
       banner.style.background = "#e0334f";
       banner.style.color = "#ffffff";
     } else {
@@ -525,4 +672,57 @@ function makeSign(text) {
     new THREE.MeshLambertMaterial({ color: "#6b4424" })
   ]);
   return sign;
+}
+
+// Tafel für die Auflösung: ein Sprite mit gemalter Schrift, das immer zur
+// Kamera zeigt. Die Leinwand wird beim Aufdecken neu bemalt.
+const PLATE_W = 1.32;
+const PLATE_H = 0.48;
+function makePlate() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 280;
+  canvas.height = 100;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, toneMapped: false }));
+  sprite.scale.set(PLATE_W, PLATE_H, 1);
+  sprite.renderOrder = 10;
+  sprite.userData.canvas = canvas;
+  return sprite;
+}
+
+function paintPlate(sprite, text, background, color) {
+  const canvas = sprite.userData.canvas;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const r = 44;
+  ctx.fillStyle = "#ffffff";
+  roundRect(ctx, 2, 2, canvas.width - 4, canvas.height - 4, r);
+  ctx.fill();
+  ctx.fillStyle = background;
+  roundRect(ctx, 9, 9, canvas.width - 18, canvas.height - 18, r - 7);
+  ctx.fill();
+  ctx.fillStyle = color;
+  // So gross wie möglich, aber nie über den Rand: mit Krone davor wurde die
+  // Zahl sonst links abgeschnitten.
+  let size = 52;
+  ctx.font = `900 ${size}px ui-rounded, system-ui, sans-serif`;
+  while (size > 26 && ctx.measureText(text).width > canvas.width - 40) {
+    size -= 2;
+    ctx.font = `900 ${size}px ui-rounded, system-ui, sans-serif`;
+  }
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+  sprite.material.map.needsUpdate = true;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
