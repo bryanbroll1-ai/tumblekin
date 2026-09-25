@@ -88,7 +88,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 👆⏺️ Knopf gedrückt halten
 
 - **Lichtwächter:** Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!
-- **Fassrolle:** Das Riesenfass rollt immer schneller. Halte ◀ oder ▶ und lauf dagegen an. Gezählt wird die Zeit im grünen Streifen OBEN — am Rand bist du sicher, verdienst aber nichts. Wer abrutscht, platscht ins Wasser.
+- **Fassrolle:** Alle stehen auf einem Riesenfass über dem Fluss. Halte ◀ oder ▶ und lauf gegen die Drehung an — aber wer läuft, dreht das Fass auch unter den anderen. So rollst du sie ins Wasser, musst dann aber selbst mithalten. Gezählt wird die Zeit im grünen Streifen oben.
 - **Ballonfahrt:** Halte den Finger auf dem Bild, dann steigt dein Ballon — loslassen lässt ihn sinken. Flieg durch die Tore, mittig durch bringt mehr, und Boden oder Decke schalten den Brenner kurz ab.
 
 ### 👆👆 Schnell tippen
@@ -99,7 +99,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆↔️ Links/Rechts wischen
 
-- **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang die goldenen Münzen und weich den schwarzen Bomben aus.
+- **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang Münzen und weich den Bomben aus — fünf Fänge in Folge verdoppeln jede Münze, zehn verdreifachen sie. Am Ende kommt der Goldrausch, und eine Schatztruhe fällt in die angesagte Spur.
 
 ### 👆🎵 Im Takt tippen
 

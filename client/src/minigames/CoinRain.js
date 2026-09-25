@@ -5,7 +5,9 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 
 // Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
-// Bomben ausspuckt. Wischen wechselt die Spur.
+// Bomben ausspuckt. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den
+// Wert (×2, ×3), in den letzten Sekunden kommt der Goldrausch, und zum Schluss
+// fällt eine Schatztruhe in eine vorher angesagte Spur.
 //
 // Vorher stand die Kamera tief, die Maschine war oben abgeschnitten und die
 // rechte Spur halb aus dem Bild. Jetzt ist alles im Bild, die Figuren schauen
@@ -23,6 +25,7 @@ export class CoinRain extends MinigameScene {
     this.lastCatches = new Map();
     this.lastBombs = new Map();
     this.sootUntil = new Map();
+    this.lastMult = new Map();
     this.swipe = null;
     this.labelY = 0.74;
   }
@@ -49,11 +52,13 @@ export class CoinRain extends MinigameScene {
       crownShape: "blob",
       flowerColors: ["#ffd15c", "#ff9a4d", "#ffffff"]
     });
+    this.laneStrips = [];
     for (let lane = 0; lane < 3; lane += 1) {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH - 0.1, 0.12, 2.6), new THREE.MeshLambertMaterial({ color: lane === 1 ? "#ffdd8a" : "#f4cd6e" }));
       strip.position.set(this.laneX(lane), 0.0, KIN_Z - 0.2);
       strip.receiveShadow = true;
       scene.add(strip);
+      this.laneStrips.push(strip);
     }
 
     // Die Münzmaschine: ein Kasten mit drei Rohren, der leicht hin und her
@@ -105,6 +110,38 @@ export class CoinRain extends MinigameScene {
   }
 
   buildDropMesh(kind) {
+    if (kind === "gold") {
+      const coin = new THREE.Group();
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.12, 12), new THREE.MeshLambertMaterial({ color: "#ffd84a", emissive: "#ffb300", emissiveIntensity: 0.8 }));
+      disc.rotation.x = Math.PI / 2;
+      coin.add(disc);
+      const star = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.14), new THREE.MeshLambertMaterial({ color: "#ffffff", emissive: "#fff1a8", emissiveIntensity: 0.8 }));
+      star.rotation.z = Math.PI / 4;
+      coin.add(star);
+      return coin;
+    }
+    if (kind === "jackpot") {
+      const chest = new THREE.Group();
+      const wood = new THREE.MeshLambertMaterial({ color: "#8a4f22" });
+      const trim = new THREE.MeshLambertMaterial({ color: "#ffc400", emissive: "#c98f1e", emissiveIntensity: 0.6 });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.6), wood);
+      chest.add(box);
+      const lid = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.22, 0.64), wood);
+      lid.position.y = 0.36;
+      chest.add(lid);
+      [-0.3, 0.3].forEach((x) => {
+        const band = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.76, 0.66), trim);
+        band.position.set(x, 0.1, 0);
+        chest.add(band);
+      });
+      const lock = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 0.08), trim);
+      lock.position.set(0, 0.2, 0.33);
+      chest.add(lock);
+      const glow = new THREE.PointLight(0xffd15c, 2.5, 3, 2);
+      glow.position.y = 0.5;
+      chest.add(glow);
+      return chest;
+    }
     if (kind === "coin") {
       const coin = new THREE.Group();
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.1, 10), new THREE.MeshLambertMaterial({ color: "#ffc400", emissive: "#c98f1e", emissiveIntensity: 0.45 }));
@@ -181,6 +218,27 @@ export class CoinRain extends MinigameScene {
     const elapsed = Math.max(0, now - f.minigame.startedAt);
     const fallMs = arcade.fallMs || 1400;
     this.machine.position.x = Math.sin(now / 1600) * 0.12;
+    // Goldrausch: die Maschine blinkt golden, der Himmel wird warm.
+    const gold = arcade.goldFrom && elapsed >= arcade.goldFrom && !finale;
+    if (gold && !this.goldStarted) {
+      this.goldStarted = true;
+      this.rig.shake(0.5);
+      this.feedback?.sound("sparkle");
+      this.feedback?.vibrate([12, 20, 12, 20, 24]);
+      this.burst(new THREE.Vector3(0, DROP_TOP_Y + 0.6, 0), ["#ffd84a", "#ffffff", "#ff9a4d"], { count: 40, speed: 3.4, up: 2.6, size: 0.1, life: 1.2, drag: 1.2 });
+    }
+    if (this.scene.background?.isColor) {
+      this.scene.background.lerp(new THREE.Color(gold ? "#ffe3a6" : "#bfe6f2"), frameLerp(0.03, dt));
+    }
+    // Die Truhe: ihre Spur leuchtet vorher auf.
+    const jackpot = (arcade.drops || []).find((drop) => drop.kind === "jackpot" && !drop.processed);
+    const warn = jackpot && elapsed >= jackpot.catchAt - (arcade.jackpotWarnMs || 2600) && elapsed < jackpot.catchAt;
+    this.laneStrips?.forEach((strip, lane) => {
+      const lit = warn && jackpot.lane === lane;
+      strip.material.emissive.set(lit ? "#ffb300" : "#000000");
+      strip.material.emissiveIntensity = lit ? 0.5 + Math.abs(Math.sin(now / 120)) * 0.5 : 0;
+    });
+    this.jackpotLane = warn ? jackpot.lane : null;
 
     // Was gerade fällt, und das Nächste je Spur (dorthin schauen die Figuren).
     const active = new Set();
@@ -199,7 +257,7 @@ export class CoinRain extends MinigameScene {
       }
       const t = Math.min(1, (elapsed - fallFrom) / fallMs);
       mesh.position.set(this.laneX(drop.lane) + this.machine.position.x * (1 - t), DROP_TOP_Y - t * t * (DROP_TOP_Y - CATCH_Y), KIN_Z - 0.1);
-      mesh.rotation.y = now / 260 + drop.id;
+      mesh.rotation.y = drop.kind === "jackpot" ? Math.sin(now / 300) * 0.4 : now / 260 + drop.id;
       if (drop.kind === "bomb") mesh.rotation.z = Math.sin(now / 120) * 0.25;
       const current = nextInLane[drop.lane];
       if (!current || drop.catchAt < current.catchAt) nextInLane[drop.lane] = { catchAt: drop.catchAt, mesh, kind: drop.kind };
@@ -234,8 +292,17 @@ export class CoinRain extends MinigameScene {
         animator.trigger("hop", { height: gained > 1 ? 0.3 : 0.16 });
         animator.expression(gained > 1 ? "joy" : "happy", 500);
         const at = kin.position.clone().add(new THREE.Vector3(0, 0.75, 0));
-        this.burst(at, ["#ffc400", "#ffd15c", "#ffffff"], { count: 9, speed: 1.9, up: 2, size: 0.08, life: 0.6, drag: 1.8, fadePow: 1.4 });
-        this.pop(at, `+${gained}`, { color: "#ffe36b", size: 0.36, life: 0.7, rise: 0.75 });
+        const big = gained >= 10;
+        this.burst(at, ["#ffc400", "#ffd15c", "#ffffff"], { count: big ? 40 : 9, speed: big ? 3.4 : 1.9, up: big ? 3 : 2, size: 0.08, life: big ? 1.1 : 0.6, drag: 1.8, fadePow: 1.4 });
+        this.pop(at, big ? `SCHATZ! +${gained}` : `+${gained}`, { color: "#ffe36b", size: big ? 0.5 : 0.36, life: big ? 1.3 : 0.7, rise: 0.75 });
+        if (big) animator.trigger("celebrate");
+        // Neuer Faktor erreicht.
+        const mult = entry.multiplier || 1;
+        if (mult > (this.lastMult.get(player.id) || 1)) {
+          this.pop(at.clone().add(new THREE.Vector3(0, 0.55, 0)), `×${mult}!`, { color: mult >= 3 ? "#ff6bd6" : "#7fe0a8", size: 0.46, life: 1, rise: 0.6 });
+          if (player.id === controlledId) this.feedback?.sound("perfect");
+        }
+        this.lastMult.set(player.id, mult);
         if (player.id === controlledId) {
           this.feedback?.sound(gained > 1 ? "sparkle" : "coin", { pan: kin.position.x * 0.2 });
           this.feedback?.vibrate(gained > 1 ? [8, 12, 10] : 10);
@@ -243,6 +310,7 @@ export class CoinRain extends MinigameScene {
       }
       if ((entry.bombs || 0) > (this.lastBombs.get(player.id) || 0)) {
         this.lastBombs.set(player.id, entry.bombs);
+        this.lastMult.set(player.id, 1);
         animator.trigger("knockback");
         animator.expression("dizzy", 1400);
         this.sootUntil.set(player.id, now + 1400);
@@ -272,9 +340,40 @@ export class CoinRain extends MinigameScene {
     });
   }
 
+  hudHtml() {
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="simon-round coin-mult" data-coin-mult>×1</div>
+      <div class="color-banner" data-coin-banner hidden></div>`;
+  }
+
   drawHud(f) {
-    const own = f.arcade?.players?.[f.controlledId];
+    const { arcade, now, minigame } = f;
+    const own = arcade?.players?.[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.catches || 0);
+    const mult = this.hud.querySelector("[data-coin-mult]");
+    if (mult) {
+      const m = own?.multiplier || 1;
+      const streak = own?.streak || 0;
+      mult.textContent = m > 1 ? `Serie ${streak} · ×${m}` : `Serie ${streak}`;
+      mult.classList.toggle("hot", m > 1);
+    }
+    const banner = this.hud.querySelector("[data-coin-banner]");
+    if (!banner || !arcade) return;
+    const elapsed = now - minigame.startedAt;
+    if (this.jackpotLane !== null && this.jackpotLane !== undefined) {
+      banner.hidden = false;
+      banner.textContent = `SCHATZTRUHE! ${["links", "Mitte", "rechts"][this.jackpotLane]}`;
+      banner.style.background = "#ffc400";
+      banner.style.color = "#5c3a05";
+    } else if (arcade.goldFrom && elapsed >= arcade.goldFrom && elapsed < arcade.goldFrom + 1800) {
+      banner.hidden = false;
+      banner.textContent = "GOLDRAUSCH! ✨";
+      banner.style.background = "#ff9a4d";
+      banner.style.color = "#ffffff";
+    } else {
+      banner.hidden = true;
+    }
   }
 }

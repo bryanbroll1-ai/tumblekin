@@ -945,8 +945,7 @@ test("fassrolle: the spinning barrel slides idle players off, counter-running ho
   // Simulate 20 seconds in 50ms steps; the runner counters their drift.
   for (let t = 0; t < 20000; t += 50) {
     const now = startedAt + t;
-    const phase = testRules.barrelPhaseAt(arcade, t);
-    const drift = b.offset + phase.vel * 0.3;
+    const drift = b.offset + (arcade.barrelVel || testRules.barrelPhaseAt(arcade, t).vel) * 0.3;
     if (Math.abs(drift) > 0.1) {
       b.lastRunAt = now;
       b.runDir = drift > 0 ? -1 : 1;
@@ -956,6 +955,25 @@ test("fassrolle: the spinning barrel slides idle players off, counter-running ho
   assert.ok(a.fallenAt, "an idle player slides off the barrel");
   assert.equal(b.fallenAt, null, "counter-running keeps you on top");
   assert.ok(arcadeRankingScore(arcade, b) > arcadeRankingScore(arcade, a), "survivor outranks the fallen");
+});
+
+test("fassrolle: wer läuft, dreht den Stamm auch unter den anderen", () => {
+  const runner = player({ id: "br", name: "BR", color: "#fff" });
+  const stander = player({ id: "bt", name: "BT", color: "#0ff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassrolle", [runner, stander], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner, stander] };
+  const a = arcade.players[runner.id];
+  // In der ruhigen Anfangsphase: nur der Läufer bewegt den Stamm.
+  for (let t = 0; t < 1200; t += 50) {
+    a.lastRunAt = startedAt + t;
+    a.runDir = 1;
+    a.offset = 0;
+    testRules.updateBarrel(room, minigame, arcade, 0.05, startedAt + t);
+  }
+  assert.ok(arcade.barrelVel < -0.4, `nach rechts laufen dreht den Stamm nach links (${arcade.barrelVel})`);
+  assert.ok(arcade.players[stander.id].offset < -0.2, "wer stehen bleibt, wird mitgenommen");
 });
 
 test("fassrolle: among survivors the steadier balance ranks higher", () => {
@@ -1026,6 +1044,48 @@ test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () =>
   assert.ok(survivorScore > victimScore, "survivors outrank the exploded");
 });
 
+test("muenzregen: eine Serie hebt den Wert, eine Bombe setzt ihn zurück", () => {
+  const { catchMultiplier } = testRules;
+  assert.equal(catchMultiplier(0), 1);
+  assert.equal(catchMultiplier(4), 1);
+  assert.equal(catchMultiplier(5), 2);
+  assert.equal(catchMultiplier(10), 3);
+  assert.equal(catchMultiplier(40), 3, "höchstens dreifach");
+
+  const catcher = player({ id: "cs", name: "CS", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("muenzregen", [catcher], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 30500, finishing: false };
+  const room = { currentMinigame: minigame, players: [catcher] };
+  const entry = arcade.players[catcher.id];
+  // Eine künstliche Folge: sechs Münzen, dann eine Bombe, alle in Spur 1.
+  arcade.drops = [1, 2, 3, 4, 5, 6].map((i) => ({ id: i, catchAt: i * 100, lane: 1, kind: "coin", processed: false }))
+    .concat([{ id: 7, catchAt: 700, lane: 1, kind: "bomb", processed: false }]);
+  entry.lane = 1;
+  minigame.startedAt = Date.now() - 650;
+  testRules.updateArcade(room);
+  assert.equal(entry.catches, 4 + 2 * 2, "vier einfach, ab der fünften doppelt");
+  minigame.startedAt = Date.now() - 750;
+  testRules.updateArcade(room);
+  assert.equal(entry.multiplier, 1, "die Bombe setzt die Serie zurück");
+});
+
+test("muenzregen: zum Schluss Goldrausch und eine Schatztruhe", () => {
+  const catcher = player({ id: "cj", name: "CJ", color: "#fff" });
+  const arcade = createArcadeState("muenzregen", [catcher], Date.now());
+  const gold = arcade.drops.filter((drop) => drop.kind === "gold");
+  assert.ok(gold.length > 5, "im Goldrausch fallen Goldmünzen");
+  assert.ok(gold.every((drop) => drop.catchAt >= arcade.goldFrom), "erst am Ende");
+  const jackpot = arcade.drops.filter((drop) => drop.kind === "jackpot");
+  assert.equal(jackpot.length, 1, "genau eine Truhe");
+  assert.equal(jackpot[0].catchAt, testRules.CATCH_JACKPOT_AT);
+  assert.ok(arcade.drops.every((drop) => drop === jackpot[0] || drop.catchAt < jackpot[0].catchAt), "sie ist das Letzte");
+  // Der Regen wird dichter.
+  const early = arcade.drops.filter((drop) => drop.catchAt < 8000).length;
+  const late = arcade.drops.filter((drop) => drop.catchAt >= arcade.goldFrom && drop.catchAt < arcade.goldFrom + 6000).length;
+  assert.ok(late > early, `am Ende mehr als am Anfang (${late} gegen ${early})`);
+});
+
 test("muenzregen: catching coins scores, catching bombs costs", () => {
   const catcher = player({ id: "ca", name: "CA", color: "#fff" });
   const startedAt = Date.now() - 100;
@@ -1037,11 +1097,9 @@ test("muenzregen: catching coins scores, catching bombs costs", () => {
   const coin = arcade.drops.find((drop) => drop.kind === "coin");
   const bomb = arcade.drops.find((drop) => drop.kind === "bomb");
   entry.lane = coin.lane;
-  testRules.updateArcade && null;
-  updateArcade; // silence lint
-  // Process the coin drop.
+  // Nur die Münze offen lassen — die Tropfen werden je Spiel neu gemischt.
+  arcade.drops.forEach((drop) => { drop.processed = drop !== coin; });
   minigame.startedAt = Date.now() - coin.catchAt - 10;
-  coin.processed = false;
   testRules.updateArcade(room);
   assert.equal(entry.catches, 1, "coin in own lane is caught");
 

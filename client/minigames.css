@@ -1713,3 +1713,13 @@ canvas.is-stunned {
 .knife-ammo i.used {
   opacity: 0.22;
 }
+
+/* --- Münzregen: Serie und Faktor ------------------------------------------- */
+.coin-mult.hot {
+  background: #ff6bd6;
+  color: #ffffff;
+}
+.barrel-spin.hot {
+  background: #ff5c6e;
+  color: #ffffff;
+}

@@ -76,7 +76,7 @@ const MINIGAMES = [
   { type: "fassrolle", title: "Fassrolle", duration: 32000, arcadeFamily: "barrel" },
   { type: "fassmut", title: "Fassmut", duration: DARE_DURATION_MS, arcadeFamily: "daredevil" },
   { type: "zuendstoff", title: "Zündstoff", duration: 45000, arcadeFamily: "bomb" },
-  { type: "muenzregen", title: "Münzregen", duration: 30000, arcadeFamily: "catchfall" },
+  { type: "muenzregen", title: "Münzregen", duration: 30500, arcadeFamily: "catchfall" },
   { type: "blobklopfe", title: "Blob-Klopfe", duration: 25000, arcadeFamily: "whack" },
   { type: "seilspringen", title: "Seilspringen", duration: 35000, arcadeFamily: "wave" },
   { type: "kanonenflug", title: "Kanonenflug", duration: 16000, arcadeFamily: "cannon" },
@@ -687,6 +687,14 @@ const BARREL_LIMIT = 1.7;             // slide distance before falling off
 const BARREL_RUN_SPEED = 2.1;         // counter-run speed while holding
 const BARREL_HOLD_FRESH_MS = 220;     // "holding" = a run ping this recent
 const BARREL_TURN_MS = 700;           // so lange braucht das Fass fuer einen Richtungswechsel
+// Baumstammrollen: wer läuft, stösst den Stamm mit den Füssen in die
+// Gegenrichtung — und damit ALLE, die darauf stehen. Vorher drehte das Fass
+// nach einem festen Plan, und die anderen waren nur Kulisse. Jetzt kann man
+// die anderen herunterrollen, muss dann aber selbst mithalten: der Stamm
+// dreht auch unter einem selbst schneller.
+const BARREL_CURRENT_SHARE = 0.6;     // so viel bleibt von der Strömung
+const BARREL_PUSH = 1.5;              // Schub je laufender Figur und Sekunde
+const BARREL_PUSH_DAMP = 1.6;         // der Stamm beruhigt sich so schnell wieder
 
 // Zündstoff — hot-potato bomb: the fuse time is shown for the first moments,
 // then hidden, so a good passer can time the boom.
@@ -695,8 +703,25 @@ const BOMB_MIN_FUSE_MS = 4000;
 const BOMB_MAX_FUSE_MS = 8000;
 const BOMB_REVEAL_MS = 2000;          // fuse time is visible this long after a pass
 
-// Münzregen — coins, gems and bombs rain into three lanes; switch to catch.
-const CATCH_FALL_MS = 1150;           // visual fall time from sky to lane
+// Münzregen — Münzen, Edelsteine und Bomben regnen in drei Spuren.
+//
+// Es war zu gleichförmig: dieselbe Mischung im selben Takt von vorn bis
+// hinten, und am Ende hörte es einfach auf. Jetzt baut es sich auf: der
+// Regen wird dichter, eine Serie ohne Bombe hebt den Wert jeder Münze (×2 ab
+// fünf, ×3 ab zehn), in den letzten Sekunden kommt der GOLDRAUSCH mit
+// Goldmünzen, und zum Schluss fällt eine angekündigte Schatztruhe in eine
+// Spur — wer dort steht, bekommt zehn.
+const CATCH_FALL_MS = 1150;           // Fallzeit von der Maschine bis zur Spur
+const CATCH_GOLD_FROM = 21500;        // ab hier Goldrausch
+const CATCH_JACKPOT_AT = 28400;       // die Truhe landet
+const CATCH_JACKPOT_WARN_MS = 2600;   // so lange vorher wird ihre Spur angesagt
+const CATCH_JACKPOT_VALUE = 10;
+const CATCH_STREAK_STEP = 5;          // je fünf Fänge in Folge ein Faktor mehr
+const CATCH_STREAK_MAX = 3;
+
+function catchMultiplier(streak) {
+  return Math.min(CATCH_STREAK_MAX, 1 + Math.floor((streak || 0) / CATCH_STREAK_STEP));
+}
 
 // Messerwurf — wie die bekannten Handyspiele: jeder hat SEINEN Stamm, alle
 // werfen gleichzeitig. Ein Stamm ist eine Stufe mit einer festen Zahl Messer;
@@ -2689,12 +2714,18 @@ function createArcadeState(type, players, startedAt) {
   }
   if (config.family === "catchfall") {
     arcade.fallMs = CATCH_FALL_MS;
-    arcade.drops = buildCatchDrops(config.seed, 60000);
+    arcade.goldFrom = CATCH_GOLD_FROM;
+    arcade.jackpotAt = CATCH_JACKPOT_AT;
+    arcade.jackpotWarnMs = CATCH_JACKPOT_WARN_MS;
+    arcade.drops = buildCatchDrops(config.seed + (Date.now() % 7717), 60000);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.lane = 1;
       entry.catches = 0;
       entry.bombs = 0;
+      entry.streak = 0;
+      entry.multiplier = 1;
+      entry.lastGain = 0;
     });
   }
   if (config.family === "whack") {
@@ -3124,26 +3155,36 @@ function buildCatchDrops(seed, totalMs) {
   let at = 2200;
   let index = 0;
   let id = 1;
-  while (at < totalMs) {
+  const end = Math.min(totalMs, CATCH_JACKPOT_AT - 700);
+  while (at < end) {
+    const gold = at >= CATCH_GOLD_FROM;
     const roll = arcadeNoise(seed + index * 29);
-    const kind = roll < 0.2 ? "bomb" : (roll > 0.86 ? "gem" : "coin");
+    const bombShare = at < 10000 ? 0.18 : 0.24;
+    const kind = roll < bombShare ? "bomb" : roll > 0.88 ? "gem" : gold ? "gold" : "coin";
     const lane = Math.floor(arcadeNoise(seed + index * 13) * 3);
     drops.push({ id: id++, catchAt: Math.round(at), lane, kind, processed: false });
-    // Every so often a second drop in a different lane on the same beat.
-    if (index > 4 && arcadeNoise(seed + index * 53) > 0.62) {
+    // Ab und zu ein zweites auf demselben Schlag in einer anderen Spur — im
+    // Goldrausch fast immer.
+    const doubleChance = gold ? 0.7 : at < 10000 ? 0.25 : 0.42;
+    if (index > 4 && arcadeNoise(seed + index * 53) < doubleChance) {
       const otherLane = (lane + 1 + Math.floor(arcadeNoise(seed + index * 61) * 2)) % 3;
       const otherRoll = arcadeNoise(seed + index * 67);
       drops.push({
         id: id++,
         catchAt: Math.round(at),
         lane: otherLane,
-        kind: otherRoll < 0.35 ? "bomb" : "coin",
+        kind: otherRoll < 0.35 ? "bomb" : gold ? "gold" : "coin",
         processed: false
       });
     }
-    at += Math.max(360, 720 - index * 14) + arcadeNoise(seed + index * 41) * 200;
+    // Der Regen wird dichter: erst gemächlich, dann schneller, im Goldrausch
+    // ein Prasseln.
+    const gap = gold ? 300 : Math.max(380, 740 - index * 13);
+    at += gap + arcadeNoise(seed + index * 41) * (gold ? 90 : 180);
     index += 1;
   }
+  // Zum Schluss die Schatztruhe.
+  drops.push({ id: id++, catchAt: CATCH_JACKPOT_AT, lane: Math.floor(arcadeNoise(seed + 997) * 3), kind: "jackpot", processed: false });
   return drops;
 }
 
@@ -4690,13 +4731,14 @@ function updateCatchfall(room, minigame, arcade, now) {
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
       if (!entry || entry.lane !== drop.lane) return;
-      if (drop.kind === "coin") {
-        entry.catches += 1;
+      if (drop.kind !== "bomb") {
+        // Der Faktor gilt schon für diesen Fang, wenn er ihn erreicht.
         entry.streak = (entry.streak || 0) + 1;
-        entry.flash = "good";
-      } else if (drop.kind === "gem") {
-        entry.catches += 3;
-        entry.streak = (entry.streak || 0) + 1;
+        entry.multiplier = catchMultiplier(entry.streak);
+        const base = drop.kind === "jackpot" ? CATCH_JACKPOT_VALUE : drop.kind === "gem" ? 3 : drop.kind === "gold" ? 2 : 1;
+        const gain = drop.kind === "jackpot" ? base : base * entry.multiplier;
+        entry.catches += gain;
+        entry.lastGain = gain;
         entry.flash = "good";
       } else {
         // Eine Bombe kostet eine Muenze. Vorher lief der Abzug an der Zaehlung
@@ -4708,6 +4750,8 @@ function updateCatchfall(room, minigame, arcade, now) {
         entry.bombs += 1;
         entry.catches = Math.max(0, entry.catches - 1);
         entry.streak = 0;
+        entry.multiplier = 1;
+        entry.lastGain = -1;
         entry.flash = "bad";
       }
       entry.lastHitAt = now;
@@ -4731,7 +4775,15 @@ function updateKnife(room, minigame, arcade, dt, now) {
 
 function updateBarrel(room, minigame, arcade, dt, now) {
   const elapsed = Math.max(0, now - minigame.startedAt);
-  const vel = barrelVelAt(arcade, elapsed);
+  // Wer läuft, schiebt den Stamm unter sich in die Gegenrichtung.
+  let push = 0;
+  room.players.forEach((player) => {
+    const entry = arcade.players[player.id];
+    if (!entry || entry.fallenAt) return;
+    if (now - (entry.lastRunAt || 0) <= BARREL_HOLD_FRESH_MS) push -= entry.runDir || 0;
+  });
+  arcade.spin = (arcade.spin || 0) + (push * BARREL_PUSH - (arcade.spin || 0) * BARREL_PUSH_DAMP) * dt;
+  const vel = barrelVelAt(arcade, elapsed) * BARREL_CURRENT_SHARE + arcade.spin;
   arcade.barrelVel = vel;
   arcade.barrelAngle += vel * dt;
 
@@ -6277,9 +6329,9 @@ function arcadeBotStep(room, bot) {
     const profile = botProfile(player);
     const elapsed = now - minigame.startedAt;
     const next = arcade.drops.find((drop) => !drop.processed && drop.catchAt > elapsed + profile.reactionMs * 0.4);
-    if (!next || next.catchAt - elapsed > 1100) return;
+    if (!next || next.catchAt - elapsed > (next.kind === "jackpot" ? 2400 : 1100)) return;
     let wanted = player.lane;
-    if (next.kind === "coin" && Math.random() > profile.mistake) wanted = next.lane;
+    if (next.kind !== "bomb" && Math.random() > profile.mistake) wanted = next.lane;
     if (next.kind === "bomb" && next.lane === player.lane && Math.random() > profile.mistake) {
       wanted = next.lane === 0 ? 1 : next.lane - 1;
     }
@@ -7240,6 +7292,8 @@ if (require.main === module) {
 
 module.exports = {
   testRules: {
+    catchMultiplier,
+    CATCH_JACKPOT_AT,
     cannonDistance,
     cannonPoints,
     cannonTri,

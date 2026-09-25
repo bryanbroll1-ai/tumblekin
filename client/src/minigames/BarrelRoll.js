@@ -3,8 +3,10 @@ import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 
-// Fassrolle — alle stehen auf einem Riesenfass über dem Fluss. Es dreht sich
-// immer schneller und wechselt die Richtung; mit ◀ oder ▶ läuft man dagegen an.
+// Fassrolle — alle stehen auf einem Riesenfass über dem Fluss. Die Strömung
+// dreht es mal so, mal so; mit ◀ oder ▶ läuft man dagegen an. Aber wer läuft,
+// stösst das Fass mit den Füssen in die Gegenrichtung — und damit alle
+// anderen. So rollt man sie ins Wasser, muss dann aber selbst mithalten.
 // Gezählt wird die Zeit im grünen Streifen oben, wer abrutscht, platscht rein.
 //
 // Wer nicht läuft, balanciert mit ausgebreiteten Armen — je näher an der
@@ -38,6 +40,7 @@ export class BarrelRoll extends MinigameScene {
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0s</strong></div>
+      <div class="simon-round barrel-spin" data-barrel-spin></div>
       <div class="color-banner" data-barrel-banner hidden></div>`;
   }
 
@@ -306,6 +309,11 @@ export class BarrelRoll extends MinigameScene {
       const edge = Math.min(1, Math.abs(shown) / this.limit);
       if (holding) {
         animator.set("run");
+        // Wo gelaufen wird, spritzt es hinter dem Fass: man sieht, wer schiebt.
+        if (Math.random() < Math.min(1, dt * 9)) {
+          const side = entry.runDir < 0 ? 1 : -1;
+          this.burst(new THREE.Vector3(side * (BARREL_R + 0.3), WATER_Y + 0.15, kin.position.z), ["#bfe9ff", "#ffffff", player.color], { count: 2, speed: 1.4, up: 1.6, size: 0.07, life: 0.5, drag: 1.4 });
+        }
         // Gegen ein schnelles Fass muss man schneller trippeln.
         animator.rate = 0.9 + speed * 0.35;
         const face = (entry.runDir < 0 ? -1 : 1) * Math.PI / 2;
@@ -327,6 +335,13 @@ export class BarrelRoll extends MinigameScene {
 
   drawHud(f) {
     const own = f.arcade?.players?.[f.controlledId];
+    const spin = this.hud.querySelector("[data-barrel-spin]");
+    if (spin) {
+      const vel = f.arcade?.barrelVel || 0;
+      const count = Math.min(3, Math.round(Math.abs(vel) / 0.7));
+      spin.textContent = count === 0 ? "Fass ruhig" : `Fass rollt ${vel < 0 ? "◀".repeat(count) : "▶".repeat(count)}`;
+      spin.classList.toggle("hot", count >= 3);
+    }
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     // Die Zahl, nach der gewertet wird: Zeit mittig auf dem Fass.
     this.scoreNode.textContent = `${(own?.balanceWork || 0).toFixed(1)}s`;
