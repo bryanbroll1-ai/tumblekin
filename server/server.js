@@ -1321,6 +1321,20 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
+  // Nur für die Prüfskripte: das laufende Minispiel sofort werten. Eine ganze
+  // Partie im Browser dauert sonst Minuten, und geprüft werden soll der Ablauf
+  // (Zwischenstand, nächstes Spiel, Ende), nicht jedes Spiel in voller Länge.
+  on("devSkipMinigame", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Werkzeuge sind in dieser Version deaktiviert.");
+    if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann das.");
+    if (room.status !== "minigame") return replyError(reply, "Gerade läuft kein Minispiel.");
+    finishMinigame(room);
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
   // Zurück in die Lobby: Modus und Auswahl bleiben, der Spielstand nicht.
   on("restartGame", (payload, reply) => {
     const room = findRoomForSocket(socket, payload?.code);

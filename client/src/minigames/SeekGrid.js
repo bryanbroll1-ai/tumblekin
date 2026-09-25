@@ -220,16 +220,19 @@ export class SeekGrid extends MinigameScene {
     const own = this.getControlledPlayerId();
     const edge = (SIZE * STEP) / 2 + 1.0;
     let slot = 0;
-    // Hinter dem Brett in einer Reihe, zur Kamera gedreht.
-    const rim = [[-1.6, -edge + 0.1], [0, -edge - 0.1], [1.6, -edge + 0.1]];
+    // Hinter dem Brett auf den Randsteinen, zur Kamera gedreht.
+    const stone = span / 2 + 0.62;
+    const rim = [[-1.6, -stone], [0, -stone], [1.6, -stone]];
     players.forEach((player, index) => {
       if (player.id === own) {
-        this.addKin(player, index, { x: 0, ground: 0.47, z: 0, facing: 0 });
+        // Auf einer Feldmitte — die Brettmitte selbst ist eine Fuge.
+        this.addKin(player, index, { x: STEP / 2, ground: 0.47, z: STEP / 2, facing: 0 });
         return;
       }
       const [x, z] = rim[slot % rim.length];
       slot += 1;
       this.addKin(player, index, { x, ground: 0.42, z, facing: 0, scale: 0.9 });
+      this.setGround(player.id, 0.42);
     });
   }
 
@@ -462,10 +465,13 @@ export class SeekGrid extends MinigameScene {
         const newest = probes[probes.length - 1];
         const tile = this.tileAt(newest.x, newest.y);
         if (tile) {
-          this.searchAt = { x: tile.x, z: tile.z, at: now };
+          this.searchAt = { x: tile.x, z: tile.z, at: now, tile };
           animator.trigger("hop", { height: 0.3 });
         }
       }
+      // Aufgedeckte Felder sinken ein Stück ab — die Figur mit.
+      const under = this.searchAt?.tile;
+      animator.groundY = 0.47 + (under ? under.group.position.y : 0) + 0.3;
       if (this.searchAt) {
         const gap = new THREE.Vector3(this.searchAt.x - kin.position.x, 0, this.searchAt.z - kin.position.z);
         kin.position.x += gap.x * frameLerp(0.25, dt);

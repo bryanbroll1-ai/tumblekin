@@ -7,3 +7,4 @@ pnpm-debug.log*
 # als ersten Weg, und der legt daneben eine package-lock.json an — zwei
 # Lockfiles, die auseinanderlaufen koennen, ist genau ein Fehler zu viel.
 package-lock.json
+galerie/

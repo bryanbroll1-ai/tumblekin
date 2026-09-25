@@ -170,7 +170,7 @@ export class FishDuel extends MinigameScene {
     const count = Math.max(1, this.lanes.size);
     return {
       look: [0, 0.55, -1.7],
-      frame: { w: count * LANE_GAP + 0.3, h: 3.8 },
+      frame: { w: count * LANE_GAP + 0.7, h: 3.8 },
       yaw: 0.18,
       pitch: 0.42,
       fov: 38,

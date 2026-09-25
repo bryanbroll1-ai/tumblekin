@@ -141,7 +141,7 @@ export class CoinRain extends MinigameScene {
   shot() {
     return {
       look: [0, 1.55, 0.5],
-      frame: { w: LANE_WIDTH * 3 + 0.2, h: 3.7 },
+      frame: { w: LANE_WIDTH * 3 + 0.6, h: 3.7 },
       fill: 0.96,
       pitch: 0.12,
       fov: 38,

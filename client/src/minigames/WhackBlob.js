@@ -282,7 +282,7 @@ export class WhackBlob extends MinigameScene {
         if (!pop) return;
         const pos = this.cellPos(pop.cell);
         const bad = pop.kind === "bad";
-        const away = new THREE.Vector3(swing.home.x - pos.x, 0, swing.home.z - pos.z).normalize().multiplyScalar(0.5);
+        const away = new THREE.Vector3(swing.home.x - pos.x, 0, swing.home.z - pos.z).normalize().multiplyScalar(0.8);
         swing.target = new THREE.Vector3(pos.x + away.x, 0, pos.z + away.z);
         swing.at = now;
         swing.face = Math.atan2(pos.x - swing.target.x, pos.z - swing.target.z);

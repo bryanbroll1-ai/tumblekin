@@ -8,9 +8,9 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // fallen. Was übersteht, wird abgeschnitten — wer am höchsten baut, gewinnt.
 //
 // Vorher gab es gar keine Figuren, nur Türme und Namensschilder. Jetzt steht
-// auf jedem Turm sein Baumeister. Der nächste Block hängt am Haken darüber;
-// fällt er, springt die Figur auf den neuen Block, jubelt bei einem perfekten
-// Treffer und steckt am Ende ihre Fahne auf.
+// vor jedem Turm sein Baumeister, schaut dem pendelnden Block nach, reisst
+// die Arme hoch bei einem perfekten Treffer und winkt, wenn der Turm fertig
+// ist. (Oben auf dem Turm fiel ihm der nächste Block durch den Kopf.)
 const COL_GAP = 1.5;
 const BLOCK_H = 0.46;
 const BASE_Y = 0.2;
@@ -98,8 +98,8 @@ export class TowerStack extends MinigameScene {
     slider.castShadow = true;
     hook.add(slider);
     group.add(hook);
-    // Der Baumeister oben drauf.
-    this.addKin(player, index, { x, ground: BASE_Y + 0.2, z: 0.1, facing: 0, scale: 0.9 });
+    // Der Baumeister vor dem Turm.
+    this.addKin(player, index, { x, ground: 0, z: 0.95, facing: 0, scale: 0.9 });
     this.towers.set(player.id, { group, blocks: [], hook, slider, x, color: player.color, dropping: null, flagged: false });
   }
 
@@ -167,7 +167,7 @@ export class TowerStack extends MinigameScene {
         tower.group.add(block);
         tower.blocks.push(block);
         tower.dropping = { block, from: tower.hook.position.y, to: restY, at: now };
-        animator.trigger("jump");
+        animator.trigger("hop", { height: 0.2 });
       }
       if (tower.dropping) {
         const u = Math.min(1, (now - tower.dropping.at) / DROP_MS);
@@ -196,12 +196,8 @@ export class TowerStack extends MinigameScene {
           this.feedback?.vibrate(perfect ? [8, 20, 12] : 8);
         }
       }
-      // Die Figur steht auf dem obersten Block, mittig darüber.
       const top = tower.blocks[height - 1];
       const standY = height ? BASE_Y + 0.2 + (height - 1) * BLOCK_H + BLOCK_H / 2 : BASE_Y + 0.2;
-      animator.groundY = standY + 0.3 * 0.9;
-      const topX = tower.x + (top ? top.position.x : 0);
-      kin.position.x += (topX - kin.position.x) * frameLerp(0.3, dt);
 
       const capped = entry.toppled || height >= arcade.total;
       if (capped && !this.lastToppled.get(player.id)) {
@@ -232,7 +228,7 @@ export class TowerStack extends MinigameScene {
         const blockCentre = swing * (0.85 - height * 0.01);
         tower.slider.geometry.dispose();
         tower.slider.geometry = new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1);
-        tower.hook.position.set(blockCentre * (SLIDE_W / 0.85), standY + HOVER, 0);
+        tower.hook.position.set(blockCentre * (SLIDE_W / 0.85), standY + BLOCK_H / 2 + HOVER * 0.5, 0);
         tower.slider.material.opacity = isOwn ? 0.95 : 0.55;
       }
       if (finale) return;

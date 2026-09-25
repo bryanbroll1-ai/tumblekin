@@ -18,91 +18,16 @@
 //    von allein auf, dafür gibt es dispose(). Vergisst eine Szene das, wächst
 //    der Verbrauch monoton.
 //  * Zuhörer am window. Die überleben jede Szene, weil window bleibt.
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import net from "node:net";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+import { ALL_GAMES, finishRound, launchBrowser, openRoom, startServer, startSingle } from "./lib/harness.mjs";
 
 const argv = process.argv.slice(2);
 const headed = argv.includes("--head");
 const rounds = Number(argv.find((a) => /^\d+$/.test(a)) || 20);
+const GAMES = ALL_GAMES;
 
-let chromium;
-try {
-  ({ chromium } = await import("playwright"));
-} catch {
-  console.error("Playwright fehlt:  npm install --no-save playwright");
-  process.exit(2);
-}
-
-const GAMES = [
-  "bounceArena", "finishRush", "colorEscape", "nervenprobe", "lichtwaechter",
-  "ballonPump", "fassrolle", "zuendstoff", "muenzregen", "blobklopfe",
-  "seilspringen", "kanonenflug", "messerwurf", "turmbau", "bergsteiger",
-  "ballonfahrt", "sumoschubs", "trampolin", "falschsignal", "spurmaler",
-  "sortierband", "leuchtfolge", "blitzreflex", "nagelbrett", "eisstock",
-  "tiefenrausch", "angelduell", "farbenjagd", "spuersinn", "augenmass"
-];
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
-const port = await freePort();
-const server = spawn(process.execPath, ["server/server.js"], {
-  cwd: ROOT,
-  env: { ...process.env, PORT: String(port), TUMBLEKIN_DEV_TOOLS: "1" },
-  stdio: ["ignore", "ignore", "pipe"]
-});
-let serverLog = "";
-server.stderr.on("data", (chunk) => { serverLog += chunk; });
-
-const base = `http://127.0.0.1:${port}`;
-for (let attempt = 0; attempt < 100; attempt += 1) {
-  try { if ((await fetch(`${base}/`)).ok) break; } catch { /* noch nicht da */ }
-  await new Promise((resolve) => setTimeout(resolve, 100));
-}
-
-// Browser suchen wie im Rauchtest: gebündelt, sonst die üblichen Pfade.
-function findBrowser() {
-  try {
-    const bundled = chromium.executablePath();
-    if (bundled && existsSync(bundled)) return undefined;
-  } catch { /* playwright-core kennt keinen gebündelten Browser */ }
-  const candidates = [
-    process.env.CHROMIUM_PATH,
-    "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-    "/opt/pw-browsers/chromium/chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/google-chrome"
-  ].filter(Boolean);
-  const found = candidates.find((candidate) => existsSync(candidate));
-  if (found) return found;
-  console.error("Kein Chromium gefunden. CHROMIUM_PATH setzen oder npx playwright install chromium");
-  process.exit(2);
-}
-
+const { base, stop: stopServer, errorOutput: serverOutput } = await startServer({ log: true });
 // --js-flags=--expose-gc, damit die Heap-Zahl das Aufgeräumte nicht mitzählt.
-const executablePath = findBrowser();
-const browser = await chromium.launch({
-  headless: !headed,
-  ...(executablePath ? { executablePath } : {}),
-  args: [
-    "--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox",
-    "--js-flags=--expose-gc"
-  ]
-});
+const browser = await launchBrowser({ headed, args: ["--js-flags=--expose-gc"] });
 const page = await browser.newPage({ viewport: { width: 430, height: 932 } });
 
 const errors = [];
@@ -121,14 +46,7 @@ await page.addInitScript(() => {
 
 console.log(`Tumblekin Langzeittest — ${rounds} Runden in EINER Seite auf ${base}\n`);
 
-await page.goto(`${base}/?dev=1`, { waitUntil: "networkidle" });
-await page.fill("#player-name", "Langzeit");
-await page.click("#create-room");
-await page.waitForSelector("#screen-lobby.active", { timeout: 15000 });
-await page.click("#enable-dev-mode");
-await page.waitForTimeout(400);
-await page.click("#start-game");
-await page.waitForSelector("[data-dev-game-select]", { timeout: 15000 });
+await openRoom(page, base, { name: "Langzeit" });
 
 async function measure() {
   return page.evaluate(() => new Promise((resolve) => {
@@ -156,13 +74,10 @@ for (let round = 0; round < rounds; round += 1) {
   const game = GAMES[round % GAMES.length];
   const before = errors.length;
   try {
-    await page.waitForSelector("[data-dev-game-select]", { timeout: 20000 });
-    await page.selectOption("[data-dev-game-select]", game);
-    await page.click("[data-dev-challenge]");
-    await page.waitForSelector("canvas.kinetic-webgl, canvas.bounce-webgl", { timeout: 20000 });
+    await startSingle(page, game);
     await page.waitForTimeout(4200);          // Countdown
 
-    const canvas = await page.$("canvas.kinetic-webgl, canvas.bounce-webgl");
+    const canvas = await page.$("canvas.kinetic-webgl");
     const box = await canvas.boundingBox();
     for (let i = 0; i < 5; i += 1) {
       await page.mouse.click(box.x + box.width * (0.35 + 0.3 * (i % 2)), box.y + box.height * 0.6);
@@ -172,15 +87,10 @@ for (let round = 0; round < rounds; round += 1) {
     const sample = await measure();
     samples.push({ round: round + 1, game, ...sample });
 
-    // Die Runde LÄUFT AUS. Von aussen beenden geht nicht: die Uhr gehört dem
-    // Server, ein gesetztes finaleAt im Browser ändert daran nichts — der
-    // Versuch hing hier zuverlässig fest. Also einmal ehrlich durchspielen; das
-    // ist ohnehin näher am echten Abend, um den es hier geht.
-    await page.waitForSelector("#screen-result.active", { timeout: 90000 });
-    const ready = await page.$("#result-ready");
-    if (ready && await ready.isVisible()) await ready.click().catch(() => {});
-    await page.waitForSelector("#screen-board.active", { timeout: 30000 });
-    await page.waitForTimeout(400);
+    // Die Runde werten und zurück in die Lobby — dieselbe Seite, kein Neuladen.
+    await finishRound(page);
+    await page.waitForSelector("#screen-lobby.active", { timeout: 20000 });
+    await page.waitForTimeout(300);
   } catch (error) {
     broke = `Runde ${round + 1} (${game}): ${error.message.split("\n")[0]}`;
     break;
@@ -192,8 +102,8 @@ for (let round = 0; round < rounds; round += 1) {
 }
 
 await browser.close();
-server.kill("SIGTERM");
-await new Promise((resolve) => setTimeout(resolve, 200));
+stopServer();
+const serverLog = serverOutput.join("");
 
 // --- Auswertung ------------------------------------------------------------
 console.log("Runde  Spiel           Geometrien  Texturen  Zuhörer  Canvas  Heap");

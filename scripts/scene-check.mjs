@@ -14,38 +14,27 @@
 // hochkanten Handy ist der sichtbare Ausschnitt schmal, und eine Figur am Rand
 // verschwindet leicht. Wenn schon nicht alle hineinpassen, muss wenigstens die
 // EIGENE sichtbar sein — sonst spielt man blind.
-import { chromium } from "playwright";
-import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
+import { launchBrowser, openRoom, pickGames, startServer, startSingle, backToLobby } from "./lib/harness.mjs";
 
-const GAMES = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-// Die Liste kommt aus dem Server, nicht von Hand daneben. Die handgepflegte
-// Fassung hier hatte `fassmut` nie enthalten: das Spiel wurde seit seiner
-// Aufnahme nie geprueft, und weil eine kurze Liste einfach kurz durchlaeuft,
-// hat das nichts gemeldet. Ein Pruefer, der schweigend weniger prueft als er
-// vorgibt, ist schlimmer als keiner.
-const require = createRequire(import.meta.url);
-const ALL = require("../server/server.js").testRules.MINIGAMES.map((m) => m.type);
-const unbekannt = GAMES.filter((g) => !ALL.includes(g));
-if (unbekannt.length) {
-  console.error(`Unbekanntes Minispiel: ${unbekannt.join(", ")}`);
-  console.error(`Bekannt sind: ${ALL.join(", ")}`);
-  process.exit(2);
-}
-const liste = GAMES.length ? GAMES : ALL;
+// Die Liste kommt aus dem Server, nicht von Hand daneben (siehe harness.mjs).
+// Die handgepflegte Fassung hier hatte `fassmut` nie enthalten: das Spiel wurde
+// seit seiner Aufnahme nie geprueft, und weil eine kurze Liste einfach kurz
+// durchlaeuft, hat das nichts gemeldet.
+const liste = pickGames(process.argv.slice(2).filter((a) => !a.startsWith("--")));
 
 // Szenen, in denen die Figur ABSICHTLICH nicht auf dem Boden steht. Ohne diese
 // Liste meldet der Prüfer dort dauerhaft Fehler — und ein Werkzeug, das bei
 // korrekten Szenen Alarm schlägt, wird nach dem dritten Mal nicht mehr gelesen.
 // Die Sichtbarkeitsprüfung gilt trotzdem, die ist überall sinnvoll.
 const FLIEGT = {
-  tiefenrausch: "gräbt sich in den Schacht — unter der Erde zu sein IST das Spiel",
-  ballonfahrt: "hängt am Ballon",
+  tiefenrausch: "wird am Seil aus dem Schacht gezogen",
+  ballonfahrt: "steht im Korb eines fliegenden Ballons",
   trampolin: "springt",
   kanonenflug: "fliegt aus der Kanone",
   seilspringen: "springt über das Seil",
-  bounceArena: "schwebt über der Platte"
+  bounceArena: "steht im Blütenring, nicht auf der Platte",
+  colorEscape: "hüpft von Feld zu Feld, und die Felder fallen weg",
+  augenmass: "sitzt auf dem Baumstamm, die Füsse hängen"
 };
 // Szenen, in denen ABSICHTLICH nur die eigene Figur im Bild ist. Nicht überall
 // lassen sich alle vier zeigen: beim Bergsteiger liegen nach zehn Sekunden
@@ -54,7 +43,8 @@ const FLIEGT = {
 // Dort steht der Stand der anderen stattdessen in der Höhenleiste am Bildrand.
 // Die Prüfung auf die EIGENE Figur gilt weiterhin — das ist die harte Grenze.
 const NUR_EIGENE = {
-  bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild"
+  bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild",
+  tiefenrausch: "die Kamera folgt dem eigenen Schacht, die anderen Stände zeigt die Anzeige"
 };
 // Szenen, in denen EINZELNE Figuren mitten in der Runde den Boden verlassen —
 // beim Sumo fliegt, wer hinausgeschubst wird. Die ganze Szene deshalb von der
@@ -70,36 +60,20 @@ const FLUG_AB = 1.0;
 // Kamera folgt dem eigenen Schuss. Die Randmessung würde dort dauerhaft
 // klagen. Dass die EIGENE Figur im Bild ist, wird weiterhin geprüft.
 const RAND_EGAL = {
-  kanonenflug: "wer weit fliegt, verlässt den Ausschnitt — das ist das Spiel"
+  kanonenflug: "wer weit fliegt, verlässt den Ausschnitt — das ist das Spiel",
+  tiefenrausch: "die Nachbarschächte ragen ins Bild, sie sind Kulisse"
 };
-const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome","/usr/bin/chromium"].find(existsSync);
-
-const srv = spawn(process.execPath, ["server/server.js"], { cwd: "/home/user/tumblekin",
-  env: { ...process.env, PORT: "3122", TUMBLEKIN_DEV_TOOLS: "1" }, stdio: "ignore" });
-for (let i = 0; i < 150; i += 1) {
-  try { if ((await fetch("http://127.0.0.1:3122/")).ok) break; } catch { /* noch nicht da */ }
-  await new Promise((r) => setTimeout(r, 100));
-}
-
-const browser = await chromium.launch({ headless: true, executablePath: exe,
-  args: ["--use-gl=swiftshader","--enable-webgl","--ignore-gpu-blocklist","--no-sandbox"] });
+const { base, stop: stopServer } = await startServer();
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 430, height: 932 } });
-await page.goto("http://127.0.0.1:3122/?dev=1", { waitUntil: "networkidle" });
-await page.fill("#player-name", "Boden");
-await page.click("#create-room");
-await page.waitForSelector("#screen-lobby.active");
-await page.click("#enable-dev-mode");
-await page.waitForTimeout(500);
-await page.click("#start-game");
+await openRoom(page, base, { name: "Boden" });
 
 const treffer = [];
 for (const game of liste) {
   try {
-    await page.waitForSelector("[data-dev-game-select]", { timeout: 20000 });
-    await page.selectOption("[data-dev-game-select]", game);
-    await page.click("[data-dev-challenge]");
-    await page.waitForSelector("canvas.kinetic-webgl, canvas.bounce-webgl", { timeout: 20000 });
-    await page.waitForTimeout(4600);
+    await startSingle(page, game);
+    // Countdown und Anflug der Kamera abwarten, dann ein Stück Spiel.
+    await page.waitForTimeout(6200);
 
     const befund = await page.evaluate(async () => {
       const host = window.__tumblekinScene;
@@ -120,7 +94,7 @@ for (const game of liste) {
       const tiefsteSohle = new Map();
       const sohleJetzt = (kin) => {
         let s = Infinity;
-        (kin.userData.feet || []).forEach((foot) => {
+        (kin.userData.legs || kin.userData.feet || []).forEach((foot) => {
           const fb = new THREE.Box3().setFromObject(foot);
           if (Number.isFinite(fb.min.y)) s = Math.min(s, fb.min.y);
         });
@@ -182,7 +156,8 @@ for (const game of liste) {
         // Boden liegen und ihn damit verdecken.
         const kandidaten = [];
         host.scene.traverse((o) => {
-          if (!o.isMesh || !o.visible || o.userData?.isShadow) return;
+          // Unsichtbare Trefferflächen (zum Antippen) sind kein Boden.
+          if (!o.isMesh || !o.visible || o.userData?.isShadow || o.material?.visible === false) return;
           let p = o;
           while (p) {
             if (p === kin || p.userData?.isKin || p.userData?.isShadow) return;
@@ -300,18 +275,15 @@ for (const game of liste) {
       console.log(`${sichtFehler ? "✗" : "✓"} ${game.padEnd(15)} ${befund?.kins ?? "?"} Figuren${grund}${sicht}`);
     }
 
-    await page.waitForSelector("#screen-result.active", { timeout: 90000 });
-    const r = await page.$("#result-ready");
-    if (r && await r.isVisible()) await r.click().catch(() => {});
-    await page.waitForSelector("#screen-board.active", { timeout: 30000 });
-    await page.waitForTimeout(300);
+    await backToLobby(page);
   } catch (e) {
     console.log(`? ${game.padEnd(15)} übersprungen: ${e.message.split("\n")[0].slice(0, 60)}`);
+    await backToLobby(page).catch(() => {});
   }
 }
 
 await browser.close();
-srv.kill();
+stopServer();
 const blind = treffer.filter((t) => t.eigeneDraussen);
 console.log(`\n${treffer.length} Szene(n) mit Befund.` + (blind.length
   ? ` In ${blind.length} ist die EIGENE Figur nicht im Bild: ${blind.map((t) => t.game).join(", ")}`

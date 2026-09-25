@@ -210,10 +210,11 @@ export class RopeSkip extends MinigameScene {
         }
       }
       if (out) {
-        // Am Rand der Grube sitzen und zuschauen.
+        // Hinter der Grube sitzen und zuschauen — vorn säße man zu dicht
+        // vor der Kamera.
         setKinOpacity(kin, 0.8);
         kin.position.x += (kin.userData.spotX - kin.position.x) * frameLerp(0.2, dt);
-        kin.position.z += (1.75 - kin.position.z) * frameLerp(0.06, dt);
+        kin.position.z += (-1.55 - kin.position.z) * frameLerp(0.06, dt);
         animator.groundY = standOn(0);
         if (!finale) animator.set("sit");
         return;

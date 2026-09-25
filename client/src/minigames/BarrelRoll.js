@@ -109,10 +109,12 @@ export class BarrelRoll extends MinigameScene {
       const angle = (i / 3) * zoneAngle;
       const near = 1 - Math.abs(i) / 3;
       const band = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 0.07, 3.3),
+        new THREE.BoxGeometry(0.16, 0.02, 3.3),
         new THREE.MeshBasicMaterial({ color: near > 0.6 ? "#c9ffdc" : "#5fe08a", transparent: true, opacity: 0.35 + near * 0.55, depthWrite: false, toneMapped: false })
       );
-      band.position.set(Math.sin(angle) * (BARREL_R + 0.14), BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.14), 0);
+      // Flach auf den Dauben, nicht darüber schwebend: die Figuren liefen
+      // sonst durch die Bänder hindurch.
+      band.position.set(Math.sin(angle) * (BARREL_R + 0.08), BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.08), 0);
       band.rotation.z = -angle;
       this.scene.add(band);
     }
@@ -289,7 +291,8 @@ export class BarrelRoll extends MinigameScene {
       setKinOpacity(kin, 1);
       kin.position.x = Math.sin(angle) * BARREL_R;
       kin.position.z = this.laneZ(index);
-      this.setGround(player.id, BARREL_CENTER_Y + Math.cos(angle) * BARREL_R);
+      // Auf den Dauben (sie liegen 0.07 über dem Fasskörper).
+      this.setGround(player.id, BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.07));
       kin.rotation.z = -angle;
       shadow.visible = true;
       shadow.position.set(kin.position.x, BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.03), kin.position.z);
