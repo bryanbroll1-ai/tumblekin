@@ -6668,14 +6668,29 @@ function arcadeBotStep(room, bot) {
     if (now - (player.lastThrowAt || 0) < KNIFE_COOLDOWN_MS) return;
     const profile = botProfile(player);
     // Der Bot schaut, wo sein Messer jetzt landen würde, und wirft, wenn dort
-    // genug Platz ist. Wie viel Platz er verlangt und wie sehr er sich dabei
-    // verschätzt, ist seine Stufe.
-    const margin = profile.level === "hard" ? 24 : profile.level === "normal" ? 19 : 15;
-    const misjudge = (Math.random() * 2 - 1) * (profile.level === "hard" ? 4 : profile.level === "normal" ? 9 : 16);
+    // genug Platz ist. Seine Stufe ist, wie sehr er sich dabei verschätzt.
+    //
+    // Vorher verlangte der starke Bot 24° Platz nach beiden Seiten. Auf einem
+    // vollen Stamm (acht Messer und drei vorgesteckte) gibt es so eine Lücke
+    // gar nicht mehr — er wartete, bis die Zeit um war, und landete gemessen
+    // auf dem LETZTEN Platz (Ø 3.57). Jetzt verlangt er nie mehr, als der Stamm
+    // hergibt: höchstens die halbe grösste Lücke.
+    const misjudge = (Math.random() * 2 - 1) * (profile.level === "hard" ? 2.5 : profile.level === "normal" ? 7 : 14);
+    const buffer = profile.level === "hard" ? 2 : profile.level === "normal" ? 3.5 : 1;
+    const angles = player.stuckAngles.map((knife) => knife.angle).sort((a, b) => a - b);
+    let roomy = 180;
+    if (angles.length > 1) {
+      roomy = 0;
+      angles.forEach((angle, index) => {
+        const next = index + 1 < angles.length ? angles[index + 1] : angles[0] + 360;
+        roomy = Math.max(roomy, (next - angle) / 2);
+      });
+    }
+    const need = Math.min(KNIFE_MIN_GAP_DEG + buffer, roomy - 0.5);
     const angle = knifeImpactAngle(player, now + BOT_TICK_LEAD_MS * 0.5) + misjudge;
-    const free = player.stuckAngles.every((knife) => knifeAngleGap(knife.angle, angle) >= margin);
+    const clearance = player.stuckAngles.reduce((least, knife) => Math.min(least, knifeAngleGap(knife.angle, angle)), 180);
     const hurry = Math.random() < profile.mistake * 0.25;
-    if (free || hurry) handleArcadeInput(room, bot, { action: "throw" });
+    if (clearance >= need || hurry) handleArcadeInput(room, bot, { action: "throw" });
     return;
   }
   if (arcade.family === "stack") {
