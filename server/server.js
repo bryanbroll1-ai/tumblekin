@@ -2161,11 +2161,14 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     // Die Zahl, nach der auch sortiert wird: wie lange man MITTIG oben stand.
     // Die reine Standzeit sagte darueber nichts — wer sich an den Rand stellte,
     // stand am laengsten und hatte am wenigsten getan.
+    // Als Zeit IN einer Zone, nicht als "standing": dort las die Tafel den
+    // Wert als Sturzzeit und schrieb "Raus nach 1,66 s", obwohl 1,66 s die
+    // Zeit in der Mitte war.
     return {
-      kind: "standing",
+      kind: "zoneTime",
       survived: !arcadePlayer.fallenAt,
       value: Math.round((arcadePlayer.balanceWork || 0) * 1000),
-      label: "In der Mitte"
+      label: arcadePlayer.fallenAt ? "in der Mitte, dann ins Wasser" : "in der Mitte"
     };
   }
   if (arcade.family === "bomb") {

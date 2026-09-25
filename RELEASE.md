@@ -114,7 +114,7 @@ Aufmerksamkeit teilen, Widerstand ausspielen und Flächenkontrolle.
 | ~~23~~ | ~~Trampolin~~ | Rhythmus-Timing | Takt-Tippen | **fertig** — Taktplan serverseitig, Resonanz und Taktanzeige |
 | 24 | Kranstapler | Trägheit zähmen | tippen + ziehen | Pendelnde Last am Seil |
 | 25 | Dominofall | Planen, dann Kettenreaktion | tippen-platzieren | Dominoketten-Physik |
-| ~~26~~ | ~~Farbenjagd~~ | Flächenkontrolle | Stick | **fertig** — geteilte Fläche, Anspruch statt Treffer, gewertet über die Zeit |
+| ~~26~~ | ~~Farbenjagd~~ | Flächenkontrolle | Stick | **fertig** — geteilte Fläche, die Walze malt sofort, Einkreisen füllt ganze Taschen |
 | ~~27~~ | ~~Spurmaler~~ | Pfad nachfahren | Finger führen | **fertig** — Kurve und Toleranzband serverseitig, Eingabe per Strahl auf die Tafel |
 | 28 | Doppelgriff | Zwei Finger koordinieren | Multitouch | Zwei gekoppelte Körper |
 | ~~29~~ | ~~Falschsignal~~ | Reaktion gegen Täuschung | tippen | **fertig** — Signalplan serverseitig, drei Fälschungsarten plus Antäuscher |

@@ -364,7 +364,11 @@ export class CannonFly extends MinigameScene {
         st.flightFrom = muzzle.clone();
         this.burst(muzzle.clone(), ["#ffd15c", "#ff8b2e", "#ffffff", "#9aa6b8"], { count: 22, speed: 3.2, up: 2.2, size: 0.1, life: 0.7, drag: 1.6 });
         this.bursts.ring(muzzle.clone(), "#ffffff", { radius: 1.3, life: 0.45, opacity: 0.6, tilt: null });
-        if (player.id === controlledId || !this.focusId || now > this.focusUntil) {
+        // Fremden Schüssen folgt die Kamera erst, wenn der eigene raus ist:
+        // wer noch zielt, muss sein Rohr sehen. Vorher schwenkte sie beim
+        // ersten Bot-Schuss weg, und man zielte blind.
+        const ownDone = !arcade.players[controlledId] || Boolean(arcade.players[controlledId].launchedAt);
+        if (player.id === controlledId || (ownDone && (!this.focusId || now > this.focusUntil))) {
           this.focusId = player.id;
           this.focusUntil = now + flightMs(entry.distance) + 1800;
         }

@@ -34,7 +34,11 @@ const FLIEGT = {
   seilspringen: "springt über das Seil",
   bounceArena: "steht im Blütenring, nicht auf der Platte",
   colorEscape: "hüpft von Feld zu Feld, und die Felder fallen weg",
-  augenmass: "sitzt auf dem Baumstamm, die Füsse hängen"
+  augenmass: "sitzt auf dem Baumstamm, die Füsse hängen",
+  // Nicht fliegend, aber für diese Messung dasselbe: die Figur steht schräg
+  // auf der Rundung, und ein Strahl senkrecht unter ihrer Mitte trifft den
+  // Stamm neben den Füssen, nicht unter ihnen.
+  fassrolle: "steht schräg auf einem runden Stamm — senkrecht darunter liegt nicht die Stelle unter den Füssen"
 };
 // Szenen, in denen ABSICHTLICH nur die eigene Figur im Bild ist. Nicht überall
 // lassen sich alle vier zeigen: beim Bergsteiger liegen nach zehn Sekunden
@@ -44,6 +48,8 @@ const FLIEGT = {
 // Die Prüfung auf die EIGENE Figur gilt weiterhin — das ist die harte Grenze.
 const NUR_EIGENE = {
   bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild",
+  kanonenflug: "die Kamera bleibt beim eigenen Rohr, bis man selbst geschossen hat — wer vorher fliegt, fliegt aus dem Bild",
+  fassmut: "beim Fallen füllt die eigene Bahn das Bild, in der Auflösung zeigt die Kamera alle",
   tiefenrausch: "die Kamera folgt dem eigenen Schacht, die anderen Stände zeigt die Anzeige"
 };
 // Szenen, in denen EINZELNE Figuren mitten in der Runde den Boden verlassen —
@@ -103,10 +109,21 @@ for (const game of liste) {
         }
         return s;
       };
+      // Wer gerade aus dem Spiel ist — ins Wasser gefallen, aus dem Ring
+      // geflogen —, markiert die Szene selbst (userData.outOfPlay). So eine
+      // Figur treibt, fällt oder paddelt am Rand; sie muss weder auf dem
+      // Boden stehen noch im Bild sein. Vorher stand Fassrolle deswegen mit
+      // einer "schwebenden" Figur auf der Liste, die gerade in den Fluss fiel.
+      const raus = new Set();
+      const versteckt = new Set();
       const bis = performance.now() + 1300;
       while (performance.now() < bis) {
         await new Promise((r) => requestAnimationFrame(r));
         kins.forEach((kin, index) => {
+          if (kin.userData.outOfPlay) raus.add(index);
+          // Unsichtbares kann nicht falsch stehen — aber im Bild sein muss
+          // eine Spielerfigur trotzdem, darum nur für den Boden.
+          if (!kin.visible) versteckt.add(index);
           const s = sohleJetzt(kin);
           if (Number.isFinite(s)) tiefsteSohle.set(index, Math.min(tiefsteSohle.get(index) ?? Infinity, s));
         });
@@ -116,6 +133,7 @@ for (const game of liste) {
       const down = new THREE.Vector3(0, -1, 0);
       const aus = [];
       kins.forEach((kin, index) => {
+        if (raus.has(index) || versteckt.has(index)) return;
         const box = new THREE.Box3().setFromObject(kin);
         if (!Number.isFinite(box.min.y)) return;
         // Gemessen wird die SOHLE, also die Unterkante der Fussmeshes.
@@ -206,6 +224,7 @@ for (const game of liste) {
       if (cam) {
         cam.updateMatrixWorld();
         kins.forEach((kin, index) => {
+          if (raus.has(index)) return;
           const box = new THREE.Box3().setFromObject(kin);
           const mitte = box.getCenter(new THREE.Vector3());
           const p = mitte.clone().project(cam);

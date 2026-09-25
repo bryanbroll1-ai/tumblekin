@@ -381,6 +381,9 @@ export class BounceArena extends MinigameScene {
       // Hinausgeflogen: Bogen nach aussen, Überschlag, Platsch.
       if (s.inPlay && !entry.inPlay) {
         s.inPlay = false;
+        // Für die Prüfwerkzeuge: diese Figur ist raus und treibt im Wasser —
+        // sie muss weder auf dem Boden stehen noch im Bild sein.
+        kin.userData.outOfPlay = true;
         const from = bloom.position.clone();
         const dir = new THREE.Vector3(from.x, 0, from.z);
         if (dir.lengthSq() < 0.01) dir.set(0, 0, 1);

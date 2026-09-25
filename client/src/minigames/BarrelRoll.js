@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
+import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 
@@ -160,7 +160,9 @@ export class BarrelRoll extends MinigameScene {
     // senkrecht auf, statt sich hintereinander zu verstecken.
     return {
       look: [0, TOP_Y - 0.1, 0.1],
-      frame: { w: 3.9, h: 3.3 },
+      // Breit genug, dass auch am Rand der Rutschgrenze die ganze Figur im
+      // Bild bleibt — dort entscheidet sich, ob man fällt.
+      frame: { w: 4.5, h: 3.3 },
       yaw: 0.1,
       pitch: 1.02,
       fov: 38,
@@ -170,6 +172,18 @@ export class BarrelRoll extends MinigameScene {
 
   laneZ(index) {
     return (index - 1.5) * 0.95;
+  }
+
+  // Rutschen alle zur selben Seite, zieht die Kamera ein Stück mit — sonst
+  // hängen sie gerade dann am Bildrand, wenn es knapp wird.
+  rigOptions(f) {
+    const xs = f.players
+      .map((player) => this.kins.get(player.id))
+      .filter((kin) => kin && !kin.userData.outOfPlay)
+      .map((kin) => kin.position.x);
+    if (!xs.length || f.finale) return {};
+    const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+    return { look: [mid * 0.55, TOP_Y - 0.1, 0.1] };
   }
 
   bind() {
@@ -270,6 +284,7 @@ export class BarrelRoll extends MinigameScene {
         }
       }
 
+      kin.userData.outOfPlay = fallen;
       if (fallen) {
         // Die Rundung hinunter und in den Fluss.
         const since = (now - this.fell.get(player.id)) / 1000;
@@ -292,10 +307,15 @@ export class BarrelRoll extends MinigameScene {
 
       kin.visible = true;
       setKinOpacity(kin, 1);
-      kin.position.x = Math.sin(angle) * BARREL_R;
+      // Auf den Dauben (sie liegen 0.07 über dem Fasskörper), und zwar entlang
+      // der Senkrechten des Stamms: die Figur neigt sich mit der Rundung, also
+      // muss auch ihre Mitte dort sitzen, wohin die Neigung zeigt. Vorher
+      // stand sie waagrecht versetzt — am Rand schwebte ein Fuss, der andere
+      // steckte im Holz.
+      const reach = BARREL_R + 0.07 + KIN_SOLE;
+      kin.position.x = Math.sin(angle) * reach;
       kin.position.z = this.laneZ(index);
-      // Auf den Dauben (sie liegen 0.07 über dem Fasskörper).
-      this.setGround(player.id, BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.07));
+      this.setGround(player.id, BARREL_CENTER_Y + Math.cos(angle) * reach - KIN_SOLE);
       kin.rotation.z = -angle;
       shadow.visible = true;
       shadow.position.set(kin.position.x, BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.03), kin.position.z);

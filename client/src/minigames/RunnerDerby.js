@@ -318,11 +318,14 @@ export class RunnerDerby extends MinigameScene {
 
     // Hürden aus dem geteilten Kurs; weit entfernte werden ausgeblendet.
     this.courseParts = [];
+    this.hurdles = [];
     const partOf = (object, z) => { this.courseParts.push({ object, z }); return object; };
     (arcade.segments || []).forEach((segment) => {
       if (segment.hurdle === null || segment.hurdle === undefined) return;
       const z = segment.hurdleAt * SEGMENT;
-      scene.add(partOf(this.makeHurdle(laneX(segment.hurdle), z), z));
+      const hurdle = this.makeHurdle(laneX(segment.hurdle), z);
+      this.hurdles.push({ group: hurdle, x: laneX(segment.hurdle), z, hitAt: -Infinity });
+      scene.add(partOf(hurdle, z));
     });
 
     [[-6, 4, 10, 5], [6, 5, 24, 6], [-5, 5, 40, 7], [7, 6, 58, 8], [-7, 5, 74, 9]].forEach(([x, y, z, seed]) => {
@@ -448,6 +451,38 @@ export class RunnerDerby extends MinigameScene {
     return group;
   }
 
+  // Wer in eine Hürde rennt, reisst sie um: sie kippt nach vorn und federt
+  // wieder hoch. Vorher blieb sie stehen, und die Figur lief mitten durch
+  // die Latte hindurch.
+  knockHurdle(at, now) {
+    let best = null;
+    this.hurdles.forEach((hurdle) => {
+      const dz = Math.abs(hurdle.z - at.z);
+      if (Math.abs(hurdle.x - at.x) > LANE_WIDTH * 0.6 || dz > 1.4) return;
+      if (!best || dz < Math.abs(best.z - at.z)) best = hurdle;
+    });
+    if (best) best.hitAt = now;
+  }
+
+  tipHurdles(now) {
+    this.hurdles?.forEach((hurdle) => {
+      const t = now - hurdle.hitAt;
+      if (t < 0 || t > 1300) {
+        if (hurdle.group.rotation.x !== 0) hurdle.group.rotation.x = 0;
+        return;
+      }
+      // Schnell um, kurz liegen, dann mit einem Nachwippen zurück.
+      let tilt;
+      if (t < 160) tilt = (t / 160) * 1.4;
+      else if (t < 650) tilt = 1.4;
+      else {
+        const u = (t - 650) / 650;
+        tilt = 1.4 * (1 - u) + Math.sin(u * Math.PI * 3) * 0.12 * (1 - u);
+      }
+      hurdle.group.rotation.x = tilt;
+    });
+  }
+
   // Leichtathletik-Hürde: zwei dünne Füsse, oben eine rot-weiss gestreifte
   // Latte. Leicht und klar lesbar statt eines Klotzes.
   makeHurdle(x, z) {
@@ -543,6 +578,7 @@ export class RunnerDerby extends MinigameScene {
     const { now, dt, arcade, players, controlledId, finale } = f;
     if (!arcade) return;
     this.spectators.forEach((fan) => fan.update(now));
+    this.tipHurdles(now);
     let ownKin = null;
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
@@ -574,6 +610,7 @@ export class RunnerDerby extends MinigameScene {
       if ((entry.stumbles || 0) > (this.lastStumbles.get(player.id) || 0)) {
         this.lastStumbles.set(player.id, entry.stumbles);
         animator.trigger("tumble");
+        this.knockHurdle(kin.position, now);
         this.burst(kin.position.clone(), ["#ffffff", "#ef6673", "#ffd15c"], { count: 12, speed: 2.0, up: 2.2, size: 0.08, life: 0.6 });
         this.bursts.ring(new THREE.Vector3(kin.position.x, FLOOR_Y + 0.07, kin.position.z), "#ef6673", { radius: 1.3, life: 0.45, y: FLOOR_Y + 0.07 });
         this.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), "RUMMS!", { color: "#ef6673", size: 0.36, life: 0.8 });
