@@ -47,12 +47,7 @@ const {
   diveStepValue,
   diveBestDepth,
   GLIDE_VY_MAX,
-  GLIDE_GATE_EVERY_MS,
-  GLIDE_GATE_MAX_STEP,
-  GLIDE_GATE_POINTS,
-  GLIDE_CENTRE_BONUS,
   GLIDE_STALL_MS,
-  buildGlideGates,
   BOUNCE_BEAT_START_MS,
   BOUNCE_BEAT_MIN_MS,
   BOUNCE_PERFECT_MS,
@@ -1606,121 +1601,71 @@ test("glide: bumping stalls the balloon for a moment", () => {
   assert.ok(entry.y > 0.05, "danach muss der Ballon wieder steigen");
 });
 
-test("glide: every gate is reachable from the one before", () => {
-  // Ein Tor, das aus der vorherigen Hoehe in der Zeit nicht erreichbar ist,
-  // waere nicht schwer, sondern unfair. Aus der Physik gerechnet: mit
-  // GLIDE_VY_MAX schafft man in einem Torabstand hoechstens diese Strecke, und
-  // Beschleunigen wie Abbremsen kosten davon.
-  const reach = (GLIDE_VY_MAX * GLIDE_GATE_EVERY_MS) / 1000;
-  for (let seed = 0; seed < 30; seed += 1) {
-    const gates = buildGlideGates(seed * 61 + 7, GLIDE_DURATION_MS);
-    for (let i = 1; i < gates.length; i += 1) {
-      const step = Math.abs(gates[i].y - gates[i - 1].y);
-      assert.ok(step <= GLIDE_GATE_MAX_STEP + 1e-9, `Startwert ${seed}, Tor ${i}: Sprung ${step}`);
-      assert.ok(step < reach, `Tor ${i} liegt ausserhalb der Reichweite (${step} > ${reach})`);
-    }
-  }
+test("glide: ein Sack fliegt mit und landet dort, wo die Fallzeit ihn hinträgt", () => {
+  const { glideFallMs, glideGroundX } = testRules;
+  const { room, me, entry, minigame } = glideRoom();
+  entry.y = 0.5;
+  minigame.startedAt = Date.now() - 4000;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "drop" });
+  const bag = entry.bags[0];
+  assert.ok(bag, "ein Sack ist unterwegs");
+  assert.ok(Math.abs(bag.landAt - (bag.at + glideFallMs(0.5))) <= 1);
+  assert.ok(Math.abs(bag.landX - glideGroundX(bag.landAt)) < 0.01, "er fliegt mit dem Ballon weiter");
+  // Höher heisst länger fallen, also früher loslassen.
+  assert.ok(glideFallMs(0.9) > glideFallMs(0.2) * 1.5);
 });
 
-test("glide: no gate sits half outside the shaft", () => {
-  for (let seed = 0; seed < 30; seed += 1) {
-    const gates = buildGlideGates(seed * 61 + 7, GLIDE_DURATION_MS);
-    gates.forEach((gate) => {
-      assert.ok(gate.y - gate.gap / 2 >= 0, `Tor ${gate.index} ragt unten raus`);
-      assert.ok(gate.y + gate.gap / 2 <= 1, `Tor ${gate.index} ragt oben raus`);
-    });
-  }
+test("glide: ein Treffer auf die Scheibe zählt nach Ring, einmal je Scheibe", () => {
+  const { glideFallMs } = testRules;
+  const { room, me, arcade, entry, minigame, advance } = glideRoom();
+  const target = arcade.targets[0];
+  entry.y = 0.3;
+  entry.vy = 0;
+  // Genau so loslassen, dass der Sack auf der Mitte landet.
+  const dropAt = target.at - glideFallMs(0.3);
+  minigame.startedAt = Date.now() - dropAt;
+  entry.lastInputAt = 0;
+  handleArcadeInput(room, me, { action: "drop" });
+  entry.holding = false;
+  advance(Math.ceil(glideFallMs(0.3)) + 120);
+  const bag = entry.bags[0];
+  assert.equal(bag.target, target.index);
+  assert.ok(bag.points >= 60, `nah an der Mitte gibt viel (${bag.points}, ${bag.off})`);
+  const score = entry.score;
+  // Ein zweiter Sack auf dieselbe Scheibe zählt nicht noch einmal.
+  entry.lastBagAt = 0;
+  entry.lastInputAt = 0;
+  entry.y = 0.3;
+  const again = target.at - glideFallMs(0.3);
+  minigame.startedAt = Date.now() - again;
+  handleArcadeInput(room, me, { action: "drop" });
+  advance(Math.ceil(glideFallMs(0.3)) + 120);
+  assert.equal(entry.score, score, "je Scheibe nur der erste Treffer");
 });
 
-test("glide: every gate demands a move, and the course gets tighter", () => {
-  const gates = buildGlideGates(467, GLIDE_DURATION_MS);
-  assert.ok(gates.length >= 15, `zu wenige Tore: ${gates.length}`);
-  for (let i = 1; i < gates.length; i += 1) {
-    const step = Math.abs(gates[i].y - gates[i - 1].y);
-    assert.ok(step >= gates[i].gap * 0.4, `Tor ${i} steht praktisch still (${step})`);
-  }
-  assert.ok(gates[gates.length - 1].gap < gates[0].gap, "die Tore muessen enger werden");
-  assert.ok(gates[gates.length - 1].at < GLIDE_DURATION_MS, "kein Tor nach dem Abpfiff");
-});
-
-test("glide: the course is the same for everyone and deterministic", () => {
-  const a = buildGlideGates(99, GLIDE_DURATION_MS);
-  const b = buildGlideGates(99, GLIDE_DURATION_MS);
-  assert.deepEqual(a, b);
-  const room = glideRoom([
-    { id: "g1", name: "A", isBot: false },
-    { id: "g2", name: "B", isBot: false }
-  ]);
-  assert.ok(room.arcade.gates.length > 0);
-});
-
-test("glide: passing a gate scores, missing it does not", () => {
-  const { arcade, entry, advance } = glideRoom();
-  const gate = arcade.gates[0];
-  entry.y = gate.y;
+test("glide: Sterne in der richtigen Höhe bringen Punkte", () => {
+  const { entry, arcade, advance, minigame } = glideRoom();
+  const star = arcade.stars[0];
+  minigame.startedAt = Date.now() - (star.at - 80);
+  entry.y = star.y;
   entry.vy = 0;
   entry.holding = false;
-  // Genau bis kurz hinter das erste Tor laufen lassen und die Hoehe halten.
-  const keep = () => { entry.y = gate.y; entry.vy = 0; };
-  for (let t = 0; t < gate.at + 200; t += 60) { keep(); advance(60); }
-  assert.equal(entry.gatesPassed, 1);
-  assert.ok(entry.score >= GLIDE_GATE_POINTS, `Punkte: ${entry.score}`);
-  assert.equal(entry.gatesMissed, 0);
-
-  const missed = glideRoom();
-  const other = missed.arcade.gates[0];
-  const away = other.y > 0.5 ? 0 : 1;
-  for (let t = 0; t < other.at + 200; t += 60) {
-    missed.entry.y = away;
-    missed.entry.vy = 0;
-    missed.advance(60);
-  }
-  assert.equal(missed.entry.gatesPassed, 0);
-  assert.equal(missed.entry.gatesMissed, 1);
-  assert.equal(missed.entry.score, 0);
+  // Kurz vor dem Stern auf seine Höhe setzen und durchfliegen.
+  advance(40);
+  entry.y = star.y;
+  entry.vy = 0;
+  advance(80);
+  assert.equal(entry.starsCaught, 1, "der Stern ist eingesammelt");
 });
 
-test("glide: the centre of a gate is worth more than its edge", () => {
-  // Sonst waere jeder Durchflug gleich viel wert und die Runde endete
-  // reihenweise unentschieden.
-  const run = (offsetShare) => {
-    const room = glideRoom();
-    const gate = room.arcade.gates[0];
-    const y = Math.min(1, Math.max(0, gate.y + (gate.gap / 2) * offsetShare));
-    for (let t = 0; t < gate.at + 200; t += 60) {
-      room.entry.y = y;
-      room.entry.vy = 0;
-      room.advance(60);
-    }
-    return room.entry.score;
-  };
-  assert.ok(run(0) > run(0.9), `Mitte ${run(0)} muss mehr sein als Rand ${run(0.9)}`);
-  // Nicht auf den Punkt genau: der Ballon faellt waehrend des Ticks um ein
-  // Tausendstel, bevor das Tor abgerechnet wird. Geprueft wird die Regel, nicht
-  // die Rundung.
-  assert.ok(run(0) >= GLIDE_GATE_POINTS + GLIDE_CENTRE_BONUS - 3, `Mitte gab nur ${run(0)}`);
-});
-
-test("glide: gates settle once, not once per tick", () => {
-  // Derselbe Fehler wie anderswo schon mehrfach: was pro Tick geprueft wird,
-  // haengt an der Tickrate. Ein Tor darf nur EINMAL zaehlen.
-  const coarse = glideRoom();
-  const fine = glideRoom();
-  const gate = coarse.arcade.gates[0];
-  for (let t = 0; t < gate.at + 400; t += 200) { coarse.entry.y = gate.y; coarse.entry.vy = 0; coarse.advance(200); }
-  for (let t = 0; t < gate.at + 400; t += 30) { fine.entry.y = gate.y; fine.entry.vy = 0; fine.advance(30); }
-  assert.equal(coarse.entry.gatesPassed, 1);
-  assert.equal(fine.entry.gatesPassed, 1);
-  assert.equal(coarse.entry.nextGate, fine.entry.nextGate, "beide muessen genau ein Tor abgerechnet haben");
-});
-
-test("glide: the result reports one number and it is the one that ranks", () => {
-  const { arcade, entry } = glideRoom();
-  entry.score = 640;
-  const detail = arcadeResultDetail(arcade, entry);
-  assert.equal(detail.kind, "points");
-  assert.equal(detail.value, 640);
-  assert.equal(arcadeRankingScore(arcade, entry), 640);
+test("glide: Scheiben und Sterne sind für alle gleich", () => {
+  const players = [{ id: "g1", name: "A", isBot: false }, { id: "g2", name: "B", isBot: false }];
+  const arcade = createArcadeState("ballonfahrt", players, Date.now());
+  assert.ok(arcade.targets.length >= 6, "genug Scheiben");
+  assert.ok(arcade.targets.every((target) => target.at < GLIDE_DURATION_MS - 1000), "keine Scheibe nach dem Abpfiff");
+  assert.equal(arcade.players.g1.bagsLeft, arcade.players.g2.bagsLeft);
+  assert.ok(arcade.players.g1.bagsLeft > arcade.targets.length, "ein paar Säcke Reserve");
 });
 
 test("glide: wrong action is refused", () => {

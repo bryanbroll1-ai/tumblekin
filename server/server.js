@@ -139,32 +139,55 @@ const ARCADE_CONFIGS = {
 // schaut dann zu. Hier hängt jede Millisekunde an der Hand, alle vier fliegen
 // gleichzeitig durch denselben Kurs, und man sieht die ganze Zeit, wer vorn
 // liegt.
-// Der Ballon war zu träge, um genau zu sein. Mit Beschleunigung 0.95 und
-// Höchsttempo 0.72 dauerte ein Richtungswechsel von voller Sinkfahrt in volle
-// Steigfahrt 1.5 Sekunden — genau ein Tor-Intervall. Man steuerte also immer
-// das übernächste Tor an, nie das nächste, und das fühlt sich nicht wie
-// Ungeschick an, sondern wie ein Spiel, das nicht auf einen hört.
+// Ballonfahrt — Zielabwurf. Man steuert nur die Höhe (halten = Brenner,
+// loslassen = sinken) und wirft Sandsäcke auf Zielscheiben am Boden. Der Sack
+// fliegt mit dem Ballon weiter, während er fällt: je höher man ist, desto
+// früher muss man ihn loslassen. Unterwegs hängen Sterne in der Luft, die man
+// in der richtigen Höhe mitnimmt.
 //
-// Jetzt beschleunigt er doppelt so hart bei etwas kleinerem Höchsttempo:
-// Richtungswechsel in 0.6 Sekunden, Höchsttempo nach 0.34 Sekunden. Die Hand
-// wirkt sofort, das Schweben bleibt.
-const GLIDE_GRAVITY = 2.0;             // Höhenanteile pro Sekunde²
-const GLIDE_LIFT = 4.0;                // beim Halten, also netto +2.0 nach oben
-const GLIDE_VY_MAX = 0.68;             // Höhenanteile pro Sekunde
-const GLIDE_GATE_FIRST_MS = 3400;      // das erste Tor kommt mit Vorlauf
-const GLIDE_GATE_EVERY_MS = 1500;
-const GLIDE_GATE_GAP_START = 0.34;     // lichte Weite als Höhenanteil
-// 0.21 statt 0.15: bei 0.15 blieb am Ende ein Fenster von anderthalb
-// Ballonhöhen, und da hilft kein Können mehr, da hilft nur Glück.
-const GLIDE_GATE_GAP_END = 0.21;
-// Wieviel ein Tor gegenüber dem vorherigen springen darf. Aus der Physik
-// gerechnet und nicht geraten: mit GLIDE_VY_MAX schafft man in 1500 ms rund
-// 1.02 Höhenanteile, und mit der neuen Beschleunigung kosten Anfahren und
-// Abbremsen davon nur noch rund ein Drittel.
-const GLIDE_GATE_MAX_STEP = 0.62;
-const GLIDE_GATE_POINTS = 100;
-const GLIDE_CENTRE_BONUS = 50;         // volle Zugabe für die Tormitte
+// Vorher war es ein Hindernisparcours aus Toren: halten, loslassen, durch —
+// es passierte nichts, was man hätte feiern können. Jetzt landet jeder Wurf
+// mit einem Rums im Ziel, und man sieht sofort, wie gut er war.
+const GLIDE_GRAVITY = 1.15;            // Höhenanteile je s² ohne Brenner
+const GLIDE_LIFT = 2.3;                // mit Brenner (netto +1.15)
+const GLIDE_VY_MAX = 0.55;             // Höhenanteile je Sekunde
+const GLIDE_SPEED = 2.2;               // Fahrt über Grund, Welteinheiten je Sekunde
+const GLIDE_HEIGHT = 6;                // Welthöhe bei Höhenanteil 1
+const GLIDE_BASKET = 0.4;              // Abwurfhöhe über dem Höhenanteil
+const GLIDE_FALL_G = 9;                // Fallbeschleunigung eines Sacks
+const GLIDE_TARGET_FIRST_MS = 5200;
+const GLIDE_TARGET_EVERY_MS = 3300;
+const GLIDE_RINGS = [[0.35, 100], [0.8, 60], [1.4, 30]];   // Weltabstand → Punkte
+const GLIDE_BAG_COOLDOWN_MS = 650;
+const GLIDE_STAR_POINTS = 15;
+const GLIDE_STAR_REACH = 0.08;         // so nah muss man in der Höhe sein
 const GLIDE_STALL_MS = 420;            // nach Boden- oder Deckenberührung
+
+// Fallzeit eines Sacks aus dem Korb bei Höhenanteil y, in Millisekunden.
+function glideFallMs(y) {
+  const h = Math.max(0.05, y * GLIDE_HEIGHT + GLIDE_BASKET);
+  return Math.sqrt((2 * h) / GLIDE_FALL_G) * 1000;
+}
+
+// Zielscheiben und Sterne — für alle gleich, im Voraus bekannt.
+function buildGlideCourse(seed, durationMs = GLIDE_DURATION_MS) {
+  const targets = [];
+  for (let at = GLIDE_TARGET_FIRST_MS, i = 0; at < durationMs - 1400; at += GLIDE_TARGET_EVERY_MS, i += 1) {
+    const jitter = Math.round((arcadeNoise(seed + i * 17) - 0.5) * 500);
+    const time = at + jitter;
+    targets.push({ index: i, at: time, x: Math.round((GLIDE_SPEED * time) / 10) / 100 });
+  }
+  const stars = [];
+  for (let at = 3200, i = 0; at < durationMs - 800; at += 1650, i += 1) {
+    const y = 0.22 + arcadeNoise(seed + 300 + i * 23) * 0.66;
+    stars.push({ index: i, at, y: Math.round(y * 1000) / 1000 });
+  }
+  return { targets, stars };
+}
+
+function glideGroundX(ms) {
+  return (GLIDE_SPEED * ms) / 1000;
+}
 
 // Trampolin: ein Takt schlägt gleichmässig, Tippen IM Takt federt höher.
 // Aufeinanderfolgende Treffer bauen Resonanz auf — daneben tippen bricht sie.
@@ -3042,26 +3065,35 @@ function createArcadeState(type, players, startedAt) {
     });
   }
   if (config.family === "glide") {
-    // Der Kurs steht von Anfang an fest und gilt für ALLE gleich. Zwei Gründe:
-    // niemand bekommt ein leichteres Feld, und der Client kann die nächsten
-    // Tore schon zeichnen, statt sie erst beim Auftauchen zu erfahren.
-    arcade.gates = buildGlideGates(config.seed, GLIDE_DURATION_MS);
-    arcade.gateCount = arcade.gates.length;
+    // Der Kurs steht von Anfang an fest und gilt für ALLE gleich.
+    const course = buildGlideCourse(config.seed + (Date.now() % 6007), GLIDE_DURATION_MS);
+    arcade.targets = course.targets;
+    arcade.stars = course.stars;
+    arcade.speed = GLIDE_SPEED;
+    arcade.height = GLIDE_HEIGHT;
+    arcade.basket = GLIDE_BASKET;
+    arcade.fallG = GLIDE_FALL_G;
+    arcade.rings = GLIDE_RINGS;
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
-      entry.y = 0.5;                   // Höhenanteil, 0 = Boden, 1 = Decke
+      entry.y = 0.45;                  // Höhenanteil, 0 = Boden, 1 = Decke
       entry.vy = 0;
       entry.holding = false;
       entry.stallUntil = 0;
-      entry.gatesPassed = 0;
-      entry.gatesMissed = 0;
-      entry.perfect = 0;               // durch die Mitte
-      entry.nextGate = 0;
+      entry.bags = [];                 // { id, at, fromY, landAt, landX, target, points }
+      entry.bagsLeft = arcade.targets.length + 3;
+      entry.lastBagAt = 0;
+      entry.hits = 0;
+      entry.bulls = 0;
+      entry.starsCaught = 0;
+      entry.nextStar = 0;
+      entry.scoredTargets = {};
       entry.bumps = 0;
-      entry.lastGate = null;
       entry.lane = index;
+      entry.score = 0;
     });
   }
+
   if (config.family === "climb") {
     arcade.height = CLIMB_HEIGHT;
     arcade.sides = buildClimbSides(config.seed);
@@ -4155,6 +4187,27 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "glide") {
+    if (input.action === "drop") {
+      const elapsed = now - room.currentMinigame.startedAt;
+      if (elapsed < 0 || arcadePlayer.bagsLeft <= 0 || now - (arcadePlayer.lastBagAt || 0) < GLIDE_BAG_COOLDOWN_MS) return { ok: true };
+      arcadePlayer.lastBagAt = now;
+      arcadePlayer.bagsLeft -= 1;
+      const fall = glideFallMs(arcadePlayer.y);
+      const bag = {
+        id: arcadePlayer.bags.length + 1,
+        at: elapsed,
+        fromY: arcadePlayer.y,
+        landAt: Math.round(elapsed + fall),
+        landX: Math.round(glideGroundX(elapsed + fall) * 1000) / 1000,
+        target: null,
+        points: null
+      };
+      arcadePlayer.bags.push(bag);
+      // Ballast ab: der Ballon macht einen kleinen Satz nach oben.
+      arcadePlayer.vy = Math.min(GLIDE_VY_MAX, arcadePlayer.vy + 0.14);
+      arcadePlayer.hasMoved = true;
+      return { ok: true };
+    }
     if (input.action !== "lift") return { ok: false, error: "Halte den Finger auf dem Bild, um zu steigen." };
     // Der Client meldet nur, OB gerade gehalten wird. Gerechnet wird im Tick —
     // sonst hinge die Steighöhe an der Ping-Rate des Geräts statt an der Hand.
@@ -4162,6 +4215,7 @@ function handleArcadeInput(room, player, rawInput) {
     arcadePlayer.hasMoved = true;
     return { ok: true };
   }
+
 
   if (arcade.family === "climb") {
     if (input.action !== "grab") return { ok: false, error: "Tippe abwechselnd links und rechts." };
@@ -4587,15 +4641,10 @@ function updateArcade(room) {
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
       if (!entry) return;
-
-      // Nach einer Boden- oder Deckenberührung trägt der Ballon kurz nicht.
-      // Das ist die eigentliche Strafe fürs Anecken: nicht ein Abzug, sondern
-      // ein Moment, in dem die Hand nichts bewirkt.
       const stalled = now < entry.stallUntil;
       const lift = entry.holding && !stalled ? GLIDE_LIFT : 0;
       entry.vy = clamp(entry.vy + (lift - GLIDE_GRAVITY) * dt, -GLIDE_VY_MAX, GLIDE_VY_MAX);
       entry.y += entry.vy * dt;
-
       if (entry.y <= 0) {
         entry.y = 0;
         if (entry.vy < -0.15) { entry.bumps += 1; entry.stallUntil = now + GLIDE_STALL_MS; }
@@ -4607,27 +4656,41 @@ function updateArcade(room) {
       }
       entry.stalled = stalled;
 
-      // Tore werden EINMAL abgerechnet, wenn sie den Ballon erreichen — nicht
-      // pro Tick. Eine Prüfung, die pro Tick läuft, hängt sonst an der Tickrate.
-      while (entry.nextGate < arcade.gates.length && elapsed >= arcade.gates[entry.nextGate].at) {
-        const gate = arcade.gates[entry.nextGate];
-        const miss = Math.abs(entry.y - gate.y);
-        const half = gate.gap / 2;
-        if (miss <= half) {
-          entry.gatesPassed += 1;
-          // Zugabe für die Mitte: durchkommen ist gut, mittig durchkommen ist
-          // besser. Sonst wäre der Rand genauso viel wert und das Spiel endete
-          // reihenweise unentschieden.
-          const centre = Math.round(GLIDE_CENTRE_BONUS * (1 - miss / half));
-          if (miss <= half * 0.25) entry.perfect += 1;
-          entry.score += GLIDE_GATE_POINTS + centre;
-          entry.lastGate = { index: entry.nextGate, hit: true, centre, at: now };
-        } else {
-          entry.gatesMissed += 1;
-          entry.lastGate = { index: entry.nextGate, hit: false, centre: 0, at: now };
+      // Sterne: EINMAL abgerechnet, wenn sie den Ballon erreichen.
+      while (entry.nextStar < arcade.stars.length && elapsed >= arcade.stars[entry.nextStar].at) {
+        const star = arcade.stars[entry.nextStar];
+        if (Math.abs(entry.y - star.y) <= GLIDE_STAR_REACH) {
+          entry.starsCaught += 1;
+          entry.score += GLIDE_STAR_POINTS;
+          entry.lastStar = { index: star.index, at: now };
         }
-        entry.nextGate += 1;
+        entry.nextStar += 1;
       }
+
+      // Gelandete Säcke werten: die nächste Scheibe, je Scheibe nur der erste
+      // Treffer.
+      entry.bags.forEach((bag) => {
+        if (bag.points !== null || elapsed < bag.landAt) return;
+        let best = null;
+        arcade.targets.forEach((target) => {
+          const off = Math.abs(bag.landX - target.x);
+          if (!best || off < best.off) best = { target, off };
+        });
+        bag.points = 0;
+        if (best && !entry.scoredTargets[best.target.index]) {
+          const ring = GLIDE_RINGS.find(([reach]) => best.off <= reach);
+          if (ring) {
+            bag.points = ring[1];
+            bag.target = best.target.index;
+            bag.off = Math.round(best.off * 100) / 100;
+            entry.scoredTargets[best.target.index] = true;
+            entry.hits += 1;
+            if (ring[1] >= 100) entry.bulls += 1;
+            entry.score += ring[1];
+          }
+        }
+        entry.lastBag = { id: bag.id, points: bag.points, at: now };
+      });
 
       syncArcadeScore(minigame, player, entry);
     });
@@ -5821,49 +5884,7 @@ function diveBestDepth() {
   return best;
 }
 
-// Lichte Weite eines Tores. Wird über die Runde enger — der Anfang ist zum
-// Lernen da, das Ende zum Schwitzen.
-function glideGateGap(elapsed, durationMs = GLIDE_DURATION_MS) {
-  const share = clamp(elapsed / Math.max(1, durationMs), 0, 1);
-  return GLIDE_GATE_GAP_START + (GLIDE_GATE_GAP_END - GLIDE_GATE_GAP_START) * share;
-}
 
-// Der ganze Kurs, im Voraus und aus dem Startwert. Zwei Gründe: alle vier
-// fliegen denselben Kurs, und der Client kann weit vorausschauen, statt Tore
-// aus dem Nichts auftauchen zu lassen.
-//
-// Der Sprung zum nächsten Tor ist begrenzt (GLIDE_GATE_MAX_STEP). Ohne die
-// Grenze käme irgendwann ein Tor, das aus der aktuellen Höhe in der Zeit
-// physikalisch nicht erreichbar ist — das wäre nicht schwer, sondern unfair,
-// und man merkt den Unterschied im Spiel sofort.
-function buildGlideGates(seed, durationMs = GLIDE_DURATION_MS) {
-  const gates = [];
-  let at = GLIDE_GATE_FIRST_MS;
-  let y = 0.5;
-  let index = 0;
-  while (at < durationMs - 600) {
-    const gap = glideGateGap(at, durationMs);
-    // Der Sprung darf nicht beliebig klein sein, sonst steht der Kurs still.
-    // Ein Mindestabstand von einer halben lichten Weite heisst: jedes Tor
-    // verlangt eine Bewegung, aber keine hektische.
-    const roll = arcadeNoise(seed + index * 421);
-    const dir = arcadeNoise(seed + index * 421 + 11) < 0.5 ? -1 : 1;
-    const step = (gap * 0.5 + roll * (GLIDE_GATE_MAX_STEP - gap * 0.5)) * dir;
-    // Am Rand die RICHTUNG drehen statt zu klemmen oder zu spiegeln. Klemmen
-    // klebte mehrere Tore in Folge an der Decke — man flöge oben entlang, ohne
-    // etwas zu tun. Spiegeln behielt zwar den Abstand zum Rand, verkürzte aber
-    // den Sprung, und dann kamen Tore, die praktisch stillstanden. Umdrehen
-    // erhält die Sprungweite exakt, und die ist hier die eigentliche Aufgabe.
-    const margin = gap / 2 + 0.06;
-    let next = y + step;
-    if (next < margin || next > 1 - margin) next = y - step;
-    y = clamp(next, margin, 1 - margin);
-    gates.push({ index, at, y: Math.round(y * 1000) / 1000, gap: Math.round(gap * 1000) / 1000 });
-    at += GLIDE_GATE_EVERY_MS;
-    index += 1;
-  }
-  return gates;
-}
 
 // Bandgeschwindigkeit. Waechst linear ueber die Runde — der Anfang ist zum
 // Lernen da, das Ende zum Schwitzen.
@@ -6834,28 +6855,25 @@ function arcadeBotStep(room, bot) {
   if (arcade.family === "glide") {
     const profile = botProfile(player);
     const elapsed = arcade.elapsed || 0;
-    const gate = arcade.gates[player.nextGate];
-    if (!gate) return;
-
-    // EINMAL pro Tor entscheiden, wie genau dieser Bot es nimmt. Pro Tick neu
-    // gewürfelt liefe jede Streuung über viele Ticks gegen null aus — der Bot
-    // flöge dann durch die Mitte jedes Tores, egal welche Stufe.
-    if (player.botGateId !== player.nextGate) {
-      player.botGateId = player.nextGate;
-      const slop = profile.level === "hard" ? 0.035 : profile.level === "normal" ? 0.10 : 0.19;
-      player.botAim = clamp(gate.y + (Math.random() - 0.5) * 2 * slop, 0.05, 0.95);
-    }
-
-    // Wie früh der Bot anfängt, auf das nächste Tor zuzusteuern. Das ist das
-    // eigentliche Können hier: wer zu spät anfängt, kommt mit zu viel Schwung
-    // an und schiesst durch, egal wie genau er zielt.
-    const lookahead = profile.level === "hard" ? 1500 : profile.level === "normal" ? 1000 : 620;
-    const aim = gate.at - elapsed <= lookahead ? player.botAim : 0.5;
-
-    // Halten, wenn man unter dem Ziel liegt — mit Blick auf die eigene
-    // Steiggeschwindigkeit, sonst pendelt der Ballon um das Ziel herum.
-    const predicted = player.y + player.vy * 0.42;
+    const target = arcade.targets.find((candidate) => !player.scoredTargets[candidate.index] && glideGroundX(candidate.at) > glideGroundX(elapsed) - 0.5);
+    // Höhe: ein guter Bot geht tief (kurzer Fall, genauer Wurf), ein schwacher
+    // bleibt, wo er gerade ist. Zwischen den Scheiben holen sich alle Sterne.
+    const star = arcade.stars[player.nextStar];
+    let aim = profile.level === "hard" ? 0.22 : profile.level === "normal" ? 0.35 : 0.55;
+    if (star && (!target || target.at - elapsed > 2200) && star.at - elapsed < 1600) aim = star.y;
+    const predicted = player.y + player.vy * 0.45;
     handleArcadeInput(room, bot, { action: "lift", down: predicted < aim });
+    if (!target || player.bagsLeft <= 0) return;
+    // Abwurf: wenn der Sack ungefähr auf der Scheibe landen würde.
+    if (player.botTargetId !== target.index) {
+      player.botTargetId = target.index;
+      const slop = profile.level === "hard" ? 90 : profile.level === "normal" ? 200 : 380;
+      player.botDropError = (Math.random() - 0.5) * 2 * slop;
+    }
+    const landAt = elapsed + glideFallMs(player.y) + BOT_TICK_LEAD_MS * 0.5;
+    if (Math.abs(landAt - (target.at + player.botDropError)) < 70) {
+      handleArcadeInput(room, bot, { action: "drop" });
+    }
     return;
   }
   if (arcade.family === "climb") {
@@ -7399,16 +7417,12 @@ module.exports = {
     GLIDE_GRAVITY,
     GLIDE_LIFT,
     GLIDE_VY_MAX,
-    GLIDE_GATE_FIRST_MS,
-    GLIDE_GATE_EVERY_MS,
-    GLIDE_GATE_GAP_START,
-    GLIDE_GATE_GAP_END,
-    GLIDE_GATE_MAX_STEP,
-    GLIDE_GATE_POINTS,
-    GLIDE_CENTRE_BONUS,
     GLIDE_STALL_MS,
-    buildGlideGates,
-    glideGateGap,
+    GLIDE_RINGS,
+    GLIDE_SPEED,
+    glideFallMs,
+    buildGlideCourse,
+    glideGroundX,
     BOUNCE_BEAT_START_MS,
     BOUNCE_BEAT_MIN_MS,
     BOUNCE_BAR_BEATS,

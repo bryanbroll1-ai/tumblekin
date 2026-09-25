@@ -89,7 +89,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 - **Lichtwächter:** Halte den Knopf, um zu laufen – aber stopp sofort, wenn der Wächter sich umdreht!
 - **Fassrolle:** Alle stehen auf einem Riesenfass über dem Fluss. Halte ◀ oder ▶ und lauf gegen die Drehung an — aber wer läuft, dreht das Fass auch unter den anderen. So rollst du sie ins Wasser, musst dann aber selbst mithalten. Gezählt wird die Zeit im grünen Streifen oben.
-- **Ballonfahrt:** Halte den Finger auf dem Bild, dann steigt dein Ballon — loslassen lässt ihn sinken. Flieg durch die Tore, mittig durch bringt mehr, und Boden oder Decke schalten den Brenner kurz ab.
+- **Ballonfahrt:** Halte den Finger auf dem Bild, dann heizt der Brenner und du steigst — loslassen lässt sinken. Mit ABWURF fällt ein Sandsack: er fliegt mit, während er fällt, also je höher, desto früher werfen. Triff die Zielscheiben auf den Feldern und sammle unterwegs Sterne.
 
 ### 👆👆 Schnell tippen
 
