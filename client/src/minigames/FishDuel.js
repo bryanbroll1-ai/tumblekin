@@ -16,13 +16,30 @@ import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 const LANE_GAP = 1.35;
 const PIER_Z = 0.4;
 const PIER_TOP_Y = 0.34;
-const FISH_NEAR_Z = -1.6;
+// Näher als hier kommt ein Fisch nicht: bei -1.6 schwamm er so dicht am
+// Steg, dass er von oben aussah, als läge er zwischen den Figuren auf den
+// Planken. Den letzten Meter fliegt er dann in den Eimer.
+const FISH_NEAR_Z = -2.5;
 const FISH_FAR_Z = -8.5;
+const LINE_POINTS = 12;          // die Schnur ist eine Kurve: straff oder durchhängend
+const LAND_MS = 650;             // Flug des gefangenen Fisches in den Eimer
+const ESCAPE_MS = 700;           // Sprung und Abtauchen nach einem Riss
+const CAST_MS = 600;             // Flug des neuen Köders
 
+// Der Ablauf am Fisch, und was man daran sehen soll:
+//  * Einholen: der Fisch wird mit dem Maul voran zum Steg gezogen, die Schnur
+//    ist straff. Vorher kam er rückwärts, den Schwanz voran.
+//  * Loslassen: die Schnur hängt durch, der Fisch dreht ab und schwimmt weg.
+//  * Gefangen: er fliegt im Bogen in den Eimer neben der Figur — vorher blieb
+//    er auf den Planken liegen, und derselbe Fisch schwamm danach vom Steg
+//    rückwärts zurück ins Wasser. Draussen beisst sofort sichtbar der nächste.
+//  * Gerissen: der Fisch springt, taucht weg, die Schnur schnalzt zurück; dann
+//    wirft die Figur neu aus, und wo der Köder landet, beisst der nächste.
 export class FishDuel extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.lanes = new Map();
+    this.flyers = [];
     this.holding = false;
     this.lastPingAt = 0;
     this.labelY = 0.74;
@@ -129,13 +146,41 @@ export class FishDuel extends MinigameScene {
     wake.position.set(x, 0.03, FISH_FAR_Z);
     this.scene.add(wake);
     const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.BufferGeometry().setFromPoints(Array.from({ length: LINE_POINTS }, () => new THREE.Vector3())),
       new THREE.LineBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85 })
     );
     this.scene.add(line);
 
+    // Der Eimer neben der Figur: dorthin fliegt jeder Fang.
+    const bucket = new THREE.Group();
+    const pail = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.3, 10, 1, true), new THREE.MeshLambertMaterial({ color: "#5d7fa3", side: THREE.DoubleSide }));
+    pail.position.y = 0.15;
+    pail.castShadow = true;
+    bucket.add(pail);
+    const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.02, 10), new THREE.MeshLambertMaterial({ color: "#3f5a78" }));
+    bottom.position.y = 0.01;
+    bucket.add(bottom);
+    const water = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.02, 10), new THREE.MeshLambertMaterial({ color: "#6cc4ec" }));
+    water.position.y = 0.22;
+    bucket.add(water);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.02, 4, 14), new THREE.MeshLambertMaterial({ color: "#c9d6e3" }));
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.3;
+    bucket.add(rim);
+    bucket.position.set(x - 0.5, PIER_TOP_Y, PIER_Z + 0.35);
+    this.scene.add(bucket);
+
+    // Der Köder, der nach einem Riss neu ausgeworfen wird.
+    const bobber = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshLambertMaterial({ color: "#ff4f68" }));
+    bobber.visible = false;
+    this.scene.add(bobber);
+
     this.lanes.set(player.id, {
-      x, kin, rod, reel, tipPivot, tipEnd, fish, wake, line,
+      id: player.id, x, kin, rod, reel, tipPivot, tipEnd, fish, wake, line, bucket, bobber,
+      heading: 0,
+      escape: null,
+      cast: null,
+      bitAt: 0,
       thrash: Math.random() * 6,
       species: null,
       lastSnapAt: 0,
@@ -169,7 +214,11 @@ export class FishDuel extends MinigameScene {
   shot() {
     const count = Math.max(1, this.lanes.size);
     return {
-      look: [0, 0.55, -1.7],
+      // Weiter aufs Wasser: vorher lag die untere Bildhälfte als leere Fläche
+      // VOR dem Steg, und der Kampf mit dem Fisch spielte sich in einem
+      // schmalen Streifen ab. Jetzt steht der Steg unten, das Wasser mit den
+      // Fischen füllt die Mitte.
+      look: [0, 0.4, -3.4],
       frame: { w: count * LANE_GAP + 0.7, h: 3.8 },
       yaw: 0.18,
       pitch: 0.42,
@@ -226,6 +275,7 @@ export class FishDuel extends MinigameScene {
       }
     }
 
+    this.tickFlyers(now);
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       const lane = this.lanes.get(player.id);
@@ -233,6 +283,9 @@ export class FishDuel extends MinigameScene {
       if (!entry || !lane || !animator) return;
       const isOwn = player.id === controlledId;
       this.applySpecies(lane, entry.species);
+      // Der Eimer hüpft kurz, wenn ein Fisch hineinplumpst.
+      const bump = lane.bucketBump ? Math.max(0, 1 - (now - lane.bucketBump) / 260) : 0;
+      lane.bucket.scale.set(1 + bump * 0.18, 1 - bump * 0.14, 1 + bump * 0.18);
       const tension = Math.min(1, Math.max(0, entry.tension || 0));
       const holding = isOwn ? this.holding || entry.holding : entry.holding;
       const paused = (entry.pauseUntil || 0) > now;
@@ -242,37 +295,79 @@ export class FishDuel extends MinigameScene {
       const targetZ = FISH_NEAR_Z + (FISH_FAR_Z - FISH_NEAR_Z) * distance;
       const fish = lane.fish;
       lane.thrash += dt * (entry.surging ? 13 : 3.4);
-      if (!lane.landing) {
-        fish.visible = !paused;
+      const escaping = lane.escape && now - lane.escape.at < ESCAPE_MS;
+      if (escaping) {
+        this.tickEscape(lane, now);
+      } else if (paused) {
+        fish.visible = false;
+      } else {
+        if (!fish.visible) {
+          // Ein neuer Fisch hat angebissen: dort, wo er hängt, spritzt es.
+          fish.visible = true;
+          fish.position.set(lane.x, 0.08, targetZ);
+          lane.heading = 0;
+          lane.bitAt = now;
+          const at = new THREE.Vector3(lane.x, 0.06, targetZ);
+          this.burst(at, ["#ffffff", "#bfe9ff"], { count: 8, speed: 1.3, up: 1.6, size: 0.06, life: 0.5 });
+          this.bursts.ring(at, "#e8f7ff", { radius: 0.9, life: 0.45, y: 0.05 });
+          if (isOwn) this.feedback?.sound("plink");
+        }
         fish.position.z += (targetZ - fish.position.z) * frameLerp(0.16, dt);
         fish.position.x = lane.x + Math.sin(lane.thrash) * (entry.surging ? 0.4 : 0.1);
         fish.position.y = 0.08 + (entry.surging ? Math.abs(Math.sin(lane.thrash * 1.3)) * 0.18 : 0);
-        fish.rotation.set(0, Math.sin(lane.thrash) * (entry.surging ? 0.5 : 0.14), Math.sin(lane.thrash * 1.7) * (entry.surging ? 0.32 : 0.05));
-        fish.userData.tail.rotation.y = Math.sin(lane.thrash * 2.2) * 0.5;
+        // Blickrichtung: eingeholt wird er mit dem Maul voran zum Steg
+        // gezogen; wehrt er sich oder lässt man los, dreht er ab und will weg.
+        const toward = holding && !entry.surging ? Math.PI : 0;
+        lane.heading += (toward - lane.heading) * frameLerp(0.12, dt);
+        fish.rotation.set(0, lane.heading + Math.sin(lane.thrash) * (entry.surging ? 0.5 : 0.14), Math.sin(lane.thrash * 1.7) * (entry.surging ? 0.32 : 0.05));
+        fish.userData.tail.rotation.y = Math.sin(lane.thrash * 2.2) * (holding ? 0.3 : 0.6);
         fish.scale.setScalar((0.9 + (1 - distance) * 0.3) * (lane.speciesScale || 1));
         if (entry.surging && Math.random() < frameChance(0.2, dt)) this.burst(fish.position.clone(), ["#ffffff", "#bfe9ff"], { count: 1, speed: 1, up: 1.2, size: 0.05, life: 0.4 });
       }
-      lane.wake.position.set(fish.position.x, 0.03, fish.position.z + 0.2);
-      lane.wake.visible = fish.visible && !lane.landing;
+      lane.wake.position.set(fish.position.x, 0.03, fish.position.z + (lane.heading > 1.5 ? -0.2 : 0.2));
+      lane.wake.visible = fish.visible && !escaping;
       lane.wake.material.opacity = entry.surging ? 0.55 : 0.2;
+      this.tickCast(lane, now, isOwn);
 
       // Rute biegt sich, Rolle dreht beim Einholen.
       lane.tipPivot.rotation.x = tension * 0.9 + (entry.surging ? 0.25 : 0);
       if (holding && !paused) lane.reel.rotation.x += dt * 14;
       lane.rod.rotation.x += ((holding ? 0.62 : 0.9) - lane.rod.rotation.x) * frameLerp(0.18, dt);
 
-      // Schnur von der Spitze zum Fisch.
+      // Schnur von der Spitze zum Fisch — straff unter Spannung, durchhängend,
+      // wenn man loslässt. Nach einem Riss schnalzt das lose Ende zurück.
       lane.kin.updateMatrixWorld(true);
       const tip = lane.tipEnd.getWorldPosition(new THREE.Vector3());
       const points = lane.line.geometry.attributes.position;
-      points.setXYZ(0, tip.x, tip.y, tip.z);
-      points.setXYZ(1, fish.position.x, fish.position.y + 0.08, fish.position.z - 0.3);
-      points.needsUpdate = true;
-      lane.line.visible = fish.visible && !lane.landing && !paused;
+      let end = null;
+      let sag = 0;
+      if (escaping) {
+        const u = (now - lane.escape.at) / ESCAPE_MS;
+        end = new THREE.Vector3(lane.x, 0.2 - u * 0.3, THREE.MathUtils.lerp(lane.escape.from.z, PIER_Z - 0.8, Math.min(1, u * 1.6)));
+        sag = 0.5 * (1 - u);
+      } else if (lane.cast && now - lane.cast.at < CAST_MS) {
+        end = lane.bobber.position.clone();
+        sag = 0.15;
+      } else if (fish.visible && !paused) {
+        end = new THREE.Vector3(fish.position.x, fish.position.y + 0.08, fish.position.z + (lane.heading > 1.5 ? 0.35 : -0.3));
+        sag = holding ? Math.max(0, 0.18 - tension * 0.18) : 0.55 - tension * 0.3;
+      }
+      lane.line.visible = Boolean(end);
+      if (end) {
+        const span = tip.distanceTo(end);
+        for (let i = 0; i < LINE_POINTS; i += 1) {
+          const t = i / (LINE_POINTS - 1);
+          points.setXYZ(i,
+            THREE.MathUtils.lerp(tip.x, end.x, t),
+            THREE.MathUtils.lerp(tip.y, end.y, t) - Math.sin(t * Math.PI) * sag * Math.min(1, span / 4),
+            THREE.MathUtils.lerp(tip.z, end.z, t));
+        }
+        points.needsUpdate = true;
+        lane.line.geometry.computeBoundingSphere();
+      }
       lane.line.material.color.setRGB(1, 1 - tension * 0.75, 1 - tension * 0.85);
 
       this.reactToEvents(player, entry, lane, animator, now, isOwn);
-      this.tickLanding(lane, now);
 
       if (finale) return;
       if (now - lane.snapped < 1200) return;
@@ -296,6 +391,9 @@ export class FishDuel extends MinigameScene {
       lane.lastSnapAt = entry.lastSnapAt;
       if (!first) {
         lane.snapped = now;
+        // Der Fisch springt und taucht weg, danach wird neu ausgeworfen.
+        lane.escape = { at: now, from: lane.fish.position.clone() };
+        lane.cast = { at: now + ESCAPE_MS + 150, splashed: false, thrown: false };
         animator.trigger("knockback");
         animator.trigger("facepalm");
         animator.expression("angry", 1200);
@@ -316,8 +414,13 @@ export class FishDuel extends MinigameScene {
       const first = lane.lastLandedAt === 0 && now - entry.lastLandedAt > 2000;
       lane.lastLandedAt = entry.lastLandedAt;
       if (!first) {
-        // Der Fisch fliegt im Bogen auf den Steg und zappelt dort kurz.
-        lane.landing = { at: now, from: lane.fish.position.clone(), to: new THREE.Vector3(lane.x - 0.45, PIER_TOP_Y + 0.12, PIER_Z + 0.2) };
+        // Ein Abbild des Fisches fliegt im Bogen in den Eimer; der echte
+        // Fisch ist schon der nächste, der draussen anbeisst.
+        // Die Art des GEFANGENEN Fisches — der Fisch im Wasser trägt schon
+        // die Farbe des nächsten.
+        const caught = (this.update || this.minigame)?.arcade?.species?.find((kind) => kind.id === entry.lastCatch?.id);
+        this.launchCatch(lane, isOwn, caught);
+        lane.fish.visible = false;
         animator.trigger("celebrate");
         animator.expression("joy", 1400);
         const at = lane.kin.position.clone().add(new THREE.Vector3(0, 1.3, 0));
@@ -333,22 +436,84 @@ export class FishDuel extends MinigameScene {
     lane.wasSurging = Boolean(entry.surging);
   }
 
-  tickLanding(lane, now) {
-    if (!lane.landing) return;
-    const u = (now - lane.landing.at) / 700;
+  // Gefangen: ein Abbild des Fisches fliegt vom Wasser in den Eimer.
+  launchCatch(lane, isOwn, kind) {
+    const copy = this.buildFish();
+    if (kind?.colour) {
+      const base = new THREE.Color(kind.colour);
+      copy.userData.body.material.color.copy(base);
+      copy.userData.tail.material.color.copy(base).multiplyScalar(0.78);
+      copy.userData.fin.material.color.copy(base).multiplyScalar(0.62);
+    }
+    copy.position.copy(lane.fish.position);
+    copy.scale.setScalar(1.2 * (kind?.size || lane.speciesScale || 1));
+    this.scene.add(copy);
+    const to = lane.bucket.position.clone().add(new THREE.Vector3(0, 0.3, 0));
+    this.flyers.push({ mesh: copy, from: copy.position.clone(), to, at: this.now(), lane, isOwn, base: copy.scale.x });
+  }
+
+  tickFlyers(now) {
+    for (let i = this.flyers.length - 1; i >= 0; i -= 1) {
+      const fly = this.flyers[i];
+      const u = Math.min(1, (now - fly.at) / LAND_MS);
+      fly.mesh.position.lerpVectors(fly.from, fly.to, u);
+      fly.mesh.position.y += Math.sin(u * Math.PI) * 2.0;
+      // Zappelnd durch die Luft, zum Schluss mit dem Kopf voran hinein.
+      fly.mesh.rotation.set(-Math.PI / 2 * u, Math.PI, Math.sin(now / 45) * 0.5 * (1 - u));
+      fly.mesh.scale.setScalar(fly.base * (1 - u * 0.7));
+      if (u >= 1) {
+        this.scene.remove(fly.mesh);
+        fly.mesh.traverse((part) => { part.geometry?.dispose(); part.material?.dispose(); });
+        this.flyers.splice(i, 1);
+        const at = fly.to.clone();
+        this.burst(at, ["#bfe9ff", "#ffffff"], { count: 10, speed: 1.2, up: 1.8, size: 0.05, life: 0.45 });
+        fly.lane.bucketBump = now;
+        if (fly.isOwn) this.feedback?.sound("pop");
+      }
+    }
+  }
+
+  // Nach einem Riss: Sprung aus dem Wasser, dann taucht er weg.
+  tickEscape(lane, now) {
+    const u = (now - lane.escape.at) / ESCAPE_MS;
     const fish = lane.fish;
-    if (u < 1) {
-      fish.position.lerpVectors(lane.landing.from, lane.landing.to, u);
-      fish.position.y += Math.sin(u * Math.PI) * 2.2;
-      fish.rotation.x = u * Math.PI * 3;
+    fish.visible = u < 0.85;
+    const from = lane.escape.from;
+    fish.position.set(from.x, from.y + Math.sin(Math.min(1, u * 1.6) * Math.PI) * 0.7 - Math.max(0, u - 0.6) * 1.2, from.z - u * 2.2);
+    fish.rotation.set(-0.8 + u * 1.8, 0, Math.sin(now / 40) * 0.4);
+    if (!lane.escape.splashed && u > 0.6) {
+      lane.escape.splashed = true;
+      const at = new THREE.Vector3(fish.position.x, 0.05, fish.position.z);
+      this.burst(at, ["#ffffff", "#bfe9ff"], { count: 12, speed: 1.6, up: 2, size: 0.06, life: 0.5 });
+      this.bursts.ring(at, "#e8f7ff", { radius: 1.0, life: 0.5, y: 0.05 });
+    }
+  }
+
+  // Neu auswerfen: die Figur holt aus, der Köder fliegt hinaus und platscht.
+  tickCast(lane, now, isOwn) {
+    const cast = lane.cast;
+    if (!cast) {
+      lane.bobber.visible = false;
       return;
     }
-    // Auf den Planken zappeln, dann weg — der nächste beisst schon.
-    fish.position.copy(lane.landing.to);
-    fish.rotation.set(0, 0.6, Math.PI / 2 + Math.sin(now / 60) * 0.3);
-    if (u > 2.6) {
-      lane.landing = null;
-      fish.visible = false;
+    if (now < cast.at) return;
+    if (!cast.thrown) {
+      cast.thrown = true;
+      this.animators.get(lane.id)?.trigger("throw");
+      if (isOwn) this.feedback?.sound("whoosh");
+      lane.kin.updateMatrixWorld(true);
+      cast.from = lane.tipEnd.getWorldPosition(new THREE.Vector3());
+      cast.to = new THREE.Vector3(lane.x, 0.06, FISH_FAR_Z + 0.4);
+    }
+    const u = Math.min(1, (now - cast.at) / CAST_MS);
+    lane.bobber.visible = u < 1;
+    lane.bobber.position.lerpVectors(cast.from, cast.to, u);
+    lane.bobber.position.y += Math.sin(u * Math.PI) * 1.6;
+    if (u >= 1 && !cast.splashed) {
+      cast.splashed = true;
+      this.burst(cast.to.clone(), ["#ffffff", "#bfe9ff"], { count: 6, speed: 1, up: 1.2, size: 0.05, life: 0.4 });
+      this.bursts.ring(cast.to.clone(), "#e8f7ff", { radius: 0.6, life: 0.4, y: 0.05 });
+      lane.cast = null;
     }
   }
 
