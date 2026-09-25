@@ -1,129 +1,58 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage,
-  fitKinsInView
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
-// Blitzreflex — drei Läufe, jeder eine Startampel. Rot, Rot, Rot … und dann
-// GRÜN. Wer im richtigen Moment tippt, gewinnt Millisekunden; wer vorher tippt,
-// kassiert einen Fehlstart, der teurer ist als jede langsame Reaktion.
+// Blitzreflex: zwei rote Lampen, dann Grün — wer am schnellsten tippt, hat
+// die beste Reaktionszeit. Drei Durchgänge.
 //
-// Der ganze Bildschirm ist der Knopf. Bei einem Spiel, in dem es um
-// Hundertstel geht, ist jeder Weg zum Knopf verlorene Zeit — und ein kleiner
-// Knopf am unteren Rand zwingt den Blick von der Ampel weg, genau in dem
-// Moment, in dem sie umspringt.
-const LAMP_Y = 3.5;
-const LAMP_Z = -2.4;
-// Die vier Bahnen standen auf ±1.5. Die Figurenmitten lagen damit gemessen bei
-// 91 % der halben Bildbreite — und das Namensschild ist mit 0.62 Welteinheiten
-// breiter als die Figur selbst, ragte also hinaus. Nicht die Kamera stand zu
-// nah, die Reihe war zu breit.
-const LANE_GAP = 0.70;
-const KIN_Z = 1.8;
+// Vorher standen die Figuren reglos an einer Linie, und der einzige Hinweis
+// auf die Spannung war, dass sie ein wenig gestaucht wurden. Jetzt ist es ein
+// Sprintstart: bei Rot gehen alle in die Hocke, bei Grün schiessen sie los,
+// wer zu früh tippt, fällt der Länge nach hin. Die Kamera steht seitlich an
+// der Bahn, damit man Gesichter und Startampel zugleich sieht.
+const LAMP_Y = 3.1;
+const LAMP_Z = -4.2;
+const LANE_GAP = 0.78;
+const KIN_Z = 1.6;
+const DASH = 1.15;
+const DASH_MS = 650;
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-export class FlashReflex {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
-    this.kins = new Map();
-    this.animators = new Map();
+export class FlashReflex extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.lastCount = new Map();
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
+    this.dash = new Map();
     this.greenSeen = -1;
     this.lampPulse = 0;
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Blitzreflex", background: "#9fd9f0", fog: ["#c3e6f6", 16, 44], fov: 58, far: 80 });
+  stage() {
+    return {
+      label: "3D Blitzreflex",
+      background: "#9fd9f0",
+      fog: ["#c3e6f6", 16, 44],
+      lights: { sunPosition: [-4, 11, 7], shadow: { left: -5, right: 5, top: 8, bottom: -3 } }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>—</strong></div>
       <div class="react-rounds" data-react-rounds></div>
-      <div class="color-banner react-banner" data-react-banner hidden></div>
-    `);
-    this.createScene();
-
-    this.controls.innerHTML = `<p class="trace-hint">Tippe irgendwo, sobald es GRÜN wird</p>`;
-    this.controls.style.pointerEvents = "none";
-
-    this.onTap = (event) => {
-      event.preventDefault();
-      const minigame2 = this.update || this.minigame;
-      if (!minigame2 || minigame2.finaleAt) return;
-      this.feedback?.sound("tap");
-      this.sendInput({ action: "tap" }).catch(() => {});
-    };
-    this.webglCanvas.addEventListener("pointerdown", this.onTap);
-    this.loop();
+      <div class="color-banner react-banner" data-react-banner hidden></div>`;
   }
 
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    this.webglCanvas?.removeEventListener("pointerdown", this.onTap);
-    teardownStage(this);
-    this.kins.clear();
-    this.animators.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-4, 11, 7],
-      shadow: { left: -5, right: 5, top: 8, bottom: -3 }
-    });
-
-    // Startaufstellung einer Rennstrecke. Vorher war das ein einzelner Mast
-    // auf einer blassen Platte im leeren Blau — und damit fast dasselbe Bild
-    // wie Falschsignal, das ebenfalls eine Ampel auf einem hellen Platz
-    // zeigt. Zwei von dreissig Spielen dürfen nicht austauschbar aussehen.
+  build() {
+    const scene = this.scene;
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(60, 0.5, 50),
       new THREE.MeshLambertMaterial({ color: "#5aa87f" })
     );
     ground.position.set(0, -0.25, -8);
     ground.receiveShadow = true;
-    this.scene.add(ground);
+    scene.add(ground);
 
     const track = new THREE.Mesh(
       new THREE.BoxGeometry(LANE_GAP * 4.6, 0.04, 30),
@@ -131,7 +60,7 @@ export class FlashReflex {
     );
     track.position.set(0, 0.01, -9);
     track.receiveShadow = true;
-    this.scene.add(track);
+    scene.add(track);
 
     // Rot-weisse Randsteine links und rechts der Bahn. Als Instanzen: 96
     // einzelne Klötzchen wären 96 Zeichenaufrufe für reine Kulisse, und die
@@ -150,7 +79,7 @@ export class FlashReflex {
         reihe.setMatrixAt(i, platz.matrix);
       }
       reihe.instanceMatrix.needsUpdate = true;
-      this.scene.add(reihe);
+      scene.add(reihe);
     });
 
     // Startboxen auf dem Asphalt: weisse Kästen, einer je Bahn.
@@ -160,18 +89,20 @@ export class FlashReflex {
         new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.32, depthWrite: false })
       );
       kasten.position.set((lane - 1.5) * LANE_GAP, 0.045, KIN_Z - 0.1);
-      this.scene.add(kasten);
+      scene.add(kasten);
     }
 
     // Streckenbegrenzung und Tribüne dahinter — die Kulisse, die dem Bild
     // seinen Ort gibt.
-    [-1, 1].forEach((seite) => {
+    // Tribüne nur auf der linken Seite: die Kamera steht rechts an der Bahn,
+    // eine Tribüne dort stünde zwischen ihr und den Läufern.
+    [-1].forEach((seite) => {
       const bande = new THREE.Mesh(
         new THREE.BoxGeometry(0.3, 0.9, 26),
         new THREE.MeshLambertMaterial({ color: "#e9edf2" })
       );
       bande.position.set(seite * (bahnHalb + 1.25), 0.45, -8);
-      this.scene.add(bande);
+      scene.add(bande);
       // Bandenwerbung: eine Instanz je Farbe statt neun Einzelmeshes.
       const tafelGeo = new THREE.BoxGeometry(0.34, 0.5, 2.4);
       ["#ff5d73", "#3fc5e8", "#ffd15c", "#71d97b"].forEach((farbe, f) => {
@@ -186,7 +117,7 @@ export class FlashReflex {
           tafeln.setMatrixAt(k, platz.matrix);
         }
         tafeln.instanceMatrix.needsUpdate = true;
-        this.scene.add(tafeln);
+        scene.add(tafeln);
       });
       // Tribüne: zwei Instanzen für vier Stufen.
       const rangGeo = new THREE.BoxGeometry(1.1, 0.5, 20);
@@ -200,11 +131,11 @@ export class FlashReflex {
           raenge.setMatrixAt(k, platz.matrix);
         }
         raenge.instanceMatrix.needsUpdate = true;
-        this.scene.add(raenge);
+        scene.add(raenge);
       });
       const publikum = new THREE.InstancedMesh(
         new THREE.BoxGeometry(0.34, 0.42, 0.34),
-        new THREE.MeshLambertMaterial({ color: "#2b3446" }),
+        new THREE.MeshLambertMaterial({ color: "#ffffff" }),
         40
       );
       const kopf = new THREE.Object3D();
@@ -217,9 +148,11 @@ export class FlashReflex {
         );
         kopf.updateMatrix();
         publikum.setMatrixAt(i, kopf.matrix);
+        // Bunte Zuschauer statt dunkler Klötze.
+        publikum.setColorAt(i, new THREE.Color(["#ff8fa3", "#7fd6ea", "#ffe07a", "#9be38e", "#c7a6ff", "#ffb877"][(i * 7) % 6]));
       }
       publikum.instanceMatrix.needsUpdate = true;
-      this.scene.add(publikum);
+      scene.add(publikum);
     });
 
     const line = new THREE.Mesh(
@@ -227,28 +160,22 @@ export class FlashReflex {
       new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, depthWrite: false })
     );
     line.position.set(0, 0.04, KIN_Z + 0.5);
-    this.scene.add(line);
+    scene.add(line);
 
     this.buildLamp();
-
     [[-6.2, 6.4, -7, 4], [6.0, 7.1, -6, 9]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+      scene.add(cloud);
     });
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
     const players = this.getState()?.players || [];
-    players.forEach((player, index) => this.ensureKin(player, index, players.length));
-    this.resizeRenderer();
-    this.camera.position.set(0, 2.9, 6.4);
-    this.camera.lookAt(0, 2.0, -0.6);
+    players.forEach((player, index) => {
+      const x = (index - (players.length - 1) / 2) * LANE_GAP;
+      const kin = this.addKin(player, index, { x, ground: 0, z: KIN_Z, facing: Math.PI });
+      kin.userData.laneX = x;
+    });
   }
 
-  // Eine Startampel mit drei Lampen. Die beiden oberen sind Rot und bleiben es;
-  // nur die unterste springt auf Grün. Drei Lampen statt einer, weil man dann
-  // im Augenwinkel sieht, WO das Grün erscheinen wird.
   buildLamp() {
     const steel = new THREE.MeshLambertMaterial({ color: "#37445a" });
     const dark = new THREE.MeshLambertMaterial({ color: "#1b232f" });
@@ -286,113 +213,96 @@ export class FlashReflex {
     this.scene.add(this.halo);
   }
 
-  ensureKin(player, index, count) {
-    if (this.kins.has(player.id)) return this.kins.get(player.id);
-    const kin = createVoxelKin(player.color, index);
-    const label = createNameLabel(player.name.slice(0, 7), player.color);
-    label.position.y = 0.66;
-    kin.add(label);
-    const x = (index - (count - 1) / 2) * LANE_GAP;
-    kin.position.set(x, standOn(0), KIN_Z);
-    this.scene.add(kin);
-    const shadow = createShadowBlob(0.44);
-    shadow.position.set(x, 0.06, KIN_Z);
-    this.scene.add(shadow);
-    kin.userData.laneX = x;
-    this.kins.set(player.id, kin);
-    const animator = new KinAnimator(kin);
-    animator.groundY = standOn(0);
-    this.animators.set(player.id, animator);
-    return kin;
+  shot() {
+    return {
+      look: [0, 1.25, -0.4],
+      frame: { w: 4.2, h: 3.9 },
+      yaw: 0.62,
+      pitch: 0.2,
+      fov: 38,
+      intro: { yaw: 0.4, pitch: 0.2, zoom: 1.35 }
+    };
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
+  bind() {
+    this.controls.innerHTML = `<p class="trace-hint">Tippe irgendwo, sobald es GRÜN wird</p>`;
+    this.controls.style.pointerEvents = "none";
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      event.preventDefault();
+      const minigame = this.update || this.minigame;
+      if (!minigame || minigame.finaleAt) return;
+      this.feedback?.sound("tap");
+      this.sendInput({ action: "tap" }).catch(() => {});
+    });
+  }
 
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
+  unbind() {
+    this.controls.style.pointerEvents = "";
+  }
 
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
-    const controlledId = this.getControlledPlayerId();
     const own = arcade.players[controlledId];
+    const ownRound = own ? Math.min((own.times || []).length, arcade.rounds.length - 1) : 0;
+    this.paintLamp(arcade.rounds[ownRound], elapsed, dt, own);
 
-    const roundIndex = own ? Math.min((own.times || []).length, arcade.rounds.length - 1) : 0;
-    const round = arcade.rounds[roundIndex];
-    this.paintLamp(round, elapsed, dt, own);
-
-    state.players.forEach((player, index) => {
+    players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      const kin = this.ensureKin(player, index, state.players.length);
+      const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
+      if (!entry || !kin || !animator) return;
       const times = entry.times || [];
+      const done = times.length >= arcade.rounds.length;
+      const round = arcade.rounds[Math.min(times.length, arcade.rounds.length - 1)];
+      const isOwn = player.id === controlledId;
 
       if (times.length > (this.lastCount.get(player.id) || 0)) {
         this.lastCount.set(player.id, times.length);
         const last = times[times.length - 1];
         const at = kin.position.clone().add(new THREE.Vector3(0, 1.1, 0));
-        // Ein Fehlstart kostet die volle Strafzeit — der Unterschied muss ohne
-        // Text erkennbar sein.
-        const falseStart = last >= 900;
-        if (falseStart) {
-          animator?.trigger("stumble");
-          this.bursts.spawn(at, ["#ff6b7f", "#ffffff"], { count: 8 * fxScale(), speed: 1.4, up: 1.0, size: 0.06, life: 0.5, drag: 2.2 });
-          if (player.id === controlledId) {
-            this.floaters.pop(at, "FEHLSTART!", { color: "#ff9aa8", size: 0.38, life: 0.9 });
+        if (last >= 900) {
+          // Fehlstart: der Länge nach hin.
+          animator.trigger("fall");
+          animator.expression("angry", 1200);
+          this.burst(at, ["#ff6b7f", "#ffffff"], { count: 8 * fxScale(), speed: 1.4, up: 1.0, size: 0.06, life: 0.5, drag: 2.2 });
+          if (isOwn) {
+            this.pop(at, "FEHLSTART!", { color: "#ff9aa8", size: 0.38, life: 0.9 });
             this.feedback?.sound("error");
             this.feedback?.vibrate(26);
-            this.shake = Math.max(this.shake, 0.4);
+            this.rig.shake(0.4);
           }
         } else {
-          animator?.trigger("jump");
-          this.bursts.spawn(at, [player.color, "#4dff7a", "#ffffff"], { count: 12 * fxScale(), speed: 1.8, up: 2.0, size: 0.07, life: 0.6, drag: 1.8 });
-          if (player.id === controlledId) {
-            this.floaters.pop(at, `${last} ms`, { color: last < 260 ? "#ffe36b" : "#c6ffb0", size: last < 260 ? 0.42 : 0.34, life: 0.8 });
+          this.dash.set(player.id, now);
+          animator.expression(last < 260 ? "joy" : "happy", 900);
+          this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0.2)), ["#c9b79a", "#ffffff"], { count: 8, speed: 1.2, up: 0.6, size: 0.06, life: 0.4 });
+          if (isOwn) {
+            this.pop(at, `${last} ms`, { color: last < 260 ? "#ffe36b" : "#c6ffb0", size: last < 260 ? 0.42 : 0.34, life: 0.8 });
             this.feedback?.sound(last < 260 ? "perfect" : "pop");
             this.feedback?.vibrate([8, 10, 14]);
           }
         }
       }
 
-      if (minigame.finaleAt) {
-        applyFinaleMood(animator, this.finalePlace(arcade, state, player.id), state.players.length);
-      } else {
-        // Vor dem Grün geht jeder in die Hocke — das ist die Ansage, dass es
-        // gleich losgeht, ohne dass ein Text es sagen muss.
-        const armed = round && elapsed >= round.armFrom && elapsed < round.greenAt;
-        animator?.set(armed ? "idle" : "idle", { base: true });
-        kin.scale.y = armed ? 0.86 : 1;
-        kin.position.z = KIN_Z - ((entry.times || []).length * 0.35);
+      // Jeder Durchgang ein Stück weiter vorn; dazwischen ein Antritt.
+      const dashAt = this.dash.get(player.id);
+      const dashing = dashAt !== undefined && now - dashAt < DASH_MS;
+      const goalZ = KIN_Z - times.length * DASH;
+      kin.position.z += (goalZ - kin.position.z) * frameLerp(dashing ? 0.12 : 0.2, dt);
+      kin.position.x = kin.userData.laneX;
+      if (finale) {
+        kin.rotation.y += Math.atan2(Math.sin(0.6 - kin.rotation.y), Math.cos(0.6 - kin.rotation.y)) * frameLerp(0.08, dt);
+        return;
       }
-      animator?.update(now);
+      kin.rotation.y = Math.PI;
+      const armed = round && !done && elapsed >= round.armFrom && elapsed < round.greenAt;
+      if (dashing) animator.set("sprint");
+      else if (done) animator.set(times.every((t) => t < 900) ? "happy" : "idle");
+      else if (armed) {
+        animator.set("charge", { params: { power: Math.min(1, (elapsed - round.armFrom) / 900) } });
+      } else animator.set("ready");
     });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.86, dt);
-    const shakeX = Math.sin(now / 11) * this.shake * 0.2 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
-    this.camera.position.y = this.baseCamY || 2.9;
-    this.camera.position.z = this.baseCamZ || 6.4;
-    this.camera.lookAt(0, 2.0, -0.6);
-
-    this.updateHud(minigame, arcade, state, now, own, round, elapsed);
-    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
-    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
-    // selbst nicht sieht, spielt blind.
-    fitKinsInView(this);
-    this.renderer.render(this.scene, this.camera);
   }
 
   paintLamp(round, elapsed, dt, own) {
@@ -422,29 +332,16 @@ export class FlashReflex {
     this.halo.scale.setScalar(1 + this.lampPulse * 0.4);
   }
 
-  finalePlace(arcade, state, playerId) {
-    // Weniger Gesamtzeit ist besser.
-    const total = (entry) => {
-      const times = entry?.times || [];
-      const missing = arcade.rounds.length - times.length;
-      return times.reduce((sum, value) => sum + value, 0) + missing * 2200;
-    };
-    const scored = state.players
-      .map((player) => ({ id: player.id, total: total(arcade.players[player.id]) }))
-      .sort((a, b) => a.total - b.total);
-    const index = scored.findIndex((entry) => entry.id === playerId);
-    return index < 0 ? state.players.length : index + 1;
-  }
-
-  updateHud(minigame, arcade, state, now, own, round, elapsed) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
+  drawHud(f) {
+    const { arcade, minigame, now, controlledId } = f;
+    if (!arcade) return;
+    const own = arcade.players[controlledId];
+    const elapsed = Math.max(0, now - minigame.startedAt);
     const times = own?.times || [];
+    const round = arcade.rounds[Math.min(times.length, arcade.rounds.length - 1)];
     const best = times.length > 0 ? Math.min(...times) : null;
-    this.hud.querySelector("[data-kinetic-score]").textContent = best === null ? "—" : `${best} ms`;
-
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = best === null ? "—" : `${best} ms`;
     const rounds = this.hud.querySelector("[data-react-rounds]");
     if (rounds) {
       rounds.innerHTML = arcade.rounds.map((_r, i) => {
@@ -477,19 +374,5 @@ export class FlashReflex {
     } else {
       banner.hidden = true;
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Die Ampel muss im oberen Drittel gross im Bild stehen: darauf schaut man
-      // die ganze Zeit, und jede Kopfbewegung kostet hier Hundertstel.
-      this.baseCamY = portrait ? 2.9 : 2.6;
-            // Weiter zurück: gemessen ragte die Hülle der äusseren Figuren
-      // -0.155 über den Bildrand hinaus — meist das Namensschild, das
-      // breiter ist als die Figur. Hochkant ist der sichtbare Ausschnitt
-      // schmal, und die Reihe steht quer dazu.
-this.baseCamZ = portrait ? 7.9 : 7.0;
-      camera.fov = portrait ? 58 : 46;
-    });
   }
 }

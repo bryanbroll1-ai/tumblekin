@@ -1,32 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage,
-  fitKinsInView
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Eisstock — drei Steine je Person, gewischt auf ein Ringziel. Länge des Wisches
-// ist Kraft, Richtung ist Richtung. Fremde Steine darf man wegrempeln, und genau
-// das ist der Reiz: der letzte Stein einer Runde entscheidet oft alles.
+// Eisstock: nach vorn wischen schiebt den Stein los — länger heisst weiter.
+// Wer seine Steine am nächsten ans Zentrum bringt, gewinnt.
 //
-// Der Blick liegt flach über die Bahn, nicht von oben. Von oben läge das Ziel
-// als Scheibe im Bild und man sähe die Entfernung nicht — und Entfernung ist
-// hier die ganze Aufgabe.
+// Vorher stand nur die eigene Figur am Abwurf. Jetzt stehen alle
+// nebeneinander, gehen beim Ausholen in die Knie, stossen den Stein im
+// Ausfallschritt an, schauen ihm hinterher und freuen sich, wenn er im Haus
+// liegen bleibt — oder zucken mit den Schultern.
 const SHEET_W = 4.2;
 const SHEET_LEN = 9.5;
 
@@ -34,59 +17,167 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-export class IceStock {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class IceStock extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.stoneMeshes = new Map();
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
+    this.throwers = new Map();
     this.drag = null;
     this.lastClacks = 0;
     this.ruhig = new Set();
     this.letzterGleitTon = 0;
+    this.labelY = 0.74;
   }
 
-  // Logikraum (x 0…1 quer, y 0…sheetY längs) auf Weltkoordinaten. Eine einzige
-  // Umrechnung, damit gezeichnete und gerechnete Position nie auseinanderlaufen.
   worldX(x) { return (x - 0.5) * SHEET_W; }
-  // Die Abwurflinie liegt VORNE, das Haus hinten — man wirft also von sich weg,
-  // die Bahn hinunter. Vorher war es andersherum: die Steine starteten am
-  // fernen Ende und rollten auf die Kamera zu, man warf sich also selbst
-  // entgegen. Das liest sich falsch und man schätzt die Weite schlechter ein.
   worldZ(y, sheetY) { return -SHEET_LEN / 2 + (y / sheetY) * SHEET_LEN; }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Eisstock", background: "#bfe6f7", fog: ["#dff2fb", 20, 56], fov: 54, far: 90 });
+  stage() {
+    return {
+      label: "3D Eisstock",
+      background: "#bfe6f7",
+      fog: ["#dff2fb", 20, 56],
+      lights: { sunPosition: [-4, 12, 6], shadow: { left: -5, right: 5, top: 8, bottom: -8 } }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="stock-left" data-stock-left>3 Steine</div>
       <div class="stock-chips" data-stock-chips></div>
       <div class="color-banner stock-banner" data-stock-banner hidden></div>
-      <div class="stock-power" data-stock-power hidden><span data-stock-power-fill></span><b data-stock-power-text>0%</b></div>
-    `);
-    this.createScene();
+      <div class="stock-power" data-stock-power hidden><span data-stock-power-fill></span><b data-stock-power-text>0%</b></div>`;
+  }
 
+  build() {
+    const scene = this.scene;
+    const arcade = this.minigame.arcade;
+    const sheetY = arcade.sheetY || 1.3;
+
+    const snow = new THREE.Mesh(
+      new THREE.BoxGeometry(22, 0.5, 22),
+      new THREE.MeshLambertMaterial({ color: "#eaf6fd" })
+    );
+    snow.position.y = -0.25;
+    snow.receiveShadow = true;
+    scene.add(snow);
+
+    const ice = new THREE.Mesh(
+      new THREE.BoxGeometry(SHEET_W, 0.06, SHEET_LEN),
+      new THREE.MeshLambertMaterial({ color: "#a4d6ef" })
+    );
+    ice.position.set(0, 0.02, 0);
+    ice.receiveShadow = true;
+    scene.add(ice);
+
+    [-1, 1].forEach((side) => {
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.22, SHEET_LEN),
+        new THREE.MeshLambertMaterial({ color: "#8fb6cc" })
+      );
+      rail.position.set(side * (SHEET_W / 2 + 0.07), 0.11, 0);
+      scene.add(rail);
+    });
+
+    // Das Haus: konzentrische Ringe. Die Farben sind die Punktwerte — von aussen
+    // nach innen wird es heller, damit man den Wert sieht statt ihn zu lernen.
+    const shades = ["#8fb6cc", "#4bb8ff", "#ffffff", "#ff5d73"];
+    const rings = [...(arcade.rings || [])].sort((a, b) => b.radius - a.radius);
+    rings.forEach((ring, index) => {
+      const disc = new THREE.Mesh(
+        new THREE.CircleGeometry((ring.radius / 1) * SHEET_W, 32),
+        new THREE.MeshBasicMaterial({ color: shades[index % shades.length], toneMapped: false })
+      );
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(this.worldX(arcade.house.x), 0.06 + index * 0.004, this.worldZ(arcade.house.y, sheetY));
+      scene.add(disc);
+    });
+
+    // Der Knopf. Seit die Wertung stufenlos ist, entscheidet der genaue Mittel-
+    // punkt und nicht mehr die Ringstufe — dann muss er auch zu sehen sein.
+    const knopf = new THREE.Mesh(
+      new THREE.CircleGeometry(0.022 * SHEET_W, 24),
+      new THREE.MeshBasicMaterial({ color: "#ff5d73", toneMapped: false })
+    );
+    knopf.rotation.x = -Math.PI / 2;
+    knopf.position.set(this.worldX(arcade.house.x), 0.06 + rings.length * 0.004, this.worldZ(arcade.house.y, sheetY));
+    scene.add(knopf);
+
+    // Abwurflinie: von hier starten alle Steine.
+    const line = new THREE.Mesh(
+      new THREE.BoxGeometry(SHEET_W, 0.02, 0.1),
+      new THREE.MeshBasicMaterial({ color: "#7b98ad", transparent: true, opacity: 0.9, depthWrite: false })
+    );
+    line.position.set(0, 0.07, this.worldZ(sheetY - 0.14, sheetY));
+    scene.add(line);
+
+    [[-7.4, 5.6, -9, 6], [7.0, 6.2, -11, 1]].forEach(([x, y, z, seed]) => {
+      const cloud = createCloud(seed);
+      cloud.position.set(x, y, z);
+      scene.add(cloud);
+    });
+
+    // Winterkulisse hinter der Bahn. Vorher waren Bahn, Schnee und Himmel drei
+    // Abstufungen von Weissgrau — das Bild hatte weder Farbe noch Horizont.
+    const tannenStamm = new THREE.MeshLambertMaterial({ color: "#6b4a2c" });
+    const tannenGruen = new THREE.MeshLambertMaterial({ color: "#2f6f42" });
+    const schneeMat = new THREE.MeshLambertMaterial({ color: "#f4f9ff" });
+    for (let i = 0; i < 16; i += 1) {
+      const seite = i % 2 === 0 ? -1 : 1;
+      const bx = seite * (SHEET_W / 2 + 1.4 + ((i * 1.7) % 6));
+      const bz = -SHEET_LEN / 2 - 1 - ((i * 2.3) % 12);
+      const hoehe = 1.5 + ((i * 0.7) % 1.4);
+      const stamm = new THREE.Mesh(new THREE.BoxGeometry(0.22, hoehe * 0.5, 0.22), tannenStamm);
+      stamm.position.set(bx, hoehe * 0.25, bz);
+      scene.add(stamm);
+      const krone = new THREE.Mesh(new THREE.ConeGeometry(hoehe * 0.42, hoehe * 1.1, 6), tannenGruen);
+      krone.position.set(bx, hoehe * 0.5 + hoehe * 0.5, bz);
+      scene.add(krone);
+      const haube = new THREE.Mesh(new THREE.ConeGeometry(hoehe * 0.26, hoehe * 0.4, 6), schneeMat);
+      haube.position.set(bx, hoehe * 1.15, bz);
+      scene.add(haube);
+    }
+    // Weiche Schneehügel als Horizont.
+    for (let i = 0; i < 7; i += 1) {
+      const huegel = new THREE.Mesh(new THREE.SphereGeometry(2.2 + (i % 3) * 1.3, 10, 6), schneeMat);
+      huegel.position.set(-11 + i * 3.7, -1.4, -SHEET_LEN / 2 - 9 - (i % 2) * 3);
+      huegel.scale.y = 0.5;
+      scene.add(huegel);
+    }
+
+
+    // Alle Werfer am Abwurf nebeneinander.
+    const players = this.getState()?.players || [];
+    const baseZ = this.worldZ(sheetY, sheetY) + 0.45;
+    players.forEach((player, index) => {
+      const x = (index - (players.length - 1) / 2) * 0.95;
+      this.addKin(player, index, { x, ground: 0.05, z: baseZ, facing: Math.PI, scale: 0.9 });
+      this.throwers.set(player.id, { x, z: baseZ, left: arcade.players[player.id]?.stonesLeft ?? 3, threwAt: -1e9, stoneId: null, reacted: true });
+    });
+  }
+
+  shot() {
+    const sheetY = this.minigame.arcade.sheetY || 1.3;
+    return {
+      look: [0, 0.2, this.worldZ(sheetY * 0.52, sheetY)],
+      frame: { w: SHEET_W + 0.4, h: 4.6 },
+      yaw: 0.16,
+      pitch: 0.5,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.25, zoom: 1.3 }
+    };
+  }
+
+  bind() {
     this.controls.innerHTML = `<p class="trace-hint">Nach vorne wischen — länger heisst weiter</p>`;
     this.controls.style.pointerEvents = "none";
     this.bindDrag();
-    this.loop();
+  }
+
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.stoneMeshes.clear();
   }
 
   bindDrag() {
@@ -124,161 +215,10 @@ export class IceStock {
     };
     this.onCancel = () => { this.drag = null; this.hidePower(); };
 
-    this.webglCanvas.addEventListener("pointerdown", this.onDown);
-    this.webglCanvas.addEventListener("pointermove", this.onMove);
-    window.addEventListener("pointerup", this.onUp);
-    window.addEventListener("pointercancel", this.onCancel);
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    this.webglCanvas?.removeEventListener("pointerdown", this.onDown);
-    this.webglCanvas?.removeEventListener("pointermove", this.onMove);
-    window.removeEventListener("pointerup", this.onUp);
-    window.removeEventListener("pointercancel", this.onCancel);
-    teardownStage(this);
-    this.stoneMeshes.clear();
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-4, 12, 6],
-      shadow: { left: -5, right: 5, top: 8, bottom: -8 }
-    });
-
-    const arcade = this.minigame.arcade;
-    const sheetY = arcade.sheetY || 1.3;
-
-    const snow = new THREE.Mesh(
-      new THREE.BoxGeometry(22, 0.5, 22),
-      new THREE.MeshLambertMaterial({ color: "#eaf6fd" })
-    );
-    snow.position.y = -0.25;
-    snow.receiveShadow = true;
-    this.scene.add(snow);
-
-    const ice = new THREE.Mesh(
-      new THREE.BoxGeometry(SHEET_W, 0.06, SHEET_LEN),
-      new THREE.MeshLambertMaterial({ color: "#cfeaf8" })
-    );
-    ice.position.set(0, 0.02, 0);
-    ice.receiveShadow = true;
-    this.scene.add(ice);
-
-    [-1, 1].forEach((side) => {
-      const rail = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.22, SHEET_LEN),
-        new THREE.MeshLambertMaterial({ color: "#8fb6cc" })
-      );
-      rail.position.set(side * (SHEET_W / 2 + 0.07), 0.11, 0);
-      this.scene.add(rail);
-    });
-
-    // Das Haus: konzentrische Ringe. Die Farben sind die Punktwerte — von aussen
-    // nach innen wird es heller, damit man den Wert sieht statt ihn zu lernen.
-    const shades = ["#8fb6cc", "#4bb8ff", "#ffffff", "#ff5d73"];
-    const rings = [...(arcade.rings || [])].sort((a, b) => b.radius - a.radius);
-    rings.forEach((ring, index) => {
-      const disc = new THREE.Mesh(
-        new THREE.CircleGeometry((ring.radius / 1) * SHEET_W, 32),
-        new THREE.MeshBasicMaterial({ color: shades[index % shades.length], toneMapped: false })
-      );
-      disc.rotation.x = -Math.PI / 2;
-      disc.position.set(this.worldX(arcade.house.x), 0.06 + index * 0.004, this.worldZ(arcade.house.y, sheetY));
-      this.scene.add(disc);
-    });
-
-    // Der Knopf. Seit die Wertung stufenlos ist, entscheidet der genaue Mittel-
-    // punkt und nicht mehr die Ringstufe — dann muss er auch zu sehen sein.
-    const knopf = new THREE.Mesh(
-      new THREE.CircleGeometry(0.022 * SHEET_W, 24),
-      new THREE.MeshBasicMaterial({ color: "#ff5d73", toneMapped: false })
-    );
-    knopf.rotation.x = -Math.PI / 2;
-    knopf.position.set(this.worldX(arcade.house.x), 0.06 + rings.length * 0.004, this.worldZ(arcade.house.y, sheetY));
-    this.scene.add(knopf);
-
-    // Abwurflinie: von hier starten alle Steine.
-    const line = new THREE.Mesh(
-      new THREE.BoxGeometry(SHEET_W, 0.02, 0.1),
-      new THREE.MeshBasicMaterial({ color: "#7b98ad", transparent: true, opacity: 0.9, depthWrite: false })
-    );
-    line.position.set(0, 0.07, this.worldZ(sheetY - 0.14, sheetY));
-    this.scene.add(line);
-
-    [[-7.4, 5.6, -9, 6], [7.0, 6.2, -11, 1]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      this.scene.add(cloud);
-    });
-
-    // Winterkulisse hinter der Bahn. Vorher waren Bahn, Schnee und Himmel drei
-    // Abstufungen von Weissgrau — das Bild hatte weder Farbe noch Horizont.
-    const tannenStamm = new THREE.MeshLambertMaterial({ color: "#6b4a2c" });
-    const tannenGruen = new THREE.MeshLambertMaterial({ color: "#2f6f42" });
-    const schneeMat = new THREE.MeshLambertMaterial({ color: "#f4f9ff" });
-    for (let i = 0; i < 16; i += 1) {
-      const seite = i % 2 === 0 ? -1 : 1;
-      const bx = seite * (SHEET_W / 2 + 1.4 + ((i * 1.7) % 6));
-      const bz = -SHEET_LEN / 2 - 1 - ((i * 2.3) % 12);
-      const hoehe = 1.5 + ((i * 0.7) % 1.4);
-      const stamm = new THREE.Mesh(new THREE.BoxGeometry(0.22, hoehe * 0.5, 0.22), tannenStamm);
-      stamm.position.set(bx, hoehe * 0.25, bz);
-      this.scene.add(stamm);
-      const krone = new THREE.Mesh(new THREE.ConeGeometry(hoehe * 0.42, hoehe * 1.1, 6), tannenGruen);
-      krone.position.set(bx, hoehe * 0.5 + hoehe * 0.5, bz);
-      this.scene.add(krone);
-      const haube = new THREE.Mesh(new THREE.ConeGeometry(hoehe * 0.26, hoehe * 0.4, 6), schneeMat);
-      haube.position.set(bx, hoehe * 1.15, bz);
-      this.scene.add(haube);
-    }
-    // Weiche Schneehügel als Horizont.
-    for (let i = 0; i < 7; i += 1) {
-      const huegel = new THREE.Mesh(new THREE.SphereGeometry(2.2 + (i % 3) * 1.3, 10, 6), schneeMat);
-      huegel.position.set(-11 + i * 3.7, -1.4, -SHEET_LEN / 2 - 9 - (i % 2) * 3);
-      huegel.scale.y = 0.5;
-      this.scene.add(huegel);
-    }
-
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.buildThrower(sheetY);
-    this.resizeRenderer();
-    this.camera.position.set(0, 4.1, 8.8);
-    // Blick etwas tiefer: dadurch rutscht die ganze Szene im Bild nach OBEN,
-    // und der Werfer am unteren Rand kommt hinter der Bedienleiste hervor.
-    this.camera.lookAt(0, -0.55, -1.4);
-  }
-
-  buildThrower(sheetY) {
-    const state = this.getState();
-    const me = state?.players?.find((player) => player.id === this.getControlledPlayerId()) || state?.players?.[0];
-    const entry = this.minigame.arcade.players[me?.id];
-    // Der Werfer steht dicht vor der Kamera — dort ist der sichtbare Ausschnitt
-    // knapp einen Meter breit, die Bahn aber gut vier. Ungebremst übernommen
-    // stand die eigene Figur je nach Startposition halb ausserhalb des Bildes.
-    // Sie zeigt die Richtung, den genauen Punkt zeigt die Ziellinie.
-    const x = Math.max(-0.75, Math.min(0.75, this.worldX(entry?.startX ?? 0.5) * 0.5));
-    const z = this.worldZ(sheetY, sheetY) + 0.35;
-    const kin = createVoxelKin(me?.color || "#ff5d73", 0);
-    kin.scale.setScalar(0.85);
-    const label = createNameLabel("du", me?.color || "#ff5d73");
-    label.position.y = 0.72;
-    kin.add(label);
-    kin.position.set(x, standOn(0), z);
-    this.scene.add(kin);
-    const shadow = createShadowBlob(0.45);
-    shadow.position.set(x, 0.08, z);
-    this.scene.add(shadow);
-    this.thrower = kin;
-    this.throwerAnimator = new KinAnimator(kin);
-    this.throwerAnimator.groundY = standOn(0);
+    this.on(this.webglCanvas, "pointerdown", this.onDown);
+    this.on(this.webglCanvas, "pointermove", this.onMove);
+    this.on(window, "pointerup", this.onUp);
+    this.on(window, "pointercancel", this.onCancel);
   }
 
   ensureStone(stone, colour) {
@@ -327,130 +267,114 @@ export class IceStock {
     if (bar) bar.hidden = true;
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const controlledId = this.getControlledPlayerId();
-    const own = arcade.players[controlledId];
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, state } = f;
+    if (!arcade) return;
     const sheetY = arcade.sheetY || 1.3;
     const colourOf = (id) => state.players.find((player) => player.id === id)?.color || "#ffffff";
-
     const alive = new Set();
-    // Das GLEITEN hörbar machen.
-    //
-    // Von einem Eisstockspiel gab es bisher zwei Geräusche: den Abwurf und den
-    // Rempler. Dazwischen — der ganze lange Lauf über das Eis, das Eigentliche
-    // an diesem Spiel — war Stille. Ein Stein, der lautlos über eine Fläche
-    // zieht, fühlt sich an wie ein Standbild, das sich bewegt.
-    //
-    // Ein Dauerton ginge nicht: die Klangwerkstatt kennt nur kurze Töne. Also
-    // ein feines Ticken im Takt der Geschwindigkeit — schnell und hell, wenn er
-    // schiesst, langsam und leise, wenn er ausläuft. Mitgeschwenkt nach links
-    // und rechts, damit man hört, wo er läuft.
     let schnellster = 0;
+    const stonesById = new Map();
     (arcade.stones || []).forEach((stone) => {
       alive.add(stone.id);
+      stonesById.set(stone.id, stone);
       const visual = this.ensureStone(stone, colourOf(stone.playerId));
       const wx = this.worldX(stone.x);
       visual.group.position.set(wx, 0, this.worldZ(stone.y, sheetY));
       const tempo = Math.hypot(stone.vx, stone.vy);
       visual.group.rotation.y += dt * tempo * 2.4;
-      visual.handle.material.color.set(colourOf(stone.playerId));
       if (tempo > schnellster) {
         schnellster = tempo;
         this.gleitPan = wx / (SHEET_W / 2);
       }
-      // Zur Ruhe gekommen: ein kurzer Abschluss, damit man weiss, dass gezählt
-      // wird — vorher endete jeder Lauf einfach im Nichts.
       const stand = tempo < 0.02;
       if (stand && !this.ruhig.has(stone.id)) {
         this.ruhig.add(stone.id);
-        if (stone.playerId === this.getControlledPlayerId()) {
+        if (stone.playerId === controlledId) {
           this.feedback?.sound("lock", { pan: wx / (SHEET_W / 2) * 0.5 });
           this.feedback?.vibrate(8);
         }
       } else if (!stand) {
         this.ruhig.delete(stone.id);
       }
+      // Den eigenen, zuletzt geworfenen Stein merken, damit man ihm nachschaut.
+      const thrower = this.throwers.get(stone.playerId);
+      if (thrower && (thrower.stoneId === null || stone.id > thrower.stoneId) && !stand) thrower.stoneId = stone.id;
     });
-    if (schnellster > 0.05) {
-      // Der Takt hängt am Tempo: bei vollem Schub alle 70 ms, im Auslaufen
-      // dreimal so langsam.
-      const takt = 70 + Math.max(0, 1 - schnellster / 1.6) * 150;
-      if (now - (this.letzterGleitTon || 0) > takt) {
-        this.letzterGleitTon = now;
-        this.feedback?.sound("step", { pan: (this.gleitPan || 0) * 0.5 });
-      }
+    if (schnellster > 0.05 && now - this.letzterGleitTon > 70 + Math.max(0, 1 - schnellster / 1.6) * 150) {
+      this.letzterGleitTon = now;
+      this.feedback?.sound("step", { pan: (this.gleitPan || 0) * 0.5 });
     }
     this.stoneMeshes.forEach((visual, id) => {
       if (alive.has(id)) return;
       this.scene.remove(visual.group);
       this.stoneMeshes.delete(id);
     });
-
-    // Rempler hörbar machen: sie sind der Grund, warum der letzte Stein zählt.
     if ((arcade.clacks || 0) > this.lastClacks) {
       this.lastClacks = arcade.clacks;
       this.feedback?.sound("clack");
       this.feedback?.vibrate(10);
-      this.shake = Math.max(this.shake, 0.2);
+      this.rig.shake(0.2);
+      this.throwers.forEach((thrower, id) => this.animators.get(id)?.expression("surprised", 500));
     }
 
-    if (minigame.finaleAt) {
-      applyFinaleMood(this.throwerAnimator, this.finalePlace(arcade, state), state.players.length);
-    } else {
-      this.throwerAnimator.set((own?.stonesLeft || 0) > 0 ? "idle" : "cheer", { base: true });
-    }
-    this.throwerAnimator.update(now);
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.86, dt);
-    const shakeX = Math.sin(now / 12) * this.shake * 0.16 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
-    this.camera.position.y = this.baseCamY || 3.4;
-    this.camera.position.z = this.baseCamZ || 7.4;
-    // Blick etwas tiefer: dadurch rutscht die ganze Szene im Bild nach OBEN,
-    // und der Werfer am unteren Rand kommt hinter der Bedienleiste hervor.
-    this.camera.lookAt(0, -0.55, -1.4);
-
-    this.updateHud(minigame, arcade, state, now, own);
-    // Sicherstellen, dass alle Figuren im Bild sind — notfalls weicht die
-    // Kamera zurück. Auf dem Handy ist der Ausschnitt schmal, und wer sich
-    // selbst nicht sieht, spielt blind.
-    fitKinsInView(this);
-    this.renderer.render(this.scene, this.camera);
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const thrower = this.throwers.get(player.id);
+      const kin = this.kins.get(player.id);
+      const animator = this.animators.get(player.id);
+      if (!entry || !thrower || !kin || !animator) return;
+      const left = entry.stonesLeft ?? 0;
+      if (left < thrower.left) {
+        thrower.threwAt = now;
+        thrower.reacted = false;
+        thrower.stoneId = null;
+        animator.trigger("push");
+      }
+      thrower.left = left;
+      // Ausfallschritt nach vorn und zurück.
+      const since = now - thrower.threwAt;
+      const lunge = since < 700 ? Math.sin(Math.min(1, since / 700) * Math.PI) * 0.7 : 0;
+      kin.position.z = thrower.z - lunge;
+      kin.position.x = thrower.x;
+      if (finale) {
+        kin.rotation.y += Math.atan2(Math.sin(0.3 - kin.rotation.y), Math.cos(0.3 - kin.rotation.y)) * frameLerp(0.08, dt);
+        return;
+      }
+      const stone = thrower.stoneId !== null ? stonesById.get(thrower.stoneId) : null;
+      const moving = stone && Math.hypot(stone.vx, stone.vy) > 0.02;
+      const visual = stone ? this.stoneMeshes.get(stone.id) : null;
+      kin.rotation.y = Math.PI;
+      animator.lookAt(visual ? visual.group.position : null);
+      if (since < 700) return;
+      if (moving) {
+        animator.set("focus");
+        animator.expression("effort", 150);
+      } else if (stone && !thrower.reacted) {
+        // Liegen geblieben: im Haus freuen, sonst Schultern hoch.
+        thrower.reacted = true;
+        const house = arcade.house;
+        const d = Math.hypot(stone.x - house.x, stone.y - house.y);
+        const outer = Math.max(...(arcade.rings || [{ radius: 0.2 }]).map((ring) => ring.radius));
+        animator.trigger(d < outer ? "fistpump" : "headshake");
+        animator.expression(d < outer ? "joy" : "sad", 900);
+      } else if (player.id === controlledId && this.drag) {
+        const rect = this.webglCanvas.getBoundingClientRect();
+        const dx = ((this.drag.cx ?? this.drag.x) - this.drag.x) / Math.max(1, rect.width);
+        const dy = ((this.drag.cy ?? this.drag.y) - this.drag.y) / Math.max(1, rect.height);
+        animator.set("charge", { params: { power: Math.min(1, Math.hypot(dx, dy) / 0.55) } });
+      } else {
+        animator.set(left > 0 ? "ready" : "idle");
+      }
+    });
   }
 
-  finalePlace(arcade, state) {
-    const scored = state.players
-      .map((player) => ({ id: player.id, score: arcade.players[player.id]?.score || 0 }))
-      .sort((a, b) => b.score - a.score);
-    const index = scored.findIndex((entry) => entry.id === this.getControlledPlayerId());
-    return index < 0 ? state.players.length : index + 1;
-  }
-
-  updateHud(minigame, arcade, state, now, own) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(Math.max(0, Math.round(own?.score || 0)));
-
+  drawHud(f) {
+    const { arcade, state, controlledId } = f;
+    if (!arcade) return;
+    const own = arcade.players[controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(Math.max(0, Math.round(own?.score || 0)));
     const left = this.hud.querySelector("[data-stock-left]");
     if (left) {
       const count = own?.stonesLeft ?? 0;
@@ -481,17 +405,5 @@ export class IceStock {
     } else {
       banner.hidden = true;
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Flach über die Bahn: die Entfernung zum Haus ist die ganze Aufgabe, und
-      // von oben gesehen wäre sie nicht mehr ablesbar.
-      // Weiter zurück: der Werfer stand anderthalb Einheiten vor der Kamera und
-      // wurde von der Bedienleiste angeschnitten.
-      this.baseCamY = portrait ? 4.1 : 3.0;
-      this.baseCamZ = portrait ? 8.8 : 8.6;
-      camera.fov = portrait ? 54 : 44;
-    });
   }
 }

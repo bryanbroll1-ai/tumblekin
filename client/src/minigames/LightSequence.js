@@ -1,39 +1,17 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  dressMeadow,
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
-// Leuchtfolge — vier Pilze leuchten der Reihe nach auf, danach tippt man sie in
-// derselben Reihenfolge nach. Jede Runde ist die Folge einen Pilz länger.
+// Leuchtfolge: die Pilze leuchten in einer Folge auf, danach tippt man sie in
+// derselben Reihenfolge nach. Jede Runde wird die Folge länger.
 //
-// Die Pilze stehen im Quadrat und werden DIREKT angetippt, nicht über Knöpfe am
-// unteren Rand. Beim Nachtippen schaut man ohnehin genau dorthin, wo eben etwas
-// geleuchtet hat — ein Knopfstreifen wäre ein zweiter Ort für den Blick, und
-// genau in dem Moment reisst die Erinnerung ab.
+// Vorher stand nur die eigene Figur vor den Pilzen. Jetzt stehen alle hinter
+// dem Pilzkreis wie ein kleiner Chor: sie schauen gebannt auf den Pilz, der
+// gerade leuchtet, hüpfen bei jedem richtigen Tipp, fassen sich bei einem
+// Fehler an den Kopf und jubeln, wenn die Folge geschafft ist.
 const COLOURS = ["#ff5d73", "#3fc5e8", "#ffd15c", "#71d97b"];
-// Der RUHENDE Zustand, nicht der Ausgeschaltete. Vorher lagen die vier Kappen
-// bei rund einem Drittel Helligkeit — auf dem Bild waren daraus Weinrot,
-// Petrol, Oliv und Dunkelgrün geworden, und Oliv und Dunkelgrün liessen sich
-// kaum auseinanderhalten. Die Farbe IST hier die ganze Regel: man muss sie
-// auch ungeleuchtet auf einen Blick unterscheiden können. Jetzt sind es
-// gedämpfte, aber satte Fassungen derselben vier Töne.
 const COLOURS_DARK = ["#c9455a", "#2e93b0", "#cca43f", "#4fa85c"];
 const SPOTS = [
   { x: -1.15, z: -0.35 },
@@ -41,131 +19,47 @@ const SPOTS = [
   { x: -1.15, z: 1.35 },
   { x: 1.15, z: 1.35 }
 ];
+const CHOIR_Z = -1.75;
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-export class LightSequence {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class LightSequence extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.pads = [];
     this.hitTargets = [];
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
     this.shownStep = -1;
     this.shownRound = -1;
-    this.lastProgress = 0;
-    this.lastFailed = false;
+    this.watch = new Map();
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Leuchtfolge", background: "#8fd3ef", fog: ["#b3e4f6", 20, 50], fov: 58, far: 90 });
+  stage() {
+    return {
+      label: "3D Leuchtfolge",
+      background: "#8fd3ef",
+      fog: ["#b3e4f6", 20, 50],
+      lights: { sunPosition: [-4, 12, 8], shadow: { left: -5, right: 5, top: 8, bottom: -3 } }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="simon-round" data-simon-round>Runde 1</div>
       <div class="simon-chips" data-simon-chips></div>
-      <div class="color-banner simon-banner" data-simon-banner hidden></div>
-    `);
-    this.createScene();
-
-    this.controls.innerHTML = `<p class="trace-hint">Erst zuschauen, dann in derselben Reihenfolge tippen</p>`;
-    this.controls.style.pointerEvents = "none";
-
-    this.onTap = (event) => {
-      event.preventDefault();
-      this.tapAt(event);
-    };
-    this.webglCanvas.addEventListener("pointerdown", this.onTap);
-    this.loop();
+      <div class="color-banner simon-banner" data-simon-banner hidden></div>`;
   }
 
-  tapAt(event) {
-    const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt || !this.camera) return;
-    // Während die Folge gezeigt wird, ist Tippen wirkungslos — der Server sagt
-    // dasselbe, aber ohne Rückmeldung hier fühlt es sich wie ein Aussetzer an.
-    if (!this.acceptingInput()) {
-      this.feedback?.sound("clack");
-      return;
-    }
-    const rect = this.webglCanvas.getBoundingClientRect();
-    this.pointer.set(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -(((event.clientY - rect.top) / rect.height) * 2 - 1)
-    );
-    this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hits = this.raycaster.intersectObjects(this.hitTargets, false);
-    if (hits.length === 0) return;
-    const index = hits[0].object.userData.padIndex;
-    this.pads[index].press = 1;
-    this.feedback?.sound("tap");
-    this.sendInput({ action: "color", index }).catch(() => {});
-  }
-
-  activeRound() {
-    const minigame = this.update || this.minigame;
-    const arcade = minigame?.arcade;
-    if (!arcade?.rounds) return null;
-    const elapsed = Math.max(0, this.now() - minigame.startedAt);
-    for (const round of arcade.rounds) {
-      if (elapsed >= round.showFrom && elapsed <= round.until) return { round, elapsed };
-      if (round.showFrom > elapsed) break;
-    }
-    return null;
-  }
-
-  acceptingInput() {
-    const active = this.activeRound();
-    return Boolean(active && active.elapsed >= active.round.inputFrom);
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    this.webglCanvas?.removeEventListener("pointerdown", this.onTap);
-    teardownStage(this);
-    this.pads.length = 0;
-    this.hitTargets.length = 0;
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-4, 12, 8],
-      shadow: { left: -5, right: 5, top: 8, bottom: -3 }
-    });
-
+  build() {
+    const scene = this.scene;
     const glade = new THREE.Mesh(
       new THREE.BoxGeometry(44, 0.5, 44),
       new THREE.MeshLambertMaterial({ color: "#5c9c4a" })
     );
     glade.position.set(0, -0.25, -4);
     glade.receiveShadow = true;
-    this.scene.add(glade);
+    scene.add(glade);
 
     // Pilzlichtung: bis hierher war das eine nackte grüne Platte mit vier
     // Pilzen darauf und einer harten Kante gegen den Himmel. Eigene Palette,
@@ -204,27 +98,24 @@ export class LightSequence {
     );
     ring.position.set(0, 0.03, 0.5);
     ring.receiveShadow = true;
-    this.scene.add(ring);
+    scene.add(ring);
 
     SPOTS.forEach((spot, index) => this.buildPad(spot, index));
 
     [[-5.4, 6.2, -8, 5], [5.2, 6.9, -9, 2]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+      scene.add(cloud);
     });
 
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.buildWatcher();
-    this.resizeRenderer();
-    this.camera.position.set(0, 5.0, 5.6);
-    this.camera.lookAt(0, 0.5, 0.4);
+    const players = this.getState()?.players || [];
+    players.forEach((player, index) => {
+      const x = (index - (players.length - 1) / 2) * 1.0;
+      this.addKin(player, index, { x, ground: 0, z: CHOIR_Z - Math.abs(x) * 0.25, facing: 0 });
+      this.watch.set(player.id, { progress: 0, failed: false, round: -1 });
+    });
   }
 
-  // Ein Leuchtpilz je Farbe: Stiel, Hut und ein Leuchtring darunter. Der Hut
-  // wächst beim Aufleuchten — Farbe allein liest man auf dem Handybild aus dem
-  // Augenwinkel schlechter als Bewegung.
   buildPad(spot, index) {
     const group = new THREE.Group();
     group.position.set(spot.x, 0, spot.z);
@@ -267,9 +158,6 @@ export class LightSequence {
     glow.position.y = 0.04;
     group.add(glow);
 
-    const shadow = createShadowBlob(0.5);
-    shadow.position.set(spot.x, 0.05, spot.z);
-    this.scene.add(shadow);
 
     const hit = new THREE.Mesh(
       new THREE.SphereGeometry(0.85, 8, 6),
@@ -290,65 +178,71 @@ export class LightSequence {
     });
   }
 
-  buildWatcher() {
-    const state = this.getState();
-    const me = state?.players?.find((player) => player.id === this.getControlledPlayerId()) || state?.players?.[0];
-    const kin = createVoxelKin(me?.color || "#ff5d73", 0);
-    kin.scale.setScalar(0.8);
-    const label = createNameLabel("du", me?.color || "#ff5d73");
-    label.position.y = 0.72;
-    kin.add(label);
-    kin.position.set(0, standOn(0), 2.9);
-    this.scene.add(kin);
-    const shadow = createShadowBlob(0.45);
-    shadow.position.set(0, 0.06, 2.9);
-    this.scene.add(shadow);
-    this.watcher = kin;
-    this.watcherAnimator = new KinAnimator(kin);
-    this.watcherAnimator.groundY = standOn(0);
+  shot() {
+    return {
+      look: [0, 0.45, 0.05],
+      frame: { w: 4.3, h: 3.9 },
+      pitch: 0.7,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }
+    };
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
+  bind() {
+    this.controls.innerHTML = `<p class="trace-hint">Erst zuschauen, dann in derselben Reihenfolge tippen</p>`;
+    this.controls.style.pointerEvents = "none";
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      event.preventDefault();
+      this.tapAt(event);
+    });
+  }
 
-  draw() {
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.pads.length = 0;
+    this.hitTargets.length = 0;
+  }
+
+  tapAt(event) {
     const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const own = arcade.players[this.getControlledPlayerId()];
-    const active = this.activeRound();
-
-    this.playSequence(active, now);
-    this.syncPads(dt, now);
-    this.reactToOwn(own, active, now);
-    this.syncWatcher(minigame, arcade, state, own, active, now);
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.88, dt);
-    const shakeX = Math.sin(now / 12) * this.shake * 0.18 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
-    this.camera.position.y = this.baseCamY || 5.0;
-    this.camera.position.z = this.baseCamZ || 5.6;
-    this.camera.lookAt(0, 0.5, 0.4);
-
-    this.updateHud(minigame, arcade, state, now, own, active);
-    this.renderer.render(this.scene, this.camera);
+    if (!minigame || minigame.finaleAt || !this.camera) return;
+    // Während die Folge gezeigt wird, ist Tippen wirkungslos — der Server sagt
+    // dasselbe, aber ohne Rückmeldung hier fühlt es sich wie ein Aussetzer an.
+    if (!this.acceptingInput()) {
+      this.feedback?.sound("clack");
+      return;
+    }
+    const rect = this.webglCanvas.getBoundingClientRect();
+    this.pointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -(((event.clientY - rect.top) / rect.height) * 2 - 1)
+    );
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hits = this.raycaster.intersectObjects(this.hitTargets, false);
+    if (hits.length === 0) return;
+    const index = hits[0].object.userData.padIndex;
+    this.pads[index].press = 1;
+    this.feedback?.sound("tap");
+    this.sendInput({ action: "color", index }).catch(() => {});
   }
 
-  // Die Folge abspielen. Welcher Pilz gerade dran ist, hängt allein an der
-  // verstrichenen Zeit — der Server rechnet mit derselben Zahl, also stimmt das
-  // Gezeigte immer mit dem überein, was gewertet wird.
+  activeRound() {
+    const minigame = this.update || this.minigame;
+    const arcade = minigame?.arcade;
+    if (!arcade?.rounds) return null;
+    const elapsed = Math.max(0, this.now() - minigame.startedAt);
+    for (const round of arcade.rounds) {
+      if (elapsed >= round.showFrom && elapsed <= round.until) return { round, elapsed };
+      if (round.showFrom > elapsed) break;
+    }
+    return null;
+  }
+
+  acceptingInput() {
+    const active = this.activeRound();
+    return Boolean(active && active.elapsed >= active.round.inputFrom);
+  }
+
   playSequence(active, now) {
     if (!active) { this.shownStep = -1; return; }
     const { round, elapsed } = active;
@@ -386,63 +280,73 @@ export class LightSequence {
     });
   }
 
-  reactToOwn(own, active, now) {
-    if (!own) return;
-    const progress = own.roundProgress || 0;
-    if (active && own.currentRound === active.round.index) {
-      if (progress > this.lastProgress) {
-        this.feedback?.vibrate(8);
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale } = f;
+    if (!arcade) return;
+    const active = this.activeRound();
+    this.playSequence(active, now);
+    this.syncPads(dt, now);
+    const watching = active && active.elapsed < active.round.inputFrom;
+    // Der Pilz, der gerade leuchtet — dorthin schauen alle.
+    const lit = this.pads.reduce((best, pad) => (pad.light > (best?.light || 0.05) ? pad : best), null);
+
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const kin = this.kins.get(player.id);
+      const animator = this.animators.get(player.id);
+      const w = this.watch.get(player.id);
+      if (!entry || !kin || !animator || !w) return;
+      const isOwn = player.id === controlledId;
+      const inRound = active && entry.currentRound === active.round.index;
+      const progress = inRound ? entry.roundProgress || 0 : 0;
+      if (inRound && progress > w.progress) {
+        animator.trigger("hop", { height: 0.16 });
+        animator.trigger("tap");
+        if (isOwn) this.feedback?.vibrate(8);
         if (progress >= active.round.sequence.length) {
-          const at = new THREE.Vector3(0, 1.6, 0.4);
-          this.bursts.spawn(at, ["#ffe36b", "#ffffff"], { count: 14 * fxScale(), speed: 2.0, up: 1.6, size: 0.07, life: 0.6, drag: 1.8 });
-          this.floaters.pop(at, "FOLGE GESCHAFFT!", { color: "#ffe36b", size: 0.4, life: 0.9 });
-          this.feedback?.sound("perfect");
+          animator.trigger("fistpump");
+          animator.expression("joy", 900);
+          const at = kin.position.clone().add(new THREE.Vector3(0, 1.1, 0));
+          this.burst(at, ["#ffe36b", "#ffffff", player.color], { count: 12 * fxScale(), speed: 2.0, up: 1.6, size: 0.07, life: 0.6, drag: 1.8 });
+          if (isOwn) {
+            this.pop(new THREE.Vector3(0, 1.6, 0.4), "FOLGE GESCHAFFT!", { color: "#ffe36b", size: 0.4, life: 0.9 });
+            this.feedback?.sound("perfect");
+          }
         }
       }
-      if (own.roundFailed && !this.lastFailed) {
-        this.floaters.pop(new THREE.Vector3(0, 1.6, 0.4), "FALSCH!", { color: "#ff9aa8", size: 0.38, life: 0.9 });
-        this.feedback?.sound("error");
-        this.feedback?.vibrate(24);
-        this.shake = Math.max(this.shake, 0.45);
+      const failed = Boolean(inRound && entry.roundFailed);
+      if (failed && !w.failed) {
+        animator.trigger("facepalm");
+        animator.expression("sad", 1400);
+        if (isOwn) {
+          this.pop(new THREE.Vector3(0, 1.6, 0.4), "FALSCH!", { color: "#ff9aa8", size: 0.38, life: 0.9 });
+          this.feedback?.sound("error");
+          this.feedback?.vibrate(24);
+          this.rig.shake(0.45);
+        }
       }
-      this.lastFailed = Boolean(own.roundFailed);
-    } else {
-      this.lastFailed = false;
-    }
-    this.lastProgress = progress;
+      w.failed = failed;
+      w.progress = progress;
+      if (finale) return;
+      animator.lookAt(lit ? lit.group.position.clone().setY(0.6) : null);
+      if (failed) animator.set("sad");
+      else if (watching) animator.set("focus");
+      else if (inRound && progress >= (active?.round.sequence.length || 99)) animator.set("happy");
+      else animator.set("think");
+    });
   }
 
-  syncWatcher(minigame, arcade, state, own, active, now) {
-    if (minigame.finaleAt) {
-      const place = this.finalePlace(arcade, state);
-      applyFinaleMood(this.watcherAnimator, place, state.players.length);
-    } else if (own?.roundFailed) {
-      this.watcherAnimator.set("sad", { base: true });
-    } else if (active && active.elapsed < active.round.inputFrom) {
-      // Beim Zuschauen steht die Figur still — das ist die Ansage, dass jetzt
-      // gemerkt und nicht getippt wird.
-      this.watcherAnimator.set("idle", { base: true });
-    } else {
-      this.watcherAnimator.set("cheer", { base: true });
-    }
-    this.watcherAnimator.update(now);
+  keepInView(f) {
+    return f.players.map((player) => this.kins.get(player.id)).filter(Boolean).concat(this.pads.map((pad) => pad.group));
   }
 
-  finalePlace(arcade, state) {
-    const scored = state.players
-      .map((player) => ({ id: player.id, score: arcade.players[player.id]?.score || 0 }))
-      .sort((a, b) => b.score - a.score);
-    const index = scored.findIndex((entry) => entry.id === this.getControlledPlayerId());
-    return index < 0 ? state.players.length : index + 1;
-  }
-
-  updateHud(minigame, arcade, state, now, own, active) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(own?.survived || 0);
-
+  drawHud(f) {
+    const { arcade, state } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    const active = this.activeRound();
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(own?.survived || 0);
     const roundLabel = this.hud.querySelector("[data-simon-round]");
     if (roundLabel) {
       const total = arcade.rounds?.length || 0;
@@ -482,18 +386,5 @@ export class LightSequence {
       banner.style.background = "#7fe06f";
       banner.style.color = "#14361a";
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Im Hochformat höher und näher, damit alle vier Pilze im oberen Zweidrittel
-      // liegen — beim Nachtippen greift der Daumen von unten.
-      // Weiter zurück im Hochformat: die beiden äusseren Pilze standen bei
-      // x = ±1.15 mit 0.58 Kappenradius, macht 1.73 halbe Breite — sichtbar
-      // waren gemessen nur 1.55, also war von beiden ein Stück abgeschnitten.
-      this.baseCamY = portrait ? 5.4 : 4.4;
-      this.baseCamZ = portrait ? 6.6 : 6.2;
-      camera.fov = portrait ? 58 : 48;
-    });
   }
 }
