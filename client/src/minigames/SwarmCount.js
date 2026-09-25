@@ -211,17 +211,6 @@ export class SwarmCount extends MinigameScene {
     return { round, phase, elapsed };
   }
 
-  activeRound() {
-    const minigame = this.update || this.minigame;
-    const arcade = minigame?.arcade;
-    if (!arcade?.rounds) return null;
-    const elapsed = Math.max(0, this.now() - minigame.startedAt);
-    const round = arcade.rounds.find((candidate) => elapsed >= candidate.showFrom && elapsed < candidate.until);
-    if (!round) return null;
-    const phase = elapsed < round.guessFrom ? "show" : elapsed < round.revealFrom ? "guess" : "reveal";
-    return { round, phase, elapsed };
-  }
-
   shot() {
     return {
       look: [0, 2.0, 0.6],

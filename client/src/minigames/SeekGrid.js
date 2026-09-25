@@ -508,18 +508,6 @@ export class SeekGrid extends MinigameScene {
     });
   }
 
-  syncGem(own, now, dt) {
-    if (!this.gem) return;
-    const showing = this.gemAt && now < this.gemAt.until;
-    this.gem.visible = Boolean(showing);
-    if (!showing) return;
-    const remaining = (this.gemAt.until - now) / 900;
-    this.gem.position.set(this.gemAt.x, 0.6 + (1 - remaining) * 1.5, this.gemAt.z);
-    this.gem.rotation.y += dt * 5.2;
-    this.gem.rotation.x += dt * 2.1;
-    this.gem.scale.setScalar(clamp(remaining * 1.4, 0.2, 1.2));
-  }
-
   keepInView(f) {
     const own = this.kins.get(f.controlledId);
     return own ? [own] : [];
