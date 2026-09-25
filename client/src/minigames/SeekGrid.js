@@ -1,36 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, fxScale, shakeScale } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
-// Spürsinn — im Feld liegt ein Fundstück versteckt. Jeder Tipp auf ein Feld
-// verrät, wie viele Schritte es bis dorthin sind. Wer die Angaben kombiniert,
-// hat es in zwei bis drei Tipps.
+// Spürsinn: irgendwo unter den Feldern liegt ein Schatz. Jedes angetippte
+// Feld sagt, wie viele Schritte er entfernt ist. Wer mit wenigen Tipps findet,
+// bekommt mehr.
 //
-// Das einzige Minispiel, das nachdenken verlangt statt zu reagieren — und die
-// Darstellung muss dem dienen. Zwei Entscheidungen folgen daraus:
-//
-//  * Die Zahl steht auf dem Feld, nicht am Rand. Beim Kombinieren schaut man
-//    zwischen den Feldern hin und her; eine Liste am Bildrand wäre ein zweiter
-//    Ort für den Blick, und genau dort reisst der Gedanke ab.
-//  * Zusätzlich die Farbe: heiss (nah) bis kalt (weit). Die Zahl ist die
-//    Wahrheit, die Farbe der erste Eindruck — man sieht die Richtung schon,
-//    bevor man gelesen hat.
+// Vorher stand die eigene Figur untätig am Rand. Jetzt hüpft sie auf das
+// angetippte Feld und gräbt dort, springt vor Freude, wenn der Schatz
+// herauskommt, und die anderen stehen rund um das Feld und jubeln, wenn sie
+// ihren eigenen gefunden haben — jeder sucht auf seinem eigenen Brett.
 const SIZE = 6;
 const TILE = 0.82;                       // Kantenlänge eines Feldes
 const GAP = 0.06;
@@ -75,138 +54,48 @@ function buildDigitMaterials() {
   return materials;
 }
 
-export class SeekGrid {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+export class SeekGrid extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.tiles = [];
     this.hitTargets = [];
     this.digitMaterials = [];
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
     this.shownRound = -1;
     this.shownFindAt = 0;
     this.lastProbeCount = 0;
+    this.otherFinds = new Map();
+    this.searchAt = null;
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Spürsinn", background: "#161d2c", fog: ["#202a3d", 24, 58], fov: 56, far: 90 });
+  stage() {
+    return {
+      label: "3D Spürsinn",
+      background: "#161d2c",
+      fog: ["#202a3d", 24, 58],
+      lights: { sunPosition: [-5, 13, 7], shadow: { left: -6, right: 6, top: 8, bottom: -4 }, hemiIntensity: 1.9, sunIntensity: 2.1, skyColor: 0x7d8fc4, groundColor: 0x3d3226, sunColor: 0xc6d4ff, fillColor: 0x8f9bd8, fillIntensity: 0.5 }
+    };
+  }
 
-    mountHud(this, `
+  hudHtml() {
+    return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="simon-round" data-seek-round>Tipps: 0</div>
       <div class="simon-chips" data-seek-chips></div>
-      <div class="color-banner" data-seek-banner hidden></div>
-    `);
-    this.createScene();
-
-    this.controls.innerHTML = `<p class="trace-hint">Tippe ein Feld — die Zahl sagt, wie viele Schritte bis zum Fund</p>`;
-    this.controls.style.pointerEvents = "none";
-
-    this.onTap = (event) => {
-      event.preventDefault();
-      this.tapAt(event);
-    };
-    this.webglCanvas.addEventListener("pointerdown", this.onTap);
-    this.loop();
+      <div class="color-banner" data-seek-banner hidden></div>`;
   }
 
-  tapAt(event) {
-    const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt || !this.camera) return;
-    const rect = this.webglCanvas.getBoundingClientRect();
-    this.pointer.set(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -(((event.clientY - rect.top) / rect.height) * 2 - 1)
-    );
-    this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hits = this.raycaster.intersectObjects(this.hitTargets, false);
-    if (hits.length === 0) return;
-    const { gx, gy } = hits[0].object.userData;
-    const tile = this.tileAt(gx, gy);
-    // Ein schon aufgedecktes Feld noch einmal zu tippen ist ein Verrutscher.
-    // Der Server nimmt es stillschweigend hin; hier wackelt das Feld kurz,
-    // damit man merkt, dass der Tipp nichts gekostet hat.
-    if (tile?.revealed) {
-      tile.nudge = 1;
-      this.feedback?.sound("clack");
-      return;
-    }
-    if (tile) tile.press = 1;
-    this.feedback?.sound("tap");
-    this.sendInput({ action: "probe", x: gx, y: gy }).catch(() => {});
-  }
-
-  tileAt(gx, gy) {
-    return this.tiles[gy * SIZE + gx] || null;
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    this.webglCanvas?.removeEventListener("pointerdown", this.onTap);
-    // Die geteilten Ziffernschilder gehören dieser Szene, nicht dem Baum — der
-    // allgemeine Aufräumer sieht sie nicht, weil ungenutzte Schilder gar nicht
-    // in der Szene hängen.
-    this.digitMaterials.forEach((material) => {
-      material.map?.dispose();
-      material.dispose();
-    });
-    this.digitMaterials.length = 0;
-    teardownStage(this);
-    this.tiles.length = 0;
-    this.hitTargets.length = 0;
-  }
-
-  createScene() {
-    // Nachtgrabung: kühles Mondlicht von oben, die Wärme kommt aus den
-    // Laternen an den Ecken.
-    addStageLights(this.scene, {
-      sunPosition: [-5, 13, 7],
-      shadow: { left: -6, right: 6, top: 8, bottom: -4 },
-      hemiIntensity: 1.9,
-      sunIntensity: 2.1,
-      skyColor: 0x7d8fc4,
-      groundColor: 0x3d3226,
-      sunColor: 0xc6d4ff,
-      fillColor: 0x8f9bd8,
-      fillIntensity: 0.5
-    });
-
-    // Vorher: eine 16×16-Platte in fast derselben Farbe wie der Hintergrund,
-    // ringsum nichts. Im Bild schwebte das Raster in einer leeren blaugrauen
-    // Fläche, und die Suchfigur stand allein im Nichts. Jetzt ist es eine
-    // Ausgrabung bei Nacht: Erdboden bis unter die Kamera, eine Steinkante um
-    // das Feld, Laternen an den Ecken und Gerümpel am Rand.
+  build() {
+    const scene = this.scene;
     const floor = new THREE.Mesh(
       new THREE.BoxGeometry(44, 0.5, 44),
       new THREE.MeshLambertMaterial({ color: "#57452f" })
     );
     floor.position.set(0, -0.25, 2);
     floor.receiveShadow = true;
-    this.scene.add(floor);
+    scene.add(floor);
 
     // Der Rahmen macht aus 36 losen Klötzen ein Suchfeld — ohne ihn schwebt das
     // Raster im Nichts und man verliert am Rand die Orientierung.
@@ -217,7 +106,7 @@ export class SeekGrid {
     );
     frame.position.y = 0.05;
     frame.receiveShadow = true;
-    this.scene.add(frame);
+    scene.add(frame);
 
     this.digitMaterials = buildDigitMaterials();
 
@@ -236,7 +125,7 @@ export class SeekGrid {
     );
     this.gem.castShadow = true;
     this.gem.visible = false;
-    this.scene.add(this.gem);
+    scene.add(this.gem);
 
     // Steinkante rund um das Suchfeld — die Grabungskante.
     const kanteMat = new THREE.MeshLambertMaterial({ color: "#4a5c70" });
@@ -246,7 +135,7 @@ export class SeekGrid {
       const stein = new THREE.Mesh(new THREE.BoxGeometry(w, 0.42, d), kanteMat);
       stein.position.set(x, 0.21, z);
       stein.receiveShadow = true;
-      this.scene.add(stein);
+      scene.add(stein);
     });
 
     // Laternen an den vier Ecken: warme Punkte gegen das kalte Steinraster.
@@ -271,14 +160,14 @@ export class SeekGrid {
           new THREE.MeshLambertMaterial({ color: "#2f2a26" })
         );
         pfosten.position.set(x, 1.35, z);
-        this.scene.add(pfosten);
+        scene.add(pfosten);
       }
       const glas = new THREE.Mesh(
         new THREE.BoxGeometry(0.34, hoch ? 0.4 : 0.32, 0.34),
         new THREE.MeshBasicMaterial({ color: "#ffd489" })
       );
       glas.position.set(x, glasY, z);
-      this.scene.add(glas);
+      scene.add(glas);
       // Nur die Mastlaternen bekommen eine Haube. Auf den Bodenlampen sass sie
       // bei dieser Aufsicht genau über dem Glas — im Bild lag mitten in jeder
       // Lichtpfütze ein schwarzes Quadrat.
@@ -288,17 +177,16 @@ export class SeekGrid {
           new THREE.MeshLambertMaterial({ color: "#2f2a26" })
         );
         haube.position.set(x, glasY + 0.26, z);
-        this.scene.add(haube);
+        scene.add(haube);
       }
       const licht = new THREE.PointLight(0xffb75e, hoch ? 14 : 6, hoch ? 11 : 7, 2);
       licht.position.set(x, glasY, z);
-      this.scene.add(licht);
+      scene.add(licht);
       this.laternen.push({ licht, glas, phase: index * 1.7, grund: licht.intensity });
     });
 
     // Gerümpel am Rand: Kisten, Schutt, eine Schaufel im Erdhaufen.
-    [[-1.7, 5.4, 0.8, 0.7, "#6d5538"], [1.9, 5.9, 0.9, 0.6, "#5c472e"],
-     [-3.5, -4.3, 0.6, 0.6, "#6d5538"], [3.4, -4.6, 0.7, 0.5, "#5c472e"]].forEach(([x, z, w, h, color]) => {
+    [[-3.5, -4.3, 0.6, 0.6, "#6d5538"], [3.4, -4.6, 0.7, 0.5, "#5c472e"]].forEach(([x, z, w, h, color]) => {
       const kiste = new THREE.Mesh(
         new THREE.BoxGeometry(w, h, w),
         new THREE.MeshLambertMaterial({ color })
@@ -306,7 +194,7 @@ export class SeekGrid {
       kiste.position.set(x, h / 2, z);
       kiste.rotation.y = x * 0.4;
       kiste.castShadow = true;
-      this.scene.add(kiste);
+      scene.add(kiste);
     });
     const schutt = new THREE.InstancedMesh(
       new THREE.BoxGeometry(0.3, 0.22, 0.3),
@@ -325,14 +213,24 @@ export class SeekGrid {
       schutt.setMatrixAt(i, brocken.matrix);
     }
     schutt.instanceMatrix.needsUpdate = true;
-    this.scene.add(schutt);
+    scene.add(schutt);
 
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.buildSearcher();
-    this.resizeRenderer();
-    this.camera.position.set(0, 7.4, 5.4);
-    this.camera.lookAt(0, 0, 0);
+    // Die eigene Figur auf dem Brett, die anderen rundherum am Rand.
+    const players = this.getState()?.players || [];
+    const own = this.getControlledPlayerId();
+    const edge = (SIZE * STEP) / 2 + 1.0;
+    let slot = 0;
+    // Hinter dem Brett in einer Reihe, zur Kamera gedreht.
+    const rim = [[-1.6, -edge + 0.1], [0, -edge - 0.1], [1.6, -edge + 0.1]];
+    players.forEach((player, index) => {
+      if (player.id === own) {
+        this.addKin(player, index, { x: 0, ground: 0.47, z: 0, facing: 0 });
+        return;
+      }
+      const [x, z] = rim[slot % rim.length];
+      slot += 1;
+      this.addKin(player, index, { x, ground: 0.42, z, facing: 0, scale: 0.9 });
+    });
   }
 
   buildTile(gx, gy, digitGeometry) {
@@ -384,73 +282,67 @@ export class SeekGrid {
     });
   }
 
-  buildSearcher() {
-    const state = this.getState();
-    const me = state?.players?.find((player) => player.id === this.getControlledPlayerId()) || state?.players?.[0];
-    const kin = createVoxelKin(me?.color || "#ff5d73", 0);
-    kin.scale.setScalar(0.95);
-    const label = createNameLabel("du", me?.color || "#ff5d73");
-    label.position.y = 0.72;
-    kin.add(label);
-    const edge = (SIZE * STEP) / 2 + 1.0;
-    kin.position.set(0, standOn(0), edge);
-    this.scene.add(kin);
-    const shadow = createShadowBlob(0.42);
-    shadow.position.set(0, 0.06, edge);
-    this.scene.add(shadow);
-    this.searcher = kin;
-    this.searcherCheerUntil = 0;
-    this.searcherAnimator = new KinAnimator(kin);
-    this.searcherAnimator.groundY = standOn(0);
+  shot() {
+    return {
+      look: [0, 0.2, 0.35],
+      frame: { w: SIZE * STEP + 1.1, h: SIZE * STEP * Math.sin(0.95) + 1.4 },
+      fill: 0.95,
+      pitch: 0.95,
+      fov: 36,
+      intro: { yaw: 0.5, pitch: 0.3, zoom: 1.3 }
+    };
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
-
-  draw() {
-    const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const own = arcade.players[this.getControlledPlayerId()];
-
-    this.syncBoard(own, now);
-    this.syncTiles(dt, now);
-    this.syncGem(own, now, dt);
-    this.syncSearcher(minigame, arcade, state, own, now);
-
-    // Laternen flackern leicht und ungleich — sonst wirken vier gleiche
-    // Lichtpunkte wie Lampen, nicht wie Feuer.
-    this.laternen?.forEach(({ licht, glas, phase, grund }) => {
-      const f = Math.sin(now / 320 + phase) * 0.5 + Math.sin(now / 137 + phase) * 0.3;
-      licht.intensity = grund * (1 + f * 0.19);
-      glas.scale.setScalar(1 + f * 0.05);
+  bind() {
+    this.controls.innerHTML = `<p class="trace-hint">Tippe ein Feld — die Zahl sagt, wie viele Schritte bis zum Fund</p>`;
+    this.controls.style.pointerEvents = "none";
+    this.on(this.webglCanvas, "pointerdown", (event) => {
+      event.preventDefault();
+      this.tapAt(event);
     });
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.87, dt);
-    const shakeX = Math.sin(now / 11) * this.shake * 0.16 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
-    this.camera.position.y = this.baseCamY || 7.4;
-    this.camera.position.z = this.baseCamZ || 5.4;
-    this.camera.lookAt(0, 0, 0);
-
-    this.updateHud(minigame, arcade, state, now, own);
-    this.renderer.render(this.scene, this.camera);
   }
 
-  // Das Brett aus dem Serverzustand nachziehen. Der Server schickt die Tipps
-  // der laufenden Runde; alles andere ist wieder zu.
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.digitMaterials.forEach((material) => {
+      material.map?.dispose();
+      material.dispose();
+    });
+    this.digitMaterials.length = 0;
+    this.tiles.length = 0;
+    this.hitTargets.length = 0;
+  }
+
+  tapAt(event) {
+    const minigame = this.update || this.minigame;
+    if (!minigame || minigame.finaleAt || !this.camera) return;
+    const rect = this.webglCanvas.getBoundingClientRect();
+    this.pointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -(((event.clientY - rect.top) / rect.height) * 2 - 1)
+    );
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hits = this.raycaster.intersectObjects(this.hitTargets, false);
+    if (hits.length === 0) return;
+    const { gx, gy } = hits[0].object.userData;
+    const tile = this.tileAt(gx, gy);
+    // Ein schon aufgedecktes Feld noch einmal zu tippen ist ein Verrutscher.
+    // Der Server nimmt es stillschweigend hin; hier wackelt das Feld kurz,
+    // damit man merkt, dass der Tipp nichts gekostet hat.
+    if (tile?.revealed) {
+      tile.nudge = 1;
+      this.feedback?.sound("clack");
+      return;
+    }
+    if (tile) tile.press = 1;
+    this.feedback?.sound("tap");
+    this.sendInput({ action: "probe", x: gx, y: gy }).catch(() => {});
+  }
+
+  tileAt(gx, gy) {
+    return this.tiles[gy * SIZE + gx] || null;
+  }
+
   syncBoard(own, now) {
     if (!own) return;
 
@@ -506,15 +398,13 @@ export class SeekGrid {
     const z = tile ? tile.z : 0;
     const sharp = find.probes <= 3;
     this.gemAt = { x, z, until: now + 900 };
-    this.bursts.spawn(new THREE.Vector3(x, 0.8, z), ["#ffd15c", "#ffffff"], {
-      count: Math.round((sharp ? 16 : 10) * fxScale()), speed: 2.1, up: 1.8, size: 0.07, life: 0.65, drag: 1.8
-    });
-    this.floaters.pop(new THREE.Vector3(x, 1.6, z), `+${find.value}`, {
-      color: sharp ? "#c6ffb0" : "#ffe9a8", size: sharp ? 0.42 : 0.34, life: 0.85
-    });
-    this.shake = Math.min(1, this.shake + (sharp ? 0.9 : 0.5));
+    this.burst(new THREE.Vector3(x, 0.8, z), ["#ffd15c", "#ffffff"], { count: Math.round((sharp ? 16 : 10) * fxScale()), speed: 2.1, up: 1.8, size: 0.07, life: 0.65, drag: 1.8 });
+    this.pop(new THREE.Vector3(x, 1.6, z), `+${find.value}`, { color: sharp ? "#c6ffb0" : "#ffe9a8", size: sharp ? 0.42 : 0.34, life: 0.85 });
+    this.rig.shake(sharp ? 0.7 : 0.4);
     this.feedback?.sound(sharp ? "win" : "coin");
-    this.searcherCheerUntil = now + 900;
+    const animator = this.animators.get(this.getControlledPlayerId());
+    animator?.trigger("celebrate");
+    animator?.expression("joy", 1200);
   }
 
   syncTiles(dt, now) {
@@ -548,35 +438,93 @@ export class SeekGrid {
     this.gem.scale.setScalar(clamp(remaining * 1.4, 0.2, 1.2));
   }
 
-  syncSearcher(minigame, arcade, state, own, now) {
-    if (!this.searcherAnimator) return;
-    if (minigame.finaleAt) {
-      // Am Ende freut sich Platz 1 sehr, der letzte gar nicht — dieselbe
-      // Sprache wie in allen anderen Minispielen.
-      applyFinaleMood(this.searcherAnimator, this.finalePlace(arcade, state), state.players.length);
-    } else if (this.searcherCheerUntil && now < this.searcherCheerUntil) {
-      this.searcherAnimator.set("cheer");
-    } else {
-      this.searcherAnimator.set("idle", { base: true });
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale } = f;
+    if (!arcade) return;
+    const own = arcade.players[controlledId];
+    const before = own?.probes?.length || 0;
+    const known = this.lastProbeCount;
+    this.syncBoard(own, now);
+    this.syncTiles(dt, now);
+    this.syncGem(own, now, dt);
+    this.laternen?.forEach(({ licht, glas, phase, grund }) => {
+      const flicker = Math.sin(now / 320 + phase) * 0.5 + Math.sin(now / 137 + phase) * 0.3;
+      licht.intensity = grund * (1 + flicker * 0.19);
+      glas.scale.setScalar(1 + flicker * 0.05);
+    });
+
+    // Die eigene Figur: zum zuletzt angetippten Feld hüpfen und graben.
+    const kin = this.kins.get(controlledId);
+    const animator = this.animators.get(controlledId);
+    if (kin && animator) {
+      const probes = own?.probes || [];
+      if (before > known && probes.length) {
+        const newest = probes[probes.length - 1];
+        const tile = this.tileAt(newest.x, newest.y);
+        if (tile) {
+          this.searchAt = { x: tile.x, z: tile.z, at: now };
+          animator.trigger("hop", { height: 0.3 });
+        }
+      }
+      if (this.searchAt) {
+        const gap = new THREE.Vector3(this.searchAt.x - kin.position.x, 0, this.searchAt.z - kin.position.z);
+        kin.position.x += gap.x * frameLerp(0.25, dt);
+        kin.position.z += gap.z * frameLerp(0.25, dt);
+        if (gap.length() > 0.1) kin.rotation.y = Math.atan2(gap.x, gap.z);
+        else if (now - this.searchAt.at > 250 && !this.searchAt.dug) {
+          this.searchAt.dug = true;
+          animator.trigger("dig");
+          this.burst(new THREE.Vector3(kin.position.x, 0.5, kin.position.z + 0.2), ["#8fa4bb", "#6a563a"], { count: 6, speed: 1.2, up: 1, size: 0.05, life: 0.4 });
+        }
+      }
+      if (!finale) {
+        kin.rotation.y += Math.atan2(Math.sin(-kin.rotation.y), Math.cos(-kin.rotation.y)) * frameLerp(this.searchAt && now - this.searchAt.at > 700 ? 0.08 : 0, dt);
+        animator.set("think");
+      }
     }
-    this.searcherAnimator.update(now);
+    // Die anderen am Rand: jubeln bei jedem eigenen Fund.
+    players.forEach((player) => {
+      if (player.id === controlledId) return;
+      const entry = arcade.players[player.id];
+      const other = this.animators.get(player.id);
+      if (!entry || !other) return;
+      const find = entry.lastFind;
+      if (find && find.at !== this.otherFinds.get(player.id)) {
+        const first = !this.otherFinds.has(player.id) && now - find.at > 1500;
+        this.otherFinds.set(player.id, find.at);
+        if (!first) {
+          other.trigger("fistpump");
+          other.expression("joy", 900);
+          this.pop(this.kins.get(player.id).position.clone().add(new THREE.Vector3(0, 1.1, 0)), `+${find.value}`, { color: player.color, size: 0.26, life: 0.8 });
+        }
+      }
+      if (!finale) other.set("focus");
+    });
   }
 
-  finalePlace(arcade, state) {
-    const scored = state.players
-      .map((player) => ({ id: player.id, score: arcade.players[player.id]?.score || 0 }))
-      .sort((a, b) => b.score - a.score);
-    const index = scored.findIndex((entry) => entry.id === this.getControlledPlayerId());
-    return index < 0 ? state.players.length : index + 1;
+  syncGem(own, now, dt) {
+    if (!this.gem) return;
+    const showing = this.gemAt && now < this.gemAt.until;
+    this.gem.visible = Boolean(showing);
+    if (!showing) return;
+    const remaining = (this.gemAt.until - now) / 900;
+    this.gem.position.set(this.gemAt.x, 0.6 + (1 - remaining) * 1.5, this.gemAt.z);
+    this.gem.rotation.y += dt * 5.2;
+    this.gem.rotation.x += dt * 2.1;
+    this.gem.scale.setScalar(clamp(remaining * 1.4, 0.2, 1.2));
   }
 
-  updateHud(minigame, arcade, state, now, own) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-kinetic-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-kinetic-score]").textContent = String(Math.round(own?.score || 0));
+  keepInView(f) {
+    const own = this.kins.get(f.controlledId);
+    return own ? [own] : [];
+  }
 
+  drawHud(f) {
+    const { arcade, state, now } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    this.scoreNode.textContent = String(Math.round(own?.score || 0));
     const roundLabel = this.hud.querySelector("[data-seek-round]");
     if (roundLabel) {
       const used = (own?.probes || []).length;
@@ -611,27 +559,5 @@ export class SeekGrid {
       return;
     }
     banner.hidden = true;
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Fast von oben, und WEIT genug weg. Das Sichtfeld in three.js ist
-      // senkrecht gemessen; auf einem hochkanten Handy (Seitenverhältnis ~0.6)
-      // schrumpft das waagerechte Feld damit auf gut ein Drittel. Bei y=7.6,
-      // z=5.2 passten von den sechs Spalten nur vier ins Bild, die vorderste
-      // Reihe füllte den halben Schirm — das Raster war als Raster nicht mehr
-      // zu erkennen.
-      //
-      // Gerechnet statt geraten: bei 5.3 Einheiten Rasterbreite und 18 Grad
-      // halbem waagerechtem Sichtfeld braucht es mindestens 5.3/2/tan(18°) ≈ 8.2
-      // Einheiten Abstand zur VORDEREN Kante. Mit Rand darum herum: y=12, z=7.
-      // Diese Zahlen sind ERPROBT, nicht gerechnet: der erste Versuch (7.6/5.2)
-      // schnitt die äusseren Spalten ab, ein zweiter (9.6/5.8) ebenso. Wer sie
-      // ändert, muss sich das Bild ansehen — die Rechnung übers Sichtfeld führt
-      // hier in die Irre, weil die Leinwand nicht die ganze Bildschirmhöhe hat.
-      this.baseCamY = portrait ? 12 : 10.5;
-      this.baseCamZ = portrait ? 7 : 8.5;
-      camera.fov = portrait ? 52 : 46;
-    });
   }
 }

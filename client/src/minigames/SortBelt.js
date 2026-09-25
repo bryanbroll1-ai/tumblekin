@@ -1,37 +1,15 @@
 import * as THREE from "/vendor/three/three.module.js";
-import {
-  CubeBurst,
-  FloatingText,
-  KinAnimator,
-  applyFinaleMood,
-  createCloud,
-  createNameLabel,
-  createShadowBlob,
-  createVoxelKin,
-  standOn
-} from "./VoxelKit.js?v=tumblekin200";
-import {
-  mountStage,
-  mountHud,
-  addStageLights,
-  resizeStage,
-  teardownStage
-} from "./SceneKit.js?v=tumblekin200";
-import { frameDecay, frameLerp, shakeScale } from "./Quality.js?v=tumblekin200";
+import { createCloud, createShadowBlob } from "./VoxelKit.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Sortierband — Pakete fahren auf einen zu, drei Rutschen tragen Farben, und
-// jedes Paket muss in die passende. Die Rutschen tauschen zwischendurch die
-// Farben: die Aufgabe ist damit nicht Auswendiglernen, sondern jedes Mal neu
-// hinschauen.
+// Sortierband: Pakete laufen auf dem Band heran; wischen oder tippen wirft
+// das vorderste in eine Rutsche. Die Rutschen tauschen ab und zu die Farben.
 //
-// Das Band läuft von hinten nach vorne auf die Kamera zu. Auf dem hohen
-// Handybild ist das die einzige Richtung, in der man weit vorausschauen kann,
-// ohne dass die Pakete winzig werden: die Tiefe ist gratis, die Breite nicht.
-// Die Weltlänge des Bandes MUSS die Spanne zwischen Aufgabe- und Abwurfkante
-// sein. Als feste 13.0 war sie 0.6 zu lang, und weil das Deck um die Mitte
-// zwischen beiden Kanten gebaut wird, ragte es hinten wie vorn 0.3 darüber
-// hinaus — vorne genau dort, wo die drei Trichter stehen. Im Bild steckten die
-// Becher im Band statt davor.
+// Vorher stand die Figur daneben und schaute zu, während die Pakete von
+// allein flogen. Jetzt greift sie nach dem Paket, das in Reichweite kommt,
+// wirft es mit Schwung in die Rutsche, dreht sich dabei zur Rutsche, und bei
+// einem Fehlwurf fasst sie sich an den Kopf.
 const BELT_FAR_Z_RAW = -9.4;
 const BELT_NEAR_Z_RAW = 3.0;
 const BELT_LENGTH = BELT_NEAR_Z_RAW - BELT_FAR_Z_RAW;
@@ -63,152 +41,50 @@ function beltZ(progress) {
   return BELT_FAR_Z + clamp(progress, 0, 1.2) * (BELT_NEAR_Z - BELT_FAR_Z);
 }
 
-export class SortBelt {
-  constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
-    this.canvas = canvas;
-    this.controls = controls;
-    this.sendInput = sendInput;
-    this.now = now;
-    this.getState = getState;
-    this.getControlledPlayerId = getControlledPlayerId || (() => myPlayerId);
-    this.feedback = feedback;
-    this.minigame = null;
-    this.update = null;
-    this.frame = null;
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.webglCanvas = null;
-    this.hud = null;
+const WORKER_X = -2.45;
+const WORKER_Z = BELT_NEAR_Z - 1.0;
+const CRATE_H = 0.36;
+
+export class SortBelt extends MinigameScene {
+  constructor(ctx) {
+    super(ctx);
     this.chutes = [];
     this.parcels = [];
     this.flying = [];
-    this.lastSortAt = 0;
     this.lastVerdictAt = 0;
     this.lastSwapAt = 0;
-    this.lastFrameAt = performance.now();
-    this.shake = 0;
     this.beltScroll = 0;
     this.swapPulse = 0;
+    this.workerTurn = Math.PI / 2;
+    this.labelY = 0.74;
   }
 
-  start(minigame) {
-    this.minigame = minigame;
-    this.update = minigame;
-    mountStage(this, { label: "3D Sortierband", background: "#8fd3ef", fog: ["#aee0f4", 22, 56], fov: 58, far: 100 });
+  stage() {
+    return {
+      label: "3D Sortierband",
+      background: "#8fd3ef",
+      fog: ["#aee0f4", 22, 56],
+      lights: { sunPosition: [-5, 13, 7], shadow: { left: -7, right: 7, top: 10, bottom: -6 } }
+    };
+  }
 
-    mountHud(this, `
-      <div class="kinetic-scorebar"><span data-belt-time>0s</span><strong data-belt-score>0</strong></div>
+  hudHtml() {
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-belt-score>0</strong></div>
       <div class="belt-streak" data-belt-streak hidden></div>
       <div class="belt-chips" data-belt-chips></div>
-      <div class="color-banner belt-banner" data-belt-banner hidden></div>
-    `);
-    this.createScene();
-
-    // Keine Knöpfe: Wischen nach links/unten/rechts ODER Antippen einer Rutsche.
-    // Beides meint dasselbe, und beides zeigt direkt auf das, was man treffen
-    // will — ein Knopfstreifen wäre hier nur ein Umweg über den Daumen.
-    this.controls.innerHTML = `<p class="trace-hint">Wisch das Paket in die Rutsche mit seiner Farbe</p>`;
-    this.controls.style.pointerEvents = "none";
-
-    this.bindGestures();
-    this.loop();
+      <div class="color-banner belt-banner" data-belt-banner hidden></div>`;
   }
 
-  bindGestures() {
-    let startX = 0;
-    let startY = 0;
-    let startAt = 0;
-    let tracking = false;
-
-    this.onDown = (event) => {
-      event.preventDefault();
-      tracking = true;
-      startX = event.clientX;
-      startY = event.clientY;
-      startAt = performance.now();
-    };
-    this.onUp = (event) => {
-      if (!tracking) return;
-      tracking = false;
-      const dx = event.clientX - startX;
-      const dy = event.clientY - startY;
-      const dist = Math.hypot(dx, dy);
-      const held = performance.now() - startAt;
-      // Kurzer Kontakt ohne Weg ist ein Tipp — dann entscheidet die getippte
-      // Bildhälfte. Alles darüber ist ein Wisch, und dann entscheidet die
-      // Richtung. Beides landet in derselben Rutschennummer.
-      if (dist < 26 && held < 400) {
-        this.sortTo(this.chuteAtPoint(event.clientX));
-        return;
-      }
-      if (dist < 26) return;
-      if (dy > Math.abs(dx) * 0.9) {
-        this.sortTo(1);           // nach unten = Mitte
-        return;
-      }
-      this.sortTo(dx < 0 ? 0 : 2);
-    };
-    this.onCancel = () => { tracking = false; };
-
-    this.webglCanvas.addEventListener("pointerdown", this.onDown);
-    this.webglCanvas.addEventListener("pointerup", this.onUp);
-    this.webglCanvas.addEventListener("pointercancel", this.onCancel);
-  }
-
-  // Ein Tipp trifft die Rutsche, über der er liegt. Die Trennlinien liegen bei
-  // Dritteln der Bildbreite — die Rutschen stehen im Bild ohnehin so.
-  chuteAtPoint(clientX) {
-    const rect = this.webglCanvas.getBoundingClientRect();
-    const share = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 0.999);
-    return Math.floor(share * 3);
-  }
-
-  sortTo(chute) {
-    const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt) return;
-    const own = minigame.arcade?.players?.[this.getControlledPlayerId()];
-    if (!own) return;
-    // Vor der Reichweite passiert nichts — dann aber auch kein Klick-Geräusch,
-    // sonst klingt es, als hätte man etwas ausgelöst.
-    if (!own.reachable) {
-      this.feedback?.sound("clack");
-      return;
-    }
-    this.feedback?.sound("tap");
-    this.sendInput({ action: "sort", chute }).catch(() => {});
-  }
-
-  handleUpdate(update) {
-    this.update = update;
-  }
-
-  destroy() {
-    cancelAnimationFrame(this.frame);
-    this.controls.innerHTML = "";
-    this.controls.style.pointerEvents = "";
-    this.webglCanvas?.removeEventListener("pointerdown", this.onDown);
-    this.webglCanvas?.removeEventListener("pointerup", this.onUp);
-    this.webglCanvas?.removeEventListener("pointercancel", this.onCancel);
-    teardownStage(this);
-    this.chutes.length = 0;
-    this.parcels.length = 0;
-    this.flying.length = 0;
-  }
-
-  createScene() {
-    addStageLights(this.scene, {
-      sunPosition: [-5, 13, 7],
-      shadow: { left: -7, right: 7, top: 10, bottom: -6 }
-    });
-
+  build() {
+    const scene = this.scene;
     const floor = new THREE.Mesh(
       new THREE.BoxGeometry(20, 0.5, 26),
       new THREE.MeshLambertMaterial({ color: "#b0865f" })
     );
     floor.position.set(0, -0.75, -3);
     floor.receiveShadow = true;
-    this.scene.add(floor);
+    scene.add(floor);
 
     this.buildBelt();
     this.buildChutes();
@@ -216,27 +92,16 @@ export class SortBelt {
     [[-6.2, 7.4, -14, 3], [6.0, 8.1, -16, 8]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
-      this.scene.add(cloud);
+      scene.add(cloud);
     });
 
-    this.bursts = new CubeBurst(this.scene);
-    this.floaters = new FloatingText(this.scene);
-    this.buildWorker();
-    this.buildParcels();
-    this.resizeRenderer();
-    // Der Blick gehört auf das BANDENDE mit den drei Trichtern, nicht auf die
-    // leere Bandmitte. Die Rutschenfarbe ist die einzige Information, nach der
-    // man hier handelt — war sie unten angeschnitten, spielte man blind.
-    // Eine Halle statt einer Fläche im Nichts. Das Band endete hinten mit einer
-    // harten Kante gegen den Himmel, und der Boden war ein grosser leerer
-    // sandfarbener Wisch — die untere Bildhälfte enthielt gar nichts.
     const wandMat = new THREE.MeshLambertMaterial({ color: "#c9b48d" });
     // 13 hoch statt 7: mit dem höheren Blickpunkt blieb über der Wand ein
     // Streifen Himmel stehen — mitten in einer Halle.
     const rueckwand = new THREE.Mesh(new THREE.BoxGeometry(26, 13, 0.6), wandMat);
     rueckwand.position.set(0, GROUND_Y + 6.5, BELT_FAR_Z - 2.4);
     rueckwand.receiveShadow = true;
-    this.scene.add(rueckwand);
+    scene.add(rueckwand);
     // Der Schacht, aus dem die Pakete kommen.
     const schacht = new THREE.Mesh(
       new THREE.BoxGeometry(BELT_WIDTH + 0.9, 1.5, 1.2),
@@ -244,27 +109,35 @@ export class SortBelt {
     );
     schacht.position.set(0, GROUND_Y + 1.7, BELT_FAR_Z - 1.5);
     schacht.castShadow = true;
-    this.scene.add(schacht);
+    scene.add(schacht);
     // Bodenmarkierungen: sie geben dem Hallenboden Struktur und zeigen beim
     // Wischen, dass man sich seitlich bewegt.
     const markeMat = new THREE.MeshLambertMaterial({ color: "#d8c49b" });
     for (let i = 0; i < 9; i += 1) {
       const marke = new THREE.Mesh(new THREE.BoxGeometry(22, 0.02, 0.3), markeMat);
       marke.position.set(0, GROUND_Y + 0.01, BELT_NEAR_Z + 1.6 - i * 1.9);
-      this.scene.add(marke);
+      scene.add(marke);
     }
     [-1, 1].forEach((seite) => {
       const streifen = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 16), markeMat);
       streifen.position.set(seite * 4.6, GROUND_Y + 0.012, BELT_NEAR_Z - 6);
-      this.scene.add(streifen);
+      scene.add(streifen);
     });
 
-    this.camera.position.set(0, 5.0, 10.4);
-    // Blickpunkt höher: die Kamera stand zu flach auf den Boden gerichtet,
-    // unter den Rutschen lag ein leeres Viertel Hallenboden. Ein Stück nach
-    // oben gekippt rutscht das Band ins untere Bilddrittel und der Boden aus
-    // dem Bild; oben füllt die Rückwand nach.
-    this.camera.lookAt(0, 1.2, 1.6);
+    // Der eigene Arbeiter am Ende des Bandes; die anderen sortieren an
+    // ihren eigenen Bändern.
+    const state = this.getState();
+    const players = state?.players || [];
+    const index = Math.max(0, players.findIndex((player) => player.id === this.getControlledPlayerId()));
+    const me = players[index];
+    // Auf einer Kiste, damit die vordere Rutsche ihn nicht verdeckt.
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.8, CRATE_H, 0.8), new THREE.MeshLambertMaterial({ color: "#a8784a" }));
+    crate.position.set(WORKER_X, GROUND_Y + CRATE_H / 2, WORKER_Z);
+    crate.castShadow = true;
+    crate.receiveShadow = true;
+    scene.add(crate);
+    if (me) this.addKin(me, index, { x: WORKER_X, ground: GROUND_Y + CRATE_H, z: WORKER_Z, facing: Math.PI / 2 });
+    this.buildParcels();
   }
 
   buildBelt() {
@@ -393,77 +266,93 @@ export class SortBelt {
     }
   }
 
-  buildWorker() {
-    const state = this.getState();
-    const me = state?.players?.find((player) => player.id === this.getControlledPlayerId()) || state?.players?.[0];
-    const kin = createVoxelKin(me?.color || "#ff5d73", 0);
-    kin.scale.setScalar(0.9);
-    const label = createNameLabel("du", me?.color || "#ff5d73");
-    label.position.y = 0.72;
-    kin.add(label);
-    // Seitlich neben dem Bandende: er greift sichtbar nach dem vordersten
-    // Paket, verdeckt aber nichts, worauf man schauen muss.
-    // NEBEN das Band, auf halber Länge. Bei x=-1.8 direkt an der Bandkante
-    // stand der Arbeiter am linken Bildrand, und rückte man ihn nach innen,
-    // verschwand er hinter den Rutschen — die stehen näher an der Kamera als
-    // er. Weiter hinten am Band ist der sichtbare Ausschnitt breiter, dort
-    // passt er hin, ohne etwas zu verdecken.
-    kin.position.set(-2.05, standOn(GROUND_Y), 0.6);
-    kin.rotation.y = Math.PI / 2;
-    kin.rotation.y = 0.5;
-    this.scene.add(kin);
-    const shadow = createShadowBlob(0.5);
-    shadow.position.set(-2.05, GROUND_Y + 0.02, 0.6);
-    this.scene.add(shadow);
-    this.worker = kin;
-    this.workerAnimator = new KinAnimator(kin);
-    this.workerAnimator.groundY = standOn(GROUND_Y);
+  shot() {
+    return {
+      look: [-0.25, 0.55, BELT_NEAR_Z - 0.6],
+      frame: { w: 5.2, h: 3.8 },
+      pitch: 0.5,
+      fov: 38,
+      intro: { yaw: 0.5, pitch: 0.25, zoom: 1.35 }
+    };
   }
 
-  loop = () => {
-    this.draw();
-    this.frame = requestAnimationFrame(this.loop);
-  };
+  bind() {
+    this.controls.innerHTML = `<p class="trace-hint">Wisch das Paket in die Rutsche mit seiner Farbe</p>`;
+    this.controls.style.pointerEvents = "none";
+    this.bindGestures();
+  }
 
-  draw() {
+  unbind() {
+    this.controls.style.pointerEvents = "";
+    this.chutes.length = 0;
+    this.parcels.length = 0;
+    this.flying.length = 0;
+  }
+
+  bindGestures() {
+    let startX = 0;
+    let startY = 0;
+    let startAt = 0;
+    let tracking = false;
+
+    this.onDown = (event) => {
+      event.preventDefault();
+      tracking = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      startAt = performance.now();
+    };
+    this.onUp = (event) => {
+      if (!tracking) return;
+      tracking = false;
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+      const dist = Math.hypot(dx, dy);
+      const held = performance.now() - startAt;
+      // Kurzer Kontakt ohne Weg ist ein Tipp — dann entscheidet die getippte
+      // Bildhälfte. Alles darüber ist ein Wisch, und dann entscheidet die
+      // Richtung. Beides landet in derselben Rutschennummer.
+      if (dist < 26 && held < 400) {
+        this.sortTo(this.chuteAtPoint(event.clientX));
+        return;
+      }
+      if (dist < 26) return;
+      if (dy > Math.abs(dx) * 0.9) {
+        this.sortTo(1);           // nach unten = Mitte
+        return;
+      }
+      this.sortTo(dx < 0 ? 0 : 2);
+    };
+    this.onCancel = () => { tracking = false; };
+
+    this.on(this.webglCanvas, "pointerdown", this.onDown);
+    this.on(this.webglCanvas, "pointerup", this.onUp);
+    this.on(this.webglCanvas, "pointercancel", this.onCancel);
+  }
+
+  // Ein Tipp trifft die Rutsche, über der er liegt. Die Trennlinien liegen bei
+  // Dritteln der Bildbreite — die Rutschen stehen im Bild ohnehin so.
+  chuteAtPoint(clientX) {
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const share = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 0.999);
+    return Math.floor(share * 3);
+  }
+
+  sortTo(chute) {
     const minigame = this.update || this.minigame;
-    const state = this.getState();
-    const arcade = minigame?.arcade;
-    if (!minigame || !state || !arcade || !this.renderer) return;
-    this.resizeRenderer();
-
-    const now = this.now();
-    const frameNow = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (frameNow - this.lastFrameAt) / 1000));
-    this.lastFrameAt = frameNow;
-    const own = arcade.players[this.getControlledPlayerId()];
-
-    this.syncChutes(arcade, dt, now);
-    this.syncBelt(arcade, dt);
-    if (own) {
-      this.syncParcels(own, arcade, dt, now);
-      this.reactToVerdict(own, arcade);
+    if (!minigame || minigame.finaleAt) return;
+    const own = minigame.arcade?.players?.[this.getControlledPlayerId()];
+    if (!own) return;
+    // Vor der Reichweite passiert nichts — dann aber auch kein Klick-Geräusch,
+    // sonst klingt es, als hätte man etwas ausgelöst.
+    if (!own.reachable) {
+      this.feedback?.sound("clack");
+      return;
     }
-    this.updateFlying(dt);
-
-    this.syncWorker(minigame, arcade, state, own, now, dt);
-
-    this.bursts.update(dt);
-    this.floaters.update(dt, this.camera);
-
-    this.shake *= frameDecay(0.88, dt);
-    const shakeX = Math.sin(now / 12) * this.shake * 0.2 * shakeScale();
-    this.camera.position.x += (shakeX - this.camera.position.x) * frameLerp(0.4, dt);
-    this.camera.position.y = this.baseCamY || 5.0;
-    this.camera.position.z = this.baseCamZ || 10.4;
-    this.camera.lookAt(0, 1.2, 1.6);
-
-    this.updateHud(minigame, arcade, state, now, own);
-    this.renderer.render(this.scene, this.camera);
+    this.feedback?.sound("tap");
+    this.sendInput({ action: "sort", chute }).catch(() => {});
   }
 
-  // Die Latten laufen mit dem tatsächlichen Bandtempo. Sie sind das einzige,
-  // woran man sieht, dass das Band später schneller wird.
   syncBelt(arcade, dt) {
     const speed = arcade.speed || 0.3;
     this.beltScroll = (this.beltScroll + speed * dt * (BELT_NEAR_Z - BELT_FAR_Z)) % 0.62;
@@ -481,7 +370,7 @@ export class SortBelt {
       this.swapPulse = 1;
       this.feedback?.sound("portal");
       this.feedback?.vibrate(14);
-      this.floaters.pop(new THREE.Vector3(0, 2.9, BELT_NEAR_Z - 0.4), "TAUSCH!", { color: "#ffe9a8", size: 0.4, life: 0.85 });
+      this.pop(new THREE.Vector3(0, 2.9, BELT_NEAR_Z - 0.4), "TAUSCH!", { color: "#ffe9a8", size: 0.4, life: 0.85 });
     }
     this.swapPulse = Math.max(0, this.swapPulse - dt * 1.6);
 
@@ -619,65 +508,89 @@ export class SortBelt {
       const chute = this.chutes[verdict.chute];
       if (chute) chute.flash = 1;
       const at = new THREE.Vector3(chute?.group.position.x || 0, 1.7, BELT_NEAR_Z);
-      this.bursts.spawn(at, [COLOURS[verdict.colour], "#ffffff"], { count: 12, speed: 2.0, up: 1.4, size: 0.07, life: 0.5, drag: 2.2 });
+      this.burst(at, [COLOURS[verdict.colour], "#ffffff"], { count: 12, speed: 2.0, up: 1.4, size: 0.07, life: 0.5, drag: 2.2 });
       if (verdict.bonus > 0) {
-        this.floaters.pop(at, `+${100 + verdict.bonus}`, { color: "#c6ffb0", size: 0.34, life: 0.7 });
+        this.pop(at, `+${100 + verdict.bonus}`, { color: "#c6ffb0", size: 0.34, life: 0.7 });
       }
       this.feedback?.sound("coin");
       this.feedback?.vibrate(10);
-      this.workerCheerUntil = this.now() + 420;
+      this.workerAct("good", verdict.chute);
     } else if (verdict.kind === "wrong") {
       this.spawnFlight(verdict.colour, verdict.chute, false);
-      this.floaters.pop(new THREE.Vector3(0, 2.4, BELT_NEAR_Z - 1), "FALSCH", { color: "#ff9aa8", size: 0.38, life: 0.8 });
+      this.pop(new THREE.Vector3(0, 2.4, BELT_NEAR_Z - 1), "FALSCH", { color: "#ff9aa8", size: 0.38, life: 0.8 });
       this.feedback?.sound("error");
       this.feedback?.vibrate(26);
-      this.shake = Math.max(this.shake, 0.45);
-      this.workerSadUntil = this.now() + 520;
+      this.rig.shake(0.45);
+      this.workerAct("wrong", verdict.chute);
     } else {
       // Durchgerutscht: das Paket kippt vorne über die Kante.
       const at = new THREE.Vector3(0, 0.5, BELT_NEAR_Z + 0.2);
-      this.bursts.spawn(at, [COLOURS[verdict.colour] || "#888", "#6b7a8d"], { count: 10, speed: 1.4, up: 0.4, size: 0.07, life: 0.7, drag: 1.6 });
-      this.floaters.pop(new THREE.Vector3(0, 2.2, BELT_NEAR_Z - 1), "DURCH!", { color: "#ffc59a", size: 0.36, life: 0.8 });
+      this.burst(at, [COLOURS[verdict.colour] || "#888", "#6b7a8d"], { count: 10, speed: 1.4, up: 0.4, size: 0.07, life: 0.7, drag: 1.6 });
+      this.pop(new THREE.Vector3(0, 2.2, BELT_NEAR_Z - 1), "DURCH!", { color: "#ffc59a", size: 0.36, life: 0.8 });
       this.feedback?.sound("error");
       this.feedback?.vibrate(18);
-      this.shake = Math.max(this.shake, 0.3);
-      this.workerSadUntil = this.now() + 520;
+      this.rig.shake(0.3);
+      this.workerAct("missed", 1);
     }
   }
 
-  syncWorker(minigame, arcade, state, own, now, dt) {
-    if (minigame.finaleAt) {
-      // Am Ende freut sich Platz 1 sehr, Platz 4 gar nicht — dieselbe Sprache
-      // wie in allen anderen Minispielen.
-      const place = this.finalePlace(minigame, arcade, state);
-      applyFinaleMood(this.workerAnimator, place, state.players.length);
-    } else if (this.workerCheerUntil && now < this.workerCheerUntil) {
-      this.workerAnimator.set("cheer");
-    } else if (this.workerSadUntil && now < this.workerSadUntil) {
-      this.workerAnimator.set("sad");
-    } else if (own?.reachable) {
-      this.workerAnimator.set("idle", { base: true });
+  // Der Arbeiter reagiert: Wurf zur Rutsche, Fehlwurf, durchgerutscht.
+  workerAct(kind, chute) {
+    const animator = this.animators.get(this.getControlledPlayerId());
+    if (!animator) return;
+    const target = this.chutes[chute]?.group.position;
+    if (target) this.workerTurn = Math.atan2(target.x - WORKER_X, target.z - WORKER_Z);
+    this.workerTurnUntil = this.now() + 500;
+    if (kind === "good") {
+      animator.trigger("throw");
+      animator.expression("happy", 400);
+    } else if (kind === "wrong") {
+      animator.trigger("throw");
+      animator.trigger("facepalm");
+      animator.expression("sad", 800);
     } else {
-      this.workerAnimator.set("idle", { base: true });
+      animator.trigger("headshake");
+      animator.expression("surprised", 700);
     }
-    this.workerAnimator.update(now);
   }
 
-  finalePlace(minigame, arcade, state) {
-    const scored = state.players
-      .map((player) => ({ id: player.id, score: arcade.players[player.id]?.score || 0 }))
-      .sort((a, b) => b.score - a.score);
-    const index = scored.findIndex((entry) => entry.id === this.getControlledPlayerId());
-    return index < 0 ? state.players.length : index + 1;
+  tick(f) {
+    const { now, dt, arcade, controlledId, finale } = f;
+    if (!arcade) return;
+    const own = arcade.players[controlledId];
+    this.syncChutes(arcade, dt, now);
+    this.syncBelt(arcade, dt);
+    if (own) {
+      this.syncParcels(own, arcade, dt, now);
+      this.reactToVerdict(own, arcade);
+    }
+    this.updateFlying(dt);
+    const kin = this.kins.get(controlledId);
+    const animator = this.animators.get(controlledId);
+    if (!kin || !animator || finale) return;
+    const turning = now < (this.workerTurnUntil || 0);
+    const face = turning ? this.workerTurn : Math.PI / 2;
+    kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.3, dt);
+    const head = this.parcels[0]?.group;
+    animator.lookAt(head?.visible ? head.position : null);
+    if (own?.reachable) {
+      animator.set("ready");
+      animator.set("reach", { params: { side: 1 } });
+    } else {
+      animator.set("focus");
+    }
   }
 
-  updateHud(minigame, arcade, state, now, own) {
-    if (!this.hud) return;
-    this.hud.classList.toggle("dev-mode", Boolean(state.devMode));
-    const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
-    this.hud.querySelector("[data-belt-time]").textContent = `${remaining}s`;
-    this.hud.querySelector("[data-belt-score]").textContent = String(Math.max(0, Math.round(own?.score || 0)));
+  keepInView() {
+    return [...this.kins.values()];
+  }
 
+  drawHud(f) {
+    const { arcade, state } = f;
+    if (!arcade) return;
+    const own = arcade.players[f.controlledId];
+    this.scoreNode ||= this.hud.querySelector("[data-belt-score]");
+    this.scoreNode.textContent = String(Math.max(0, Math.round(own?.score || 0)));
     const streak = this.hud.querySelector("[data-belt-streak]");
     if (streak) {
       const run = own?.streak || 0;
@@ -712,23 +625,5 @@ export class SortBelt {
     } else {
       banner.hidden = true;
     }
-  }
-
-  resizeRenderer() {
-    resizeStage(this, (portrait, camera) => {
-      // Im Hochformat höher und näher: dann liegen die drei Rutschen im unteren
-      // Drittel des Bildes, genau dort, wo der Daumen ohnehin ist, und das Band
-      // füllt die Höhe darüber.
-      //
-      // Diese Zahlen gehören zu denen im Aufbau und in der Zeichenschleife —
-      // die Schleife setzt die Kamera in JEDEM Bild neu, eine Änderung an nur
-      // einer der drei Stellen ist also wirkungslos.
-      // Gerechnet, nicht geraten: die sichtbare Halbbreite ist rund
-      // Abstand · 0.255 (fov 58, hochkantes Seitenverhältnis). Für die drei
-      // Trichter braucht es ±2.1, also gut acht Einheiten Abstand.
-      this.baseCamY = portrait ? 5.0 : 4.2;
-      this.baseCamZ = portrait ? 10.4 : 9.6;
-      camera.fov = portrait ? 58 : 46;
-    });
   }
 }

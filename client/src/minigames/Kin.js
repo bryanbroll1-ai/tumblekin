@@ -1119,6 +1119,23 @@ const STATES = {
       p.mouth = "grin";
     }
   },
+  // Seil oder Kurbel drehen: `params.angle` ist der Drehwinkel, beide Arme
+  // beschreiben damit einen Kreis vor dem Körper.
+  crank: {
+    blend: 0.1,
+    pose(p, t, a) {
+      const w = a.params.angle ?? a.now * 6;
+      p.aLs = 0.9 + Math.cos(w) * 0.55;
+      p.aRs = 0.9 + Math.cos(w) * 0.55;
+      p.aLr = 0.25 + Math.sin(w) * 0.25;
+      p.aRr = 0.25 - Math.sin(w) * 0.25;
+      p.lean = 0.06;
+      p.y = abs(Math.sin(w)) * 0.015;
+      p.tY = Math.sin(w) * 0.06;
+      face(p, "focus");
+      p.mouth = "grin";
+    }
+  },
   // Klettern Griff für Griff: `params.up` sagt, welcher Arm gerade oben
   // greift (-1 links, 1 rechts, im Gerüst gesehen), `params.grab` läuft nach
   // jedem Griff von 1 auf 0 — der Körper zieht sich dabei ein Stück hoch.
