@@ -68,7 +68,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 🕹️ Stick ziehen
 
 - **Bumper Pool:** Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Wer reinfällt, paddelt zurück — oben bleiben bringt Punkte, rausschubsen noch mehr.
-- **Farbenjagd:** Färbe die Fläche in deiner Farbe — fremde Felder darfst du übermalen, das bringt dir eins und nimmt dem anderen eins. Rempeln erlaubt, und die breite Rolle färbt fünf Felder auf einmal.
+- **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Fahr eine Schleife zurück in deine Farbe: alles, was du damit einkreist, wird auf einen Schlag deins. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Wer am Ende die meiste Fläche hat, gewinnt.
 
 ### 👆✳️ In jede Richtung wischen
 

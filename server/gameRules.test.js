@@ -123,17 +123,19 @@ const {
   fishScore,
   PAINT_COLS,
   PAINT_ROWS,
-  PAINT_BUMP_RADIUS,
-  PAINT_CLAIM_RATE,
-  PAINT_STEAL_RATE,
-  PAINT_TILE_SECOND_POINTS,
+  PAINT_SPEED,
+  PAINT_BRUSH,
+  PAINT_BRUSH_WIDE,
+  PAINT_BOMB_RADIUS,
+  PAINT_ENCLOSE_MAX,
+  PAINT_ROLLER_AHEAD,
+  PAINT_TURN_RATE,
   PAINT_BOOST_MS,
   PAINT_PICKUP_MAX,
   PAINT_DURATION_MS,
   paintIndex,
-  paintInside,
-  paintClaim,
-  paintBrushTiles,
+  paintSweep,
+  paintPockets,
   paintOwnedCount,
   RUNNER_ATTACK_RANGE,
   RUNNER_ATTACKS_PER_RACE
@@ -3098,110 +3100,143 @@ function paintRoom(count = 2) {
     arcade.players[player.id].lastInputAt = 0;
     return handleArcadeInput(room, player, { action: "steer", x, y });
   };
-  const place = (player, col, row) => {
+  // Eine Figur hinstellen, samt Walze vor ihr — sonst malte der erste Tick
+  // eine Spur von der alten Walzenstelle bis hierher.
+  const place = (player, x, y, heading = null) => {
     const state = arcade.players[player.id];
-    state.px = col + 0.5;
-    state.py = row + 0.5;
+    state.px = x;
+    state.py = y;
     state.vx = 0;
     state.vy = 0;
+    if (heading !== null) state.heading = heading;
+    state.rx = x + Math.sin(state.heading) * PAINT_ROLLER_AHEAD;
+    state.ry = y + Math.cos(state.heading) * PAINT_ROLLER_AHEAD;
   };
-  return { room, players, me, arcade, entry, minigame, advance, steer, place };
+  const slotOf = (player) => arcade.order.indexOf(player.id);
+  const at = (col, row) => arcade.cells[paintIndex(col, row)];
+  const clear = () => arcade.cells.fill(-1);
+  return { room, players, me, arcade, entry, minigame, advance, steer, place, slotOf, at, clear };
 }
 
-test("paint: the field is one shared grid and everyone starts in a corner", () => {
+test("paint: one shared field, everyone starts with a patch in their own corner", () => {
   const { arcade, players } = paintRoom(4);
-  assert.equal(arcade.grid.length, PAINT_COLS * PAINT_ROWS);
-  // Jeder beginnt mit genau einem Feld, und keine zwei teilen sich einen Start.
+  assert.equal(arcade.cells.length, PAINT_COLS * PAINT_ROWS);
+  assert.equal(arcade.paint.length, PAINT_COLS * PAINT_ROWS);
   const owners = players.map((player) => paintOwnedCount(arcade, player.id));
-  assert.deepEqual(owners, [1, 1, 1, 1]);
+  assert.ok(owners.every((owned) => owned > 3 && owned === owners[0]), `ungleicher Start: ${owners}`);
   const spots = new Set(players.map((player) => {
     const state = arcade.players[player.id];
     return `${Math.floor(state.px)},${Math.floor(state.py)}`;
   }));
   assert.equal(spots.size, 4, "starting corners have to be distinct");
+  // Zu zweit über Kreuz: die beiden stehen sich nicht gleich im Weg.
+  const two = paintRoom(2);
+  const [a, b] = two.players.map((player) => two.arcade.players[player.id]);
+  assert.ok(Math.abs(a.px - b.px) > PAINT_COLS / 2 && Math.abs(a.py - b.py) > PAINT_ROWS / 2);
 });
 
-test("paint: a free tile has to be worked on before it is yours", () => {
-  const { arcade, players, entry } = paintRoom(2);
-  // Ein Bruchteil der nötigen Zeit reicht nicht — genau das war der Umbau: mit
-  // sofortigem Umfärben war das Feld nach vier Sekunden voll und danach nur noch
-  // Geflacker.
-  const short = 0.4 / PAINT_CLAIM_RATE;
-  assert.equal(paintClaim(arcade, entry, 2, 4, players[0].id, short), "claiming");
-  assert.equal(paintOwnedCount(arcade, players[0].id), 1, "not yet mine");
-  assert.equal(paintClaim(arcade, entry, 2, 4, players[0].id, 1 / PAINT_CLAIM_RATE), "claimed");
-  assert.equal(paintOwnedCount(arcade, players[0].id), 2);
-
-  // Nochmals darauf: es ist schon meins, es gibt nichts zu holen.
-  assert.equal(paintClaim(arcade, entry, 2, 4, players[0].id, 1), "mine");
-  assert.equal(entry.claimed, 1, "topping up my own tile must not count again");
+test("paint: the roller paints at once, and exactly where it rolls — in front of the kin", () => {
+  // Das war der Fehler der alten Fassung: gemalt wurde unter dem Bauch und
+  // erst nach einer Weile, die Walze rollte aber davor.
+  const { entry, arcade, me, advance, place, slotOf, at, clear } = paintRoom(2);
+  clear();
+  place(me, 4.5, 12.5, Math.PI / 2);          // Blick nach +x
+  advance(60);
+  const ahead = Math.floor(4.5 + PAINT_ROLLER_AHEAD);
+  assert.equal(at(ahead, 12), slotOf(me), "unter der Walze muss sofort Farbe liegen");
+  assert.notEqual(at(2, 12), slotOf(me), "hinter der Figur liegt nichts");
+  assert.equal(arcade.paint[paintIndex(ahead, 12)], String(slotOf(me)), "und die Geräte sehen es im selben Tick");
+  assert.ok(entry.painted > 0);
 });
 
-test("paint: one pass over a rival tile takes it — no second lap", () => {
-  const { arcade, players, entry } = paintRoom(2);
-  const other = arcade.players[players[1].id];
-  const full = 1 / PAINT_CLAIM_RATE;
-  paintClaim(arcade, entry, 2, 4, players[0].id, full);
-  assert.equal(paintOwnedCount(arcade, players[0].id), 2);
-
-  // Angefangen zählt noch nicht — man muss schon drüberbleiben.
-  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, full * 0.3), "eroding");
-  assert.equal(paintOwnedCount(arcade, players[1].id), 1, "eroding alone gains nothing");
-
-  // Aber EIN durchgezogener Strich reicht. Vorher wurde das Feld dabei nur
-  // neutral und man musste ein zweites Mal darüber — das fühlte sich an, als
-  // würde das Malen nicht wirken.
-  const rest = (1 / PAINT_STEAL_RATE) * full;
-  assert.equal(paintClaim(arcade, other, 2, 4, players[1].id, rest), "claimed");
-  assert.equal(paintOwnedCount(arcade, players[1].id), 2, "das Feld gehört jetzt ihm");
-  assert.equal(paintOwnedCount(arcade, players[0].id), 1, "und mir nicht mehr");
+test("paint: a fast stroke leaves no gaps", () => {
+  // Eine Kapsel, keine Stichproben: auch ein langer Tick malt die ganze Strecke.
+  const cells = new Set(paintSweep(1.5, 5.5, 9.5, 5.5, PAINT_BRUSH));
+  for (let col = 1; col <= 9; col += 1) assert.ok(cells.has(paintIndex(col, 5)), `Lücke bei Spalte ${col}`);
+  // Und die Walze ist breiter als eine Kachel.
+  assert.ok(cells.has(paintIndex(5, 4)) && cells.has(paintIndex(5, 6)), "die Spur muss mehr als eine Reihe breit sein");
+  assert.ok(!cells.has(paintIndex(5, 8)), "aber nicht beliebig breit");
+  const wide = paintSweep(5.5, 12.5, 5.5, 12.5, PAINT_BRUSH_WIDE).length;
+  const normal = paintSweep(5.5, 12.5, 5.5, 12.5, PAINT_BRUSH).length;
+  assert.ok(wide > normal * 2, `die breite Walze (${wide}) muss deutlich mehr treffen als die normale (${normal})`);
+  // Nichts ausserhalb des Feldes.
+  paintSweep(-3, -3, 1, 1, PAINT_BRUSH_WIDE).forEach((index) => assert.ok(index >= 0 && index < PAINT_COLS * PAINT_ROWS));
 });
 
-test("paint: a rival tile still costs more than an empty one", () => {
-  // Sonst wäre Angriff immer richtig und die freie Fläche wertlos.
-  const step = 0.02;
-  // Ein Feld nehmen, das beim Start wirklich niemandem gehört.
-  const free = paintRoom(2);
-  const spot = free.arcade.grid.findIndex((owner) => !owner);
-  const col = spot % PAINT_COLS;
-  const row = Math.floor(spot / PAINT_COLS);
-  let freeSteps = 0;
-  while (paintClaim(free.arcade, free.entry, col, row, free.players[0].id, step) !== "claimed" && freeSteps < 500) freeSteps += 1;
-
-  const taken = paintRoom(2);
-  const rival = taken.arcade.players[taken.players[1].id];
-  paintClaim(taken.arcade, taken.entry, col, row, taken.players[0].id, 1);
-  let stealSteps = 0;
-  while (paintClaim(taken.arcade, rival, col, row, taken.players[1].id, step) !== "claimed" && stealSteps < 500) stealSteps += 1;
-
-  assert.ok(stealSteps > freeSteps, `Übermalen (${stealSteps}) muss länger dauern als ein freies Feld (${freeSteps})`);
-});
-
-test("paint: the grid edges cannot be painted past", () => {
-  const { arcade, entry, players } = paintRoom(2);
-  assert.equal(paintClaim(arcade, entry, -1, 0, players[0].id, 1), "outside");
-  assert.equal(paintClaim(arcade, entry, PAINT_COLS, 0, players[0].id, 1), "outside");
-  assert.equal(paintClaim(arcade, entry, 0, PAINT_ROWS, players[0].id, 1), "outside");
-  assert.equal(paintInside(0, 0), true);
-  assert.equal(paintInside(PAINT_COLS - 1, PAINT_ROWS - 1), true);
-});
-
-test("paint: the wide roller covers a cross, the normal brush one tile", () => {
-  assert.deepEqual(paintBrushTiles(3, 4, false), [[3, 4]]);
-  const wide = paintBrushTiles(3, 4, true);
-  assert.equal(wide.length, 5, "the roller has to take the four neighbours along");
-  assert.ok(wide.some(([c, r]) => c === 2 && r === 4));
-  assert.ok(wide.some(([c, r]) => c === 3 && r === 5));
-});
-
-test("paint: steering moves the kin and paints its trail", () => {
-  const { entry, advance, steer, place } = paintRoom(2);
-  place({ id: "c1" }, 1, 4);
+test("paint: rival colour is painted over in a single pass", () => {
+  const { entry, players, me, advance, steer, place, slotOf, at, clear, arcade } = paintRoom(2);
+  clear();
+  const rival = slotOf(players[1]);
+  for (let col = 3; col <= 8; col += 1) arcade.cells[paintIndex(col, 12)] = rival;
+  place(me, 1.5, 12.5, Math.PI / 2);
   steer(1, 0);
-  const startX = entry.px;
-  advance(900);
-  assert.ok(entry.px > startX + 0.5, `the kin barely moved: ${startX} → ${entry.px}`);
-  assert.ok(entry.owned > 1, "driving across the field has to paint it");
+  advance(1800);
+  for (let col = 3; col <= 8; col += 1) assert.equal(at(col, 12), slotOf(me), `Spalte ${col} gehört noch dem Rivalen`);
+  assert.ok(entry.stolen >= 6, `übermalt: ${entry.stolen}`);
+});
+
+test("paint: closing a loop fills everything inside at once — rival colour too", () => {
+  const { entry, players, me, arcade, advance, steer, place, slotOf, at, clear } = paintRoom(2);
+  clear();
+  const mine = slotOf(me);
+  const rival = slotOf(players[1]);
+  // Ein U aus eigener Farbe um ein 4 x 4-Feld, oben offen; drinnen liegt Fremdes.
+  for (let row = 8; row <= 13; row += 1) {
+    arcade.cells[paintIndex(3, row)] = mine;
+    arcade.cells[paintIndex(8, row)] = mine;
+  }
+  for (let col = 3; col <= 8; col += 1) arcade.cells[paintIndex(col, 13)] = mine;
+  for (let col = 4; col <= 7; col += 1) arcade.cells[paintIndex(col, 10)] = rival;
+  // Noch offen: nichts ist eingeschlossen.
+  assert.deepEqual(paintPockets(arcade.cells, mine), []);
+  // Den Deckel ziehen: von links nach rechts über die Oberkante.
+  place(me, 2.5, 7.5, Math.PI / 2);
+  steer(1, 0);
+  advance(1500);
+  for (let row = 9; row <= 12; row += 1) {
+    for (let col = 4; col <= 7; col += 1) assert.equal(at(col, row), mine, `(${col}, ${row}) ist nicht eingefärbt`);
+  }
+  assert.ok(entry.enclosed >= 8, `eingekreist: ${entry.enclosed}`);
+  assert.ok(entry.biggestFill >= 8);
+  assert.ok(arcade.fills.length > 0 && arcade.fills.at(-1).slot === mine, "die Szene braucht den Ursprung der Welle");
+});
+
+test("paint: the board edge is a wall — cutting off a corner fills it", () => {
+  const { arcade, me, slotOf, clear } = paintRoom(2);
+  clear();
+  const mine = slotOf(me);
+  // Ein L: Spalte 3 von oben bis Reihe 3, Reihe 3 von links bis Spalte 3.
+  for (let i = 0; i <= 3; i += 1) {
+    arcade.cells[paintIndex(3, i)] = mine;
+    arcade.cells[paintIndex(i, 3)] = mine;
+  }
+  const pocket = paintPockets(arcade.cells, mine);
+  assert.equal(pocket.length, 9, "die Ecke innerhalb des L ist eingeschlossen");
+  // Eine schräge Treppe hält dicht: verbunden wird nur über Kanten.
+  clear();
+  for (let i = 0; i <= 4; i += 1) {
+    arcade.cells[paintIndex(i, 4 - i)] = mine;
+    if (i < 4) arcade.cells[paintIndex(i + 1, 4 - i)] = mine;
+  }
+  assert.ok(paintPockets(arcade.cells, mine).length > 0, "eine geschlossene Treppe schliesst die Ecke ab");
+});
+
+test("paint: the open field is never filled, and neither is a pocket over the cap", () => {
+  const { arcade, me, slotOf, clear } = paintRoom(2);
+  const mine = slotOf(me);
+  // Quer über die Mitte: zwei grosse Hälften, keine davon wird genommen.
+  clear();
+  for (let col = 0; col < PAINT_COLS; col += 1) arcade.cells[paintIndex(col, 12)] = mine;
+  assert.deepEqual(paintPockets(arcade.cells, mine), [], "ein Strich quer übers Feld darf nicht die halbe Welt nehmen");
+  // Weiter oben quer: das kleine Stück darüber schon.
+  clear();
+  for (let col = 0; col < PAINT_COLS; col += 1) arcade.cells[paintIndex(col, 3)] = mine;
+  const top = paintPockets(arcade.cells, mine);
+  assert.equal(top.length, PAINT_COLS * 3);
+  assert.ok(top.length <= PAINT_ENCLOSE_MAX);
+  // Die grösste freie Fläche bleibt immer draussen.
+  clear();
+  assert.deepEqual(paintPockets(arcade.cells, mine), []);
 });
 
 test("paint: only the direction counts, not an oversized stick", () => {
@@ -3212,77 +3247,121 @@ test("paint: only the direction counts, not an oversized stick", () => {
   assert.ok(Math.hypot(entry.dirX, entry.dirY) <= 1 + 1e-9, "a long vector has to be normalised");
 });
 
-test("paint: the kin stays on the field", () => {
-  const { entry, advance, steer } = paintRoom(2);
+test("paint: the kin drives at full speed and stays on the field", () => {
+  const { entry, me, advance, steer, place } = paintRoom(2);
+  place(me, 2.5, 12.5, Math.PI / 2);
+  steer(1, 0);
+  advance(1000);
+  assert.ok(entry.px - 2.5 > PAINT_SPEED * 0.8, `in einer Sekunde nur ${entry.px - 2.5} Felder`);
   steer(-1, -1);
-  advance(4000);
+  advance(8000);
   assert.ok(entry.px >= 0 && entry.px <= PAINT_COLS, `x left the field: ${entry.px}`);
   assert.ok(entry.py >= 0 && entry.py <= PAINT_ROWS, `y left the field: ${entry.py}`);
   steer(1, 1);
-  advance(6000);
+  advance(8000);
   assert.ok(entry.px <= PAINT_COLS && entry.py <= PAINT_ROWS);
+  // Loslassen heisst stehen.
+  steer(0, 0);
+  advance(500);
+  assert.ok(Math.hypot(entry.vx, entry.vy) < 0.1, "ohne Stick bleibt die Figur stehen");
+});
+
+test("paint: turning swings the roller round instead of jumping", () => {
+  // Die Szene dreht die Figur weich — springt die Walze auf dem Server, malt
+  // sie woanders, als man sie sieht.
+  const { entry, me, advance, steer, place } = paintRoom(2);
+  place(me, 6, 12, Math.PI / 2);
+  steer(-1, 0);
+  advance(60);
+  const turned = Math.abs(Math.atan2(Math.sin(entry.heading - Math.PI / 2), Math.cos(entry.heading - Math.PI / 2)));
+  assert.ok(turned > 0.1 && turned <= PAINT_TURN_RATE * 0.06 + 1e-6, `in einem Tick um ${turned} gedreht`);
+  advance(600);
+  assert.ok(Math.abs(Math.sin(entry.heading) + 1) < 0.05, "nach einer halben Sekunde zeigt sie in die neue Richtung");
 });
 
 test("paint: two kins in the same spot push each other apart", () => {
   const { arcade, players, advance, place } = paintRoom(2);
-  place(players[0], 3, 4);
-  place(players[1], 3, 4);
+  place(players[0], 6.5, 12.5);
+  place(players[1], 6.55, 12.5);
   const one = arcade.players[players[0].id];
   const two = arcade.players[players[1].id];
-  // Minimal versetzt, damit es eine Richtung gibt.
-  two.px += 0.05;
   advance(300);
   const dist = Math.hypot(two.px - one.px, two.py - one.py);
-  assert.ok(dist > 0.2, `they stayed on top of each other: ${dist}`);
+  assert.ok(dist > 0.5, `they stayed on top of each other: ${dist}`);
   assert.ok(one.bumps > 0 && two.bumps > 0, "the bump has to be recorded for both");
 });
 
-test("paint: a roller widens the brush for a while, then wears off", () => {
-  const { arcade, entry, players, advance, place } = paintRoom(2);
-  arcade.pickups = [{ id: 99, col: 3, row: 4 }];
-  place(players[0], 3, 4);
-  advance(120);
+test("paint: the golden roller widens the brush for a while, then wears off", () => {
+  const { arcade, entry, me, advance, place } = paintRoom(2);
+  place(me, 6.5, 12.5);
+  arcade.pickups = [{ id: 99, kind: "wide", x: 6.5, y: 12.5 }];
+  advance(60);
   assert.equal(entry.wide, true, "walking onto the roller has to pick it up");
+  assert.equal(entry.lastPickupKind, "wide");
   assert.equal(arcade.pickups.length, 0, "and take it off the field");
-  // Nach der Laufzeit ist die Rolle weg.
   advance(PAINT_BOOST_MS + 300);
   assert.equal(entry.wide, false, "the roller has to wear off");
 });
 
-test("paint: never more than two rollers lie around", () => {
-  const { arcade, advance } = paintRoom(2);
-  advance(30000);
-  assert.ok(arcade.pickups.length <= PAINT_PICKUP_MAX, `${arcade.pickups.length} rollers on the field`);
+test("paint: a paint bomb splashes a whole disc at once", () => {
+  const { arcade, entry, me, advance, place, clear } = paintRoom(2);
+  clear();
+  place(me, 6.5, 12.5);
+  const before = paintOwnedCount(arcade, me.id);
+  arcade.pickups = [{ id: 7, kind: "bomb", x: 6.5, y: 12.5 }];
+  advance(60);
+  const after = paintOwnedCount(arcade, me.id);
+  assert.ok(after - before >= Math.floor(Math.PI * PAINT_BOMB_RADIUS ** 2 * 0.8), `der Klecks brachte nur ${after - before} Felder`);
+  assert.equal(entry.lastPickupKind, "bomb");
+  assert.equal(entry.wide, false, "die Bombe macht die Walze nicht breit");
 });
 
-test("paint: the score is area over TIME, not the final snapshot", () => {
-  // Der Kern des Umbaus: gewertet wird, wie lange man wie viel gehalten hat.
-  // Vorher entschied der Stand im letzten Tick — bei einem Feld, das mehrmals
-  // pro Sekunde die Farbe wechselt, war das ein Münzwurf.
-  const { entry, players, advance, steer, place } = paintRoom(2);
-  place(players[0], 1, 4);
-  steer(0, 1);
-  advance(1500);
-  assert.ok(entry.tileSeconds > 0, "holding tiles has to accumulate");
-  assert.equal(entry.score, Math.round(entry.tileSeconds * PAINT_TILE_SECOND_POINTS));
+test("paint: never more than two extras lie around", () => {
+  const { arcade, advance } = paintRoom(2);
+  advance(30000);
+  assert.ok(arcade.pickups.length <= PAINT_PICKUP_MAX, `${arcade.pickups.length} extras on the field`);
+  assert.ok(arcade.nextPickupId > 1, "es muss überhaupt welche geben");
+  arcade.pickups.forEach((pickup) => {
+    assert.ok(["wide", "bomb"].includes(pickup.kind));
+    assert.ok(pickup.x > 0 && pickup.x < PAINT_COLS && pickup.y > 0 && pickup.y < PAINT_ROWS);
+  });
+});
 
-  // Alles verlieren senkt den STAND, aber nicht das schon Verdiente.
-  const banked = entry.score;
+test("paint: the score is the area held — the number in the bar", () => {
+  const { arcade, entry, players, me, advance, steer, place, slotOf } = paintRoom(2);
+  place(me, 2.5, 12.5, Math.PI / 2);
+  steer(1, 0);
+  advance(1200);
+  assert.equal(entry.score, entry.owned);
+  assert.equal(entry.owned, paintOwnedCount(arcade, me.id));
+  // Wird die Fläche übermalt, sinkt der Stand mit.
   const held = entry.owned;
-  assert.ok(held > 0);
-  advance(600);
-  assert.ok(entry.score >= banked, "what was earned cannot be taken away again");
+  const rival = slotOf(players[1]);
+  arcade.cells = arcade.cells.map((cell) => (cell === slotOf(me) ? rival : cell));
+  advance(60);
+  assert.ok(entry.score < held, "verlorene Fläche zählt nicht mehr");
 });
 
 test("paint: the result reports one number and it is the one that ranks", () => {
-  const { arcade, entry, advance, steer, players, place } = paintRoom(2);
-  place(players[0], 1, 4);
+  const { arcade, entry, advance, steer, me, place } = paintRoom(2);
+  place(me, 2.5, 12.5, Math.PI / 2);
   steer(1, 0);
   advance(900);
   const detail = arcadeResultDetail(arcade, entry);
   assert.equal(detail.kind, "points");
-  assert.equal(detail.value, Math.round(entry.score));
-  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
+  assert.equal(detail.label, "Felder");
+  assert.equal(detail.value, entry.owned);
+  assert.equal(arcadeRankingScore(arcade, entry), entry.owned);
+});
+
+test("paint: the field goes out as a short string, the work list stays here", () => {
+  const { arcade } = paintRoom(4);
+  const sent = publicArcade(arcade);
+  assert.equal(sent.cells, undefined, "die Arbeitsliste gehört nicht ins Netzpaket");
+  assert.equal(typeof sent.paint, "string");
+  assert.match(sent.paint, /^[.0-3]+$/);
+  assert.ok(arcade.cells, "auf dem Server bleibt sie");
+  assert.ok(JSON.stringify(sent).length < 4000, `das Paket ist ${JSON.stringify(sent).length} Zeichen lang`);
 });
 
 test("paint: wrong action and a broken direction are refused", () => {
