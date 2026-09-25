@@ -154,12 +154,7 @@ const {
 } = testRules;
 
 function player(overrides = {}) {
-  return {
-    coins: 10,
-    nextRollBoost: 0,
-    nextRollPenalty: 0,
-    ...overrides
-  };
+  return { ...overrides };
 }
 
 // Die Regel, die sich sonst über 22 Familien einzeln wieder auflöst: JEDES
@@ -1382,34 +1377,6 @@ test("Klänge: jeder gerufene Name existiert auch", () => {
   assert.deepEqual(stumm, [], `stumme Klänge: ${stumm.map((n) => `${n} (${gerufen.get(n).join(", ")})`).join("; ")}`);
 });
 
-// --- Board economy: stars, items and risk fields ---------------------------
-
-function boardPlayer(overrides = {}) {
-  return {
-    id: overrides.id || "p1",
-    name: overrides.name || "Spieler",
-    coins: 10,
-    stars: 0,
-    items: [],
-    shielded: false,
-    nextRollHalved: false,
-    pendingItem: null,
-    wins: 0,
-    position: 0,
-    ...overrides
-  };
-}
-
-function boardRoom(overrides = {}) {
-  return {
-    boardId: "mossback",
-    starIndex: null,
-    bonusStars: [],
-    players: [],
-    ...overrides
-  };
-}
-
 // --- Missbrauchsschutz -----------------------------------------------------
 
 test("room creation is refused in bursts but allowed at a human pace", () => {
@@ -1660,7 +1627,7 @@ test("glide: wrong action is refused", () => {
 
 // --- Ergebnistafel ---------------------------------------------------------
 
-test("result: only everyone together can skip the board", () => {
+test("result: only everyone together can skip the result table", () => {
   // Der Weiter-Knopf beschleunigt, er überspringt nicht. Ein einzelner
   // Ungeduldiger darf den anderen die Tafel nicht wegnehmen, bevor sie sie
   // gelesen haben — und ein Bot oder ein weggelegtes Handy darf die Runde

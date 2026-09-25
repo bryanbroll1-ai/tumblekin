@@ -92,9 +92,9 @@ Windows in der Abfrage „privates Netzwerk" erlauben.
 
 ## Allein spielen, ohne zweites Gerät
 
-In der Lobby **Mit Bots auffüllen** antippen: die Bots würfeln selbst und
-spielen alle Challenges mit. Damit lässt sich eine komplette Partie allein
-durchspielen.
+In der Lobby **+ Bot** antippen, bis genug Mitspieler da sind: die Bots
+spielen jedes Minispiel mit. Damit lässt sich eine komplette Partie —
+Marathon, Punktejagd oder K.O. — allein durchspielen.
 
 ## Zum Homescreen hinzufügen
 

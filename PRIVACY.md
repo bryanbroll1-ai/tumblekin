@@ -29,7 +29,7 @@ Server, der die Runde hostet:
 
 - den eingegebenen Spielernamen (frei wählbar, kein echter Name nötig),
 - Raumcode und eine zufällig erzeugte Spieler-ID,
-- Spielzüge: Würfelwürfe, Item-Einsätze und Minispiel-Eingaben.
+- Spieleinstellungen (Modus, Spielauswahl) und Minispiel-Eingaben.
 
 Der Server hält diese Daten **nur im Arbeitsspeicher**, solange der Raum
 existiert. Es gibt keine Datenbank und keine Protokolldateien mit Spielerdaten;

@@ -64,7 +64,9 @@ laufenden Kosten entstehen sollen.
 | Bildrate | Nachziehen, Abklingen, Drehungen und Partikelraten laufen zeitbezogen statt je Bild — auf 120-Hz-Geräten sieht die Bewegung aus wie auf 60 Hz |
 | Gerätestufen | schwache Hardware bekommt weniger Pixel, kleinere Schattenmaps, kein Antialiasing |
 | Missbrauchsschutz | Raum-Flooding begrenzt (Cooldown, Gerätelimit, Gesamtobergrenze). Vorher legten 60 Verbindungen 60 Räume an, jetzt 1 von 40 im Burst — regulärer Beitritt unbeeinträchtigt |
-| Tests | 250 Regeltests, Browser-Rauchtest über alle Minispiele, Board-Simulator fürs Balancing |
+| Tests | 237 Regeltests; im Browser Rauchtest über alle Minispiele, ganze Partien bis zur Siegerehrung (`match-check`), Figuren im Bild und auf dem Boden (`scene-check`), Langzeitlauf ohne Speicherwachstum (`session-sim`) |
+| Spielmodi | Marathon (5/10/15), Punktejagd, K.O. (2/3/5 Leben), Einzelspiel — kein Brett mehr. Die Regeln stehen in `server/modes.js` ohne Sockets und Timer; die Partie-Waage (`match-sim`) spielt 42 000 Partien über alle Einstellungen: jede endet, die Notbremse greift in keiner, und ein etwas Besserer gewinnt öfter, als der Zufall es ihm gäbe |
+| Figuren und Kamera | ein Figurengerüst mit Gesicht und überblendeten Posen für alle Spiele und die Menübühne; ein gemeinsames Kamera-Rig, das in das freie Band zwischen Punkteleiste und Knöpfen rahmt — Hoch- und Querformat ohne eigene Zahlen |
 | Bot-Stärken | belegt: in allen 30 Minispiel-Familien gewinnt die starke Stufe häufiger als die schwache (200 Partien je Spiel, Startplätze rotiert) |
 
 ## Offen vor einem Release
@@ -80,16 +82,17 @@ laufenden Kosten entstehen sollen.
 
 **Wichtig, nicht blockierend**
 
-- Inhaltsumfang: 23 von 30 geplanten Minispielen (Plan unten).
+- Inhaltsumfang: 31 Minispiele. Offene Ideen stehen im Fahrplan unten.
 - Nur eine Sprache (Deutsch). Store-Reichweite verlangt praktisch Englisch.
 - Kein Onboarding-Tutorial für die erste Partie.
 - Keine Fehlerberichterstattung; ein Absturz beim Spieler bleibt unsichtbar.
 - Test auf echten Geräten und in Safari/Firefox steht aus — bisher nur
   headless Chromium.
 
-## Fahrplan auf 30 Minispiele
+## Fahrplan: weitere Minispiele
 
-Die ursprünglichen 15 deckten nur fünf Mechanik-Archetypen ab, und **Tippen war
+Der Plan entstand bei 15 Spielen; was fertig ist, ist durchgestrichen, dazu
+kamen unterwegs Spiele, die hier nicht standen. Die ursprünglichen 15 deckten nur fünf Mechanik-Archetypen ab, und **Tippen war
 mit sechs Spielen überrepräsentiert**. Die 15 neuen sind deshalb nach fehlenden
 Archetypen ausgewählt, nicht nach Thema — so unterscheiden sie sich wirklich,
 statt nur anders auszusehen.
@@ -130,7 +133,8 @@ Zwei Punkte, die beim Umsetzen Arbeit bedeuten:
   neue Abhängigkeit und hält den 90-ms-Tick auch auf einem Gratis-Server
   bezahlbar.
 
-`client/src/minigames/SceneKit.js`, `VoxelKit.js` und `Quality.js` tragen die
-gemeinsame Grundlage; ein neues Minispiel baut nur noch seine eigene Welt und
-seine Regeln. Serverseitig kommt je Spiel ein Zustandsobjekt und ein
+`client/src/minigames/MinigameScene.js` (Grundgerüst), `CameraRig.js`, `Kin.js`,
+`SceneKit.js`, `VoxelKit.js` und `Quality.js` tragen die gemeinsame Grundlage;
+ein neues Minispiel baut nur noch seine eigene Welt, seine Handlung und seine
+Regeln. Serverseitig kommt je Spiel ein Zustandsobjekt und ein
 Eingabe-Handler dazu, plus Einträge in `MINIGAMES` und `catalog.js`.

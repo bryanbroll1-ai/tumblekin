@@ -110,33 +110,6 @@ export function createNameLabel(text, accent) {
   return sprite;
 }
 
-export function createCountdownSprite() {
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false }));
-  sprite.visible = false;
-  return sprite;
-}
-
-export function updateCountdownSprite(sprite, text, accent) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 320;
-  canvas.height = 200;
-  const ctx = canvas.getContext("2d");
-  ctx.lineJoin = "round";
-  ctx.font = "900 130px ui-rounded, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineWidth = 26;
-  ctx.strokeStyle = "rgba(31, 90, 110, 0.55)";
-  ctx.strokeText(text, 160, 104);
-  ctx.fillStyle = accent;
-  ctx.fillText(text, 160, 100);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  sprite.material.map?.dispose?.();
-  sprite.material.map = texture;
-  sprite.material.needsUpdate = true;
-}
-
 export class CubeBurst {
   constructor(scene) {
     this.scene = scene;

@@ -5,7 +5,7 @@ import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tum
 //
 // Vorher stand in jedem der 31 Spiele eine eigene Kamera aus geschätzten
 // Zahlen: eine Position fürs Hochformat, eine fürs Querformat, ein lookAt, und
-// wenn das nicht reichte, schob fitKinsInView die Kamera hinterher zurück.
+// wenn das nicht reichte, schob eine Hilfsfunktion die Kamera hinterher zurück.
 // Dass oben die Punkteleiste und unten die Knöpfe einen Teil des Bildes
 // verdecken, wusste keine davon — gerahmt wurde auf den ganzen Bildschirm, und
 // das Wichtigste lag oft genau unter einem Knopf.
