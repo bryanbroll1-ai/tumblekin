@@ -78,16 +78,14 @@ const {
   traceWidthAt,
   traceToleranceAt,
   buildTraceGems,
-  TRACE_STEP_LIMIT,
-  TRACE_MAX_SPEED,
-  TRACE_REENTRY_WINDOW,
-  TRACE_SLIP_LOCK_MS,
-  TRACE_LAP_POINTS,
-  TRACE_SLIP_COST,
   TRACE_CLEAN_BONUS,
+  TRACE_STEER_SPEED,
+  TRACE_LEAD_IN_MS,
   tracePathX,
   traceOffset,
   traceScore,
+  traceSpeed,
+  traceCombo,
   BELT_COLOURS,
   BELT_CHUTES,
   BELT_QUEUE,
@@ -2594,83 +2592,6 @@ test("trace: the crystals sit inside the band and never on a bottleneck", () => 
   }
 });
 
-test("trace: a crystal counts once and only when the finger is on it", () => {
-  const players = [{ id: "t1", name: "Maler", isBot: false }];
-  const startedAt = Date.now();
-  const arcade = createArcadeState("spurmaler", players, startedAt);
-  const minigame = { id: 1, type: "spurmaler", startedAt, duration: 32000, arcade, scores: {}, lastInputAt: {} };
-  const room = { currentMinigame: minigame, players };
-  const me = players[0];
-  const entry = arcade.players[me.id];
-  const send = (x, y) => { entry.lastInputAt = 0; return handleArcadeInput(room, me, { action: "trace", x, y }); };
-
-  const gem = entry.gems[0];
-  // Bis kurz unter den Kristall ziehen — der Fortschritt ist gedeckelt, also in
-  // Schritten, und zwischendurch die Uhr weiterlaufen lassen.
-  for (let t = 0; t <= gem.t + 0.02; t += 0.02) {
-    entry.lastAdvanceAt = Date.now() - 400;
-    send(tracePathX(arcade.seed, 0, t), t);
-  }
-  assert.equal(entry.gemsTotal, 0, "auf der Mittellinie darf der Kristall nicht zufallen");
-
-  const fresh = createArcadeState("spurmaler", players, startedAt);
-  const room2 = { currentMinigame: { id: 2, type: "spurmaler", startedAt, duration: 32000, arcade: fresh, scores: {}, lastInputAt: {} }, players };
-  const e2 = fresh.players[me.id];
-  const send2 = (x, y) => { e2.lastInputAt = 0; return handleArcadeInput(room2, me, { action: "trace", x, y }); };
-  const g2 = e2.gems[0];
-  for (let t = 0; t <= g2.t + 0.02; t += 0.02) {
-    e2.lastAdvanceAt = Date.now() - 400;
-    // Auf der Höhe des Kristalls dorthin zielen, sonst mittig bleiben.
-    const aim = Math.abs(t - g2.t) <= TRACE_GEM_REACH ? g2.x : tracePathX(fresh.seed, 0, t);
-    send2(aim, t);
-  }
-  assert.equal(e2.gemsTotal, 1, "wer draufzieht, muss ihn bekommen");
-  // Und ein zweites Mal darüber zählt nicht noch einmal.
-  e2.progress = Math.max(0, g2.t - 0.01);
-  e2.lastAdvanceAt = Date.now() - 400;
-  send2(g2.x, g2.t);
-  assert.equal(e2.gemsTotal, 1, "ein Kristall zählt genau einmal");
-});
-
-test("trace: crystals are worth taking but do not outweigh finishing laps", () => {
-  // Wenn die Kristalle mehr brächten als die Runde, würde man aufhören zu
-  // malen und nur noch einsammeln — dann wäre es ein anderes Spiel.
-  const allGems = TRACE_GEMS_PER_LAP * TRACE_GEM_POINTS;
-  assert.ok(allGems > 0);
-  assert.ok(allGems < TRACE_LAP_POINTS + TRACE_CLEAN_BONUS,
-    `Kristalle einer Runde (${allGems}) dürfen die Runde selbst nicht überholen`);
-});
-
-
-function traceRoom() {
-  const players = [{ id: "t1", name: "Maler", isBot: false }];
-  const startedAt = Date.now();
-  const arcade = createArcadeState("spurmaler", players, startedAt);
-  const minigame = { id: 1, type: "spurmaler", startedAt, duration: 30000, arcade, scores: {}, lastInputAt: {} };
-  const room = { currentMinigame: minigame, players };
-  const me = players[0];
-  const entry = arcade.players[me.id];
-
-  // Der Server begrenzt das Tempo in ECHTER Zeit. Im Test wird der Zeitstempel
-  // des letzten Vorrückens zurückdatiert, statt echte Zeit zu verbrennen —
-  // sonst würde jeder Zug am Tempodeckel hängen statt an der Spur.
-  const drag = (y, offset = 0, { agedMs = 400 } = {}) => {
-    const x = tracePathX(arcade.seed, entry.lap, Math.min(1, Math.max(0, y))) + offset;
-    entry.lastInputAt = 0;
-    entry.lastAdvanceAt = Date.now() - agedMs;
-    return handleArcadeInput(room, me, { action: "trace", x, y });
-  };
-  const lift = () => {
-    entry.lastInputAt = 0;
-    return handleArcadeInput(room, me, { action: "lift" });
-  };
-  // Zieht die Spur in kleinen Schritten hoch, wie ein Finger es täte.
-  const traceUp = (to = 1, stepSize = 0.04) => {
-    for (let y = 0; y <= to + 1e-9; y += stepSize) drag(Math.min(y, to));
-  };
-  return { room, me, arcade, entry, minigame, drag, lift, traceUp };
-}
-
 test("trace: the path always climbs and never leaves the reachable width", () => {
   for (const lap of [0, 1, 2, 7, 19]) {
     for (let step = 0; step <= 40; step += 1) {
@@ -2699,153 +2620,145 @@ test("trace: the offset is measured at the height the finger is at", () => {
   assert.ok(Math.abs(traceOffset(499, 0, onPath + 0.05, y) - 0.05) < 1e-9);
 });
 
-test("trace: dragging along the path advances the brush", () => {
-  const { entry, drag } = traceRoom();
-  drag(0);
-  assert.equal(entry.brushDown, true, "starting on the path has to pick the brush up");
-  drag(0.04);
-  assert.ok(entry.progress > 0, "following the path must make progress");
-  assert.equal(entry.slips, 0);
+function traceRoom() {
+  const players = [{ id: "t1", name: "Maler", isBot: false }];
+  const startedAt = Date.now() - TRACE_LEAD_IN_MS - 10;
+  const arcade = createArcadeState("spurmaler", players, startedAt);
+  const minigame = { id: 1, type: "spurmaler", startedAt, duration: 30000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  const steer = (x) => {
+    entry.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "steer", x });
+  };
+  // Lässt die Zeit in Tick-Schritten laufen. `aim(entry)` liefert, wohin der
+  // Finger in diesem Moment lenkt — so spielt der Test wie eine Hand.
+  const run = (ms, aim = null, stepMs = 90) => {
+    for (let left = ms; left > 0; left -= stepMs) {
+      if (aim) steer(aim(entry));
+      arcade.lastUpdateAt = Date.now() - stepMs;
+      updateArcade(room);
+    }
+  };
+  const onLine = (e) => tracePathX(arcade.seed, e.lap, Math.min(1, e.progress + 0.02));
+  return { room, me, arcade, entry, minigame, steer, run, onLine };
+}
+
+test("trace: the brush drives up on its own and the finger only steers", () => {
+  const { entry, run } = traceRoom();
+  assert.equal(entry.progress, 0);
+  run(1000);
+  // Ohne jede Eingabe fährt der Pinsel trotzdem — nichts reisst ab, nichts sperrt.
+  assert.ok(entry.progress > 0.15 && entry.progress < 0.25, `Fortschritt ${entry.progress}`);
 });
 
-test("trace: leaving the band breaks the stroke and costs", () => {
-  const { entry, drag } = traceRoom();
-  drag(0);
-  drag(0.04);
-  const reached = entry.progress;
-  drag(0.08, TRACE_TOLERANCE + 0.02);
-  assert.equal(entry.slips, 1);
-  assert.equal(entry.brushDown, false, "a slip has to break the stroke");
-  assert.equal(entry.progress, reached, "and must not advance any further");
-  assert.ok(entry.lockUntil > Date.now());
+test("trace: steering follows the finger but never jumps", () => {
+  const { entry, steer, run } = traceRoom();
+  const start = entry.brushX;
+  steer(0.95);
+  run(90);
+  const moved = entry.brushX - start;
+  assert.ok(moved > 0, "der Pinsel folgt");
+  assert.ok(moved <= TRACE_STEER_SPEED * 0.2 + 1e-9, `kein Sprung (${moved.toFixed(3)})`);
+  run(1500);
+  assert.ok(Math.abs(entry.brushX - 0.95) < 1e-6, "mit etwas Zeit kommt er an");
 });
 
-test("trace: staying just inside the band is still fine", () => {
-  const { entry, drag } = traceRoom();
-  drag(0);
-  drag(0.04, TRACE_TOLERANCE - 0.005);
-  assert.equal(entry.slips, 0, "the band has to be usable to its edge");
-  assert.ok(entry.progress > 0);
+test("trace: staying on the line paints perfect cells and builds a combo", () => {
+  const { entry, run, onLine } = traceRoom();
+  entry.brushX = onLine(entry);
+  run(4000, onLine);
+  const cells = entry.cells + (entry.lapsDone ? "" : "");
+  assert.ok(entry.perfect >= 25, `perfekte Abschnitte: ${entry.perfect}`);
+  assert.equal(entry.misses, 0, `daneben: ${entry.misses} (${cells})`);
+  assert.ok(entry.streak >= 25);
+  assert.equal(traceCombo(entry.streak), 3, "nach zwanzig in Folge gilt ×3");
 });
 
-test("trace: after a break the brush only restarts where it stopped", () => {
-  const { entry, drag, lift, traceUp } = traceRoom();
-  traceUp(0.3);
-  const reached = entry.progress;
-  assert.ok(reached > 0.2, `expected real progress, got ${reached}`);
-  lift();
-  assert.equal(entry.brushDown, false);
-
-  // Weit vor der Bruchstelle wieder ansetzen darf nichts bringen — sonst liesse
-  // sich die Spur überspringen statt gezogen zu werden.
-  drag(reached + TRACE_REENTRY_WINDOW + 0.2);
-  assert.equal(entry.brushDown, false, "restarting ahead must be refused");
-  assert.equal(entry.progress, reached);
-
-  drag(reached);
-  assert.equal(entry.brushDown, true, "restarting at the break has to work");
+test("trace: leaving the band costs the combo, not the game", () => {
+  const { entry, run, onLine } = traceRoom();
+  entry.brushX = onLine(entry);
+  run(2500, onLine);
+  const streak = entry.streak;
+  assert.ok(streak > 10);
+  // Deutlich neben die Spur: der Abschnitt ist „daneben", die Serie weg …
+  run(600, (e) => tracePathX(0, e.lap, e.progress) + TRACE_TOLERANCE * 2.5);
+  assert.ok(entry.misses > 0, "daneben muss zählen");
+  assert.equal(entry.streak, 0);
+  const progress = entry.progress;
+  // … aber der Pinsel fährt weiter und man steigt einfach wieder ein.
+  run(1200, onLine);
+  assert.ok(entry.progress > progress || entry.lapsDone > 0, "keine Sperre");
+  assert.ok(entry.streak > 3, "wieder auf der Spur zählt es sofort wieder");
 });
 
-test("trace: tapping up the path is no faster than dragging it", () => {
-  // Der Angriff: Finger heben, ein Stück weiter oben neu ansetzen, wiederholen.
-  // Absichtlich unmenschlich schnell getaktet, damit der Tempodeckel greifen
-  // MUSS: ohne ihn brächte jeder Zyklus die volle Sprungweite, also 20 Zyklen
-  // = eine ganze Runde in 0.4 Sekunden.
-  const stepMs = 10;
-  const cycles = 20;
-  const tapper = traceRoom();
-  for (let i = 0; i < cycles; i += 1) {
-    tapper.lift();
-    tapper.drag(tapper.entry.progress, 0, { agedMs: stepMs });
-    tapper.entry.lockUntil = 0;
-    tapper.drag(Math.min(1, tapper.entry.progress + TRACE_STEP_LIMIT), 0, { agedMs: stepMs });
-    tapper.entry.lockUntil = 0;
-  }
-  // Gesamtstrecke, nicht der aktuelle Stand: eine vollendete Runde setzt den
-  // Fortschritt auf 0 zurück. Genau daran ging dieser Test beim ersten Versuch
-  // vorbei — er lief auch mit abgeschaltetem Deckel grün.
-  const covered = tapper.entry.lapsDone + tapper.entry.progress;
-  const uncapped = cycles * TRACE_STEP_LIMIT;
-  const ceiling = cycles * 2 * (stepMs / 1000) * TRACE_MAX_SPEED;
-  assert.ok(ceiling < uncapped / 3, "the test cadence has to make the cap bind");
-  assert.ok(
-    covered <= ceiling + 1e-6,
-    `tapping covered ${covered}, the cap allows ${ceiling}`
-  );
+test("trace: a brush just inside the band still counts as good", () => {
+  const { entry, run, arcade } = traceRoom();
+  const side = (e) => tracePathX(arcade.seed, e.lap, Math.min(1, e.progress + 0.02))
+    + traceToleranceAt(arcade.seed, e.lap, e.progress) * 0.8;
+  entry.brushX = side(entry);
+  run(2500, side);
+  assert.ok(entry.good > 10, `gut: ${entry.good}`);
+  assert.ok(entry.misses <= 2, `daneben: ${entry.misses}`);
 });
 
-test("trace: a finished lap starts a new curve and banks points", () => {
-  const { entry, arcade, traceUp } = traceRoom();
-  const firstLap = entry.lap;
-  traceUp(1);
-  assert.equal(entry.lapsDone, 1, "reaching the top has to complete the lap");
-  assert.equal(entry.lap, firstLap + 1, "and hand out a new curve");
-  assert.equal(entry.progress, 0, "the new lap starts at the bottom");
-  assert.equal(entry.brushDown, false, "and the finger has to set down again");
-  assert.equal(entry.cleanLaps, 1, "a lap without a slip counts as clean");
-  assert.ok(entry.score >= TRACE_LAP_POINTS);
-  assert.ok(arcade.tolerance === TRACE_TOLERANCE);
+test("trace: a little network delay is forgiven", () => {
+  // Der Finger reagiert auf ein Bild, das ein paar Dutzend Millisekunden alt
+  // ist. Wer das genau richtig macht, darf dafür nicht bestraft werden.
+  const { entry, run, arcade } = traceRoom();
+  const late = (e) => tracePathX(arcade.seed, e.lap, Math.max(0, e.progress - 0.02));
+  entry.brushX = late(entry);
+  run(4000, late);
+  assert.ok(entry.misses <= 1, `daneben trotz sauberem Lenken: ${entry.misses}`);
 });
 
-test("trace: the score rewards laps and precision, and punishes slips", () => {
-  const clean = traceScore({ lapsDone: 2, progress: 0, cleanLaps: 2, slips: 0 });
-  const messy = traceScore({ lapsDone: 2, progress: 0, cleanLaps: 0, slips: 4 });
-  assert.equal(clean, 2 * TRACE_LAP_POINTS + 2 * TRACE_CLEAN_BONUS);
-  assert.equal(messy, 2 * TRACE_LAP_POINTS - 4 * TRACE_SLIP_COST);
-  assert.ok(clean > messy, "the same distance drawn cleanly has to be worth more");
-  // Ein angefangener Weg zählt anteilig — niemand steht bei null.
-  assert.ok(traceScore({ lapsDone: 0, progress: 0.5, cleanLaps: 0, slips: 0 }) > 0);
+test("trace: a crystal counts once and only when the brush is on it", () => {
+  const centre = traceRoom();
+  centre.entry.brushX = centre.onLine(centre.entry);
+  centre.run(4800, centre.onLine);
+  assert.equal(centre.entry.gemsTotal, 0, "auf der Mittellinie fällt kein Kristall zu");
+
+  const grab = traceRoom();
+  const { arcade } = grab;
+  const aim = (e) => {
+    const gem = e.gems.find((g) => !e.gemsTaken[g.index] && Math.abs(g.t - e.progress) < 0.06);
+    return gem ? tracePathX(arcade.seed, e.lap, gem.t) + gem.offset : tracePathX(arcade.seed, e.lap, Math.min(1, e.progress + 0.02));
+  };
+  grab.entry.brushX = aim(grab.entry);
+  grab.run(4800, aim, 45);
+  assert.ok(grab.entry.gemsTotal >= 2, `wer hinlenkt, bekommt sie (${grab.entry.gemsTotal})`);
+  assert.ok(grab.entry.gemsTotal <= TRACE_GEMS_PER_LAP, "keiner zählt doppelt");
 });
 
-test("trace: a slip inside a lap costs the clean bonus", () => {
-  const { entry, drag, traceUp } = traceRoom();
-  drag(0);
-  drag(0.1, TRACE_TOLERANCE + 0.05);       // abgerutscht
-  entry.lockUntil = 0;
-  traceUp(1);
+test("trace: a finished lap starts a new, faster curve", () => {
+  const { entry, run, onLine } = traceRoom();
+  entry.brushX = onLine(entry);
+  run(5200, onLine);
   assert.equal(entry.lapsDone, 1);
-  assert.equal(entry.cleanLaps, 0, "the lap had a slip, so no bonus");
-  assert.equal(entry.slips, 1);
-});
-
-test("trace: going backwards changes nothing", () => {
-  const { entry, drag, traceUp } = traceRoom();
-  traceUp(0.4);
-  const reached = entry.progress;
-  drag(0.1);
-  assert.equal(entry.progress, reached, "pulling back must not undo progress");
-  assert.equal(entry.slips, 0, "and must not count as a slip either");
-});
-
-test("trace: the finger cannot outrun the stroke", () => {
-  // Der Angriff, den erst das Nachrechnen zeigte: den obersten Punkt der Kurve
-  // antippen und halten. Der Abstand wird auf DESSEN Höhe gemessen, man ist also
-  // "auf der Spur" — ohne diese Regel kroch der Strich mit Höchsttempo nach und
-  // eine ganze Runde war in 1.7 s erledigt, ohne die Kurve nachzufahren.
-  const { entry, drag } = traceRoom();
-  drag(0);
-  const before = entry.progress;
-  for (let i = 0; i < 20; i += 1) drag(1);
-  assert.ok(entry.slips > 0, "running ahead has to break the stroke");
-  assert.ok(entry.progress < before + 0.2, `the brush crept to ${entry.progress} anyway`);
+  assert.equal(entry.lap, 1);
+  assert.equal(entry.cleanLaps, 1, "ohne daneben eine saubere Runde");
+  assert.ok(entry.lastLap.accuracy >= 95, `Genauigkeit ${entry.lastLap.accuracy}`);
+  assert.ok(traceSpeed(1) > traceSpeed(0), "jede Runde etwas schneller");
+  assert.ok(entry.cells.length < 10, "die neue Runde fängt leer an");
 });
 
 test("trace: the result reports one number and it is the one that ranks", () => {
-  const { arcade, entry, traceUp } = traceRoom();
-  traceUp(1);
+  const { arcade, entry, run, onLine } = traceRoom();
+  entry.brushX = onLine(entry);
+  run(3000, onLine);
   const detail = arcadeResultDetail(arcade, entry);
   assert.equal(detail.kind, "points");
-  assert.equal(detail.value, Math.max(0, Math.round(entry.score)));
-  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
+  assert.equal(detail.value, traceScore(entry));
+  assert.ok(detail.value > 0);
 });
 
 test("trace: wrong action is refused", () => {
-  const { room, me } = traceRoom();
-  const result = handleArcadeInput(room, me, { action: "jump" });
-  assert.equal(result.ok, false);
+  const { room, me, entry } = traceRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "trace", x: 0.5, y: 0.2 }).ok, false);
+  entry.lastInputAt = 0;
+  assert.equal(handleArcadeInput(room, me, { action: "steer", x: "nope" }).ok, false);
 });
-
-// --- Sortierband -----------------------------------------------------------
 
 function beltRoom(players = [{ id: "p1", name: "Sortierer", isBot: false }]) {
   const startedAt = Date.now();
@@ -3825,5 +3738,21 @@ test("Die Anzahl der Challenges stimmt überall, wo sie genannt wird", async () 
     const inhalt = fs.readFileSync(path.join(wurzel, datei), "utf8");
     assert.ok(inhalt.includes(text),
       `${datei} nennt nicht ${anzahl} Challenges — erwartet: "${text}"`);
+  }
+});
+
+test("trace: every lap starts where the last one ended", () => {
+  // Sonst stand der Pinsel beim Rundenwechsel neben der neuen Spur, und die
+  // ersten Abschnitte waren ohne jede Chance „daneben".
+  for (const seed of [499, 7, 2024]) {
+    for (let lap = 1; lap < 8; lap += 1) {
+      const end = tracePathX(seed, lap - 1, 1);
+      const start = tracePathX(seed, lap, 0);
+      assert.ok(Math.abs(end - start) < 1e-9, `seed ${seed} Runde ${lap}: ${end.toFixed(3)} → ${start.toFixed(3)}`);
+      for (let i = 0; i <= 20; i += 1) {
+        const x = tracePathX(seed, lap, i / 20);
+        assert.ok(x - TRACE_TOLERANCE > 0.02 && x + TRACE_TOLERANCE < 0.98, `seed ${seed} Runde ${lap}: ${x.toFixed(3)} ausserhalb`);
+      }
+    }
   }
 });

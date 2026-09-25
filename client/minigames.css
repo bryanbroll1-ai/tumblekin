@@ -1254,15 +1254,14 @@
   font-size: 0.62rem;
 }
 
-/* --- Spurmaler: Rundenzähler und Hinweis ------------------------------- */
-/* Die Rivalen laufen im 3D-Bild nur als Punkte am Rand mit; die Rundenzahl
-   gehört ins HUD, weil sie die eigentliche Wertung ist. */
+/* --- Spurmaler: Punktestände, Serie und Hinweis ------------------------ */
+/* Alle fahren gleich schnell — die Punkte sind das, was sich unterscheidet. */
 /* Neben der Zeit/Punkte-Leiste. Am oberen Rand war der Zähler von der Kopfzeile
    angeschnitten, eine Zeile darunter lag er hinter dem Hinweisbanner. */
 .trace-lapbar {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  top: calc(56px + env(safe-area-inset-top));
+  left: 12px;
   display: flex;
   gap: 6px;
   padding: 5px 10px;
@@ -1287,6 +1286,36 @@
 .trace-lap-chip.is-own {
   background: var(--chip);
   color: #10201a;
+}
+
+/* Die Serie: rechts oben unter der Kopfzeile. Gold ab ×2, rot glühend bei ×3 —
+   die Zahl, auf die man beim Lenken nebenbei schielt. */
+.trace-combo {
+  position: absolute;
+  top: calc(56px + env(safe-area-inset-top));
+  right: 12px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.86);
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 900;
+  transition: transform 120ms ease;
+}
+
+.trace-combo[hidden] {
+  display: none;
+}
+
+.trace-combo[data-level="2"] {
+  background: #ffd15c;
+  color: #4a3400;
+}
+
+.trace-combo[data-level="3"] {
+  background: #ff7a4d;
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(255, 122, 77, 0.6);
 }
 
 /* Der Hinweis gehört nach UNTEN, nicht über die Spur: oben deckte er genau das

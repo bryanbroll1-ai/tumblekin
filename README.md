@@ -113,9 +113,9 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Falschsignal:** Aus der Linse wächst ein Ring nach aussen. Nur wer die Marke am Rand erreicht, ist echt — die anderen bleiben unterwegs stehen. Je kleiner der Ring beim Tippen, desto mehr Punkte: früh tippen ist geraten, spät tippen ist sicher und billig.
 - **Blitzreflex:** Drei Läufe an der Startampel. Tippe irgendwo auf den Bildschirm, sobald sie auf Grün springt — aber nicht vorher: ein Fehlstart kostet mehr als jede langsame Reaktion. Die kürzeste Gesamtzeit gewinnt.
 
-### 👆〰️ Finger auf der Spur führen
+### ↔️〰️ Wischen zum Lenken
 
-- **Spurmaler:** Zieh den Finger auf der Spur nach oben und mal sie aus. Das Band wird zwischendurch eng — dort zählt jeder Millimeter. Die Kristalle liegen am Bandrand: wer sie mitnimmt, muss nicht nur drinbleiben, sondern zielen. Verlässt du das Band, reisst der Strich ab.
+- **Spurmaler:** Dein Farbroller fährt von selbst die Spur hinauf — du lenkst ihn, indem du irgendwo auf dem Bildschirm nach links oder rechts wischst. Jeder Abschnitt zählt: genau in der Mitte ist perfekt, im Band gut, daneben nichts. Bleib auf der Linie, dann steigt deine Serie auf ×2 und ×3. Die Kristalle am Bandrand bringen Extrapunkte, aber wer zu weit ausschert, verliert die Serie. Jede Runde wird etwas schneller.
 
 ### 👆↔️ Ins Fach wischen
 
