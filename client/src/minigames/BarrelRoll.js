@@ -15,6 +15,7 @@ const BARREL_R = 2.1;
 const BARREL_CENTER_Y = 1.1;
 const RUN_PING_MS = 90;
 const WATER_Y = -1.15;
+const CLIMB_MS = 600;           // Sprung aus dem Wasser zurück auf den Stamm
 const TOP_Y = BARREL_CENTER_Y + BARREL_R;
 
 export class BarrelRoll extends MinigameScene {
@@ -22,6 +23,7 @@ export class BarrelRoll extends MinigameScene {
     super(ctx);
     this.smoothOffset = new Map();
     this.fell = new Map();
+    this.climb = new Map();
     this.lastServerAt = performance.now();
     this.holdDir = 0;
     this.holdTimer = null;
@@ -95,6 +97,19 @@ export class BarrelRoll extends MinigameScene {
       const hub = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.16), new THREE.MeshLambertMaterial({ color: "#546a86" }));
       hub.position.z = z;
       this.barrel.add(hub);
+      // Jahresringe und zwei weisse Speichen auf der Stirn: von vorn sieht man
+      // daran sofort, wie schnell und in welche Richtung der Stamm rollt.
+      [0.55, 1.05, 1.5].forEach((r) => {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.035, 4, 28), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
+        ring.position.z = z + Math.sign(z) * 0.06;
+        this.barrel.add(ring);
+      });
+      [0, Math.PI / 2].forEach((angle) => {
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.16, (BARREL_R - 0.2) * 2, 0.04), new THREE.MeshLambertMaterial({ color: "#fff3dc" }));
+        spoke.position.z = z + Math.sign(z) * 0.07;
+        spoke.rotation.z = angle;
+        this.barrel.add(spoke);
+      });
     });
     [-1.55, 1.55].forEach((z) => {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(BARREL_R + 0.05, 0.06, 6, 20), new THREE.MeshLambertMaterial({ color: "#546a86" }));
@@ -152,26 +167,29 @@ export class BarrelRoll extends MinigameScene {
   }
 
   shot() {
-    // Dreiviertel von schräg oben: die Balance kippt in x und braucht Blick von
-    // vorn, die Reihe steht in z und braucht Blick von der Seite.
-    // Frontal und steil von oben. Frontal, weil ◀ und ▶ auf dem Bildschirm
-    // links und rechts bedeuten müssen — die Laufrichtung auf dem Fass ist x.
-    // Steil, weil die Reihe in z steht: von oben fächert sie sich im Bild
-    // senkrecht auf, statt sich hintereinander zu verstecken.
+    // Schräg von vorn oben auf die Stirnseite des Stamms: die Stirn zeigt als
+    // Rad mit Speichen, WIE der Stamm rollt, und die vier Figuren stehen
+    // hintereinander auf der Oberseite, nach hinten gestaffelt. Vorher schaute
+    // die Kamera fast senkrecht von oben — der Stamm sah aus wie ein stehender
+    // Turm, und dass er rollt, las man nur an der Anzeige.
     return {
-      look: [0, TOP_Y - 0.1, 0.1],
-      // Breit genug, dass auch am Rand der Rutschgrenze die ganze Figur im
-      // Bild bleibt — dort entscheidet sich, ob man fällt.
-      frame: { w: 4.5, h: 3.3 },
-      yaw: 0.1,
-      pitch: 1.02,
+      look: [0, TOP_Y - 0.15, 0.2],
+      frame: { w: 4.6, h: 3.3 },
+      yaw: 0.12,
+      pitch: 0.62,
       fov: 38,
-      intro: { yaw: -0.9, pitch: -0.45, zoom: 1.8 }
+      intro: { yaw: -0.9, pitch: -0.25, zoom: 1.8 }
     };
   }
 
   laneZ(index) {
     return (index - 1.5) * 0.95;
+  }
+
+  // Wer im Wasser treibt, zieht die Kamera nicht hinter sich her.
+  keepInView() {
+    const up = [...this.kins.values()].filter((kin) => !kin.userData.outOfPlay);
+    return up.length ? up : [];
   }
 
   // Rutschen alle zur selben Seite, zieht die Kamera ein Stück mit — sonst
@@ -264,6 +282,19 @@ export class BarrelRoll extends MinigameScene {
       const shadow = this.shadows.get(player.id);
       if (!entry || !kin || !animator) return;
       const fallen = Boolean(entry.fallenAt);
+      // Zurück aus dem Wasser: der Sturz ist vorbei, die Figur springt oben in
+      // die Mitte des Stamms.
+      if (!fallen && this.fell.has(player.id)) {
+        const from = kin.position.clone();
+        this.fell.delete(player.id);
+        this.fell.delete(`${player.id}:splash`);
+        this.smoothOffset.set(player.id, 0);
+        this.climb.set(player.id, { at: now, from });
+        animator.trigger("jump");
+        animator.expression("effort", 500);
+        this.burst(new THREE.Vector3(from.x, WATER_Y + 0.1, from.z), ["#bfe9ff", "#ffffff"], { count: 12, speed: 1.8, up: 2.4, size: 0.08, life: 0.6 });
+        if (player.id === controlledId) this.feedback?.sound("whoosh");
+      }
       const shown = (this.smoothOffset.get(player.id) ?? 0) + ((entry.offset || 0) - (this.smoothOffset.get(player.id) ?? 0)) * Math.min(1, dt * 9);
       this.smoothOffset.set(player.id, shown);
       const angle = shown / BARREL_R;
@@ -307,6 +338,20 @@ export class BarrelRoll extends MinigameScene {
 
       kin.visible = true;
       setKinOpacity(kin, 1);
+      if (kin.userData.label) kin.userData.label.visible = true;
+      const climb = this.climb.get(player.id);
+      if (climb) {
+        // Ein Sprung aus dem Wasser im Bogen nach oben.
+        const u = Math.min(1, (now - climb.at) / CLIMB_MS);
+        const top = BARREL_CENTER_Y + BARREL_R + 0.07;
+        kin.position.x = THREE.MathUtils.lerp(climb.from.x, 0, u);
+        kin.position.z = this.laneZ(index);
+        this.setGround(player.id, THREE.MathUtils.lerp(WATER_Y, top, u) + Math.sin(u * Math.PI) * 1.2);
+        kin.rotation.z = 0;
+        shadow.visible = false;
+        if (u >= 1) this.climb.delete(player.id);
+        return;
+      }
       // Auf den Dauben (sie liegen 0.07 über dem Fasskörper), und zwar entlang
       // der Senkrechten des Stamms: die Figur neigt sich mit der Rundung, also
       // muss auch ihre Mitte dort sitzen, wohin die Neigung zeigt. Vorher
@@ -368,7 +413,8 @@ export class BarrelRoll extends MinigameScene {
     const banner = this.hud.querySelector("[data-barrel-banner]");
     if (own?.fallenAt) {
       banner.hidden = false;
-      banner.textContent = "Ins Wasser gerollt!";
+      const back = Math.max(0, Math.ceil(((own.backAt || 0) - f.now) / 1000));
+      banner.textContent = back > 0 ? `Ins Wasser gerollt! Zurück in ${back}…` : "Ins Wasser gerollt!";
       banner.style.background = "#1f8fd6";
       banner.style.color = "#ffffff";
     } else {

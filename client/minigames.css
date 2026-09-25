@@ -1812,3 +1812,31 @@ canvas.is-stunned {
   box-shadow: 0 0 0 3px #ffffff;
   z-index: 1;
 }
+
+/* --- Pump-Panik: zwei Knöpfe im Wechsel --------------------------------- */
+.pump-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: min(100%, 420px);
+  margin: 0 auto;
+}
+
+.pump-pair .pump-button {
+  width: 100%;
+  min-height: 96px;
+  font-size: 1.25rem;
+  opacity: 0.72;
+  transition: opacity 0.08s linear, transform 0.08s linear;
+}
+
+/* Der Knopf, der als Nächstes dran ist, leuchtet. */
+.pump-pair .pump-button.is-next {
+  opacity: 1;
+  box-shadow: 0 8px 0 #833508, 0 0 0 4px #ffe36b, 0 18px 30px rgba(242, 96, 15, 0.45);
+}
+
+.pump-pair .pump-button.is-stuck {
+  transform: translateX(4px);
+  filter: grayscale(0.6);
+}

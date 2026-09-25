@@ -101,12 +101,16 @@ export class CoinRain extends MinigameScene {
     return (lane - 1) * LANE_WIDTH;
   }
 
+  // Wer in derselben Spur steht, soll trotzdem zu sehen sein: jeder hat seine
+  // eigene Reihe in der Tiefe, und die Kamera schaut etwas von oben, damit
+  // die Reihen im Bild übereinander liegen statt hintereinander. Vorher
+  // standen alle vier in einer Spur als ein einziger Klumpen da.
   offset(index, count) {
-    return (index - (count - 1) / 2) * 0.3;
+    return (index - (count - 1) / 2) * 0.12;
   }
 
   depth(index) {
-    return (index % 2) * 0.45 - 0.2;
+    return (index - 1.5) * 0.42;
   }
 
   buildDropMesh(kind) {
@@ -177,10 +181,10 @@ export class CoinRain extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 1.55, 0.5],
-      frame: { w: LANE_WIDTH * 3 + 0.6, h: 3.7 },
+      look: [0, 1.45, 0.5],
+      frame: { w: LANE_WIDTH * 3 + 0.6, h: 3.9 },
       fill: 0.96,
-      pitch: 0.12,
+      pitch: 0.3,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.25, zoom: 1.4 }
     };

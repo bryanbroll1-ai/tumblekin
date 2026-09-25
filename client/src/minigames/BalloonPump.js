@@ -4,7 +4,8 @@ import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
-// Pump-Panik — jeder Tipp pumpt den eigenen Ballon grösser.
+// Pump-Panik — links und rechts im Wechsel drücken pumpt den eigenen Ballon
+// grösser; zweimal dieselbe Seite bewegt den Kolben nicht.
 //
 // Das Schönste daran ist, alle vier Ballons live wachsen zu sehen. Die Figur
 // stampft dabei bei jedem Pumpen auf die Pumpe; eine Krone schwebt über dem
@@ -13,7 +14,10 @@ import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 // Eng genug, dass vier Stationen auf ein hochkantes Handy passen, ohne dass
 // die Figuren zu Punkten werden.
 const STATION_GAP = 1.2;
-const BALLOON_MAX = 1.6;
+// Grösser als vorher (1.6): der Ballon IST die Anzeige, und bei 35 Pumps sah
+// man den Unterschied zwischen erstem und letztem Platz kaum.
+const BALLOON_MAX = 2.4;
+const BALLOON_GROW = 45;   // Pumps bis gut zwei Drittel der Endgrösse
 const DECK_Y = 0.3;
 
 export class BalloonPump extends MinigameScene {
@@ -91,7 +95,7 @@ export class BalloonPump extends MinigameScene {
   }
 
   shot() {
-    return { look: [0, 1.55, 0], frame: { w: 5.0, h: 3.4 }, pitch: 0.18, fov: 36, intro: { yaw: -0.6, pitch: 0.3, zoom: 1.6 } };
+    return { look: [0, 2.2, 0], frame: { w: 5.2, h: 4.6 }, pitch: 0.16, fov: 36, intro: { yaw: -0.6, pitch: 0.3, zoom: 1.6 } };
   }
 
   hudHtml() {
@@ -100,27 +104,41 @@ export class BalloonPump extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="pump-button" data-pump>
-        <span class="pump-button-face">PUMPEN!</span>
-      </button>`;
-    this.pumpButton = this.controls.querySelector("[data-pump]");
-    const press = (event) => {
-      event.preventDefault();
-      this.pressPump();
-    };
-    this.on(this.pumpButton, "pointerdown", press);
-    this.on(this.webglCanvas, "pointerdown", press);
+      <div class="pump-pair">
+        <button type="button" class="pump-button is-next" data-pump="left"><span class="pump-button-face">◀ PUMP</span></button>
+        <button type="button" class="pump-button" data-pump="right"><span class="pump-button-face">PUMP ▶</span></button>
+      </div>`;
+    this.pumpButtons = [...this.controls.querySelectorAll("[data-pump]")];
+    this.pumpButton = this.pumpButtons[0];
+    this.pumpButtons.forEach((button) => {
+      this.on(button, "pointerdown", (event) => {
+        event.preventDefault();
+        this.pressPump(button.dataset.pump);
+      });
+    });
+    this.lastSide = null;
   }
 
-  pressPump() {
+  pressPump(side) {
     const minigame = this.update || this.minigame;
     if (!minigame || minigame.finaleAt || this.now() < minigame.startedAt) return;
+    if (side === this.lastSide) {
+      // Dieselbe Seite: der Kolben rührt sich nicht. Ein kurzes Stocken im
+      // Knopf sagt es, ohne zu bestrafen.
+      this.feedback?.sound("tap");
+      this.pumpButtons.find((button) => button.dataset.pump === side)?.classList.add("is-stuck");
+      setTimeout(() => this.pumpButtons?.forEach((button) => button.classList.remove("is-stuck")), 140);
+      this.sendInput({ action: "pump", side }).catch(() => {});
+      return;
+    }
+    this.lastSide = side;
+    this.pumpButtons.forEach((button) => button.classList.toggle("is-next", button.dataset.pump !== side));
     this.localPumps += 1;
     this.feedback?.sound("pop");
     this.feedback?.vibrate(6);
     // Die eigene Figur reagiert sofort, nicht erst mit der Antwort des Servers.
     this.stationPumped(this.getControlledPlayerId());
-    this.sendInput({ action: "pump" }).catch(() => {});
+    this.sendInput({ action: "pump", side }).catch(() => {});
   }
 
   stationX(index, count) {
@@ -165,7 +183,12 @@ export class BalloonPump extends MinigameScene {
     this.scene.add(hoseA);
 
     const balloon = buildBalloon(player.color);
-    balloon.position.set(x, 2.1, -0.3);
+    // Abwechselnd höher und weiter hinten: grosse Ballons stehen wie ein
+    // Strauss gestaffelt, statt sich gegenseitig zu verdecken.
+    const back = index % 2 === 1;
+    balloon.userData.baseY = back ? 2.9 : 2.1;
+    balloon.userData.baseZ = back ? -0.9 : -0.3;
+    balloon.position.set(x, balloon.userData.baseY, balloon.userData.baseZ);
     balloon.scale.setScalar(0.42);
     this.scene.add(balloon);
     const string = new THREE.Mesh(new THREE.BoxGeometry(0.025, 1, 0.025), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
@@ -220,7 +243,9 @@ export class BalloonPump extends MinigameScene {
       station.pulse *= Math.pow(0.001, dt);
       station.plunger.position.y += (0.34 - station.plunger.position.y) * frameLerp(0.22, dt);
 
-      const size = 0.42 + Math.min(BALLOON_MAX - 0.42, pumps * 0.017);
+      // Wächst schnell an und flacht dann ab: auch bei sehr schnellen Daumen
+      // bleibt ein Unterschied sichtbar, statt dass alle am Deckel kleben.
+      const size = 0.42 + (BALLOON_MAX - 0.42) * (1 - Math.exp(-pumps / BALLOON_GROW));
       const wobble = 1 + station.pulse * 0.14 + Math.sin(now / 300 + index) * 0.012;
       let balloonScale = size;
       if (finale && !station.popped) {
@@ -242,7 +267,8 @@ export class BalloonPump extends MinigameScene {
         }
       }
       station.balloon.scale.set(balloonScale * wobble, balloonScale * (1 + station.pulse * 0.2), balloonScale * wobble);
-      const floatY = 2.1 + balloonScale * 0.42 + Math.sin(now / 700 + index * 1.7) * 0.06 + station.lift * 1.2;
+      const floatY = station.balloon.userData.baseY + balloonScale * 0.42 + Math.sin(now / 700 + index * 1.7) * 0.06 + station.lift * 1.2;
+      station.balloon.position.z = station.balloon.userData.baseZ;
       station.balloon.position.y = floatY;
       station.balloon.rotation.z = Math.sin(now / 900 + index) * 0.06;
 
@@ -312,7 +338,7 @@ export class BalloonPump extends MinigameScene {
     const shown = Math.max(own?.pumps || 0, this.localPumps);
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     if (this.scoreNode) this.scoreNode.textContent = String(shown);
-    if (this.pumpButton) this.pumpButton.disabled = Boolean(f.minigame.finaleAt);
+    this.pumpButtons?.forEach((button) => { button.disabled = Boolean(f.minigame.finaleAt); });
   }
 }
 

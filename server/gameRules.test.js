@@ -1031,6 +1031,26 @@ test("pump-panik: every tap counts and ranks by taps", () => {
   assert.ok(arcadeRankingScore(arcade, { pumps: 9 }) > arcadeRankingScore(arcade, { pumps: 5 }));
 });
 
+test("pump-panik: nur der Wechsel links/rechts pumpt, dieselbe Seite zweimal nicht", () => {
+  const tapper = player({ id: "pb", name: "PB", color: "#fff" });
+  const startedAt = Date.now() - 100;
+  const arcade = createArcadeState("ballonPump", [tapper], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 12000, finishing: false };
+  const room = { currentMinigame: minigame, players: [tapper] };
+  const entry = arcade.players[tapper.id];
+  const press = (side) => { entry.lastInputAt = 0; handleArcadeInput(room, tapper, { action: "pump", side }); };
+  press("left");
+  press("right");
+  press("left");
+  assert.equal(entry.pumps, 3, "im Wechsel zählt jeder Druck");
+  press("left");
+  press("left");
+  assert.equal(entry.pumps, 3, "zweimal links bewegt den Kolben nicht");
+  assert.equal(entry.slips, 2);
+  press("right");
+  assert.equal(entry.pumps, 4);
+});
+
 test("fassrolle: the spinning barrel slides idle players off, counter-running holds", () => {
   const idle = player({ id: "ba", name: "BA", color: "#fff" });
   const runner = player({ id: "bb", name: "BB", color: "#0ff" });
@@ -1051,9 +1071,56 @@ test("fassrolle: the spinning barrel slides idle players off, counter-running ho
     }
     testRules.updateBarrel(room, minigame, arcade, 0.05, now);
   }
-  assert.ok(a.fallenAt, "an idle player slides off the barrel");
-  assert.equal(b.fallenAt, null, "counter-running keeps you on top");
+  assert.ok(a.falls >= 1, "an idle player slides off the barrel");
+  assert.equal(b.falls, 0, "counter-running keeps you on top");
   assert.ok(arcadeRankingScore(arcade, b) > arcadeRankingScore(arcade, a), "survivor outranks the fallen");
+});
+
+test("fassrolle: wer fällt, schwimmt zurück und steht nach der Pause wieder oben", () => {
+  const faller = player({ id: "bf", name: "BF", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassrolle", [faller], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [faller] };
+  const entry = arcade.players[faller.id];
+  entry.offset = arcade.limit - 0.01;
+  entry.lastRunAt = startedAt + 3000;
+  entry.runDir = 1;
+  testRules.updateBarrel(room, minigame, arcade, 0.05, startedAt + 3000);
+  assert.ok(entry.fallenAt, "über den Rand heisst ins Wasser");
+  assert.equal(entry.falls, 1);
+  const work = entry.balanceWork || 0;
+  testRules.updateBarrel(room, minigame, arcade, 0.05, startedAt + 4000);
+  assert.ok(entry.fallenAt, "im Wasser bleibt man, bis die Pause um ist");
+  assert.equal(entry.balanceWork || 0, work, "die Zeit im Wasser zählt nicht");
+  testRules.updateBarrel(room, minigame, arcade, 0.05, entry.backAt + 10);
+  assert.equal(entry.fallenAt, null, "danach steht man wieder oben");
+  assert.equal(entry.offset, 0, "und zwar in der Mitte");
+});
+
+test("fassrolle: laufen alle gleichzeitig, reisst es nicht alle ins Wasser", () => {
+  // Gemessen war das eine Todesspirale: vier Läufer gegen dieselbe Strömung
+  // drehten den Stamm schneller, als man laufen kann.
+  const players = ["c1", "c2", "c3", "c4"].map((id) => player({ id, name: id, color: "#fff" }));
+  const startedAt = Date.now();
+  const arcade = createArcadeState("fassrolle", players, startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players };
+  for (let t = 0; t < 30000; t += 50) {
+    const now = startedAt + t;
+    players.forEach((p) => {
+      const e = arcade.players[p.id];
+      if (e.fallenAt) return;
+      // Jeder steuert nur zurück zur Mitte — genau das, was alle tun.
+      if (Math.abs(e.offset) > 0.08) {
+        e.lastRunAt = now;
+        e.runDir = e.offset > 0 ? -1 : 1;
+      }
+    });
+    testRules.updateBarrel(room, minigame, arcade, 0.05, now);
+  }
+  const falls = players.reduce((sum, p) => sum + (arcade.players[p.id].falls || 0), 0);
+  assert.ok(falls <= 4, `wer aufpasst, fällt selten — waren ${falls} Stürze`);
 });
 
 test("fassrolle: wer läuft, dreht den Stamm auch unter den anderen", () => {

@@ -723,7 +723,7 @@ function darePoints(distance) {
 }
 
 const BARREL_LIMIT = 1.7;             // slide distance before falling off
-const BARREL_RUN_SPEED = 2.1;         // counter-run speed while holding
+const BARREL_RUN_SPEED = 2.4;         // counter-run speed while holding
 const BARREL_HOLD_FRESH_MS = 220;     // "holding" = a run ping this recent
 const BARREL_TURN_MS = 700;           // so lange braucht das Fass fuer einen Richtungswechsel
 // Baumstammrollen: wer läuft, stösst den Stamm mit den Füssen in die
@@ -734,6 +734,16 @@ const BARREL_TURN_MS = 700;           // so lange braucht das Fass fuer einen Ri
 const BARREL_CURRENT_SHARE = 0.6;     // so viel bleibt von der Strömung
 const BARREL_PUSH = 1.5;              // Schub je laufender Figur und Sekunde
 const BARREL_PUSH_DAMP = 1.6;         // der Stamm beruhigt sich so schnell wieder
+// Gemessen war das eine Todesspirale: laufen alle gegen dieselbe Strömung an,
+// addiert sich ihr Schub, der Stamm dreht schneller, als irgendwer laufen
+// kann — alle vier lagen nach anderthalb Sekunden im Wasser. Jetzt spürt man
+// den eigenen Schub nur halb, und was die anderen einem aufzwingen, ist
+// gedeckelt: im schnellsten Schub reicht es gerade, den Rutsch zu bremsen.
+const BARREL_OWN_SHARE = 0.5;
+const BARREL_OTHERS_MAX = 0.8;
+// Wer fällt, schwimmt zurück und steht nach dieser Zeit wieder oben — die
+// Zeit im Wasser zählt nicht. Vorher war ein Sturz das Aus für die Runde.
+const BARREL_RESPAWN_MS = 2600;
 
 // Zündstoff — hot-potato bomb: the fuse time is shown for the first moments,
 // then hidden, so a good passer can time the boom.
@@ -1754,7 +1764,9 @@ function scheduleBotMinigameInputs(room) {
       // glide ebenso: der Brenner ist eine gehaltene Hand, keine Entscheidung. Bei
       // ~300 ms Takt kaeme der Ballon zwischen zwei Bot-Ticks um 0.2 Hoehenanteile
       // vom Kurs ab — mehr als die lichte Weite eines spaeten Tores.
-      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel"].includes(minigame.arcade.family);
+      // pump ebenso: ein Mensch schafft im Wechsel sechs bis zehn Stösse pro
+      // Sekunde, ein Bot im langsamen Takt kam nie über drei.
+      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel", "pump"].includes(minigame.arcade.family);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
@@ -2246,9 +2258,8 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     // Zeit in der Mitte war.
     return {
       kind: "zoneTime",
-      survived: !arcadePlayer.fallenAt,
       value: Math.round((arcadePlayer.balanceWork || 0) * 1000),
-      label: arcadePlayer.fallenAt ? "in der Mitte, dann ins Wasser" : "in der Mitte"
+      label: "in der Mitte"
     };
   }
   if (arcade.family === "bomb") {
@@ -2821,6 +2832,8 @@ function createArcadeState(type, players, startedAt, options = {}) {
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.pumps = 0;
+      entry.lastSide = null;
+      entry.slips = 0;
     });
   }
   if (config.family === "barrel") {
@@ -2834,6 +2847,9 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.lastRunAt = 0;
       entry.runDir = 0;
       entry.fallenAt = null;
+      entry.backAt = 0;
+      entry.falls = 0;
+      entry.spinShare = 0;
       entry.survivedMs = 0;
     });
   }
@@ -3725,6 +3741,15 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "pump") {
     if (input.action !== "pump") return { ok: false, error: "Tippe so schnell du kannst." };
+    // Pumpen heisst hoch UND runter: links und rechts im Wechsel. Zweimal
+    // dieselbe Seite bewegt den Kolben nicht. Vorher zählte jeder Tipp —
+    // ein zitternder Finger auf einem Knopf schlug zwei ehrliche Daumen.
+    const side = input.side === "left" || input.side === "right" ? input.side : null;
+    if (side && side === arcadePlayer.lastSide) {
+      arcadePlayer.slips = (arcadePlayer.slips || 0) + 1;
+      return { ok: true };
+    }
+    if (side) arcadePlayer.lastSide = side;
     arcadePlayer.pumps += 1;
     arcadePlayer.score = arcadePlayer.pumps;
     arcadePlayer.hasMoved = true;
@@ -5027,21 +5052,35 @@ function updateKnife(room, minigame, arcade, dt, now) {
 
 function updateBarrel(room, minigame, arcade, dt, now) {
   const elapsed = Math.max(0, now - minigame.startedAt);
-  // Wer läuft, schiebt den Stamm unter sich in die Gegenrichtung.
-  let push = 0;
+  // Wer läuft, schiebt den Stamm unter sich in die Gegenrichtung. Jeder trägt
+  // seinen eigenen Anteil, damit man ihn beim Einzelnen herausrechnen kann.
+  let spin = 0;
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
-    if (!entry || entry.fallenAt) return;
-    if (now - (entry.lastRunAt || 0) <= BARREL_HOLD_FRESH_MS) push -= entry.runDir || 0;
+    if (!entry) return;
+    const running = !entry.fallenAt && now - (entry.lastRunAt || 0) <= BARREL_HOLD_FRESH_MS;
+    const push = running ? -(entry.runDir || 0) : 0;
+    entry.spinShare = (entry.spinShare || 0) + (push * BARREL_PUSH - (entry.spinShare || 0) * BARREL_PUSH_DAMP) * dt;
+    spin += entry.spinShare;
   });
-  arcade.spin = (arcade.spin || 0) + (push * BARREL_PUSH - (arcade.spin || 0) * BARREL_PUSH_DAMP) * dt;
-  const vel = barrelVelAt(arcade, elapsed) * BARREL_CURRENT_SHARE + arcade.spin;
+  arcade.spin = spin;
+  const current = barrelVelAt(arcade, elapsed) * BARREL_CURRENT_SHARE;
+  const vel = current + spin;
   arcade.barrelVel = vel;
   arcade.barrelAngle += vel * dt;
 
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
-    if (!entry || entry.fallenAt) return;
+    if (!entry) return;
+    if (entry.fallenAt) {
+      // Zurück auf den Stamm, oben in die Mitte.
+      if (now < (entry.backAt || 0)) return;
+      entry.fallenAt = null;
+      entry.offset = 0;
+      entry.spinShare = 0;
+      entry.returnedAt = now;
+      return;
+    }
     const holding = now - (entry.lastRunAt || 0) <= BARREL_HOLD_FRESH_MS;
     // Feste Laufgeschwindigkeit, NICHT relativ zum Fass. Relativ gerechnet
     // gewann Gegenhalten immer, und niemand fiel je herunter. Fest gerechnet
@@ -5049,10 +5088,15 @@ function updateBarrel(room, minigame, arcade, dt, now) {
     // zurueckdrehen, und in die falsche Richtung zu halten kostet 4.0 pro
     // Sekunde — von der Mitte bis zum Rand also gut vier Zehntel.
     const runVel = holding ? entry.runDir * BARREL_RUN_SPEED : 0;
+    const others = clamp(spin - entry.spinShare, -BARREL_OTHERS_MAX, BARREL_OTHERS_MAX);
+    const felt = current + entry.spinShare * BARREL_OWN_SHARE + others;
     // The spinning barrel carries you along; counter-run to stay on top.
-    entry.offset += (vel + runVel) * dt;
+    entry.offset += (felt + runVel) * dt;
     if (Math.abs(entry.offset) >= arcade.limit) {
       entry.fallenAt = now;
+      entry.fallSide = Math.sign(entry.offset) || 1;
+      entry.falls = (entry.falls || 0) + 1;
+      entry.backAt = now + BARREL_RESPAWN_MS;
       entry.survivedMs = elapsed;
       entry.flash = "bad";
       entry.lastHitAt = now;
@@ -5349,9 +5393,6 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
   } else if (arcade.family === "wave") {
     const alive = room.players.filter((player) => !arcade.players[player.id]?.eliminated);
     done = alive.length <= 1 && now > minigame.startedAt + WAVE_FIRST_AT;
-  } else if (arcade.family === "barrel") {
-    const alive = room.players.filter((player) => !arcade.players[player.id]?.fallenAt);
-    done = room.players.length > 1 && alive.length <= 1;
   } else if (arcade.family === "bomb") {
     const alive = room.players.filter((player) => !arcade.players[player.id]?.outAt);
     done = room.players.length > 1 && alive.length <= 1;
@@ -6633,9 +6674,14 @@ function arcadeBotStep(room, bot) {
 
   if (arcade.family === "pump") {
     const profile = botProfile(player);
-    // Tap rate scales with skill; the input cooldown caps the maximum.
+    // Tap rate scales with skill; the input cooldown caps the maximum. Wer
+    // schwächer ist, erwischt öfter zweimal dieselbe Seite.
     const chance = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.7 : 0.5;
-    if (Math.random() < chance) handleArcadeInput(room, bot, { action: "pump" });
+    if (Math.random() < chance) {
+      const next = player.lastSide === "left" ? "right" : "left";
+      const side = Math.random() < profile.mistake * 0.5 ? (player.lastSide || "left") : next;
+      handleArcadeInput(room, bot, { action: "pump", side });
+    }
     return;
   }
   if (arcade.family === "barrel") {
