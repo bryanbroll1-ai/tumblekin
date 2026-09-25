@@ -156,13 +156,17 @@ export class RedLightGate extends MinigameScene {
     lampPole.position.set(0, 4.3, gateZ - 2.2);
     scene.add(lampPole);
 
-    // Ein grosser Baum hinter dem Wächter gibt dem Ziel eine Silhouette.
+    // Ein grosser Baum hinter dem Wächter gibt dem Ziel eine Silhouette —
+    // seitlich neben dem Tor, nicht dahinter. In der Linie des linken
+    // Torpfostens verschmolz seine Krone im Finale mit dem Torbalken, und der
+    // Stamm stand mitten hinter dem Sieger.
+    const TREE_X = -6.2;
     const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.8, 4, 0.8), new THREE.MeshLambertMaterial({ color: "#8a5f3c" }));
-    trunk.position.set(-3.6, 2, gateZ - 5.5);
+    trunk.position.set(TREE_X, 2, gateZ - 6.5);
     scene.add(trunk);
     [[0, 4.6, 0, 2.6], [1.1, 5.4, 0.4, 1.8], [-1, 5.2, -0.4, 1.9]].forEach(([dx, y, dz, size]) => {
       const crown = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), new THREE.MeshLambertMaterial({ color: "#3f9e4d" }));
-      crown.position.set(-3.6 + dx, y, gateZ - 5.5 + dz);
+      crown.position.set(TREE_X + dx, y, gateZ - 6.5 + dz);
       crown.castShadow = true;
       scene.add(crown);
     });
@@ -245,7 +249,10 @@ export class RedLightGate extends MinigameScene {
       yaw: 0.14,
       pitch: 0.3,
       fov: 40,
-      intro: { yaw: 0.3, pitch: 0.2, zoom: 1.4 }
+      intro: { yaw: 0.3, pitch: 0.2, zoom: 1.4 },
+      // Nicht ganz so dicht an den Sieger: Tor, Wächter und die anderen im
+      // Ziel gehören mit ins Schlussbild.
+      finale: { pull: 0.55, zoom: 0.9, lift: 0.5, orbit: 0.08 }
     };
   }
 

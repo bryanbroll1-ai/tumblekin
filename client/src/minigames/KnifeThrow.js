@@ -18,9 +18,9 @@ const LOG_R = 0.92;
 const LOG_Y = 2.55;
 const OWN_KIN_Z = 0.55;
 const MINI_SCALE = 0.42;
-const MINI_Y = 4.25;
+const MINI_Y = 4.55;
 const MINI_Z = -2.2;
-const PODIUM_Y = 3.35;
+const PODIUM_Y = 3.65;
 const FLIGHT_MS = 110;
 
 function logAngleDeg(spin, ms) {
@@ -100,7 +100,12 @@ export class KnifeThrow extends MinigameScene {
     this.stations = new Map();
     this.flying = [];
     this.debris = [];
-    this.labelY = 0.74;
+    // Kein wippender Pfeil über der eigenen Figur und das Namensschild unter
+    // die Füsse: beide hingen genau in der Flugbahn der Messer, zwischen Hand
+    // und Stamm — dort, wo man beim Zielen hinschaut. Die eigene Figur ist
+    // ohnehin die einzige grosse im Bild.
+    this.labelY = -0.5;
+    this.ownMarker = false;
   }
 
   stage() {
@@ -183,7 +188,9 @@ export class KnifeThrow extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 2.35, 0],
+      // Etwas tiefer geschaut, damit Stamm und Werfer höher im Bild stehen:
+      // vorher klebte die Figur fast am Wurfknopf, und unter ihr lag nur Gras.
+      look: [0, 1.95, 0],
       frame: { w: 3.5, h: 5.6 },
       pitch: 0.06,
       fov: 38,

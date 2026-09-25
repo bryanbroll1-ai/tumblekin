@@ -262,6 +262,19 @@ export class CoinRain extends MinigameScene {
       const t = Math.min(1, (elapsed - fallFrom) / fallMs);
       mesh.position.set(this.laneX(drop.lane) + this.machine.position.x * (1 - t), DROP_TOP_Y - t * t * (DROP_TOP_Y - CATCH_Y), KIN_Z - 0.1);
       mesh.rotation.y = drop.kind === "jackpot" ? Math.sin(now / 300) * 0.4 : now / 260 + drop.id;
+      // Gefangen: die Münze blitzt kurz auf und dreht sich weg, statt einfach
+      // zu verschwinden. Steht niemand in der Spur, fällt sie einfach durch.
+      const caughtBy = drop.kind !== "bomb" && elapsed >= drop.catchAt
+        && players.some((player) => arcade.players[player.id]?.lane === drop.lane);
+      if (caughtBy) {
+        const u = Math.min(1, (elapsed - drop.catchAt) / 120);
+        mesh.scale.setScalar(1 + Math.sin(u * Math.PI) * 0.45);
+        mesh.rotation.y += u * 6;
+        if (!mesh.userData.flashed) {
+          mesh.userData.flashed = true;
+          this.bursts.ring(mesh.position.clone(), "#ffe36b", { radius: drop.kind === "coin" ? 0.45 : 0.7, life: 0.3, y: mesh.position.y });
+        }
+      }
       if (drop.kind === "bomb") mesh.rotation.z = Math.sin(now / 120) * 0.25;
       const current = nextInLane[drop.lane];
       if (!current || drop.catchAt < current.catchAt) nextInLane[drop.lane] = { catchAt: drop.catchAt, mesh, kind: drop.kind };

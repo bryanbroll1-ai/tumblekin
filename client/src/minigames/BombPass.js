@@ -210,8 +210,10 @@ export class BombPass extends MinigameScene {
   bind() {
     this.controls.innerHTML = `
       <button type="button" class="bomb-button" data-bomb-pass>
+        <span class="bomb-button-arm" data-bomb-arm></span>
         <span class="bomb-button-face">WEITERGEBEN</span>
       </button>`;
+    this.armNode = this.controls.querySelector("[data-bomb-arm]");
     this.passButton = this.controls.querySelector("[data-bomb-pass]");
     const press = (event) => {
       event.preventDefault();
@@ -221,11 +223,31 @@ export class BombPass extends MinigameScene {
     this.on(this.webglCanvas, "pointerdown", press);
   }
 
+  // Wer die Bombe gerade bekommen hat, muss sie einen Moment halten (der
+  // Server sperrt das Weitergeben kurz). Vorher warf die Figur trotzdem, die
+  // Bombe blieb aber liegen — der Tipp verpuffte, und es fühlte sich an, als
+  // hätte das Spiel nicht reagiert. Jetzt zeigt der Knopf die Sperre als
+  // Füllbalken, und ein Tipp währenddessen wird gemerkt und genau dann
+  // ausgeführt, wenn die Sperre endet.
   pressPass() {
     const arcade = (this.update || this.minigame)?.arcade;
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
     if (!own || own.outAt || arcade.holderId !== id) return;
+    const wait = (arcade.canPassAt || 0) + 30 - this.now();
+    if (wait > 0) {
+      // Nur die kurze Sperre nach dem Fangen puffern — ein Tipp im Vorlauf
+      // vor dem Start ist ein Versehen und soll nicht beim Start zünden.
+      if (wait > 600) return;
+      this.queuedPass = arcade.holderSince || true;
+      this.feedback?.vibrate(6);
+      return;
+    }
+    this.firePass(id);
+  }
+
+  firePass(id) {
+    this.queuedPass = null;
     this.feedback?.sound("whoosh");
     this.feedback?.vibrate(12);
     this.animators.get(id)?.trigger("throw");
@@ -431,5 +453,18 @@ export class BombPass extends MinigameScene {
       banner.hidden = true;
     }
     this.passButton.disabled = !isHolder || Boolean(minigame.finaleAt);
+
+    // Sperre nach dem Fangen: der Balken läuft voll, dann ist der Knopf scharf.
+    const lockMs = Math.max(1, (arcade.canPassAt || 0) - (arcade.holderSince || 0));
+    const left = (arcade.canPassAt || 0) + 30 - f.now;
+    const locked = isHolder && left > 0;
+    const arm = locked ? 1 - Math.min(1, left / (lockMs + 30)) : 1;
+    if (this.armNode) this.armNode.style.transform = `scaleX(${arm.toFixed(3)})`;
+    this.passButton.classList.toggle("is-arming", locked);
+    this.passButton.classList.toggle("is-queued", locked && Boolean(this.queuedPass));
+    // Gemerkter Tipp: sobald die Sperre fällt, geht die Bombe weiter. Hat
+    // man sie inzwischen nicht mehr (Knall), verfällt er.
+    if (this.queuedPass && (!isHolder || this.queuedPass !== (arcade.holderSince || true))) this.queuedPass = null;
+    if (this.queuedPass && !locked && isHolder && !minigame.finaleAt) this.firePass(controlledId);
   }
 }

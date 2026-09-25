@@ -349,7 +349,12 @@ export class ColorRush extends MinigameScene {
         if (kin.userData.label) kin.userData.label.material.opacity = 0;
         return;
       }
-      animator.groundY = TILE_TOP_Y + 0.3;
+      // Auf der ECHTEN Oberkante des eigenen Feldes. Die leuchtenden
+      // Zielfelder wippen in der Ansage bis zu sechs Zentimeter hoch — mit
+      // fester Standhöhe steckten die Füsse genau dann im Block, wenn man
+      // sich endlich auf das richtige Feld gerettet hatte.
+      const under = this.tiles[entry.gy * COLS + entry.gx];
+      animator.groundY = Math.max(0, under?.position.y ?? 0) + TILE_TOP_Y + 0.3;
       kin.visible = true;
       setKinOpacity(kin, 1);
       if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;

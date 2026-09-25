@@ -19,7 +19,13 @@ import { frameLerp } from "./Quality.js?v=tumblekin200";
 // ist. (Oben auf dem Turm fiel ihm der nächste Block durch den Kopf.)
 const COL_GAP = 1.5;
 const BLOCK_H = 0.46;
-const BASE_Y = 0.2;
+// Oberkante des Sockels: Holzklotz bis 0.2, darauf der Farbstreifen bis
+// 0.25. Die Blöcke wurden früher von 0.17 an gestapelt — der erste steckte
+// acht Zentimeter im Sockel und sah aus, als wäre er im Boden versunken.
+const STACK_Y = 0.25;
+function blockCenterY(level) {
+  return STACK_Y + (level + 0.5) * BLOCK_H;
+}
 const WORLD_W = 1.35;
 const SLIDE_W = 1.15;
 const OWN_Z = 0.7;              // der eigene Turm eine Reihe weiter vorn
@@ -34,6 +40,10 @@ export class TowerStack extends MinigameScene {
     this.lastToppled = new Map();
     this.labelY = 0.74;
     this.smoothTop = 0;
+    // Im Finale NICHT auf den Sieger zufahren: der eigene Turm steht eine
+    // Reihe weiter vorn, und stand der Sieger dahinter, füllte der eigene
+    // Turm das ganze Bild. Gezeigt werden stattdessen alle Türme.
+    this.finaleFocus = false;
   }
 
   stage() {
@@ -93,7 +103,7 @@ export class TowerStack extends MinigameScene {
   }
 
   levelTop(level) {
-    return BASE_Y + 0.2 + level * BLOCK_H - BLOCK_H / 2;
+    return STACK_Y + level * BLOCK_H;
   }
 
   addTower(player, index, x, z) {
@@ -135,7 +145,8 @@ export class TowerStack extends MinigameScene {
       frame: { w: count * COL_GAP + 1.2, h: 3.4 },
       pitch: 0.16,
       fov: 38,
-      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }
+      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 },
+      finale: false
     };
   }
 
@@ -185,7 +196,7 @@ export class TowerStack extends MinigameScene {
           new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1),
           new THREE.MeshLambertMaterial({ color: tower.color, emissive: tower.color, emissiveIntensity: level % 2 ? 0.1 : 0.03 })
         );
-        const restY = BASE_Y + 0.2 + level * BLOCK_H;
+        const restY = blockCenterY(level);
         block.position.set(entry.offset * WORLD_W, restY, 0);
         block.castShadow = true;
         block.receiveShadow = true;
@@ -205,7 +216,7 @@ export class TowerStack extends MinigameScene {
         this.lastHeight.set(player.id, height);
         const top = tower.blocks[height - 1];
         const topPos = top.getWorldPosition(new THREE.Vector3());
-        topPos.y = BASE_Y + 0.2 + (height - 1) * BLOCK_H;
+        topPos.y = blockCenterY(height - 1);
         const perfect = entry.flash === "good";
         this.burst(topPos, [tower.color, "#ffffff"], { count: perfect ? 10 : 5, speed: perfect ? 1.7 : 1.2, up: perfect ? 1.6 : 1.2, size: 0.06, life: 0.45, drag: 2.2, fadePow: 1.6 });
         if (perfect) {
@@ -222,7 +233,7 @@ export class TowerStack extends MinigameScene {
         }
       }
       const top = tower.blocks[height - 1];
-      const standY = height ? BASE_Y + 0.2 + (height - 1) * BLOCK_H + BLOCK_H / 2 : BASE_Y + 0.2;
+      const standY = height ? blockCenterY(height - 1) + BLOCK_H / 2 : STACK_Y;
 
       const capped = entry.toppled || height >= arcade.total;
       if (capped && !this.lastToppled.get(player.id)) {
@@ -258,7 +269,7 @@ export class TowerStack extends MinigameScene {
           tower.slider.scale.x = width / WORLD_W;
           tower.edges.scale.x = width / WORLD_W;
         }
-        tower.hook.position.set(blockCentre * (SLIDE_W / 0.85), BASE_Y + 0.2 + height * BLOCK_H, 0);
+        tower.hook.position.set(blockCentre * (SLIDE_W / 0.85), blockCenterY(height), 0);
       }
       if (finale) return;
       animator.lookAt(active ? tower.group.localToWorld(tower.hook.position.clone()) : null);
@@ -272,8 +283,18 @@ export class TowerStack extends MinigameScene {
   // Etagen waren die Blöcke winzig, und gegen Ende lag die Spitze mit dem
   // gleitenden Block, auf den es ankommt, oben ausserhalb des Bildes. Wie hoch
   // die anderen sind, steht oben in der Leiste.
-  rigOptions() {
-    const topY = BASE_Y + this.smoothTop * BLOCK_H;
+  rigOptions(f) {
+    if (f.finale) {
+      // Alle Türme nebeneinander, vom Boden bis zur höchsten Spitze.
+      let highest = 0;
+      this.towers.forEach((tower) => { highest = Math.max(highest, tower.blocks.length); });
+      const topY = STACK_Y + highest * BLOCK_H;
+      return {
+        look: [0, topY * 0.5 + 0.3, -0.2],
+        frame: { w: Math.max(1, this.towers.size) * COL_GAP + 1.4, h: topY + 1.6 }
+      };
+    }
+    const topY = STACK_Y + this.smoothTop * BLOCK_H;
     return {
       look: [0, Math.max(1.4, topY + 0.2), OWN_Z * 0.4],
       frame: { w: 4.6, h: 4.4 }
@@ -281,6 +302,7 @@ export class TowerStack extends MinigameScene {
   }
 
   keepInView(f) {
+    if (f.finale) return [...this.kins.values()];
     const own = this.kins.get(f.controlledId);
     return own ? [own] : [];
   }

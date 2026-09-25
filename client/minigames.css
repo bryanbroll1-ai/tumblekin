@@ -2059,3 +2059,36 @@ canvas.is-stunned {
   box-shadow: 0 7px 0 #071014, 0 0 0 4px rgba(255, 227, 107, 0.75);
   animation: barrel-wave-pulse 260ms ease-in-out infinite alternate;
 }
+
+/* --- Zündstoff: kurze Sperre nach dem Fangen ---------------------------- */
+/* Ein heller Balken läuft in gut einer Drittelsekunde voll; danach ist der
+   Knopf scharf. Ein Tipp in dieser Zeit wird gemerkt (Knopf blinkt gelb). */
+.bomb-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.bomb-button-arm {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(1);
+  background: rgba(255, 255, 255, 0);
+  pointer-events: none;
+}
+
+.bomb-button-face {
+  position: relative;
+}
+
+.bomb-button.is-arming {
+  background: linear-gradient(180deg, #56607a, #353e50);
+}
+
+.bomb-button.is-arming .bomb-button-arm {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.bomb-button.is-queued {
+  border-color: #ffe36b;
+}
