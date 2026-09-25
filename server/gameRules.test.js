@@ -3765,3 +3765,65 @@ test("trace: every lap starts where the last one ended", () => {
     }
   }
 });
+
+test("nagelbrett: fünf Kugeln, dann ist Schluss", () => {
+  const p = player({ id: "nb", name: "NB", color: "#fff" });
+  const startedAt = Date.now() - 2000;
+  const arcade = createArcadeState("nagelbrett", [p], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 28000, finishing: false };
+  const room = { currentMinigame: minigame, players: [p] };
+  const entry = arcade.players[p.id];
+  for (let i = 0; i < testRules.PLINKO_BALLS; i += 1) {
+    arcade.balls = [];
+    entry.lastInputAt = 0;
+    assert.equal(handleArcadeInput(room, p, { action: "drop", x: 0.5 }).ok, true, `Kugel ${i + 1}`);
+  }
+  arcade.balls = [];
+  entry.lastInputAt = 0;
+  assert.equal(handleArcadeInput(room, p, { action: "drop", x: 0.5 }).ok, false, "die sechste gibt es nicht");
+  assert.equal(entry.ballsLeft, 0);
+});
+
+test("nagelbrett: der Jackpot wandert über alle Töpfe und bringt +15", () => {
+  const seen = new Set();
+  for (let t = 0; t < 8000; t += 100) seen.add(testRules.plinkoJackpotSlot(t, 7));
+  assert.equal(seen.size, 7, "er kommt an jedem Topf vorbei");
+
+  const p = player({ id: "nj", name: "NJ", color: "#fff" });
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("nagelbrett", [p], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 28000, finishing: false };
+  const room = { currentMinigame: minigame, players: [p] };
+  const slot = testRules.plinkoJackpotSlot(Date.now() - startedAt, 7);
+  // Eine Kugel direkt über dem Jackpot-Topf, kurz vor dem Boden.
+  arcade.balls = [{ id: 99, playerId: p.id, x: (slot + 0.5) / 7, y: arcade.floorY - 0.01, vx: 0, vy: 1, plinks: 0, nudged: true }];
+  arcade.lastUpdateAt = Date.now() - 16;
+  updateArcade(room);
+  const entry = arcade.players[p.id];
+  assert.equal(entry.lastSlot.jackpot, true);
+  assert.equal(entry.score, arcade.slots[slot] + testRules.PLINKO_JACKPOT);
+});
+
+test("nagelbrett: die Landung hängt am Abwurf, nicht nur am Zufall", () => {
+  // Mit fünf Nagelreihen fiel eine Kugel von der Mitte aus gemessen in jeden
+  // der sieben Töpfe. Jetzt muss sie überwiegend in der Nähe landen.
+  let near = 0;
+  const runs = 20;
+  for (let r = 0; r < runs; r += 1) {
+    const p = player({ id: `nl${r}`, name: "NL", color: "#fff" });
+    const real = Date.now;
+    let t = 0;
+    const start = real();
+    Date.now = () => start + t;
+    const arcade = createArcadeState("nagelbrett", [p], start, { seed: 300 + r * 11 });
+    const minigame = { arcade, scores: {}, startedAt: start, duration: 28000, finishing: false };
+    const room = { currentMinigame: minigame, players: [p] };
+    t = 1600;
+    handleArcadeInput(room, p, { action: "drop", x: 0.64 });
+    const entry = arcade.players[p.id];
+    while (t < 9000 && !entry.lastSlot) { t += 30; arcade.lastUpdateAt = start + t - 30; updateArcade(room); }
+    Date.now = real;
+    if (entry.lastSlot && Math.abs(entry.lastSlot.slot - 4) <= 1) near += 1;
+  }
+  assert.ok(near >= runs * 0.6, `nur ${near} von ${runs} nahe am Ziel`);
+});

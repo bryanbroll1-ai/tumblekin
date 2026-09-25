@@ -4,7 +4,8 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 
 // Nagelbrett: oben tippen lässt die eigene Kugel dort fallen, ein Tipp links
-// oder rechts gibt ihr einen einzigen Stups. Unten zählt das Fach.
+// oder rechts gibt ihr einen einzigen Stups. Unten zählt das Fach — und der
+// goldene Jackpot-Topf, der hin und her wandert, bringt +15. Fünf Kugeln.
 //
 // Vorher war das Brett ganz ohne Figuren. Jetzt stehen alle auf einer
 // Laufleiste über dem Brett, laufen zur Abwurfstelle, halten die Kugel über
@@ -16,6 +17,37 @@ const SLOT_COLORS = ["#5c6b7a", "#7d8fa0", "#43c9a0", "#ffd15c", "#43c9a0", "#7d
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+// Wie auf dem Server (plinkoJackpotX): Dreieckswelle über die Topfmitten.
+function jackpotX(elapsedMs, period, slotCount) {
+  const phase = (((elapsedMs % period) + period) % period) / period;
+  const tri = phase < 0.5 ? phase * 2 : 2 - phase * 2;
+  const first = 0.5 / slotCount;
+  return first + tri * (1 - 2 * first);
+}
+
+// Eine flache Zahlentafel (für die Topfwerte und den Jackpot).
+function makeLabel(text, { color = "#ffffff", size = 0.36, stroke = "rgba(20, 28, 40, 0.55)" } = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.font = "900 84px ui-rounded, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = stroke;
+  ctx.strokeText(text, 128, 68);
+  ctx.fillStyle = color;
+  ctx.fillText(text, 128, 64);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(size * 2, size),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false })
+  );
+  return mesh;
 }
 
 export class PegBoard extends MinigameScene {
@@ -121,21 +153,38 @@ export class PegBoard extends MinigameScene {
       wall.position.set(x - slotWidth / 2, y + 0.3, -0.1);
       scene.add(wall);
 
-      // Ein Leuchtstreifen auf dem wertvollsten Fach. Die Farbabstufung allein
-      // beantwortet die Frage "wo will ich hin?" auf einem kleinen Bild zu
-      // langsam — und genau diese Frage stellt das Spiel in jeder Sekunde.
-      const bestPoints = Math.max(...slots);
-      if (points === bestPoints) {
-        const glow = new THREE.Mesh(
-          new THREE.BoxGeometry(slotWidth * 0.9, 0.06, 0.42),
-          new THREE.MeshBasicMaterial({ color: "#fff3b0", transparent: true, opacity: 0.9, toneMapped: false })
-        );
-        glow.position.set(x, y + 0.28, -0.08);
-        scene.add(glow);
-      }
+      // Der Wert steht auf dem Topf — man soll nicht an der Farbe raten.
+      const label = makeLabel(String(points), { size: 0.26 });
+      label.position.set(x, y + 0.02, 0.13);
+      scene.add(label);
 
       this.slotMeshes.push({ cup, points, index, flash: 0, base: new THREE.Color(SLOT_COLORS[index % SLOT_COLORS.length]) });
     });
+
+    // Der Jackpot: ein goldener Rahmen mit Stern und „+15“, der über die Töpfe
+    // gleitet. Man sieht ihn wandern und kann vorausdenken.
+    this.slotWidth = slotWidth;
+    this.slotY = this.worldY(floorY, floorY) - 0.25;
+    const jackpot = new THREE.Group();
+    const glowMat = new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.35, depthWrite: false, toneMapped: false });
+    const glow = new THREE.Mesh(new THREE.BoxGeometry(slotWidth * 0.96, 0.62, 0.3), glowMat);
+    jackpot.add(glow);
+    const frameMat = new THREE.MeshBasicMaterial({ color: "#ffd24a", toneMapped: false });
+    [[-1, 0], [1, 0]].forEach(([side]) => {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.7, 0.34), frameMat);
+      bar.position.x = side * slotWidth * 0.48;
+      jackpot.add(bar);
+    });
+    const top = new THREE.Mesh(new THREE.BoxGeometry(slotWidth * 0.98, 0.06, 0.34), frameMat);
+    top.position.y = 0.35;
+    jackpot.add(top);
+    const tag = makeLabel(`★+${arcade.jackpot || 15}`, { color: "#ffe36b", size: 0.3 });
+    tag.position.set(0, 0.62, 0.16);
+    jackpot.add(tag);
+    jackpot.position.set(0, this.slotY, -0.02);
+    scene.add(jackpot);
+    this.jackpot = jackpot;
+    this.jackpotGlow = glow;
 
     [[-6.4, 4.6, -9, 3], [6.2, 5.2, -10, 8]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
@@ -244,9 +293,16 @@ export class PegBoard extends MinigameScene {
   }
 
   tick(f) {
-    const { now, dt, arcade, players, controlledId, finale, state } = f;
+    const { now, dt, arcade, players, controlledId, finale, state, minigame } = f;
     if (!arcade) return;
     const floorY = arcade.floorY || 1.3;
+    if (this.jackpot && arcade.jackpotPeriod) {
+      const slots = (arcade.slots || []).length || 7;
+      const x = jackpotX(Math.max(0, now - minigame.startedAt), arcade.jackpotPeriod, slots);
+      this.jackpot.position.x = this.worldX(x);
+      this.jackpotGlow.material.opacity = 0.28 + Math.sin(now / 160) * 0.1;
+      this.jackpot.visible = !finale;
+    }
     const colourOf = (id) => state.players.find((player) => player.id === id)?.color || "#ffffff";
     const alive = new Set();
     const ballOf = new Map();
@@ -304,7 +360,7 @@ export class PegBoard extends MinigameScene {
         const first = d.lastSlotAt === 0 && now - landed.at > 2000;
         d.lastSlotAt = landed.at;
         if (!first) {
-          const big = landed.points >= 7;
+          const big = landed.points >= 8;
           animator.trigger(big ? "fistpump" : landed.points <= 2 ? "facepalm" : "clap");
           animator.expression(big ? "joy" : landed.points <= 2 ? "sad" : "happy", 900);
           const slot = this.slotMeshes[landed.slot];
@@ -312,10 +368,11 @@ export class PegBoard extends MinigameScene {
           if (isOwn) {
             const at = new THREE.Vector3(slot?.cup.position.x || 0, (slot?.cup.position.y || 0) + 0.9, 0.3);
             this.burst(at, [big ? "#ffd15c" : "#8fa4b4", "#ffffff"], { count: (big ? 16 : 8) * fxScale(), speed: 2.0, up: 1.8, size: 0.07, life: 0.6, drag: 1.8 });
-            this.pop(at, `+${landed.points}`, { color: big ? "#ffe36b" : "#c3d3e2", size: big ? 0.42 : 0.32, life: 0.8 });
-            this.feedback?.sound(big ? "perfect" : "coin");
-            this.feedback?.vibrate(big ? [10, 8, 16] : 10);
-            if (big) this.rig.shake(0.25);
+            this.pop(at, landed.jackpot ? `JACKPOT! +${landed.points}` : `+${landed.points}`, { color: big ? "#ffe36b" : "#c3d3e2", size: landed.jackpot ? 0.5 : big ? 0.42 : 0.32, life: landed.jackpot ? 1.1 : 0.8 });
+            if (landed.jackpot) this.burst(at, ["#ffe36b", "#ffffff", "#ffb020"], { count: Math.round(26 * fxScale()), speed: 3, up: 2.6, size: 0.09, life: 0.9, drag: 1.4 });
+            this.feedback?.sound(landed.jackpot ? "win" : big ? "perfect" : "coin");
+            this.feedback?.vibrate(landed.jackpot ? [14, 20, 30] : big ? [10, 8, 16] : 10);
+            if (big) this.rig.shake(landed.jackpot ? 0.5 : 0.25);
           }
         }
       }
@@ -367,12 +424,16 @@ export class PegBoard extends MinigameScene {
     // in dem Glauben, eine neue Kugel zu werfen, und stupst stattdessen.
     const mine = (arcade.balls || []).find((ball) => ball.playerId === this.getControlledPlayerId());
     const hint = this.controls?.querySelector("[data-peg-hint]");
-    const mode = !mine ? "drop" : (mine.nudged ? "wait" : "nudge");
-    if (hint && mode !== this.hintMode) {
-      this.hintMode = mode;
-      hint.textContent = mode === "drop"
-        ? "Tippe oben, wo die Kugel fallen soll"
-        : (mode === "nudge" ? "👉 Tippe links oder rechts für EINEN Stups" : "Stups verbraucht — zuschauen");
+    const left = own?.ballsLeft ?? 0;
+    const mode = !mine ? (left > 0 ? "drop" : "done") : (mine.nudged ? "wait" : "nudge");
+    const dots = "●".repeat(Math.max(0, left)) + "○".repeat(Math.max(0, (arcade.ballsPerPlayer || 5) - left));
+    const text = mode === "drop"
+      ? `Tippe oben, wo die Kugel fallen soll · ${dots}`
+      : mode === "done" ? "Alle Kugeln geworfen — zuschauen"
+        : (mode === "nudge" ? "👉 Tippe links oder rechts für EINEN Stups" : `Stups verbraucht — zuschauen · ${dots}`);
+    if (hint && text !== this.hintText) {
+      this.hintText = text;
+      hint.textContent = text;
     }
 
     const banner = this.hud.querySelector("[data-peg-banner]");

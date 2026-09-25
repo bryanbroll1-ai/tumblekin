@@ -1064,8 +1064,22 @@ const REACT_ROUNDS = 3;
 const REACT_WINDOW_MS = 2200;
 const REACT_PENALTY_MS = 900;
 
-const PLINKO_SLOTS = [1, 4, 7, 12, 7, 4, 1];
-const PLINKO_GRAVITY = 1.35;
+// Nagelbrett — fünf Kugeln je Spieler und ein wandernder Jackpot.
+//
+// Vorher: Kugeln ohne Ende, die Mitte war immer am meisten wert, also zielte
+// jeder immer auf die Mitte und hoffte. Jetzt hat jeder nur fünf Kugeln, und
+// unten gleitet ein goldener Jackpot-Topf (+15) hin und her. Weil er auch an
+// den Rand wandert, lohnt dort plötzlich der Einer-Topf mehr als die Mitte.
+// Man muss vorausdenken, wo er beim Aufprall steht, den Moment abpassen und
+// mit dem einen Stups nachhelfen.
+const PLINKO_SLOTS = [2, 3, 5, 8, 5, 3, 2];
+const PLINKO_BALLS = 5;
+const PLINKO_JACKPOT = 15;
+const PLINKO_JACKPOT_PERIOD_MS = 8000;  // einmal hin und zurück
+const PLINKO_GRAVITY = 1.9;
+const PLINKO_ROWS = 3;
+const PLINKO_SIDE_MAX = 0.32;          // Seitentempo nach einem Nagel höchstens
+const PLINKO_SIDE_DRAG = 1.4;          // Luftwiderstand quer (1/s)
 // Ein Stups je Kugel. Ohne ihn war Nagelbrett reines Glück: man tippte eine
 // Startposition an und schaute zu. Gemessen lagen alle drei Bot-Stufen gleich
 // auf (und der schwache sogar vorne), weil das Abprallen jede Absicht
@@ -2747,7 +2761,10 @@ function createArcadeState(type, players, startedAt, options = {}) {
     // use one uniform scale on both axes (collisions look exact on screen).
     arcade.pegs = [];
     const span = PLINKO_PEG_RIGHT - PLINKO_PEG_LEFT;
-    for (let row = 0; row < 5; row += 1) {
+    // Drei Reihen statt fünf: mit fünf war die Landung reiner Zufall (von
+    // der Mitte aus fiel die Kugel gemessen in jeden der sieben Töpfe). Jetzt
+    // streut sie um etwa einen Topf — Zielen lohnt, der Stups entscheidet.
+    for (let row = 0; row < PLINKO_ROWS; row += 1) {
       const gerade = row % 2 === 0;
       const count = gerade ? 6 : 5;
       for (let index = 0; index < count; index += 1) {
@@ -2755,7 +2772,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
         const t = gerade ? index / 5 : (index + 0.5) / 5;
         arcade.pegs.push({
           x: PLINKO_PEG_LEFT + t * span,
-          y: 0.32 + row * 0.19,
+          y: 0.42 + row * 0.26,
           r: PLINKO_PEG_R
         });
       }
@@ -2765,9 +2782,14 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.balls = [];
     arcade.nextBallId = 1;
     arcade.nudgePower = PLINKO_NUDGE;
+    arcade.jackpot = PLINKO_JACKPOT;
+    arcade.jackpotPeriod = PLINKO_JACKPOT_PERIOD_MS;
+    arcade.ballsPerPlayer = PLINKO_BALLS;
     players.forEach((player, index) => {
       arcade.players[player.id].aimX = 0.2 + index * 0.2;
       arcade.players[player.id].plinks = 0;
+      arcade.players[player.id].ballsLeft = PLINKO_BALLS;
+      arcade.players[player.id].jackpots = 0;
       arcade.players[player.id].nudges = 0;
     });
   }
@@ -4458,6 +4480,8 @@ function handleArcadeInput(room, player, rawInput) {
     if (input.action !== "drop") return { ok: false, error: "Tippe, um eine Kugel fallen zu lassen." };
     const inFlight = arcade.balls.some((ball) => ball.playerId === player.id);
     if (inFlight) return { ok: true };
+    if ((arcadePlayer.ballsLeft ?? PLINKO_BALLS) <= 0) return { ok: false, error: "Keine Kugeln mehr." };
+    arcadePlayer.ballsLeft = (arcadePlayer.ballsLeft ?? PLINKO_BALLS) - 1;
     const x = clamp(inputNumber(input.x) || 0.5, 0.06, 0.94);
     arcadePlayer.aimX = x;
     arcadePlayer.hasMoved = true;
@@ -5421,6 +5445,10 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = Boolean(letzte) && now - minigame.startedAt >= letzte.until;
   } else if (arcade.family === "climb") {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
+  } else if (arcade.family === "plinko") {
+    // Alle Kugeln geworfen und unten.
+    done = room.players.every((player) => (arcade.players[player.id]?.ballsLeft ?? 1) <= 0)
+      && (arcade.balls || []).length === 0;
   }
   // Allgemeine Regel über ALLE Familien: kann niemand mehr etwas tun, ist die
   // Runde vorbei. Vorher lief die Uhr in manchen Spielen weiter, obwohl längst
@@ -5440,9 +5468,24 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
   }
 }
 
+// Wo der Jackpot gerade steht: eine Dreieckswelle über die Topfmitten.
+function plinkoJackpotX(elapsedMs, slotCount = PLINKO_SLOTS.length) {
+  const phase = ((elapsedMs % PLINKO_JACKPOT_PERIOD_MS) + PLINKO_JACKPOT_PERIOD_MS) % PLINKO_JACKPOT_PERIOD_MS / PLINKO_JACKPOT_PERIOD_MS;
+  const tri = phase < 0.5 ? phase * 2 : 2 - phase * 2;
+  const first = 0.5 / slotCount;
+  return first + tri * (1 - 2 * first);
+}
+
+function plinkoJackpotSlot(elapsedMs, slotCount = PLINKO_SLOTS.length) {
+  return clamp(Math.floor(plinkoJackpotX(elapsedMs, slotCount) * slotCount), 0, slotCount - 1);
+}
+
 function updatePlinko(room, minigame, arcade, dt, now) {
   arcade.balls.forEach((ball) => {
     ball.vy += PLINKO_GRAVITY * dt;
+    // Seitlich bremst die Luft: ein Abpraller trägt die Kugel einen halben
+    // Nagelabstand weit, nicht quer über das ganze Brett.
+    ball.vx *= Math.exp(-PLINKO_SIDE_DRAG * dt);
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
 
@@ -5475,7 +5518,7 @@ function updatePlinko(room, minigame, arcade, dt, now) {
       if (dot < 0) {
         ball.vx -= 2 * dot * nx;
         ball.vy -= 2 * dot * ny;
-        ball.vx *= 0.55;
+        ball.vx = clamp(ball.vx * 0.55, -PLINKO_SIDE_MAX, PLINKO_SIDE_MAX);
         ball.vy *= 0.55;
         // Weniger Streuung als früher (0.09): sonst überdeckt der Zufall am Nagel
         // die Absicht beim Zielen und beim Stups.
@@ -5551,15 +5594,17 @@ function updatePlinko(room, minigame, arcade, dt, now) {
   const landed = arcade.balls.filter((ball) => ball.y >= arcade.floorY - 0.03);
   landed.forEach((ball) => {
     const slot = clamp(Math.floor(ball.x * arcade.slots.length), 0, arcade.slots.length - 1);
-    const points = arcade.slots[slot];
+    const jackpot = slot === plinkoJackpotSlot(now - minigame.startedAt, arcade.slots.length);
+    const points = arcade.slots[slot] + (jackpot ? PLINKO_JACKPOT : 0);
     const owner = arcade.players[ball.playerId];
     if (owner) {
       owner.score += points;
       owner.successes += 1;
-      owner.streak = points >= 7 ? owner.streak + 1 : 0;
-      owner.flash = points >= 7 ? "good" : "bad";
+      if (jackpot) owner.jackpots = (owner.jackpots || 0) + 1;
+      owner.streak = points >= 8 ? owner.streak + 1 : 0;
+      owner.flash = points >= 8 ? "good" : "bad";
       owner.lastHitAt = now;
-      owner.lastSlot = { slot, points, at: now };
+      owner.lastSlot = { slot, points, jackpot, at: now };
     }
   });
   arcade.balls = arcade.balls.filter((ball) => ball.y < arcade.floorY - 0.03);
@@ -6600,32 +6645,44 @@ function arcadeBotStep(room, bot) {
   if (!arcade || !player) return;
   if (arcade.family === "plinko") {
     const profile = botProfile(player);
+    const now = Date.now();
+    const elapsed = now - minigame.startedAt;
     const mine = arcade.balls.find((ball) => ball.playerId === bot.id);
+    const slots = arcade.slots.length;
+    const slotX = (slot) => (slot + 0.5) / slots;
     if (!mine) {
-      // Zielen: die Mitte ist am meisten wert. Wie genau gezielt wird, ist das
-      // erste Können — vorher warfen alle drei Stufen blind irgendwo zwischen
-      // 0.32 und 0.68, und gemessen lag der schwache Bot damit sogar vorne.
-      if (Math.random() > 0.35) {
-        const spread = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.13 : 0.26;
-        handleArcadeInput(room, bot, { action: "drop", x: clamp(0.5 + (Math.random() - 0.5) * 2 * spread, 0.08, 0.92) });
-      }
+      if ((player.ballsLeft ?? 0) <= 0) return;
+      // Fünf Kugeln auf die Runde verteilen, nicht alle am Anfang.
+      if (now < (player.botNextDropAt || 0)) return;
+      // Wohin: der starke rechnet vor, wo der Jackpot beim Aufprall steht
+      // (die Kugel braucht gut zweieinhalb Sekunden), der mittlere manchmal, der
+      // schwache zielt auf die Mitte und streut.
+      const flight = 2600;
+      const chase = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.5 : 0.15;
+      const target = Math.random() < chase ? slotX(plinkoJackpotSlot(elapsed + flight, slots)) : 0.5;
+      const spread = profile.level === "hard" ? 0.03 : profile.level === "normal" ? 0.09 : 0.2;
+      player.botTargetX = target;
+      player.botNextDropAt = now + 3200 + Math.random() * 1600;
+      handleArcadeInput(room, bot, { action: "drop", x: clamp(target + (Math.random() - 0.5) * 2 * spread, 0.08, 0.92) });
       return;
     }
     if (mine.nudged) return;
-
-    // EINMAL je Kugel entscheiden, wo gestupst wird und ob richtig. Pro Tick
-    // gewürfelt liefe die Wahrscheinlichkeit über die Flugzeit gegen Gewissheit.
+    // EINMAL je Kugel entscheiden, ob der Stups in die richtige Richtung geht.
     if (player.botBallId !== mine.id) {
       player.botBallId = mine.id;
       const reads = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.65 : 0.35;
       player.botNudgeRight = Math.random() < reads;
-      // Wann gestupst wird: zu früh weiss man noch nicht, wohin die Kugel
-      // läuft, zu spät wirkt der Stups nicht mehr.
       player.botNudgeAt = profile.level === "hard" ? 0.62 : profile.level === "normal" ? 0.5 : 0.34;
     }
     const share = mine.y / Math.max(0.001, arcade.floorY);
     if (share < player.botNudgeAt) return;
-    const wanted = mine.x < 0.5 ? 1 : -1;
+    // Beim Stups weiss man schon viel genauer, wo der Jackpot beim Aufprall
+    // steht — der starke zielt dann dorthin, der schwache stupst zur Mitte.
+    const left = ((arcade.floorY - mine.y) / Math.max(0.6, mine.vy)) * 1000;
+    const late = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.55 : 0;
+    const aim = Math.random() < late ? slotX(plinkoJackpotSlot(elapsed + left, slots)) : (player.botTargetX ?? 0.5);
+    if (Math.abs(mine.x - aim) < 0.05) return;
+    const wanted = mine.x < aim ? 1 : -1;
     handleArcadeInput(room, bot, { action: "nudge", dir: player.botNudgeRight ? wanted : -wanted });
     return;
   }
@@ -7948,6 +8005,10 @@ module.exports = {
     cannonPoints,
     cannonTri,
     WHACK_STUN_MS,
+    PLINKO_BALLS,
+    PLINKO_JACKPOT,
+    plinkoJackpotSlot,
+    plinkoJackpotX,
     WHACK_BAD_COST,
     WHACK_FAST_MS,
     WHACK_OK_MS,

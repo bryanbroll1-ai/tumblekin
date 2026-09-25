@@ -129,7 +129,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🎯 Tippen und stupsen
 
-- **Nagelbrett:** Tippe oben, wo die Kugel fallen soll — die Mitte ist am meisten wert. Während sie fällt, hast du GENAU einen Stups: tippe links oder rechts, um sie noch einmal zu lenken.
+- **Nagelbrett:** Du hast fünf Kugeln. Tippe oben, wo eine fallen soll — unten zählt der Topf. Der goldene Jackpot-Topf wandert hin und her und bringt +15: denk voraus, wo er steht, wenn deine Kugel ankommt. Während sie fällt, hast du GENAU einen Stups: tippe links oder rechts, um sie noch einmal zu lenken.
 
 ### 👆➡️ Nach vorne wischen
 
