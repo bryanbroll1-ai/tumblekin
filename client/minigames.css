@@ -1938,10 +1938,8 @@ canvas.is-stunned {
   z-index: 1;
 }
 
-/* --- Pump-Panik: ein Knopf mit Zubinde-Ring ----------------------------- */
-/* Ein grosser Knopf. Nach jedem Stoss läuft ein Ring um ihn herum voll —
-   so lange muss man warten, bis der Ballon zugebunden ist. Wer das einmal
-   gesehen hat, versteht das Spiel ohne Erklärung. */
+/* --- Pump-Panik: ein grosser Knopf ----------------------------------------- */
+/* Ein reiner Klicker: ein Knopf, so gross wie möglich, jeder Tipp zählt. */
 .pump-single {
   display: grid;
   justify-items: center;
@@ -1951,31 +1949,10 @@ canvas.is-stunned {
 }
 
 .pump-single .pump-button {
-  position: relative;
   width: 100%;
-  min-height: 104px;
-  font-size: 1.5rem;
-}
-
-.pump-tie {
-  position: absolute;
-  inset: -8px;
-  border-radius: calc(var(--radius) + 8px);
-  background: conic-gradient(#ffe36b var(--tie, 0%), transparent 0);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  padding: 5px;
-  pointer-events: none;
-}
-
-.pump-tie[hidden] {
-  display: none;
-}
-
-.pump-hint.is-urgent {
-  color: #ffe36b;
-  font-size: 0.9rem;
+  min-height: 112px;
+  font-size: 1.6rem;
+  touch-action: manipulation;
 }
 
 .pump-hint {

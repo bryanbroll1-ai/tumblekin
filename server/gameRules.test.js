@@ -1075,71 +1075,24 @@ test("fassmut: mehr Punkte gewinnen, bei Gleichstand der dichteste Treffer", () 
     > arcadeRankingScore(arcade, { points: 500, best: 1.2 }));
 });
 
-function pumpRoom() {
+test("pump-panik: jeder Tipp zählt, ohne Wartezeit dazwischen", () => {
   const tapper = player({ id: "pp", name: "PP", color: "#fff" });
+  const rival = player({ id: "pr", name: "PR", color: "#000" });
   const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("ballonPump", [tapper], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 20000, finishing: false };
-  const room = { currentMinigame: minigame, players: [tapper] };
-  const entry = arcade.players[tapper.id];
-  const pump = (n = 1) => {
-    for (let i = 0; i < n; i += 1) {
-      entry.lastInputAt = 0;
-      handleArcadeInput(room, tapper, { action: "pump" });
-    }
-  };
-  const pause = (ms) => {
-    entry.lastPumpAt -= ms;
-    arcade.lastUpdateAt = Date.now() - 90;
-    testRules.updateArcade(room);
-  };
-  return { arcade, entry, pump, pause, limit: () => arcade.limits[entry.balloonIndex] };
-}
-
-test("pump-panik: ein Tipp pumpt, kurz innehalten bindet zu", () => {
-  const { entry, pump, pause, limit } = pumpRoom();
-  const safe = Math.max(3, limit() - 4);
-  pump(safe);
-  assert.equal(entry.balloon, safe);
-  assert.equal(entry.banked, 0, "noch nicht gesichert");
-  pause(testRules.PUMP_TIE_MS + 10);
-  assert.equal(entry.balloon, 0, "zugebunden");
-  assert.equal(entry.balloonsDone, 1);
-  assert.ok(entry.banked >= safe, `gesichert: ${entry.banked}`);
-  assert.equal(arcadeResultDetail(pumpRoom().arcade, entry).value, entry.banked, "die Anzeige ist die Wertung");
-});
-
-test("pump-panik: zu viel gepumpt, und der Ballon platzt", () => {
-  const { entry, pump, limit } = pumpRoom();
-  pump(limit() + 1);
-  assert.equal(entry.bursts, 1);
-  assert.equal(entry.balloon, 0, "die Luft ist weg");
-  assert.equal(entry.banked, 0);
-  // Der nächste Ballon hängt erst nach einem Moment.
-  pump(1);
-  assert.equal(entry.balloon, 0, "während des Wechsels pumpt man ins Leere");
-});
-
-test("pump-panik: knapp vor der Grenze gibt es den Mut-Bonus", () => {
-  const brave = pumpRoom();
-  const n = brave.limit();
-  brave.pump(n);
-  brave.pause(testRules.PUMP_TIE_MS + 10);
-  assert.equal(brave.entry.banked, n + testRules.PUMP_CLOSE_BONUS);
-
-  const timid = pumpRoom();
-  const half = Math.floor(timid.limit() / 2);
-  timid.pump(half);
-  timid.pause(testRules.PUMP_TIE_MS + 10);
-  assert.equal(timid.entry.banked, half, "wer früh aufhört, bekommt nur die Luft");
-});
-
-test("pump-panik: die Platzgrenzen sind für alle gleich und liegen im Rahmen", () => {
-  const a = pumpRoom().arcade.limits;
-  const b = pumpRoom().arcade.limits;
-  assert.deepEqual(a, b);
-  a.forEach((limit) => assert.ok(limit >= testRules.PUMP_MIN && limit <= testRules.PUMP_MAX, `Grenze ${limit}`));
-  assert.ok(new Set(a.slice(0, 10)).size >= 4, "die Grenzen streuen");
+  const arcade = createArcadeState("ballonPump", [tapper, rival], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 12000, finishing: false };
+  const room = { currentMinigame: minigame, players: [tapper, rival] };
+  // Zwanzig Tipps im selben Augenblick — keiner darf verschluckt werden.
+  for (let i = 0; i < 20; i += 1) handleArcadeInput(room, tapper, { action: "pump" });
+  for (let i = 0; i < 12; i += 1) handleArcadeInput(room, rival, { action: "pump" });
+  const me = arcade.players[tapper.id];
+  const other = arcade.players[rival.id];
+  assert.equal(me.pumps, 20);
+  assert.equal(other.pumps, 12);
+  assert.ok(arcadeRankingScore(arcade, me) > arcadeRankingScore(arcade, other), "wer mehr pumpt, gewinnt");
+  const detail = arcadeResultDetail(arcade, me);
+  assert.equal(detail.value, 20, "die Anzeige ist die Wertung");
+  assert.equal(handleArcadeInput(room, tapper, { action: "blow" }).ok, false);
 });
 
 test("fassrolle: the spinning barrel slides idle players off, counter-running holds", () => {
