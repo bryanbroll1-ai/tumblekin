@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Turmbau: wie bei den Stapelspielen gleitet der nächste Block direkt auf der
 // nächsten Ebene über den Turm hin und her, ein Tipp setzt ihn ab. Was
@@ -66,16 +67,16 @@ export class TowerStack extends MinigameScene {
     const scene = this.scene;
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(44, 0.5, 40),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+      new THREE.MeshLambertMaterial({ color: "#c9a877" })
     );
     ground.position.y = -0.25;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // Kulisse statt leerer Wiese: Büschel, Blumen, Steine und ein Baumkranz,
-    // der dem Bild einen Horizont gibt. Freigehalten wird der Streifen mit den
-    // vier Türmen.
-    dressMeadow(this.scene, { seed: 14, keepOut: { x: 4.2, z: 2.6 }, spread: { x: 16, z: 14 }, grassColor: "#6cb95c", patchColors: ["#74c465", "#8ad97a"], crownColor: "#4a9c4e", crownColor2: "#6ab857", crownShape: "blob" });
+    // Eine Baustelle: Kiesboden mit ein paar Grasresten, am Rand Bäume.
+    // Freigehalten wird der Streifen mit den vier Türmen.
+    dressMeadow(this.scene, { seed: 14, keepOut: { x: 4.2, z: 2.6 }, spread: { x: 16, z: 14 }, patches: 30, patchColors: ["#b8956a", "#d8bc8e", "#a9a39a"], tufts: 90, flowers: 8, stones: 50, trees: 22, grassColor: "#7fa556", crownColor: "#4a9c4e", crownColor2: "#6ab857", crownShape: "blob" });
+    this.buildSite(scene);
 
     [[-7, 5.4, -4, 5], [7, 6, -3, 6]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
@@ -96,6 +97,132 @@ export class TowerStack extends MinigameScene {
       const label = this.kins.get(player.id)?.userData.label;
       if (label && player.id !== own) label.visible = false;
     });
+  }
+
+  // Kran mit drehendem Ausleger, ein Rohbau mit Gerüst, Baucontainer, vorn
+  // Absperrbaken mit Blinklichtern, Sandhaufen, Ziegelpalette, Schubkarre und
+  // Pylonen.
+  buildSite(scene) {
+    const zufall = streuer(52);
+    const gelb = lambert("#f2b705");
+
+    // Turmkran hinten rechts.
+    const kran = new THREE.Group();
+    kran.position.set(4.2, 0, -8.5);
+    scene.add(kran);
+    kiste(kran, 1.4, 0.5, 1.4, "#7d7f86", [0, 0.25, 0]);
+    const mast = [];
+    for (let y = 0.5; y < 9; y += 0.9) {
+      [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]].forEach(([x, z]) => mast.push({ p: [x, y + 0.45, z], s: [1, 1, 1] }));
+      mast.push({ p: [0, y + 0.45, 0.3], r: [0, 0, 0.8], s: [1, 1.5, 1] });
+      mast.push({ p: [0.3, y + 0.45, 0], r: [0.8, 0, 0], s: [1, 1.5, 1] });
+    }
+    viele(kran, new THREE.BoxGeometry(0.08, 0.9, 0.08), gelb, mast, { schatten: true });
+    kiste(kran, 0.9, 0.7, 0.9, "#f2b705", [0, 9.35, 0]);
+    kiste(kran, 0.5, 0.45, 0.5, "#dfe7ef", [0.45, 9.1, 0.45]);
+    this.craneJib = new THREE.Group();
+    this.craneJib.position.set(0, 9.8, 0);
+    kran.add(this.craneJib);
+    kiste(this.craneJib, 9, 0.35, 0.35, "#f2b705", [-2.6, 0, 0]);
+    kiste(this.craneJib, 2, 0.6, 0.7, "#7d7f86", [2.4, -0.15, 0]);
+    kiste(this.craneJib, 0.2, 1.4, 0.2, "#f2b705", [0, 0.85, 0]);
+    const seil = kiste(this.craneJib, 0.03, 3.2, 0.03, "#2c2f38", [-5.4, -1.6, 0], { schatten: false });
+    seil.userData.isFx = false;
+    kiste(this.craneJib, 0.3, 0.2, 0.3, "#c8413b", [-5.4, -3.25, 0]);
+    // Am Haken ein Bündel Balken.
+    const last = new THREE.Group();
+    last.position.set(-5.4, -3.6, 0);
+    [-0.12, 0.12].forEach((z) => kiste(last, 1.6, 0.18, 0.18, "#b07a3e", [0, 0, z]));
+    this.craneJib.add(last);
+
+    // Rohbau mit Gerüst hinten links.
+    const bau = new THREE.Group();
+    bau.position.set(-4.6, 0, -9.5);
+    bau.rotation.y = 0.25;
+    scene.add(bau);
+    const beton = lambert("#b9b6ae");
+    [0, 2, 4].forEach((y) => kiste(bau, 4.2, 0.25, 3, "#b9b6ae", [0, y + 0.12, 0], { material: beton }));
+    const stuetzen = [];
+    [0, 2].forEach((y) => [[-1.9, -1.3], [1.9, -1.3], [-1.9, 1.3], [1.9, 1.3], [0, -1.3]].forEach(([x, z]) => stuetzen.push({ p: [x, y + 1.12, z] })));
+    viele(bau, new THREE.BoxGeometry(0.28, 1.75, 0.28), beton, stuetzen, { schatten: true });
+    const ziegelwand = [];
+    for (let i = 0; i < 9; i += 1) ziegelwand.push({ p: [-1.8 + i * 0.4, 0.4 + (i % 3) * 0.25, -1.3], s: [0.38, 0.22 + (i % 3) * 0.2, 0.25] });
+    viele(bau, new THREE.BoxGeometry(1, 1, 1), lambert("#c2653e"), ziegelwand);
+    const geruest = [];
+    for (let x = -2; x <= 2.01; x += 1) geruest.push({ p: [x, 2.6, 1.85], s: [1, 1, 1] });
+    viele(bau, new THREE.BoxGeometry(0.06, 5.2, 0.06), lambert("#9aa3ad"), geruest);
+    const boeden = [0.9, 2.9, 4.6].map((y) => ({ p: [0, y, 1.85], s: [4.2, 0.08, 0.6] }));
+    viele(bau, new THREE.BoxGeometry(1, 1, 1), lambert("#c99a5c"), boeden);
+    const netz = new THREE.Mesh(new THREE.PlaneGeometry(2, 2.6), lambert("#3fa46a", { transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+    netz.position.set(1.05, 3.4, 2.15);
+    bau.add(netz);
+
+    // Baucontainer links vorn im Mittelgrund.
+    kiste(scene, 2.4, 1.1, 1.1, "#2f6fb0", [-5.2, 0.55, -4.2]).rotation.y = 0.4;
+    kiste(scene, 2.2, 1.1, 1.1, "#2f6fb0", [-5.2, 1.66, -4.2]).rotation.y = 0.4;
+    kiste(scene, 0.5, 0.35, 0.02, "#dff2ff", [-4.75, 1.8, -3.62], { schatten: false }).rotation.y = 0.4;
+
+    // Absperrbaken mit Blinklicht links und rechts vorn.
+    const streifenRot = lambert("#e0453b");
+    const streifenWeiss = lambert("#f6f3ec");
+    this.siteLamps = [];
+    [[-2.7, 2.6, 0.25], [2.7, 2.6, -0.25]].forEach(([x, z, dreh], i) => {
+      const bake = new THREE.Group();
+      bake.position.set(x, 0, z);
+      bake.rotation.y = dreh;
+      scene.add(bake);
+      [-0.75, 0.75].forEach((bx) => kiste(bake, 0.08, 0.7, 0.4, "#555a63", [bx, 0.35, 0]));
+      for (let k = 0; k < 6; k += 1) kiste(bake, 0.3, 0.22, 0.05, "", [-0.75 + k * 0.3, 0.55, 0], { material: k % 2 ? streifenWeiss : streifenRot });
+      const lampe = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshLambertMaterial({ color: "#ffb020", emissive: "#ff9a00", emissiveIntensity: 0 }));
+      lampe.position.set(i ? 0.7 : -0.7, 0.8, 0);
+      bake.add(lampe);
+      this.siteLamps.push(lampe);
+    });
+
+    // Sandhaufen mit Schaufel.
+    const sand = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), lambert("#e0c48a"));
+    sand.scale.set(0.8, 0.42, 0.65);
+    sand.position.set(-2.1, 0, 3.9);
+    sand.receiveShadow = true;
+    scene.add(sand);
+    const schaufel = new THREE.Group();
+    kiste(schaufel, 0.05, 1.1, 0.05, "#b07a3e", [0, 0.55, 0]);
+    kiste(schaufel, 0.24, 0.3, 0.03, "#7d7f86", [0, 1.2, 0]);
+    schaufel.position.set(-1.9, 0.15, 3.9);
+    schaufel.rotation.set(0.2, 0.3, 2.7);
+    scene.add(schaufel);
+
+    // Ziegelpalette rechts.
+    kiste(scene, 1.2, 0.14, 0.9, "#a0784a", [2.1, 0.07, 3.9]);
+    const ziegel = [];
+    for (let lage = 0; lage < 4; lage += 1) {
+      for (let i = 0; i < 4; i += 1) ziegel.push({ p: [2.1 + (i - 1.5) * 0.28, 0.24 + lage * 0.16, 3.9 + (lage % 2 ? 0.12 : -0.12)], s: [0.26, 0.14, 0.5] });
+    }
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#c2653e"), ziegel, { schatten: true });
+
+    // Schubkarre.
+    const karre = new THREE.Group();
+    kiste(karre, 0.7, 0.3, 0.5, "#2fa36b", [0, 0.45, 0]);
+    const rad = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.08, 12), lambert("#2c2f38"));
+    rad.rotation.z = Math.PI / 2;
+    rad.position.set(0, 0.16, 0.42);
+    karre.add(rad);
+    [-0.2, 0.2].forEach((x) => kiste(karre, 0.04, 0.04, 0.9, "#555a63", [x, 0.42, -0.35]));
+    karre.scale.setScalar(0.8);
+    karre.position.set(-3.3, 0, 1.2);
+    karre.rotation.y = -0.6;
+    scene.add(karre);
+
+    // Pylonen.
+    const pylonen = [[-1.2, 3.3], [1.2, 3.1], [3.3, 1.4], [-0.6, 4.4]].map(([x, z]) => ({ p: [x, 0.22, z] }));
+    viele(scene, new THREE.ConeGeometry(0.16, 0.44, 10), lambert("#ff7a1a"), pylonen, { schatten: true });
+    viele(scene, new THREE.CylinderGeometry(0.1, 0.12, 0.07, 10), streifenWeiss, pylonen.map((p) => ({ p: [p.p[0], 0.24, p.p[2]] })));
+    viele(scene, new THREE.BoxGeometry(0.4, 0.04, 0.4), lambert("#2c2f38"), pylonen.map((p) => ({ p: [p.p[0], 0.02, p.p[2]] })));
+
+    // Verstreute Bretter und Rohre.
+    const bretter = [];
+    for (let i = 0; i < 6; i += 1) bretter.push({ p: [(zufall() - 0.5) * 7, 0.03, 2.6 + zufall() * 2.5], r: [0, zufall() * Math.PI, 0], s: [0.8, 0.04, 0.14] });
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#c99a5c"), bretter);
   }
 
   columnX(index, count) {
@@ -179,6 +306,8 @@ export class TowerStack extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (this.craneJib) this.craneJib.rotation.y = 0.5 + Math.sin(now / 5200) * 0.45;
+    this.siteLamps?.forEach((lampe, i) => { lampe.material.emissiveIntensity = Math.floor(now / 450 + i) % 2 ? 1.4 : 0.1; });
     if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
     let topHeight = 0;

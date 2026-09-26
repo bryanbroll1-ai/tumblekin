@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { berge, heuballen, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Ballonfahrt — Zielabwurf über einer Patchwork-Landschaft. Halten heizt den
 // Brenner (steigen), loslassen lässt sinken, der Knopf wirft einen Sandsack.
@@ -123,7 +124,7 @@ export class BalloonGlide extends MinigameScene {
     return {
       label: "3D Ballonfahrt",
       background: "#8fd3f5",
-      fog: ["#b8e4f7", 22, 60],
+      fog: ["#b8e4f7", 26, 88],
       lights: { sunPosition: [-6, 14, 9], sunIntensity: 3.0, shadow: { left: -10, right: 10, top: 10, bottom: -6 } }
     };
   }
@@ -141,8 +142,10 @@ export class BalloonGlide extends MinigameScene {
 
     // Felder in Streifen: Weizen, Wiese, Acker, Raps — quer zur Fahrtrichtung.
     const fieldColors = ["#e8c75a", "#7cc860", "#a8d76a", "#b07a4a", "#f2dc4a", "#6db85a"];
+    const fields = [];
     for (let x = -12, i = 0; x < COURSE_LEN + 12; i += 1) {
       const width = 3 + ((i * 37) % 5) * 0.8;
+      fields.push({ x, width, kind: i % fieldColors.length });
       const field = new THREE.Mesh(new THREE.BoxGeometry(width, 0.3, 40), new THREE.MeshLambertMaterial({ color: fieldColors[i % fieldColors.length] }));
       field.position.set(x + width / 2, -0.15, -6);
       field.receiveShadow = true;
@@ -207,6 +210,7 @@ export class BalloonGlide extends MinigameScene {
         scene.add(tree);
       }
     }
+    this.buildCountry(scene, fields);
     this.clouds = [];
     for (let i = 0; i < 10; i += 1) {
       const cloud = createCloud(i + 3);
@@ -286,6 +290,89 @@ export class BalloonGlide extends MinigameScene {
     scene.add(this.aim);
   }
 
+  // Das Land unter dem Ballon: Hecken zwischen den Feldern, Heuballen auf
+  // dem Weizen, Kühe auf den Weiden, Dörfer mit Kirchturm, am Horizont eine
+  // blaue Bergkette und ferne Ballons, die mitfahren.
+  buildCountry(scene, fields) {
+    const zufall = streuer(91);
+    const hecken = fields.slice(1).map((f) => ({ p: [f.x, 0.22, -11], s: [0.35, 0.45, 13] }));
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#3f8f45"), hecken, { schatten: true });
+    const buesche = [];
+    fields.forEach((f) => { for (let k = 0; k < 2; k += 1) buesche.push({ p: [f.x + (zufall() - 0.5) * 0.3, 0.45, -5 - zufall() * 11], s: 0.35 + zufall() * 0.25 }); });
+    viele(scene, new THREE.DodecahedronGeometry(1, 0), lambert("#4a9c4e"), buesche, { schatten: true });
+
+    const ballen = [];
+    fields.filter((f) => f.kind === 0 || f.kind === 4).forEach((f) => {
+      for (let k = 0; k < 3; k += 1) ballen.push([f.x + 0.6 + zufall() * (f.width - 1.2), -4.8 - zufall() * 9, zufall() * 3]);
+    });
+    heuballen(scene, ballen);
+
+    // Kühe aus Klötzchen, alle Teile instanziert.
+    const kuehe = [];
+    fields.filter((f) => f.kind === 1 || f.kind === 5).forEach((f) => {
+      const n = 1 + Math.floor(zufall() * 3);
+      for (let k = 0; k < n; k += 1) kuehe.push({ x: f.x + 0.6 + zufall() * (f.width - 1.2), z: -5 - zufall() * 8, d: zufall() * Math.PI * 2 });
+    });
+    const teil = (dx, dy, dz, sx, sy, sz) => kuehe.map((c) => {
+      const cos = Math.cos(c.d);
+      const sin = Math.sin(c.d);
+      return { p: [c.x + dx * cos + dz * sin, dy, c.z - dx * sin + dz * cos], r: [0, c.d, 0], s: [sx, sy, sz] };
+    });
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    viele(scene, box, lambert("#f6f3ec"), teil(0, 0.42, 0, 0.62, 0.32, 0.32), { schatten: true });
+    viele(scene, box, lambert("#2c2f38"), [...teil(0.1, 0.5, 0.165, 0.22, 0.16, 0.01), ...teil(-0.15, 0.42, -0.165, 0.18, 0.2, 0.01)]);
+    viele(scene, box, lambert("#f6f3ec"), teil(0.38, 0.52, 0, 0.2, 0.2, 0.22));
+    viele(scene, box, lambert("#f2a0a8"), teil(0.49, 0.47, 0, 0.04, 0.1, 0.16));
+    viele(scene, box, lambert("#6a5a4a"), [...teil(0.22, 0.13, 0.1, 0.07, 0.26, 0.07), ...teil(0.22, 0.13, -0.1, 0.07, 0.26, 0.07), ...teil(-0.22, 0.13, 0.1, 0.07, 0.26, 0.07), ...teil(-0.22, 0.13, -0.1, 0.07, 0.26, 0.07)]);
+
+    // Dörfer mit Kirchturm.
+    [14, 47, 80].forEach((x0, d) => {
+      const dorf = new THREE.Group();
+      dorf.position.set(x0, 0, -10.5);
+      scene.add(dorf);
+      const waende = [];
+      const daecher = [];
+      for (let k = 0; k < 6; k += 1) {
+        const hx = (k - 2.5) * 1.5 + (zufall() - 0.5) * 0.4;
+        const hz = (k % 2) * 1.4 + (zufall() - 0.5) * 0.4;
+        waende.push({ p: [hx, 0.4, hz], s: [1, 0.8, 0.8] });
+        daecher.push({ p: [hx, 1.05, hz], r: [0, Math.PI / 4, 0], s: [0.85, 0.55, 0.75] });
+      }
+      viele(dorf, box, lambert("#fff3df"), waende, { schatten: true });
+      viele(dorf, new THREE.ConeGeometry(1, 1, 4), lambert(d % 2 ? "#b8573a" : "#d9534f"), daecher);
+      kiste(dorf, 1.2, 1.2, 2, "#f5ecd8", [4.8, 0.6, 0.4]);
+      kiste(dorf, 0.7, 2.6, 0.7, "#f5ecd8", [4.8, 1.3, -0.8]);
+      const spitze = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.4, 4), lambert("#4a6a8a"));
+      spitze.position.set(4.8, 3.3, -0.8);
+      spitze.rotation.y = Math.PI / 4;
+      dorf.add(spitze);
+      kiste(dorf, 0.3, 0.3, 0.02, "#ffd15c", [4.8, 2.2, -0.44], { schatten: false });
+    });
+
+    // Bergkette am Horizont.
+    const gipfel = [];
+    for (let x = -24; x < COURSE_LEN + 30; x += 5 + zufall() * 4) gipfel.push([x, -34 - zufall() * 6, 7 + zufall() * 6, 6 + zufall() * 4]);
+    berge(scene, gipfel, { color: "#8fa8c4", schnee: "#f4f8ff", schneeAnteil: 0.3 });
+
+    // Ferne Ballons, die langsam mitfahren.
+    this.farBalloons = [];
+    const farben = ["#ffd15c", "#28c7d9", "#b98cff", "#71d97b", "#ff9a3c", "#ff5d73"];
+    for (let k = 0; k < 7; k += 1) {
+      const ball = new THREE.Group();
+      const huelle = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), lambert(farben[k % farben.length]));
+      huelle.scale.set(1, 1.15, 1);
+      ball.add(huelle);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.92, 0.92, 0.22, 12, 1, true), lambert("#ffffff"));
+      ball.add(band);
+      kiste(ball, 0.34, 0.26, 0.34, "#8a5a32", [0, -1.45, 0], { schatten: false });
+      ball.position.set(-4 + k * 15 + zufall() * 5, 9.5 + zufall() * 3, -26 - zufall() * 6);
+      ball.scale.setScalar(0.8);
+      ball.userData.phase = zufall() * 6;
+      scene.add(ball);
+      this.farBalloons.push(ball);
+    }
+  }
+
   shot() {
     return {
       look: [2, 3.2, 0],
@@ -358,6 +445,10 @@ export class BalloonGlide extends MinigameScene {
     const elapsed = Math.max(0, now - minigame.startedAt);
     const x = groundX(elapsed);
     this.mills.forEach((hub, i) => { hub.rotation.z += dt * (0.8 + i * 0.1); });
+    this.farBalloons?.forEach((ball) => {
+      ball.position.x += dt * 0.7;
+      ball.position.y += Math.sin(now / 1400 + ball.userData.phase) * dt * 0.25;
+    });
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];

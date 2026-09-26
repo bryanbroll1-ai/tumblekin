@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Messerwurf — wie die bekannten Handyspiele: vor dir dreht sich DEIN Stamm,
 // jeder Tipp wirft ein Messer von unten hinein. Sind alle Messer drin,
@@ -132,6 +133,7 @@ export class KnifeThrow extends MinigameScene {
       cloud.position.set(x, y, z);
       scene.add(cloud);
     });
+    this.buildCamp(scene);
 
     // Der Ständer für den eigenen Stamm.
     const wood = new THREE.MeshLambertMaterial({ color: "#6e4522" });
@@ -184,6 +186,109 @@ export class KnifeThrow extends MinigameScene {
         center: log.position.clone(), scale: isOwn ? 1 : MINI_SCALE
       });
     });
+  }
+
+  // Ein Holzfällerlager: Sägemehlplatz um den Ständer, Hackklotz mit Axt,
+  // Brennholzstapel, Baumstümpfe, ein Sägebock, hinten eine Blockhütte mit
+  // rauchendem Schornstein und ein Stapel gefällter Stämme.
+  buildCamp(scene) {
+    const zufall = streuer(71);
+    const holz = lambert("#8a5a32");
+    const schnitt = lambert("#e2c08a");
+    const platz = new THREE.Mesh(new THREE.CircleGeometry(2.3, 28), lambert("#d9bb88"));
+    platz.rotation.x = -Math.PI / 2;
+    platz.position.set(0, 0.012, 0.4);
+    platz.receiveShadow = true;
+    scene.add(platz);
+    const spaene = [];
+    for (let i = 0; i < 60; i += 1) {
+      const a = zufall() * Math.PI * 2;
+      const r = 0.4 + zufall() * 2.6;
+      spaene.push({ p: [Math.cos(a) * r, 0.03, 0.6 + Math.sin(a) * r * 0.9], r: [0, zufall() * 3, 0], s: [0.12 + zufall() * 0.1, 0.03, 0.05] });
+    }
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#c99a5c"), spaene);
+
+    // Hackklotz mit Axt, rechts vor der Figur.
+    const klotz = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.5, 12), holz);
+    klotz.position.set(1.4, 0.25, 1.7);
+    klotz.castShadow = true;
+    scene.add(klotz);
+    const klotzTop = new THREE.Mesh(new THREE.CircleGeometry(0.33, 12), schnitt);
+    klotzTop.rotation.x = -Math.PI / 2;
+    klotzTop.position.set(1.4, 0.505, 1.7);
+    scene.add(klotzTop);
+    const axt = new THREE.Group();
+    kiste(axt, 0.06, 0.75, 0.06, "#b07a3e", [0, 0.36, 0]);
+    kiste(axt, 0.05, 0.16, 0.26, "#8d97a6", [0, 0.02, 0.08]);
+    kiste(axt, 0.05, 0.05, 0.1, "#c8413b", [0, 0.7, 0], { schatten: false });
+    axt.position.set(1.38, 0.52, 1.66);
+    axt.rotation.set(0.5, 0.4, -0.25);
+    scene.add(axt);
+
+    // Brennholzstapel links, Stirnseiten zur Kamera.
+    const scheite = [];
+    [[3, 0], [2, 1], [1, 2]].forEach(([n, reihe]) => {
+      for (let i = 0; i < n; i += 1) {
+        scheite.push({ p: [-1.5 + (i - (n - 1) / 2) * 0.27, 0.13 + reihe * 0.23, 1.8], r: [Math.PI / 2, 0, zufall() * 3] });
+      }
+    });
+    viele(scene, new THREE.CylinderGeometry(0.13, 0.13, 0.8, 8), holz, scheite, { schatten: true });
+    viele(scene, new THREE.CircleGeometry(0.11, 8), schnitt, scheite.map((s) => ({ p: [s.p[0], s.p[1], 2.205] })));
+
+    // Baumstümpfe im Mittelgrund: hier wurde schon gefällt.
+    const stuempfe = [[-1.9, -3.4], [2.1, -4.2], [-2.8, -6.3], [1.7, -7.4], [3.4, -6], [-0.9, -8.6]].map(([x, z]) => ({ p: [x, 0.18, z], s: [1, 0.8 + zufall() * 0.6, 1] }));
+    viele(scene, new THREE.CylinderGeometry(0.3, 0.38, 0.36, 10), holz, stuempfe, { schatten: true });
+    viele(scene, new THREE.CylinderGeometry(0.29, 0.29, 0.02, 10), schnitt, stuempfe.map((s) => ({ p: [s.p[0], 0.18 + 0.18 * s.s[1] + 0.01, s.p[2]] })));
+
+    // Sägebock mit Stamm und Säge, rechts hinter dem Ständer.
+    const bock = new THREE.Group();
+    [-0.5, 0.5].forEach((x) => {
+      [0.35, -0.35].forEach((neigung) => kiste(bock, 0.08, 0.9, 0.08, "#6e4522", [x, 0.4, 0], { material: holz }).rotation.set(neigung, 0, 0));
+    });
+    const stamm = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 1.7, 10), holz);
+    stamm.rotation.z = Math.PI / 2;
+    stamm.position.y = 0.95;
+    stamm.castShadow = true;
+    bock.add(stamm);
+    kiste(bock, 0.7, 0.18, 0.02, "#c9d1dc", [0.1, 1.2, 0.03]);
+    kiste(bock, 0.1, 0.22, 0.05, "#c8413b", [0.5, 1.28, 0.03]);
+    bock.position.set(1.9, 0, -4);
+    bock.rotation.y = -0.3;
+    scene.add(bock);
+
+    // Blockhütte hinten links, mit Rauch.
+    const huette = new THREE.Group();
+    const balken = [];
+    for (let i = 0; i < 7; i += 1) balken.push({ p: [0, 0.16 + i * 0.3, 0], r: [0, 0, Math.PI / 2] });
+    viele(huette, new THREE.CylinderGeometry(0.16, 0.16, 3.4, 8), lambert("#9a6438"), balken, { schatten: true });
+    kiste(huette, 3.1, 2.1, 1.9, "#7a4b28", [0, 1.05, -1]);
+    [-1, 1].forEach((seite) => {
+      kiste(huette, 3.6, 0.12, 1.45, "#5a3522", [0, 2.45, -1 + seite * 0.55]).rotation.x = seite * 0.62;
+    });
+    kiste(huette, 0.7, 0.8, 0.05, "#3f2a1a", [0.6, 0.55, 0.18]);
+    kiste(huette, 0.6, 0.5, 0.05, "#ffd37a", [-0.8, 1.2, 0.18], { schatten: false });
+    kiste(huette, 0.4, 1.4, 0.4, "#8a8a8a", [-1, 3, -1.3]);
+    huette.position.set(-3.1, 0, -10.5);
+    huette.rotation.y = 0.25;
+    scene.add(huette);
+    this.campSmoke = [];
+    for (let i = 0; i < 4; i += 1) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), new THREE.MeshLambertMaterial({ color: "#e6e6e6", transparent: true, opacity: 0.7, depthWrite: false }));
+      puff.userData.isFx = true;
+      scene.add(puff);
+      this.campSmoke.push(puff);
+    }
+    huette.updateMatrixWorld();
+    this.campSmokeBase = new THREE.Vector3(-1, 3.8, -1.3).applyMatrix4(huette.matrixWorld);
+
+    // Gefällte Stämme hinten rechts.
+    const langholz = [[0.3, 0], [0.3, 0.62], [0.3, 1.24], [0.83, 0.31], [0.83, 0.93]].map(([y, z]) => ({ p: [0, y, z], r: [0, 0, Math.PI / 2] }));
+    const stapel = new THREE.Group();
+    viele(stapel, new THREE.CylinderGeometry(0.3, 0.3, 3.2, 10), holz, langholz, { schatten: true });
+    viele(stapel, new THREE.CircleGeometry(0.27, 10), schnitt, langholz.map((l) => ({ p: [1.61, l.p[1], l.p[2]], r: [0, Math.PI / 2, 0] })));
+    stapel.position.set(2.2, 0, -9.5);
+    stapel.rotation.y = -0.5;
+    scene.add(stapel);
   }
 
   shot() {
@@ -263,6 +368,12 @@ export class KnifeThrow extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale } = f;
+    this.campSmoke?.forEach((puff, i) => {
+      const t = ((now / 2600 + i / this.campSmoke.length) % 1);
+      puff.position.set(this.campSmokeBase.x + Math.sin(t * 5 + i) * 0.25 + t * 0.6, this.campSmokeBase.y + t * 2.4, this.campSmokeBase.z);
+      puff.scale.setScalar(0.6 + t * 1.3);
+      puff.material.opacity = 0.7 * (1 - t);
+    });
     if (!arcade) return;
 
     players.forEach((player) => {
