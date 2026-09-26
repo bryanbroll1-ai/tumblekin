@@ -623,7 +623,9 @@ const flags = {
     return (entry.correct || 0) * 100000 + (entry.lives || 0) * 10000 + Math.max(0, 9999 - Math.round(avg * 4));
   },
   detail(arcade, entry) {
-    return { kind: "points", value: entry.correct || 0, label: "richtig" };
+    // Die schnellere Hand entscheidet bei Gleichstand — dann soll man sie sehen.
+    const extra = entry.correct ? `Ø ${Math.round(entry.reactionSum / entry.correct)} ms` : null;
+    return { kind: "points", value: entry.correct || 0, label: "richtig", extra };
   },
   done(ctx) {
     const { room, arcade, elapsed } = ctx;

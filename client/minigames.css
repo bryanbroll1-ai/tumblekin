@@ -1053,10 +1053,12 @@
   color: #1c120a;
 }
 
+/* Über dem Stick, nicht darunter: bei 58 px lag der Stick mitten auf der
+   Warnung, und „LUFT KNAPP" war genau dann unlesbar, wenn es darauf ankam. */
 .kinetic-hud .color-banner.dig-banner,
 .kinetic-hud.dev-mode .color-banner.dig-banner {
   top: auto;
-  bottom: calc(58px + env(safe-area-inset-bottom));
+  bottom: calc(214px + env(safe-area-inset-bottom));
   padding: 7px 16px;
   font-size: clamp(0.85rem, 3.6vw, 1.05rem);
 }

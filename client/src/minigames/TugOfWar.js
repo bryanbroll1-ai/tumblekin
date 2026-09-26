@@ -235,9 +235,9 @@ export class TugOfWar extends MinigameScene {
       look: [0, 0.55, 0.1],
       // Etwas Luft an den Seiten: wird ein Team weggezogen, rutscht der
       // Hinterste mit dem Seil nach aussen — bei 7.3 bis an den Bildrand.
-      frame: { w: 7.9, h: 3.0 },
-      yaw: 0.32,
-      pitch: 0.42,
+      frame: { w: 4.9, h: 4.3 },
+      yaw: 0.95,
+      pitch: 0.55,
       fov: 36,
       intro: { yaw: 0.6, pitch: 0.25, zoom: 1.4 },
       finale: { pull: 0.7, zoom: 0.7, lift: 0.35, orbit: 0.12 }
