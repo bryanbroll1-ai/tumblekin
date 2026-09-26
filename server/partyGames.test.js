@@ -127,3 +127,61 @@ test("Tauziehen: Bots ziehen und niemand wirft", () => {
   assert.ok(publicArcade(g.arcade).tug, "der Seilzustand geht an die Geräte");
   g.restore();
 });
+
+// --- Grimassen -------------------------------------------------------------
+
+const party = require("./partyGames.js");
+
+test("Grimassen: wer nichts tut, bekommt nichts — wer genau trifft, alles", () => {
+  for (let round = 0; round < C.FACE_ROUNDS; round += 1) {
+    const target = party.faceTarget(823456, round);
+    assert.equal(party.facePoints(party.faceError(new Array(12).fill(0), target), target), 0, `Runde ${round + 1}: neutral`);
+    assert.equal(party.facePoints(party.faceError(target, target), target), 100, `Runde ${round + 1}: genau`);
+    const moved = target.filter((v, i) => i % 2 === 0 && Math.hypot(v, target[i + 1]) > 0.3).length;
+    assert.equal(moved, [3, 4, 6][round], `Runde ${round + 1}: ${moved} verzogene Punkte`);
+  }
+});
+
+test("Grimassen: geformt wird nur in der Formphase, gewertet für alle gleichzeitig", () => {
+  const g = setup("grimassen", 2);
+  const [a, b] = g.players;
+  const target = g.arcade.face.targets[0];
+  // Während das Vorbild gezeigt wird, zählt keine Eingabe.
+  g.run(0, C.FACE_LEAD_MS + 200, 50);
+  g.input(a, { action: "shape", h: target });
+  assert.deepEqual(g.arcade.players[a.id].shape, new Array(12).fill(0));
+  // In der Formphase schon — und Unsinn wird begrenzt oder abgelehnt.
+  g.run(C.FACE_LEAD_MS + 250, C.FACE_LEAD_MS + C.FACE_SHOW_MS + 500, 50);
+  g.input(a, { action: "shape", h: target, final: true });
+  g.input(b, { action: "shape", h: target.map((v) => v * 9), final: true });
+  assert.ok(g.arcade.players[b.id].shape.every((v) => v >= -1 && v <= 1));
+  assert.equal(g.input(b, { action: "shape", h: [1, 2, 3], final: true }).ok, false);
+  g.run(C.FACE_LEAD_MS + C.FACE_SHOW_MS + 550, C.FACE_LEAD_MS + C.FACE_CYCLE_MS - 100, 50);
+  assert.equal(g.arcade.players[a.id].results[0].points, 100);
+  assert.ok(g.arcade.players[b.id].results[0].points < 100);
+  // Nächste Runde: die Maske ist wieder neutral.
+  g.run(C.FACE_LEAD_MS + C.FACE_CYCLE_MS, C.FACE_LEAD_MS + C.FACE_CYCLE_MS + 200, 50);
+  assert.deepEqual(g.arcade.players[a.id].shape, new Array(12).fill(0));
+  g.run(C.FACE_LEAD_MS + C.FACE_CYCLE_MS + 250, g.minigame.duration, 100);
+  assert.equal(g.arcade.players[a.id].results.length, C.FACE_ROUNDS);
+  assert.ok(arcadeRankingScore(g.arcade, g.arcade.players[a.id]) > arcadeRankingScore(g.arcade, g.arcade.players[b.id]));
+  g.restore();
+});
+
+test("Grimassen: der starke Bot trifft besser als der schwache", () => {
+  const scores = { easy: 0, hard: 0 };
+  for (let run = 0; run < 6; run += 1) {
+    const g = setup("grimassen", 2, { bots: true });
+    const [e, h] = g.players;
+    g.arcade.players[e.id].botProfile = { level: "easy" };
+    g.arcade.players[h.id].botProfile = { level: "hard" };
+    const next = [0, 0];
+    g.run(0, g.minigame.duration, 40, (t) => {
+      g.players.forEach((p, i) => { if (t >= next[i]) { next[i] = t + 280; arcadeBotStep(g.room, p); } });
+    });
+    scores.easy += g.arcade.players[e.id].score;
+    scores.hard += g.arcade.players[h.id].score;
+    g.restore();
+  }
+  assert.ok(scores.hard > scores.easy, JSON.stringify(scores));
+});

@@ -82,7 +82,7 @@ laufenden Kosten entstehen sollen.
 
 **Wichtig, nicht blockierend**
 
-- Inhaltsumfang: 31 Minispiele. Offene Ideen stehen im Fahrplan unten.
+- Inhaltsumfang: 32 Minispiele. Offene Ideen stehen im Fahrplan unten.
 - Nur eine Sprache (Deutsch). Store-Reichweite verlangt praktisch Englisch.
 - Kein Onboarding-Tutorial für die erste Partie.
 - Keine Fehlerberichterstattung; ein Absturz beim Spieler bleibt unsichtbar.

@@ -254,15 +254,190 @@ const tug = {
   }
 };
 
+
+// --- Grimassen -------------------------------------------------------------
+//
+// Oben an der Wand hängt ein verzogenes Gesicht. Vor einem steht eine
+// Gummimaske — noch ganz neutral —, und man zieht sie mit dem Finger an sechs
+// Punkten zurecht: beide Brauen, Nase, beide Mundwinkel, Kinn. Nach Ablauf
+// der Zeit wird verglichen; je näher jeder Punkt am Vorbild liegt, desto mehr
+// Punkte.
+//
+// Ein Punkt ist ein Versatz in [-1, 1] je Achse — das ist alles, was der Server
+// kennt. Wie weit sich die Maske dabei verzieht, rechnet der Client; beide
+// benutzen dieselben Zahlen, darum stimmt der Vergleich mit dem Bild überein.
+const FACE_HANDLES = ["browL", "browR", "nose", "mouthL", "mouthR", "chin"];
+const FACE_ROUNDS = 3;
+const FACE_LEAD_MS = 900;
+const FACE_SHOW_MS = 1600;             // Vorbild zeigen, Maske gesperrt
+const FACE_SHAPE_MS = 9000;            // formen
+const FACE_REVEAL_MS = 2800;           // Auflösung
+const FACE_CYCLE_MS = FACE_SHOW_MS + FACE_SHAPE_MS + FACE_REVEAL_MS;
+const FACE_DURATION_MS = FACE_LEAD_MS + FACE_ROUNDS * FACE_CYCLE_MS + 400;
+const FACE_MAX_POINTS = 100;
+const FACE_MIN_NEUTRAL = 0.3;         // so weit liegt ein Vorbild mindestens von neutral
+const FACE_MIN_INPUT_MS = 40;
+
+// Das Vorbild eines Durchgangs: in Runde 1 sind drei Punkte verzogen, in
+// Runde 2 vier, in Runde 3 alle sechs. Nicht verzogene Punkte bleiben nahe 0 —
+// dort liegt die Maske am Anfang ohnehin.
+function faceTarget(seed, round) {
+  const moved = Math.min(FACE_HANDLES.length, 3 + round + (round >= 2 ? 1 : 0));
+  const order = FACE_HANDLES.map((_, i) => ({ i, k: noise(seed + round * 131 + i * 17) }))
+    .sort((a, b) => a.k - b.k)
+    .map((item) => item.i);
+  const target = new Array(FACE_HANDLES.length * 2).fill(0);
+  order.slice(0, moved).forEach((handle, n) => {
+    // Kräftig verzogen, damit es etwas zu sehen gibt: mindestens 0.45 weit.
+    const angle = noise(seed + round * 57 + handle * 29 + n) * Math.PI * 2;
+    const reach = 0.45 + noise(seed + round * 91 + handle * 13) * 0.55;
+    target[handle * 2] = Math.round(Math.cos(angle) * reach * 100) / 100;
+    target[handle * 2 + 1] = Math.round(Math.sin(angle) * reach * 100) / 100;
+  });
+  return target;
+}
+
+function faceError(shape, target) {
+  let sum = 0;
+  for (let i = 0; i < FACE_HANDLES.length; i += 1) {
+    sum += Math.hypot((shape[i * 2] || 0) - target[i * 2], (shape[i * 2 + 1] || 0) - target[i * 2 + 1]);
+  }
+  return sum / FACE_HANDLES.length;
+}
+
+// Gemessen wird gegen die neutrale Maske: wer nichts tut, bekommt nichts,
+// wer das Vorbild genau trifft, alles. Ein fester Nullpunkt hätte in der
+// ersten Runde, in der nur drei Punkte verzogen sind, fürs Nichtstun schon
+// zwei Drittel der Punkte verschenkt.
+function facePoints(error, target) {
+  const neutral = Math.max(FACE_MIN_NEUTRAL, faceError(new Array(FACE_HANDLES.length * 2).fill(0), target));
+  const share = clamp(1 - error / neutral, 0, 1);
+  return Math.round(FACE_MAX_POINTS * Math.pow(share, 1.15));
+}
+
+function facePhase(elapsed) {
+  const t = elapsed - FACE_LEAD_MS;
+  if (t < 0) return { phase: "lead", round: 0, since: t + FACE_LEAD_MS };
+  const round = Math.floor(t / FACE_CYCLE_MS);
+  if (round >= FACE_ROUNDS) return { phase: "over", round: FACE_ROUNDS - 1, since: t - FACE_ROUNDS * FACE_CYCLE_MS };
+  const inner = t - round * FACE_CYCLE_MS;
+  if (inner < FACE_SHOW_MS) return { phase: "show", round, since: inner };
+  if (inner < FACE_SHOW_MS + FACE_SHAPE_MS) return { phase: "shape", round, since: inner - FACE_SHOW_MS };
+  return { phase: "reveal", round, since: inner - FACE_SHOW_MS - FACE_SHAPE_MS };
+}
+
+const face = {
+  cooldown: 0,
+  fastHand: false,
+  create(arcade) {
+    arcade.face = {
+      handles: FACE_HANDLES,
+      rounds: FACE_ROUNDS,
+      leadMs: FACE_LEAD_MS,
+      showMs: FACE_SHOW_MS,
+      shapeMs: FACE_SHAPE_MS,
+      revealMs: FACE_REVEAL_MS,
+      targets: Array.from({ length: FACE_ROUNDS }, (_, round) => faceTarget(arcade.seed, round)),
+      scored: -1                        // bis zu welcher Runde gewertet ist
+    };
+    Object.values(arcade.players).forEach((entry) => {
+      entry.shape = new Array(FACE_HANDLES.length * 2).fill(0);
+      entry.results = [];              // je Runde { points, error, shape }
+      entry.score = 0;
+      entry.lastShapeAt = 0;
+      entry.moves = 0;
+    });
+  },
+  input(ctx, player, entry, input) {
+    if (input.action !== "shape") return { ok: false, error: "Zieh die Maske zurecht." };
+    const { phase } = facePhase(ctx.elapsed);
+    if (phase !== "shape") return { ok: true };
+    if (!input.final && ctx.now - entry.lastShapeAt < FACE_MIN_INPUT_MS) return { ok: true };
+    const h = Array.isArray(input.h) ? input.h : null;
+    if (!h || h.length !== FACE_HANDLES.length * 2) return { ok: false, error: "Ungültige Form." };
+    const next = h.map((value) => (Number.isFinite(Number(value)) ? clamp(Math.round(Number(value) * 100) / 100, -1, 1) : 0));
+    entry.shape = next;
+    entry.lastShapeAt = ctx.now;
+    entry.moves += 1;
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, elapsed } = ctx;
+    const state = arcade.face;
+    const { phase, round } = facePhase(elapsed);
+    // Gewertet wird genau beim Übergang ins Auflösen — für alle gleichzeitig.
+    const due = phase === "reveal" || phase === "over" ? round : round - 1;
+    while (state.scored < due) {
+      state.scored += 1;
+      const target = state.targets[state.scored];
+      Object.values(arcade.players).forEach((entry) => {
+        const error = faceError(entry.shape, target);
+        const points = facePoints(error, target);
+        entry.results[state.scored] = { points, error: Math.round(error * 100) / 100, shape: [...entry.shape] };
+        entry.score += points;
+      });
+    }
+    // Neue Runde: die Maske springt zurück auf neutral.
+    if (phase === "show" && state.resetRound !== round) {
+      state.resetRound = round;
+      Object.values(arcade.players).forEach((entry) => { entry.shape = new Array(FACE_HANDLES.length * 2).fill(0); });
+    }
+  },
+  bot(ctx, player, entry) {
+    const { arcade, now, elapsed } = ctx;
+    const { phase, round, since } = facePhase(elapsed);
+    if (phase !== "shape") return null;
+    const profile = entry.botProfile || { level: "normal" };
+    if (entry.botRound !== round) {
+      entry.botRound = round;
+      // Wie genau der Bot hinschaut: je Punkt ein fester Fehler für die Runde.
+      const miss = byLevel(entry, 0.42, 0.24, 0.1);
+      entry.botAim = arcade.face.targets[round].map((value) => clamp(value + (Math.random() * 2 - 1) * miss, -1, 1));
+      entry.botStartAt = byLevel(entry, 1600, 1000, 600) + Math.random() * 600;
+      entry.botNextAt = 0;
+    }
+    if (since < entry.botStartAt || now < (entry.botNextAt || 0)) return null;
+    entry.botNextAt = now + byLevel(entry, 520, 380, 300);
+    void profile;
+    // Einen Punkt ein Stück in Richtung Ziel ziehen — so sieht es aus, als
+    // würde jemand an der Maske arbeiten, statt dass sie umspringt.
+    const shape = [...entry.shape];
+    let worst = -1;
+    let worstGap = 0.04;
+    for (let i = 0; i < FACE_HANDLES.length; i += 1) {
+      const gap = Math.hypot(entry.botAim[i * 2] - shape[i * 2], entry.botAim[i * 2 + 1] - shape[i * 2 + 1]);
+      if (gap > worstGap) { worstGap = gap; worst = i; }
+    }
+    if (worst < 0) return null;
+    const step = Math.min(1, 0.55 + Math.random() * 0.3);
+    shape[worst * 2] += (entry.botAim[worst * 2] - shape[worst * 2]) * step;
+    shape[worst * 2 + 1] += (entry.botAim[worst * 2 + 1] - shape[worst * 2 + 1]) * step;
+    return { action: "shape", h: shape, final: true };
+  },
+  rank(arcade, entry) {
+    // Punkte zuerst; bei Gleichstand der kleinere Gesamtfehler.
+    const error = (entry.results || []).reduce((sum, r) => sum + (r?.error || 0), 0);
+    return Math.max(0, Math.round(entry.score || 0)) * 1000 + Math.max(0, 999 - Math.round(error * 100));
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte" };
+  },
+  done(ctx) {
+    return facePhase(ctx.elapsed).phase === "over";
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
-  tug
+  tug,
+  face
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
 const PARTY_GAMES = [
-  { type: "tauziehen", title: "Tauziehen", duration: TUG_DURATION_MS, arcadeFamily: "tug", seed: 811 }
+  { type: "tauziehen", title: "Tauziehen", duration: TUG_DURATION_MS, arcadeFamily: "tug", seed: 811 },
+  { type: "grimassen", title: "Grimassen", duration: FACE_DURATION_MS, arcadeFamily: "face", seed: 823 }
 ];
 
 module.exports = {
@@ -270,6 +445,11 @@ module.exports = {
   PARTY_GAMES,
   constants: {
     TUG_LEAD_MS, TUG_ROUND_MS, TUG_SHOW_MS, TUG_ROUNDS, TUG_WINS, TUG_DURATION_MS,
-    TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS
-  }
+    TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
+    FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS
+  },
+  faceTarget,
+  faceError,
+  facePoints,
+  facePhase
 };
