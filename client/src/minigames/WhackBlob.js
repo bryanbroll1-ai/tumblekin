@@ -81,18 +81,18 @@ export class WhackBlob extends MinigameScene {
     const scene = this.scene;
     const meadow = new THREE.Mesh(
       new THREE.BoxGeometry(22, 0.5, 16),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+      new THREE.MeshLambertMaterial({ color: "#7fb06c" })
     );
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 5.2 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#69bd5f", "#87d276"], crownColor: "#2f7f45", crownColor2: "#4a9c58", crownShape: "blob", trees: 20, flowers: 80 });
+    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 5.2 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#68a05c", "#7fb171"], crownColor: "#2f7f45", crownColor2: "#4a9c58", crownShape: "blob", trees: 20, flowers: 80 });
     this.buildGarden(scene);
     const mound = new THREE.Mesh(
       new THREE.BoxGeometry(CELL * COLS + 0.9, 0.4, CELL * ROWS + 0.9),
-      new THREE.MeshLambertMaterial({ color: "#8ad07f" })
+      new THREE.MeshLambertMaterial({ color: "#84b378" })
     );
     mound.position.y = 0.1;
     mound.receiveShadow = true;

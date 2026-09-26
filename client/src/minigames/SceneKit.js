@@ -11,6 +11,27 @@ import { qualityTier } from "./Quality.js?v=tumblekin200";
 // hud, ownMarker), so they stay drop-in and the games keep their own structure.
 
 const MAX_PIXEL_RATIO = 2;
+const TONE_EXPOSURE = 0.9;
+
+// Himmel als Verlauf statt Einheitsfarbe: oben eine Spur tiefer, unten genau
+// die Nebelfarbe — so läuft der Horizont nahtlos in den Dunst, statt an einer
+// Kante auf eine zweite Blaustufe zu stossen. Eine 2×128-Textur, die der
+// Renderer bildschirmfüllend hinter alles legt; kostet nichts.
+function himmelsVerlauf(oben, unten) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 2;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  const verlauf = ctx.createLinearGradient(0, 0, 0, 128);
+  verlauf.addColorStop(0, `#${oben.getHexString()}`);
+  verlauf.addColorStop(0.62, `#${unten.getHexString()}`);
+  verlauf.addColorStop(1, `#${unten.getHexString()}`);
+  ctx.fillStyle = verlauf;
+  ctx.fillRect(0, 0, 2, 128);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 
 // Creates the WebGL canvas next to the 2D fallback canvas, plus renderer,
 // scene and camera. Returns the stage so callers can destructure if they like.
@@ -39,14 +60,22 @@ export function mountStage(host, {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1.5 : MAX_PIXEL_RATIO));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Neutral statt ACES: ACES verschiebt kräftige Farben und legt einen grauen
+  // Schleier über das Bild — die Figuren waren im 3D-Bild eine Spur dunkler
+  // und stumpfer als ihre Farbpunkte im HUD. Neutral lässt die Mitteltöne
+  // unangetastet und staucht nur die Spitzen; die Belichtung knapp unter 1
+  // fängt das Mehr an Helligkeit ab, das ACES vorher weggebügelt hat.
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = TONE_EXPOSURE;
   renderer.shadowMap.enabled = true;
   // PCFSoft is noticeably pricier; basic PCF keeps shadows without the cost.
   renderer.shadowMap.type = low ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
   host.renderer = renderer;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(background);
+  const grund = new THREE.Color(background);
+  const horizont = fog ? new THREE.Color(fog[0]) : grund.clone().offsetHSL(0, 0, 0.06);
+  scene.background = himmelsVerlauf(grund.clone().offsetHSL(0, 0.04, -0.07), horizont);
   if (fog) scene.fog = new THREE.Fog(fog[0], fog[1], fog[2]);
   host.scene = scene;
 
@@ -92,6 +121,10 @@ export function addStageLights(scene, {
   sun.shadow.camera.right = shadow.right ?? 8;
   sun.shadow.camera.top = shadow.top ?? 8;
   sun.shadow.camera.bottom = shadow.bottom ?? -8;
+  // Ohne Versatz zeichnet sich jede beschienene Fläche selbst gestreift
+  // (Schattenakne) — auf grossen, flachen Böden sieht man das sofort.
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
 
   // Aufhelllicht von der Gegenseite, schwach und kühl. Mit nur einer Sonne
@@ -213,7 +246,7 @@ export function dressMeadow(scene, {
   // erledigt dasselbe mit zwei Zeichenaufrufen. Derselbe Griff, der die
   // Kletterwand von einer Platte in geschichteten Fels verwandelt hat.
   patches = 26,
-  patchColors = ["#74c465", "#8ad97a"],
+  patchColors = ["#72a864", "#83b577"],
   tufts = 240,
   flowers = 46,
   stones = 22,
@@ -223,7 +256,7 @@ export function dressMeadow(scene, {
   // heran; ein Baum, der neben ihr landet, füllt als dunkler Keil das halbe
   // Bild. Büschel und Steine dürfen dort bleiben, die sind klein genug.
   frontCut = 5,
-  grassColor = "#6cb95c",
+  grassColor = "#629a56",
   flowerColors = ["#ffd15c", "#ff8fb1", "#ffffff", "#b98cff"],
   trunkColor = "#7a5330",
   crownColor = "#3f8f45",
@@ -408,7 +441,7 @@ export function dressWater(scene, {
   // Freizuhaltender Streifen in der Mitte: dort schwimmt der Fisch.
   laneHalf = 3.2,
   bands = 7,
-  bandColors = ["#2f9bc9", "#37a4d1"],
+  bandColors = ["#3a92b9", "#429cc2"],
   pads = 26,
   reeds = 60,
   shoreColor = "#7fc46a",

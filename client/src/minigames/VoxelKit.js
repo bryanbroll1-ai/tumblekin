@@ -19,10 +19,36 @@ export {
   reachArm
 } from "./Kin.js?v=tumblekin200";
 
+// Weicher Kontaktschatten: eine runde Scheibe mit Verlauf nach aussen. Der
+// frühere Schatten war ein Quader mit harter Kante — unter jeder Figur lag ein
+// dunkles Quadrat. Die Textur wird einmal gebaut und von allen geteilt.
+let schattenTextur = null;
+function weicherSchatten() {
+  if (schattenTextur && !schattenTextur.userData.disposed) return schattenTextur;
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  const verlauf = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  verlauf.addColorStop(0, "rgba(255,255,255,1)");
+  verlauf.addColorStop(0.45, "rgba(255,255,255,0.8)");
+  verlauf.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = verlauf;
+  ctx.fillRect(0, 0, 64, 64);
+  schattenTextur = new THREE.CanvasTexture(canvas);
+  const dispose = schattenTextur.dispose.bind(schattenTextur);
+  schattenTextur.dispose = () => { schattenTextur.userData.disposed = true; dispose(); };
+  return schattenTextur;
+}
+
 export function createShadowBlob(size = 0.55) {
+  const geometry = new THREE.PlaneGeometry(size * 1.25, size * 1.25);
+  // Flach in die XZ-Ebene gedreht, damit scale.set(x, 1, z) wie beim alten
+  // Quader die Grundfläche streckt.
+  geometry.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(size, 0.015, size),
-    new THREE.MeshBasicMaterial({ color: "#0a2430", transparent: true, opacity: 0.26, depthWrite: false })
+    geometry,
+    new THREE.MeshBasicMaterial({ color: "#0a2430", map: weicherSchatten(), transparent: true, opacity: 0.34, depthWrite: false, toneMapped: false })
   );
   mesh.renderOrder = 1;
   // Ein Schattenfleck ist ein Aufkleber, kein Boden. Ohne die Markierung hält

@@ -35,13 +35,13 @@ export class BalloonPump extends MinigameScene {
 
   build() {
     const scene = this.scene;
-    const meadow = new THREE.Mesh(new THREE.BoxGeometry(26, 0.5, 20), new THREE.MeshLambertMaterial({ color: "#7fce6f" }));
+    const meadow = new THREE.Mesh(new THREE.BoxGeometry(26, 0.5, 20), new THREE.MeshLambertMaterial({ color: "#7fb06c" }));
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     scene.add(meadow);
     dressMeadow(scene, {
       seed: 6, keepOut: { x: 4.8, z: 3.4 }, spread: { x: 17, z: 15 },
-      grassColor: "#7ec96a", patchColors: ["#8ed477", "#a7e08c"],
+      grassColor: "#7aac66", patchColors: ["#86b477", "#96bd86"],
       crownColor: "#3fa05a", crownColor2: "#5cb96f", crownShape: "blob", trunkColor: "#94693c"
     });
     this.buildParty(scene);
@@ -253,7 +253,7 @@ export class BalloonPump extends MinigameScene {
     const farben = ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b98cff"];
     farben.forEach((farbe) => {
       const schnipsel = [];
-      for (let i = 0; i < 16; i += 1) schnipsel.push({ p: [(zufall() - 0.5) * 4.4, 0.015, 1.9 + zufall() * 3.4], r: [-Math.PI / 2, 0, zufall() * 3], s: 0.07 });
+      for (let i = 0; i < 6; i += 1) schnipsel.push({ p: [(zufall() - 0.5) * 4.4, 0.015, 1.9 + zufall() * 3.4], r: [-Math.PI / 2, 0, zufall() * 3], s: 0.06 });
       viele(scene, new THREE.PlaneGeometry(1, 1), lambert(farbe), schnipsel);
     });
 

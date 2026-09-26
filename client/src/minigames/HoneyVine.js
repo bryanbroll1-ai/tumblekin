@@ -114,7 +114,7 @@ export class HoneyVine extends MinigameScene {
   }
 
   buildGarden(scene) {
-    kiste(scene, 70, 0.5, 60, "#7cc466", [0, -0.25, 0], { schatten: false });
+    kiste(scene, 70, 0.5, 60, "#74ad62", [0, -0.25, 0], { schatten: false });
     dressMeadow(scene, {
       seed: 44,
       keepOut: { x: 3.2, z: 2.6 },
@@ -122,7 +122,7 @@ export class HoneyVine extends MinigameScene {
       trees: 20,
       treeRing: { x: 17, z: 14 },
       grassColor: "#5fa94c",
-      patchColors: ["#86c96b", "#a3d67e"],
+      patchColors: ["#7db064", "#94bd78"],
       crownShape: "blob",
       crownColor: "#5a9e45",
       crownColor2: "#8fbf4a",

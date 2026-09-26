@@ -330,7 +330,7 @@ export class Nervenprobe extends MinigameScene {
       for (let i = 0; i < 8; i += 1) {
         const x = (i - 3.5) * 0.8 + (reihe % 2) * 0.25;
         if (x > 2.0 && reihe === 0) continue;
-        plaetze.push({ x, z, farbe: ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b98cff", "#ff9a3c"][Math.floor(zufall() * 6)], haar: ["#2c2f38", "#6b4a2e", "#e8c15a", "#c8413b"][Math.floor(zufall() * 4)], phase: zufall() * 6 });
+        plaetze.push({ x, z, farbe: ["#9a4a5a", "#9a8a4a", "#3a7a86", "#4a8a5a", "#6a5a9a", "#9a6a4a"][Math.floor(zufall() * 6)], haar: ["#2c2f38", "#6b4a2e", "#e8c15a", "#c8413b"][Math.floor(zufall() * 4)], phase: zufall() * 6 });
       }
     });
     viele(scene, new THREE.BoxGeometry(0.62, 0.42, 0.1), lambert("#7a1f3a"), plaetze.map((p) => ({ p: [p.x, 0.38, p.z + 0.28] })));

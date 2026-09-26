@@ -70,7 +70,7 @@ export class CannonFly extends MinigameScene {
 
   build() {
     const scene = this.scene;
-    const meadow = new THREE.Mesh(new THREE.BoxGeometry(30, 0.5, 48), new THREE.MeshLambertMaterial({ color: "#7fce6f" }));
+    const meadow = new THREE.Mesh(new THREE.BoxGeometry(30, 0.5, 48), new THREE.MeshLambertMaterial({ color: "#7fb06c" }));
     meadow.position.set(0, -0.25, -14);
     meadow.receiveShadow = true;
     scene.add(meadow);
@@ -82,8 +82,8 @@ export class CannonFly extends MinigameScene {
       frontCut: 4,
       trees: 30,
       patches: 30,
-      grassColor: "#6fbe63",
-      patchColors: ["#7cc86e", "#93d684"],
+      grassColor: "#6aa45e",
+      patchColors: ["#76ad6b", "#88b87e"],
       crownColor: "#2f7f5a",
       crownColor2: "#46996b"
     });
@@ -525,7 +525,7 @@ export class CannonFly extends MinigameScene {
         kin.position.set(landing.x, landing.y, landing.z);
         animator.groundY = landing.y;
         animator.trigger("tumble");
-        this.burst(landing.clone().setY(0.2), ["#7fce6f", "#e6f2da", player.color], { count: 16, speed: 2.2, up: 1.8, size: 0.09, life: 0.7, drag: 1.7 });
+        this.burst(landing.clone().setY(0.2), ["#7fb06c", "#e6f2da", player.color], { count: 16, speed: 2.2, up: 1.8, size: 0.09, life: 0.7, drag: 1.7 });
         this.bursts.ring(landing.clone().setY(0.07), "#e6f2da", { radius: 1.4, life: 0.5 });
         const pts = entry.points || 0;
         this.pop(landing.clone().add(new THREE.Vector3(0, 1.3, 0)), `${Math.round(distance)} m · ${pts}`, { color: pts >= 100 ? "#7fe0a8" : pts >= 50 ? "#ffe36b" : "#ffffff", size: 0.44, life: 1.6, rise: 0.8 });

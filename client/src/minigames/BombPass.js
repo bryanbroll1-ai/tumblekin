@@ -229,11 +229,11 @@ export class BombPass extends MinigameScene {
       kiste(stock, 0.025, 0.9, 0.025, "#8a6238", [0, 0.45, 0], { schatten: false });
       kiste(stock, 0.08, 0.09, 0.08, "#fff4e6", [0, 0.9, 0], { schatten: false });
     });
-    const schlafsack = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.7, 12), lambert("#6a4fc4"));
+    const schlafsack = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.7, 12), lambert("#5c6296"));
     schlafsack.rotation.z = Math.PI / 2;
     schlafsack.position.set(-0.5, 0.48, 5.0);
     scene.add(schlafsack);
-    viele(scene, new THREE.CylinderGeometry(0.185, 0.185, 0.05, 12), lambert("#3a2a7a"), [-0.2, 0, 0.2].map((dx) => ({ p: [-0.5 + dx, 0.48, 5.0], r: [0, 0, Math.PI / 2] })));
+    viele(scene, new THREE.CylinderGeometry(0.185, 0.185, 0.05, 12), lambert("#3f4470"), [-0.2, 0, 0.2].map((dx) => ({ p: [-0.5 + dx, 0.48, 5.0], r: [0, 0, Math.PI / 2] })));
 
     // Funken, die aus dem Feuer aufsteigen. (Glühwürmchen gehören dem
     // Augenmaß — dort sind sie das, was gezählt wird.)

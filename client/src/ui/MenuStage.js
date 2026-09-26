@@ -110,7 +110,10 @@ export class MenuStage {
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: !low, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1.5 : 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // Dasselbe Tonemapping wie in den Minispielen: sonst hätten die Figuren
+    // in der Lobby andere Farben als eine Sekunde später im Spiel.
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 0.9;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = low ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     this.renderer = renderer;
@@ -129,6 +132,7 @@ export class MenuStage {
     sun.shadow.mapSize.set(map, map);
     Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5, near: 1, far: 30 });
     sun.shadow.bias = -0.0008;
+    sun.shadow.normalBias = 0.02;
     scene.add(sun);
     const fill = new THREE.DirectionalLight(0xbcd8ff, 0.8);
     fill.position.set(5, 4, -6);
@@ -145,8 +149,8 @@ export class MenuStage {
     const island = new THREE.Group();
     this.island = island;
     this.scene.add(island);
-    const grass = new THREE.MeshLambertMaterial({ color: "#7fd06b" });
-    const grassLight = new THREE.MeshLambertMaterial({ color: "#96dd7f" });
+    const grass = new THREE.MeshLambertMaterial({ color: "#78ad66" });
+    const grassLight = new THREE.MeshLambertMaterial({ color: "#8ab979" });
     const earth = new THREE.MeshLambertMaterial({ color: "#b98457" });
     const earthDark = new THREE.MeshLambertMaterial({ color: "#8f623d" });
     const stone = new THREE.MeshLambertMaterial({ color: "#9aa4ad" });
@@ -185,7 +189,7 @@ export class MenuStage {
     }
 
     // Randbepflanzung: Büsche, Blumen, zwei Laternen.
-    const bush = new THREE.MeshLambertMaterial({ color: "#4fae5c" });
+    const bush = new THREE.MeshLambertMaterial({ color: "#4f9a58" });
     [[-2.9, -1.6], [2.8, -1.7], [-3.0, 1.2], [3.0, 1.1], [-1.9, -1.9], [2.0, -1.95]].forEach(([x, z], i) => {
       const size = 0.35 + noise(i * 5) * 0.25;
       const b = new THREE.Mesh(new THREE.DodecahedronGeometry(size, 0), bush);
@@ -277,7 +281,7 @@ export class MenuStage {
       this.scene.add(g);
       return g;
     };
-    this.minis = [mini(-8.5, 0.6, -9, 1.3, "#8fd67a"), mini(9, 1.4, -11, 1.1, "#a5e08c"), mini(4.5, -1.6, -14, 1.6, "#7fcf6c")];
+    this.minis = [mini(-8.5, 0.6, -9, 1.3, "#82b672"), mini(9, 1.4, -11, 1.1, "#95c285"), mini(4.5, -1.6, -14, 1.6, "#76ad66")];
   }
 
   buildPodium() {

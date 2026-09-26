@@ -10,6 +10,18 @@
   background: #a8d8ee;
 }
 
+/* Eine leise Vignette: die Ränder eine Spur dunkler, damit der Blick in die
+   Mitte fällt, wo gespielt wird. Liegt über der 3D-Szene und unter HUD und
+   Knöpfen; fängt keine Berührung ab. */
+.minigame-screen::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+  background: radial-gradient(ellipse 120% 90% at 50% 46%, transparent 58%, rgba(12, 22, 34, 0.22) 100%);
+  pointer-events: none;
+}
+
 .minigame-screen::after {
   position: absolute;
   z-index: 2;

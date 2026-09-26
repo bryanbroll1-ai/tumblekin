@@ -40,7 +40,7 @@ export class SnowSummit extends MinigameScene {
       label: "3D Schneeballhang",
       background: "#cfe6f7",
       fog: ["#e3f0fa", 20, 60],
-      lights: { sunPosition: [-6, 12, 7], sunIntensity: 2.8, hemiIntensity: 2.4, skyColor: 0xf2f8ff, groundColor: 0xb8cce0, shadow: { left: -6.5, right: 6.5, top: 5.5, bottom: -5.5 } }
+      lights: { sunPosition: [-6, 12, 7], sunIntensity: 2.5, hemiIntensity: 2.0, skyColor: 0xe8f2ff, groundColor: 0xa8bcd4, shadow: { left: -6.5, right: 6.5, top: 5.5, bottom: -5.5 } }
     };
   }
 
@@ -73,7 +73,7 @@ export class SnowSummit extends MinigameScene {
 
   buildSummit(scene) {
     // Schneefläche mit bläulichen Schattenflecken.
-    kiste(scene, 80, 0.5, 70, "#f4f8fc", [0, -0.25, 0], { schatten: false });
+    kiste(scene, 80, 0.5, 70, "#e4edf6", [0, -0.25, 0], { schatten: false });
     const zufall = streuer(17);
     const flecken = [];
     for (let i = 0; i < 26; i += 1) {
@@ -82,13 +82,13 @@ export class SnowSummit extends MinigameScene {
       if (Math.abs(x) < W / 2 + 0.6 && Math.abs(z) < D / 2 + 0.6) continue;
       flecken.push({ p: [x, 0.004, z], r: [-Math.PI / 2, 0, zufall() * 3], s: [1.5 + zufall() * 3, 0.8 + zufall() * 2, 1] });
     }
-    viele(scene, new THREE.CircleGeometry(1, 12), lambert("#dfeaf6"), flecken);
+    viele(scene, new THREE.CircleGeometry(1, 12), lambert("#d2deec"), flecken);
     // Spielfeld: festgetretener Schnee, etwas grauer, mit Fussspuren.
-    kiste(scene, W, 0.02, D, "#d4e1ee", [0, 0.005, 0], { schatten: false });
+    kiste(scene, W, 0.02, D, "#c6d4e4", [0, 0.005, 0], { schatten: false });
     // Spuren im Feld: flache, etwas hellere Streifen.
     const spuren = [];
     for (let i = 0; i < 16; i += 1) spuren.push({ p: [(zufall() - 0.5) * (W - 1), 0.017, (zufall() - 0.5) * (D - 1)], r: [-Math.PI / 2, 0, zufall() * 3], s: [0.25, 1 + zufall() * 1.6, 1] });
-    viele(scene, new THREE.PlaneGeometry(1, 1), lambert("#e6eef7"), spuren);
+    viele(scene, new THREE.PlaneGeometry(1, 1), lambert("#d6e1ee"), spuren);
     // Schneewall rund ums Feld.
     const wall = [];
     for (let x = -W / 2; x <= W / 2 + 0.01; x += 0.55) {
@@ -99,7 +99,7 @@ export class SnowSummit extends MinigameScene {
       wall.push({ p: [-W / 2 - 0.3, 0.14, z], s: [0.8, 0.55 + zufall() * 0.3, 0.75 + zufall() * 0.3] });
       wall.push({ p: [W / 2 + 0.3, 0.14, z], s: [0.8, 0.55 + zufall() * 0.3, 0.75 + zufall() * 0.3] });
     }
-    viele(scene, new THREE.SphereGeometry(0.42, 8, 6), lambert("#ffffff"), wall, { schatten: true, empfangen: true });
+    viele(scene, new THREE.SphereGeometry(0.42, 8, 6), lambert("#eef3fa"), wall, { schatten: true, empfangen: true });
     // Eckpfosten mit Fähnchen.
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz], i) => {
       kiste(scene, 0.1, 1.3, 0.1, "#8a5a3a", [sx * (W / 2 + 0.35), 0.65, sz * (D / 2 + 0.35)]);

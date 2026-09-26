@@ -20,7 +20,7 @@ const ROWS = 8;
 const TILE_H = 0.3;
 const TILE_TOP_Y = TILE_H / 2;
 const WATER_Y = -3.9;
-const COLORS = ["#ff2e6a", "#12aaff", "#ffc400", "#33cf4d"];
+const COLORS = ["#f23f6c", "#2a9ff0", "#f7c21e", "#3cbf58"];
 const COLOR_NAMES = ["Pink", "Blau", "Gelb", "Grün"];
 
 function tileX(gx) {
@@ -68,7 +68,7 @@ export class ColorRush extends MinigameScene {
     // Drittel des Bildes braun füllte.
     const earth = new THREE.MeshLambertMaterial({ color: "#5a4030" });
     const earthDark = new THREE.MeshLambertMaterial({ color: "#3c2a1e" });
-    const grass = new THREE.MeshLambertMaterial({ color: "#78c46a" });
+    const grass = new THREE.MeshLambertMaterial({ color: "#78ab69" });
     const rimX = spanX / 2 + 0.12;
     const rimZ = spanZ / 2 + 0.12;
     const far = 18;
@@ -153,12 +153,12 @@ export class ColorRush extends MinigameScene {
   buildFestival(scene, rimX, rimZ) {
     const zufall = streuer(47);
     const kleckse = COLORS.map(() => []);
-    for (let i = 0; i < 34; i += 1) {
+    for (let i = 0; i < 16; i += 1) {
       const vorn = i % 2 === 0;
       const x = (zufall() - 0.5) * 7;
       const z = (vorn ? 1 : -1) * (rimZ + 0.35 + zufall() * 2.6);
       if (Math.abs(x) < rimX + 0.2 && Math.abs(z) < rimZ + 0.3) continue;
-      kleckse[i % COLORS.length].push({ p: [x, 0.003 + (i % 4) * 0.001, z], r: [-Math.PI / 2, 0, zufall() * 3], s: [0.25 + zufall() * 0.45, 0.2 + zufall() * 0.35, 1] });
+      kleckse[i % COLORS.length].push({ p: [x, 0.003 + (i % 4) * 0.001, z], r: [-Math.PI / 2, 0, zufall() * 3], s: [0.18 + zufall() * 0.26, 0.14 + zufall() * 0.2, 1] });
     }
     COLORS.forEach((farbe, i) => viele(scene, new THREE.CircleGeometry(1, 9), lambert(farbe), kleckse[i], { empfangen: true }));
     // Umgekippte Eimer mit Pfütze.
@@ -170,7 +170,7 @@ export class ColorRush extends MinigameScene {
       scene.add(eimer);
       const pfuetze = new THREE.Mesh(new THREE.CircleGeometry(1, 12), lambert(COLORS[c]));
       pfuetze.rotation.x = -Math.PI / 2;
-      pfuetze.scale.set(0.55, 0.38, 1);
+      pfuetze.scale.set(0.4, 0.28, 1);
       pfuetze.position.set(x + 0.35, 0.006, z + 0.1);
       scene.add(pfuetze);
     });
@@ -189,8 +189,8 @@ export class ColorRush extends MinigameScene {
     COLORS.forEach((farbe, i) => viele(scene, new THREE.BoxGeometry(0.22, 0.15, 0.02), lambert(farbe), wimpel[i]));
     // Farbpulverwolken, die über die Wiese ziehen — aussen, nie über der Grube.
     this.powder = [];
-    for (let i = 0; i < 6; i += 1) {
-      const wolke = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshLambertMaterial({ color: COLORS[i % COLORS.length], transparent: true, opacity: 0.35, depthWrite: false }));
+    for (let i = 0; i < 3; i += 1) {
+      const wolke = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshLambertMaterial({ color: COLORS[i % COLORS.length], transparent: true, opacity: 0.2, depthWrite: false }));
       wolke.userData = { isFx: true, phase: i * 1.1, side: i % 2 ? 1 : -1, z: (zufall() - 0.5) * 2 * (rimZ + 1.5) };
       scene.add(wolke);
       this.powder.push(wolke);

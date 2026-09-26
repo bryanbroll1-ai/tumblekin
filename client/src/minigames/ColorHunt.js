@@ -122,16 +122,18 @@ export class ColorHunt extends MinigameScene {
     const splats = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(1, 1, 0.02, 9),
       new THREE.MeshLambertMaterial({ color: "#ffffff" }),
-      40
+      18
     );
-    for (let i = 0; i < 40; i += 1) {
+    // Wenige, kleine Kleckse: grosse bunte Flecken in den Spielerfarben
+    // konkurrierten mit der Leinwand, auf der es genau um diese Farben geht.
+    for (let i = 0; i < 18; i += 1) {
       const angle = (i * 2.399) % (Math.PI * 2);
       const reach = 1 + ((i * 7) % 11) * 0.55;
       const x = Math.cos(angle) * (w / 2 + reach);
       const z = Math.sin(angle) * (d / 2 + reach) - (i % 3 === 0 ? 2 : 0);
       _dummy.position.set(x, -0.24, z);
       _dummy.rotation.set(0, angle, 0);
-      const size = 0.25 + ((i * 5) % 7) * 0.12;
+      const size = 0.18 + ((i * 5) % 7) * 0.05;
       _dummy.scale.set(size, 1, size * (0.7 + ((i * 3) % 4) * 0.12));
       _dummy.updateMatrix();
       splats.setMatrixAt(i, _dummy.matrix);

@@ -73,7 +73,7 @@ export function kiste(parent, w, h, d, color, [x, y, z] = [0, 0, 0], { schatten 
 }
 
 // Flacher Boden als grosse Platte.
-export function boden(parent, { w = 60, d = 50, y = 0, color = "#7fce6f", dicke = 0.5 } = {}) {
+export function boden(parent, { w = 60, d = 50, y = 0, color = "#7fb06c", dicke = 0.5 } = {}) {
   const mesh = kiste(parent, w, dicke, d, color, [0, y - dicke / 2, 0], { schatten: false, empfangen: true });
   return mesh;
 }

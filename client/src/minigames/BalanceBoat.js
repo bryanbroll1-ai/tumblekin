@@ -69,7 +69,7 @@ export class BalanceBoat extends MinigameScene {
     // Wasser mit Wellen (flaches Gitter, im Takt bewegt).
     const geo = new THREE.PlaneGeometry(70, 60, 48, 40);
     geo.rotateX(-Math.PI / 2);
-    this.water = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: "#35c3d6", transparent: true, opacity: 0.94 }));
+    this.water = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: "#48b2c4", transparent: true, opacity: 0.94 }));
     this.water.position.y = WATER_Y - 0.05;
     this.water.receiveShadow = true;
     scene.add(this.water);

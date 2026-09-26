@@ -73,7 +73,7 @@ export class FishDuel extends MinigameScene {
     const scene = this.scene;
     const players = this.getState()?.players || [];
     const count = Math.max(1, players.length);
-    const water = new THREE.Mesh(new THREE.BoxGeometry(34, 0.4, 44), new THREE.MeshLambertMaterial({ color: "#2f9fd0" }));
+    const water = new THREE.Mesh(new THREE.BoxGeometry(34, 0.4, 44), new THREE.MeshLambertMaterial({ color: "#3b95bf" }));
     water.position.set(0, -0.2, -14);
     water.receiveShadow = true;
     scene.add(water);

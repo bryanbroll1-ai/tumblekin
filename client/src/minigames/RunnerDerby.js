@@ -29,7 +29,7 @@ const SEGMENT = 0.62; // world units per track meter
 // wo man vorausliest, gingen Bahn und Himmel ineinander über. Violett kommt
 // in dieser Szene sonst nirgends vor — nicht im Himmel, nicht in der Wiese,
 // nicht im Sand und nicht im normalen Belag.
-const SURFACE_COLOUR = { sand: "#6b4424", normal: "#d4553f", tempo: "#1fe0b0" };
+const SURFACE_COLOUR = { sand: "#6b4424", normal: "#c8624c", tempo: "#3ccfa8" };
 const FLOOR_Y = 0;                  // Oberkante der Laufbahn
 const HURDLE_CLEAR = 0.78;           // so hoch sind die Füsse über einer Hürde mindestens
 const HURDLE_CLEAR_REACH = 0.9;      // ab diesem Abstand zur Hürde gilt das
@@ -101,7 +101,7 @@ export class RunnerDerby extends MinigameScene {
     this.trackZ = trackZ;
     const meadow = new THREE.Mesh(
       new THREE.BoxGeometry(34, 0.5, trackZ + 34),
-      new THREE.MeshLambertMaterial({ color: "#58b85a" })
+      new THREE.MeshLambertMaterial({ color: "#6a9f5e" })
     );
     meadow.position.set(0, FLOOR_Y - 0.31, trackZ / 2);
     meadow.receiveShadow = true;
@@ -125,7 +125,7 @@ export class RunnerDerby extends MinigameScene {
     }
     // Aussen ein Kunststoffrand und dahinter die Wiese.
     [-1, 1].forEach((side) => {
-      const kerb = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.32, trackZ + 8), new THREE.MeshLambertMaterial({ color: "#2f7fd8" }));
+      const kerb = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.32, trackZ + 8), new THREE.MeshLambertMaterial({ color: "#4178bd" }));
       kerb.position.set(side * (LANE_WIDTH * 1.5 + 0.3), FLOOR_Y - 0.14, trackZ / 2);
       kerb.receiveShadow = true;
       scene.add(kerb);
@@ -144,7 +144,7 @@ export class RunnerDerby extends MinigameScene {
     if (felder.tempo.length) {
       const pad = new THREE.InstancedMesh(
         new THREE.BoxGeometry(LANE_WIDTH - 0.16, 0.05, segLen - 0.2),
-        new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.tempo, emissive: "#0fb88c", emissiveIntensity: 0.55 }),
+        new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.tempo, emissive: "#0fb88c", emissiveIntensity: 0.28 }),
         felder.tempo.length
       );
       const place = new THREE.Object3D();
@@ -466,7 +466,7 @@ export class RunnerDerby extends MinigameScene {
       trunk.position.y = 0.35;
       trunk.castShadow = true;
       group.add(trunk);
-      const leaves = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), new THREE.MeshLambertMaterial({ color: frac(seed) > 0.5 ? "#6fc06a" : "#8ad07f" }));
+      const leaves = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), new THREE.MeshLambertMaterial({ color: frac(seed) > 0.5 ? "#68a55f" : "#84b378" }));
       leaves.position.y = 1.05;
       leaves.castShadow = true;
       group.add(leaves);

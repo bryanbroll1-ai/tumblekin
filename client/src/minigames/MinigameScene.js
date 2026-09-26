@@ -160,7 +160,7 @@ export class MinigameScene {
       shadow.position.set(kin.position.x, ground + 0.012, kin.position.z);
       const lift = Math.max(0, kin.position.y - animator.groundY);
       shadow.scale.setScalar(Math.max(0.35, 1 - lift * 0.55));
-      shadow.material.opacity = Math.max(0.05, 0.26 - lift * 0.12);
+      shadow.material.opacity = Math.max(0.06, 0.34 - lift * 0.15);
     });
     this.bursts.update(dt);
     this.floaters.update(dt, this.camera);

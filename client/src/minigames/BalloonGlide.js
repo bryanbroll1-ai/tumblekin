@@ -141,7 +141,7 @@ export class BalloonGlide extends MinigameScene {
     const arcade = this.minigame?.arcade;
 
     // Felder in Streifen: Weizen, Wiese, Acker, Raps — quer zur Fahrtrichtung.
-    const fieldColors = ["#e8c75a", "#7cc860", "#a8d76a", "#b07a4a", "#f2dc4a", "#6db85a"];
+    const fieldColors = ["#d6bb66", "#7aaa62", "#9ab86e", "#b07a4a", "#dcc466", "#6c9e5c"];
     const fields = [];
     for (let x = -12, i = 0; x < COURSE_LEN + 12; i += 1) {
       const width = 3 + ((i * 37) % 5) * 0.8;
@@ -162,7 +162,7 @@ export class BalloonGlide extends MinigameScene {
     this.mills = [];
     for (let i = 0; i < 16; i += 1) {
       const x = -8 + i * 6.5;
-      const hill = new THREE.Mesh(new THREE.SphereGeometry(4 + (i % 3), 10, 6), new THREE.MeshLambertMaterial({ color: i % 2 ? "#79c267" : "#8ccf73" }));
+      const hill = new THREE.Mesh(new THREE.SphereGeometry(4 + (i % 3), 10, 6), new THREE.MeshLambertMaterial({ color: i % 2 ? "#74a565" : "#82b172" }));
       hill.scale.set(1.6, 0.55, 1);
       hill.position.set(x, -0.6, -12 - (i % 3) * 2);
       scene.add(hill);

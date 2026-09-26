@@ -112,7 +112,7 @@ export class TugOfWar extends MinigameScene {
     // Wiese links und rechts, dazwischen die Grube. Die Grube ist ein Kasten,
     // dessen Oberfläche knapp über der Wiese liegt: wer darin steht, wird um
     // MUD_SINK tiefer gestellt und steckt dann sichtbar bis zu den Knien drin.
-    kiste(scene, 60, 0.5, 50, "#84cf6c", [0, -0.25, 0], { schatten: false });
+    kiste(scene, 60, 0.5, 50, "#7fb06c", [0, -0.25, 0], { schatten: false });
     const mud = new THREE.Mesh(
       new THREE.BoxGeometry(LINE * 2, 0.5, 2.6),
       new THREE.MeshStandardMaterial({ color: "#6e4526", roughness: 0.35, metalness: 0.05 })
@@ -152,7 +152,7 @@ export class TugOfWar extends MinigameScene {
       trees: 24,
       treeRing: { x: 16, z: 13 },
       grassColor: "#5fae4f",
-      patchColors: ["#79c866", "#92d97c"],
+      patchColors: ["#74a965", "#88b87a"],
       crownShape: "blob",
       crownColor: "#4a9c4e",
       crownColor2: "#79c05a",

@@ -83,7 +83,7 @@ export class BarrelRoll extends MinigameScene {
       this.ripples.push(ripple);
     }
     [-13, 13].forEach((x) => {
-      const bank = new THREE.Mesh(new THREE.BoxGeometry(14, 1.6, 90), new THREE.MeshLambertMaterial({ color: "#7fce6f" }));
+      const bank = new THREE.Mesh(new THREE.BoxGeometry(14, 1.6, 90), new THREE.MeshLambertMaterial({ color: "#7fb06c" }));
       bank.position.set(x, WATER_Y + 0.3, 0);
       bank.receiveShadow = true;
       this.scene.add(bank);

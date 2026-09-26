@@ -123,7 +123,7 @@ export class KnifeThrow extends MinigameScene {
 
   build() {
     const scene = this.scene;
-    const meadow = new THREE.Mesh(new THREE.BoxGeometry(24, 0.5, 16), new THREE.MeshLambertMaterial({ color: "#7fce6f" }));
+    const meadow = new THREE.Mesh(new THREE.BoxGeometry(24, 0.5, 16), new THREE.MeshLambertMaterial({ color: "#7fb06c" }));
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     scene.add(meadow);

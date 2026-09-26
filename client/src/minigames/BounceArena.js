@@ -140,7 +140,7 @@ export class BounceArena extends MinigameScene {
     const scene = this.scene;
     this.water = new THREE.Mesh(
       new THREE.BoxGeometry(POOL_W, 0.4, POOL_D),
-      new THREE.MeshLambertMaterial({ color: "#35c6e6", emissive: "#0d6f8f", emissiveIntensity: 0.18 })
+      new THREE.MeshLambertMaterial({ color: "#46b2cc", emissive: "#0d6f8f", emissiveIntensity: 0.08 })
     );
     this.water.position.y = WATER_Y - 0.2;
     this.water.receiveShadow = true;
@@ -177,7 +177,7 @@ export class BounceArena extends MinigameScene {
       band.position.set(x, WATER_Y - 0.02, z);
       scene.add(band);
     });
-    const lawn = new THREE.Mesh(new THREE.BoxGeometry(60, 0.3, 30), new THREE.MeshLambertMaterial({ color: "#7fd47a" }));
+    const lawn = new THREE.Mesh(new THREE.BoxGeometry(60, 0.3, 30), new THREE.MeshLambertMaterial({ color: "#7fb476" }));
     lawn.position.set(0, WATER_Y + 0.05, -POOL_D / 2 - edge - 15);
     lawn.receiveShadow = true;
     scene.add(lawn);

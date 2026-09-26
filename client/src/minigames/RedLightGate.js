@@ -62,7 +62,7 @@ export class RedLightGate extends MinigameScene {
     const scene = this.scene;
     const lawn = new THREE.Mesh(
       new THREE.BoxGeometry(18, 0.5, TRACK_LEN + 18),
-      new THREE.MeshLambertMaterial({ color: "#5fcf68" })
+      new THREE.MeshLambertMaterial({ color: "#72ad66" })
     );
     lawn.position.set(0, -0.25, START_Z - (TRACK_LEN + 4) / 2);
     lawn.receiveShadow = true;
@@ -97,8 +97,8 @@ export class RedLightGate extends MinigameScene {
     }
 
     // Blumenbeete am Rand, in einem Aufruf.
-    const flowers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshLambertMaterial({ color: "#ffffff" }), 120);
-    for (let i = 0; i < 120; i += 1) {
+    const flowers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.13, 0.13, 0.13), new THREE.MeshLambertMaterial({ color: "#ffffff" }), 70);
+    for (let i = 0; i < 70; i += 1) {
       const side = i % 2 ? 1 : -1;
       const x = side * (3.25 + ((i * 7) % 5) * 0.28);
       const z = START_Z + 1 - ((i * 37) % 100) / 100 * (TRACK_LEN + 3);

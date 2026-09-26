@@ -89,14 +89,14 @@ export class Trampoline extends MinigameScene {
     const scene = this.scene;
     const meadow = new THREE.Mesh(
       new THREE.BoxGeometry(26, 0.5, 16),
-      new THREE.MeshLambertMaterial({ color: "#7fce6f" })
+      new THREE.MeshLambertMaterial({ color: "#7fb06c" })
     );
     meadow.position.y = -0.25;
     meadow.receiveShadow = true;
     scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 18, keepOut: { x: 5.0, z: 2.2 }, spread: { x: 18, z: 15 }, grassColor: "#74c46a", patchColors: ["#84cf78", "#9bdd8c"], crownColor: "#e88fb5", crownColor2: "#f2b3cd", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ff8fb1", "#ffffff", "#ffd15c"] });
+    dressMeadow(this.scene, { seed: 18, keepOut: { x: 5.0, z: 2.2 }, spread: { x: 18, z: 15 }, grassColor: "#6ea462", patchColors: ["#7cb071", "#8dba82"], crownColor: "#e88fb5", crownColor2: "#f2b3cd", trunkColor: "#6b4a2c", crownShape: "blob", flowerColors: ["#ff8fb1", "#ffffff", "#ffd15c"] });
 
     // Höhenmarken an einem Messpfosten — die Höhe ist die Wertung, also muss
     // man sie ablesen können.

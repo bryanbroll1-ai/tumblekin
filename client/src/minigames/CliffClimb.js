@@ -185,9 +185,11 @@ export class CliffClimb extends MinigameScene {
     // wachsen könnte.
     const boulderMat = new THREE.MeshLambertMaterial({ color: "#a2957d" });
     for (let i = 0; i < 12; i += 1) {
-      const boulder = new THREE.Mesh(new THREE.BoxGeometry(0.9 + (i % 3) * 0.8, 0.45, 0.42), boulderMat);
+      const boulder = new THREE.Mesh(new THREE.BoxGeometry(0.7 + (i % 3) * 0.35, 0.4, 0.4), boulderMat);
       const side = i % 2 === 0 ? -1 : 1;
-      boulder.position.set(side * (3.5 + (i % 3) * 1.1), ((i / 12) * bandHeight + 0.6) % bandHeight, -0.42);
+      // Schmal und weit draussen: breite Stufen ragten von oben gesehen als
+      // grosse weisse Platten bis an die Griffe der äusseren Bahn.
+      boulder.position.set(side * (4.3 + (i % 3) * 1.0), ((i / 12) * bandHeight + 0.6) % bandHeight, -0.42);
       boulder.castShadow = true;
       boulder.receiveShadow = true;
       scene.add(boulder);
@@ -231,10 +233,10 @@ export class CliffClimb extends MinigameScene {
     // Schneeflecken auf der Wand: flach wie die Gesteinsbänder, in Rissen und
     // Mulden. Weiter oben mehr — dort ist es kälter.
     const snowMats = [decal("#f2f7fc", 2), decal("#e3edf6", 2)];
-    for (let i = 0; i < 26; i += 1) {
+    for (let i = 0; i < 16; i += 1) {
       const y = 0.5 + ((i * 0.618) % 1) * bandHeight;
       const patch = flat(new THREE.CircleGeometry(0.5, 10), snowMats[i % 2]);
-      patch.scale.set(0.5 + (i % 4) * 0.45, 0.16 + (i % 3) * 0.1, 1);
+      patch.scale.set(0.4 + (i % 4) * 0.3, 0.12 + (i % 3) * 0.06, 1);
       patch.position.set(-6.8 + ((i * 3.7) % 13.6), y, -0.575);
       scene.add(patch);
       this.decor.push(patch);
