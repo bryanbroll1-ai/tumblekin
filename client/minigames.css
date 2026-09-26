@@ -2443,3 +2443,87 @@ canvas.is-stunned {
   text-align: center;
   font-size: 0.9rem;
 }
+
+/* Schnappschuss: Blitz über dem ganzen Bild und ein Polaroid mit allen, die
+   drauf sind. */
+.photo-flash {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.photo-flash.is-on {
+  animation: photo-flash 0.45s ease-out;
+}
+
+@keyframes photo-flash {
+  0% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
+.photo-polaroid {
+  position: absolute;
+  top: calc(104px + env(safe-area-inset-top));
+  left: 50%;
+  width: min(70vw, 250px);
+  padding: 10px 10px 6px;
+  border-radius: 6px;
+  background: #fbfaf4;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%) rotate(-3deg);
+  animation: banner-pop 0.22s ease-out;
+  pointer-events: none;
+}
+
+.photo-polaroid[hidden] { display: none; }
+
+.photo-picture {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  min-height: 64px;
+  padding: 10px 6px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #2a1d4a, #6b2a4a);
+  align-items: center;
+}
+
+.photo-picture em {
+  color: #d8dcf0;
+  font-weight: 800;
+}
+
+.photo-face {
+  display: grid;
+  justify-items: center;
+  min-width: 52px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--chip);
+  color: #1c1c28;
+  font-weight: 900;
+  font-size: 0.8rem;
+}
+
+.photo-face.is-own {
+  box-shadow: 0 0 0 3px #ffffff;
+}
+
+.photo-face small {
+  font-size: 0.75rem;
+}
+
+.photo-polaroid p {
+  margin: 6px 0 0;
+  color: #3b2f2a;
+  font: 700 0.85rem "Georgia", serif;
+  text-align: center;
+}
+
+.photo-shove.is-ready {
+  background: linear-gradient(180deg, #ff6fa8, #e0306e);
+  box-shadow: 0 8px 0 #7a1238, 0 0 22px rgba(255, 93, 150, 0.45);
+}

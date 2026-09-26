@@ -1710,6 +1710,242 @@ const book = {
   }
 };
 
+
+// --- Schnappschuss ---------------------------------------------------------
+//
+// Roter Teppich, ein Fotograf. Er zeigt einen Bildausschnitt auf der Bühne,
+// zählt herunter und drückt ab: wer dann im Ausschnitt steht, ist auf dem
+// Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und
+// wer ganz allein drauf ist, bekommt noch 5. Wer im Weg steht, wird
+// geschubst — ein Tipp auf SCHUBS lässt einen nach vorn schnellen und stösst
+// alle vor einem weg.
+const PHOTO_W = 6.4;
+const PHOTO_D = 7.2;
+const PHOTO_DURATION_MS = 42000;
+const PHOTO_FIRST_MS = 1800;
+const PHOTO_LEAD_START = 2500;         // so lange steht der Ausschnitt vor dem Blitz
+const PHOTO_LEAD_END = 1600;
+const PHOTO_AFTER_MS = 900;            // Pause nach dem Blitz
+const PHOTO_R_START = 1.45;
+const PHOTO_R_END = 0.9;
+const PHOTO_IN = 10;
+const PHOTO_COVER = 10;
+const PHOTO_SOLO = 5;
+const PHOTO_SPEED = 3.3;
+const PHOTO_ACCEL = 14;
+const PHOTO_BODY = 0.3;
+const PHOTO_BUMP = 0.62;
+const PHOTO_DASH_MS = 190;
+const PHOTO_DASH_SPEED = 7;
+const PHOTO_SHOVE_REACH = 0.95;
+const PHOTO_SHOVE_KICK = 5.5;
+const PHOTO_SHOVE_STUN_MS = 450;
+const PHOTO_SHOVE_COOLDOWN_MS = 1300;
+
+function buildPhotoShots(seed, durationMs = PHOTO_DURATION_MS) {
+  const shots = [];
+  let at = PHOTO_FIRST_MS;
+  let index = 0;
+  let px = 0;
+  let pz = 0;
+  while (true) {
+    const progress = clamp(at / durationMs, 0, 1);
+    const lead = Math.round(PHOTO_LEAD_START + (PHOTO_LEAD_END - PHOTO_LEAD_START) * progress);
+    if (at + lead > durationMs - 500) break;
+    const r = Math.round((PHOTO_R_START + (PHOTO_R_END - PHOTO_R_START) * progress) * 100) / 100;
+    // Nicht zweimal an dieselbe Stelle: der nächste Ausschnitt liegt ein
+    // Stück entfernt, damit man jedes Mal laufen muss.
+    let x = 0;
+    let z = 0;
+    for (let tries = 0; tries < 20; tries += 1) {
+      x = Math.round(((noise(seed + index * 17 + tries) - 0.5) * (PHOTO_W - 2 * r - 0.4)) * 100) / 100;
+      z = Math.round(((noise(seed + index * 23 + tries + 7) - 0.5) * (PHOTO_D - 2 * r - 0.4)) * 100) / 100;
+      if (Math.hypot(x - px, z - pz) > 2.2 || tries === 19) break;
+    }
+    px = x;
+    pz = z;
+    shots.push({ index, at, shootAt: at + lead, x, z, r });
+    at += lead + PHOTO_AFTER_MS;
+    index += 1;
+  }
+  return shots;
+}
+
+const photo = {
+  cooldown: 0,
+  fastHand: true,
+  create(arcade, players) {
+    arcade.photo = {
+      w: PHOTO_W,
+      d: PHOTO_D,
+      shots: buildPhotoShots(arcade.seed),
+      shot: -1,                        // letzter ausgelöster Schnappschuss
+      results: []                      // je Schnappschuss: { index, in: [{ id, points, cover, solo }] }
+    };
+    const spots = [[-1.6, 2], [1.6, 2], [-1.6, -1.6], [1.6, -1.6]];
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      const [x, z] = spots[index % spots.length];
+      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, heading: Math.atan2(-x, -z), dashUntil: 0, lastShoveAt: 0, stunUntil: 0, shoves: 0, shoved: 0, photos: 0, covers: 0, score: 0 });
+    });
+  },
+  input(ctx, player, entry, input) {
+    const { arcade, now } = ctx;
+    if (input.action === "steer") {
+      const x = Number(input.x);
+      const y = Number(input.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
+      const len = Math.hypot(x, y);
+      const k = len > 1 ? 1 / len : 1;
+      entry.dirX = x * k;
+      entry.dirZ = y * k;
+      return { ok: true };
+    }
+    if (input.action !== "shove") return { ok: false, error: "Laufen oder schubsen." };
+    if (now < entry.stunUntil || now - entry.lastShoveAt < PHOTO_SHOVE_COOLDOWN_MS) return { ok: true };
+    entry.lastShoveAt = now;
+    entry.dashUntil = now + PHOTO_DASH_MS;
+    entry.shoves += 1;
+    // Wer vor einem steht, fliegt zur Seite.
+    const hx = Math.sin(entry.heading);
+    const hz = Math.cos(entry.heading);
+    Object.entries(arcade.players).forEach(([id, other]) => {
+      if (other === entry || now < other.stunUntil) return;
+      const dx = other.x - entry.x;
+      const dz = other.z - entry.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > PHOTO_SHOVE_REACH + PHOTO_DASH_SPEED * PHOTO_DASH_MS / 1000 * 0.5 || dist < 1e-6) return;
+      if ((dx * hx + dz * hz) / dist < 0.35) return;
+      other.vx = (dx / dist) * PHOTO_SHOVE_KICK;
+      other.vz = (dz / dist) * PHOTO_SHOVE_KICK;
+      other.stunUntil = now + PHOTO_SHOVE_STUN_MS;
+      other.shoved += 1;
+      other.lastShovedBy = player.id;
+      other.lastShovedAt = now;
+      void id;
+    });
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, room, now, elapsed } = ctx;
+    const state = arcade.photo;
+    const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    const entries = room.players.map((player) => ({ id: player.id, e: arcade.players[player.id] })).filter((x) => x.e);
+    const halfW = PHOTO_W / 2 - PHOTO_BODY;
+    const halfD = PHOTO_D / 2 - PHOTO_BODY;
+    entries.forEach(({ e }) => {
+      const stunned = now < e.stunUntil;
+      const dashing = now < e.dashUntil;
+      if (dashing) {
+        e.vx = Math.sin(e.heading) * PHOTO_DASH_SPEED;
+        e.vz = Math.cos(e.heading) * PHOTO_DASH_SPEED;
+      } else if (stunned) {
+        e.vx *= Math.exp(-4 * dt);
+        e.vz *= Math.exp(-4 * dt);
+      } else {
+        e.vx += (e.dirX * PHOTO_SPEED - e.vx) * Math.min(1, PHOTO_ACCEL * dt);
+        e.vz += (e.dirZ * PHOTO_SPEED - e.vz) * Math.min(1, PHOTO_ACCEL * dt);
+        if (Math.hypot(e.dirX, e.dirZ) > 0.15) {
+          const want = Math.atan2(e.dirX, e.dirZ);
+          const diff = Math.atan2(Math.sin(want - e.heading), Math.cos(want - e.heading));
+          e.heading += clamp(diff, -10 * dt, 10 * dt);
+        }
+      }
+      e.x = clamp(e.x + e.vx * dt, -halfW, halfW);
+      e.z = clamp(e.z + e.vz * dt, -halfD, halfD);
+    });
+    for (let a = 0; a < entries.length; a += 1) {
+      for (let b = a + 1; b < entries.length; b += 1) {
+        const one = entries[a].e;
+        const two = entries[b].e;
+        const dx = two.x - one.x;
+        const dz = two.z - one.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist >= PHOTO_BUMP || dist < 1e-6) continue;
+        const push = (PHOTO_BUMP - dist) / 2;
+        one.x = clamp(one.x - (dx / dist) * push, -halfW, halfW);
+        one.z = clamp(one.z - (dz / dist) * push, -halfD, halfD);
+        two.x = clamp(two.x + (dx / dist) * push, -halfW, halfW);
+        two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
+      }
+    }
+    // Blitz!
+    state.shots.forEach((shot) => {
+      if (shot.index <= state.shot || elapsed < shot.shootAt) return;
+      state.shot = shot.index;
+      const inside = entries
+        .map(({ id, e }) => ({ id, e, d: Math.hypot(e.x - shot.x, e.z - shot.z) }))
+        .filter((item) => item.d <= shot.r);
+      const nearest = inside.reduce((best, item) => (!best || item.d < best.d ? item : best), null);
+      const result = { index: shot.index, at: now, in: [] };
+      inside.forEach((item) => {
+        const cover = item === nearest;
+        const solo = inside.length === 1;
+        const points = PHOTO_IN + (cover ? PHOTO_COVER : 0) + (solo ? PHOTO_SOLO : 0);
+        item.e.score += points;
+        item.e.photos += 1;
+        if (cover) item.e.covers += 1;
+        result.in.push({ id: item.id, points, cover, solo });
+      });
+      state.results.push(result);
+      if (state.results.length > 6) state.results.shift();
+    });
+  },
+  bot(ctx, player, entry) {
+    const { arcade, room, now, elapsed } = ctx;
+    const state = arcade.photo;
+    if (now < entry.stunUntil) return null;
+    const shot = state.shots.find((s) => s.index > state.shot);
+    if (!shot || elapsed < shot.at + byLevel(entry, 650, 380, 180)) {
+      return { action: "steer", x: 0, y: 0 };
+    }
+    // Schubsen: steht jemand zwischen mir und der Mitte (oder in der Mitte),
+    // und ich schaue ungefähr hin — der starke tut es gezielt.
+    const eager = byLevel(entry, 0.05, 0.25, 0.55);
+    if (now - entry.lastShoveAt > PHOTO_SHOVE_COOLDOWN_MS && Math.random() < eager) {
+      const hx = Math.sin(entry.heading);
+      const hz = Math.cos(entry.heading);
+      const rivals = room.players.map((p) => arcade.players[p.id]).filter((o) => o && o !== entry);
+      // Der starke schubst nur den, der der Mitte am nächsten ist — also den,
+      // der ihm das Titelbild wegnimmt.
+      const best = rivals.reduce((b, o) => (!b || Math.hypot(o.x - shot.x, o.z - shot.z) < Math.hypot(b.x - shot.x, b.z - shot.z) ? o : b), null);
+      const target = rivals.find((o) => {
+        if (level(entry) === "hard" && o !== best) return false;
+        const dx = o.x - entry.x;
+        const dz = o.z - entry.z;
+        const dist = Math.hypot(dx, dz);
+        return dist < PHOTO_SHOVE_REACH && dist > 0 && (dx * hx + dz * hz) / dist > 0.6 && Math.hypot(o.x - shot.x, o.z - shot.z) < shot.r + 0.4;
+      });
+      if (target) return { action: "shove" };
+    }
+    // Wohin genau: der starke in die Mitte (Titelbild), die anderen irgendwo
+    // in den Ausschnitt.
+    if (entry.botShot !== shot.index) {
+      entry.botShot = shot.index;
+      const spread = byLevel(entry, 0.65, 0.35, 0.02) * shot.r;
+      const a = Math.random() * Math.PI * 2;
+      entry.botOffX = Math.cos(a) * spread;
+      entry.botOffZ = Math.sin(a) * spread;
+    }
+    const dx = shot.x + entry.botOffX - entry.x;
+    const dz = shot.z + entry.botOffZ - entry.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.08) return { action: "steer", x: 0, y: 0 };
+    const gain = Math.min(1, d * 2.4);
+    return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+  },
+  rank(arcade, entry) {
+    return (entry.score || 0) * 100 + Math.min(99, (entry.covers || 0) * 10 + (entry.photos || 0));
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte" };
+  },
+  done() {
+    return false;
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
@@ -1719,7 +1955,8 @@ const PARTY_FAMILIES = {
   honey,
   snow,
   hockey,
-  book
+  book,
+  photo
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
@@ -1730,7 +1967,8 @@ const PARTY_GAMES = [
   { type: "honigwabe", title: "Honigwabe", duration: HONEY_DURATION_MS, arcadeFamily: "honey", seed: 829 },
   { type: "schneeball", title: "Schneeballhang", duration: SNOW_DURATION_MS, arcadeFamily: "snow", seed: 839 },
   { type: "luftpuck", title: "Luftpuck", duration: HOCKEY_DURATION_MS, arcadeFamily: "hockey", seed: 853 },
-  { type: "buecherwurm", title: "Bücherwurm", duration: BOOK_DURATION_MS, arcadeFamily: "book", seed: 857 }
+  { type: "buecherwurm", title: "Bücherwurm", duration: BOOK_DURATION_MS, arcadeFamily: "book", seed: 857 },
+  { type: "schnappschuss", title: "Schnappschuss", duration: PHOTO_DURATION_MS, arcadeFamily: "photo", seed: 859 }
 ];
 
 module.exports = {
@@ -1744,8 +1982,10 @@ module.exports = {
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_LOSS,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS,
-    BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS
+    BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS,
+    PHOTO_W, PHOTO_D, PHOTO_IN, PHOTO_COVER, PHOTO_SOLO, PHOTO_SHOVE_COOLDOWN_MS
   },
+  buildPhotoShots,
   buildBookPages,
   bookInHole,
   snowBallRadius,

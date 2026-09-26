@@ -203,7 +203,7 @@ test("catalog contains only the 3D challenges", () => {
       "blobklopfe", "bounceArena", "buecherwurm", "colorEscape", "eisstock", "falschsignal",
       "farbenjagd", "fassmut", "fassrolle", "finishRush", "flaggenhoch", "grimassen", "honigwabe", "kanonenflug", "leuchtfolge",
       "lichtwaechter", "luftpuck", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
-      "schneeball", "seilspringen", "sortierband", "spuersinn", "spurmaler", "tauziehen", "tiefenrausch",
+      "schnappschuss", "schneeball", "seilspringen", "sortierband", "spuersinn", "spurmaler", "tauziehen", "tiefenrausch",
       "trampolin", "turmbau", "zuendstoff"
     ]
   );

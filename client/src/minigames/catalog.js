@@ -22,7 +22,8 @@ export const GESTURES = {
   sculpt: { icon: "👆🙂", label: "Gesicht zurechtziehen" },
   flags: { icon: "👆🚩", label: "Rot oder Blau tippen" },
   pick: { icon: "👆🍎", label: "Eins oder zwei pflücken" },
-  stickThrow: { icon: "🕹️👆", label: "Stick steuern, Knopf werfen" }
+  stickThrow: { icon: "🕹️👆", label: "Stick steuern, Knopf werfen" },
+  stickShove: { icon: "🕹️💥", label: "Stick laufen, Knopf schubsen" }
 };
 
 export const MINIGAME_CATALOG = [
@@ -62,7 +63,8 @@ export const MINIGAME_CATALOG = [
   { type: "honigwabe", title: "Honigwabe", family: "honey", gesture: "pick", help: "Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und lässt die Hälfte seiner Früchte fallen. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Goldene Äpfel zählen drei. Wer am Ende die meisten Früchte hat, gewinnt." },
   { type: "schneeball", title: "Schneeballhang", family: "snow", gesture: "stickThrow", help: "Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1 bis 3 Punkte, je grösser die Kugel war. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild." },
   { type: "luftpuck", title: "Luftpuck", family: "hockey", gesture: "joystick", help: "Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte; lenk sie mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende." },
-  { type: "buecherwurm", title: "Bücherwurm", family: "book", gesture: "joystick", help: "Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten." }
+  { type: "buecherwurm", title: "Bücherwurm", family: "book", gesture: "joystick", help: "Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten." },
+  { type: "schnappschuss", title: "Schnappschuss", family: "photo", gesture: "stickShove", help: "Premiere auf dem roten Teppich! Die Kameradrohne zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und wer ganz allein drauf ist, bekommt noch 5. SCHUBS lässt dich nach vorn schnellen und stösst alle vor dir aus dem Bild." }
 ];
 
 export const ARCADE_TYPES = new Set(

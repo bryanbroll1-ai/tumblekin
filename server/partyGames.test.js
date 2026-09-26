@@ -471,3 +471,47 @@ test("Bücherwurm: drei Mal platt, und man ist raus", () => {
   assert.equal(g.arcade.players[b.id].lives, 0);
   g.restore();
 });
+
+// --- Schnappschuss ---------------------------------------------------------
+
+test("Schnappschuss: wer im Ausschnitt steht, ist auf dem Foto — die Mitte bekommt das Titelbild", () => {
+  const g = setup("schnappschuss", 3);
+  const [a, b, c] = g.players;
+  const shot = g.arcade.photo.shots[0];
+  Object.assign(g.arcade.players[a.id], { x: shot.x, z: shot.z });
+  Object.assign(g.arcade.players[b.id], { x: shot.x + shot.r * 0.7, z: shot.z });
+  Object.assign(g.arcade.players[c.id], { x: shot.x + shot.r + 1.5 > 3 ? shot.x - shot.r - 1.5 : shot.x + shot.r + 1.5, z: shot.z });
+  g.run(0, shot.shootAt + 40, 30);
+  const result = g.arcade.photo.results[0];
+  const pts = Object.fromEntries(result.in.map((item) => [item.id, item.points]));
+  assert.equal(pts[a.id], C.PHOTO_IN + C.PHOTO_COVER, "Mitte: Foto plus Titelbild");
+  assert.equal(pts[b.id], C.PHOTO_IN, "am Rand: nur aufs Foto");
+  assert.equal(pts[c.id], undefined, "daneben: nicht drauf");
+  g.restore();
+});
+
+test("Schnappschuss: allein im Bild gibt es noch etwas dazu", () => {
+  const g = setup("schnappschuss", 2);
+  const [a, b] = g.players;
+  const shot = g.arcade.photo.shots[0];
+  Object.assign(g.arcade.players[a.id], { x: shot.x, z: shot.z });
+  Object.assign(g.arcade.players[b.id], { x: shot.x > 0 ? -2.8 : 2.8, z: shot.z > 0 ? -3.2 : 3.2 });
+  g.run(0, shot.shootAt + 40, 30);
+  assert.equal(g.arcade.players[a.id].score, C.PHOTO_IN + C.PHOTO_COVER + C.PHOTO_SOLO);
+  g.restore();
+});
+
+test("Schnappschuss: SCHUBS stösst den, der vor einem steht, weg", () => {
+  const g = setup("schnappschuss", 2);
+  const [a, b] = g.players;
+  Object.assign(g.arcade.players[a.id], { x: 0, z: 1, heading: Math.PI });
+  Object.assign(g.arcade.players[b.id], { x: 0, z: 0.4 });
+  g.at(500);
+  g.input(a, { action: "shove" });
+  assert.ok(g.arcade.players[b.id].stunUntil > g.now, "b taumelt");
+  g.run(520, 900, 20);
+  assert.ok(g.arcade.players[b.id].z < 0, `b wurde weggeschoben (z ${g.arcade.players[b.id].z.toFixed(2)})`);
+  g.input(a, { action: "shove" });
+  assert.equal(g.arcade.players[a.id].shoves, 1, "danach erst wieder nach der Pause");
+  g.restore();
+});
