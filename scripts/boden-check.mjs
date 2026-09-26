@@ -64,7 +64,11 @@ for (const game of liste) {
         let p = o;
         while (p && !p.name) p = p.parent;
         const farbe = o.material?.color ? `#${o.material.color.getHexString()}` : "";
-        return `${p?.name || o.geometry?.type || "?"}${farbe ? " " + farbe : ""}`;
+        // Ohne Namen helfen Mass und Lage beim Wiederfinden.
+        const g = o.geometry?.parameters;
+        const mass = g && g.width !== undefined ? ` ${g.width}×${g.height}×${g.depth}` : "";
+        const lage = o.getWorldPosition(new THREE.Vector3()).toArray().map((v) => v.toFixed(2)).join("/");
+        return `${p?.name || o.geometry?.type || "?"}${mass}${farbe ? " " + farbe : ""} @${lage}`;
       };
       const imSpiel = () => {
         const state = window.__tumblekin.state();

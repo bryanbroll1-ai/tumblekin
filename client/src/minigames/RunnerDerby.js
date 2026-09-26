@@ -185,7 +185,7 @@ export class RunnerDerby extends MinigameScene {
     }
     if (felder.sand.length) {
       const mud = new THREE.InstancedMesh(
-        new THREE.CylinderGeometry(0.5, 0.52, 0.05, 10),
+        new THREE.CylinderGeometry(0.5, 0.52, 0.02, 10),   // flach wie die Tempofelder
         new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.sand }),
         felder.sand.length * 3
       );
@@ -200,7 +200,7 @@ export class RunnerDerby extends MinigameScene {
       let b = 0;
       felder.sand.forEach((entry, i) => {
         for (let n = 0; n < 3; n += 1) {
-          place.position.set(laneX(entry.lane) + (frac(i * 3 + n) - 0.5) * 0.14, FLOOR_Y + 0.02 + n * 0.002, entry.z + (n - 1) * segLen * 0.3);
+          place.position.set(laneX(entry.lane) + (frac(i * 3 + n) - 0.5) * 0.14, FLOOR_Y + 0.008 + n * 0.002, entry.z + (n - 1) * segLen * 0.3);
           place.scale.set(1.05, 1, (segLen * 0.42) / 1.04);
           place.rotation.y = frac(i + n * 7) * 0.4;
           place.updateMatrix();
@@ -210,7 +210,7 @@ export class RunnerDerby extends MinigameScene {
         place.scale.set(1, 1, 1);
         place.rotation.set(0, 0, 0);
         for (let n = 0; n < 4; n += 1) {
-          place.position.set(laneX(entry.lane) + (frac(i * 5 + n) - 0.5) * 0.7, FLOOR_Y + 0.05, entry.z + (frac(i * 9 + n) - 0.5) * segLen * 0.8);
+          place.position.set(laneX(entry.lane) + (frac(i * 5 + n) - 0.5) * 0.7, FLOOR_Y + 0.03, entry.z + (frac(i * 9 + n) - 0.5) * segLen * 0.8);
           place.updateMatrix();
           bubbles.setMatrixAt(b, place.matrix);
           b += 1;
@@ -515,6 +515,8 @@ export class RunnerDerby extends MinigameScene {
     balloon.scale.setScalar(0.8);
     group.add(balloon);
     group.userData.shell = shell;
+    // Man läuft absichtlich hindurch — so holt man sich die Wasserbombe.
+    group.userData.isFx = true;
     return group;
   }
 

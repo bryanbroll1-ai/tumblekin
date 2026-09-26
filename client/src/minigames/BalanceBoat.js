@@ -316,8 +316,8 @@ export class BalanceBoat extends MinigameScene {
       // Steiler als zuerst (0.26): flach von der Seite lag das Boot als
       // schmaler Streifen im Bild, darunter nur Wasser. Von etwas oben sieht
       // man, wo die Passagiere sitzen — und genau darum geht es.
-      look: [0.3, 1.3, -0.6],
-      frame: { w: 6.4, h: 3.8 },
+      look: [0.45, 1.3, -0.6],
+      frame: { w: 6.8, h: 3.8 },
       pitch: 0.4,
       yaw: -0.18,
       fov: 38,

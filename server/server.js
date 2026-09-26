@@ -5713,6 +5713,12 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = Boolean(letzte) && now - minigame.startedAt >= letzte.until;
   } else if (arcade.family === "climb") {
     done = room.players.every((player) => arcade.players[player.id]?.finishedAt);
+  } else if (arcade.family === "daredevil") {
+    // Nach der Auflösung ist nichts mehr zu tun. Der Anlauf ist zufällig lang,
+    // die Rundenzeit aber für den längsten bemessen — bei kurzem Anlauf stand
+    // das Bild danach fast vier Sekunden still.
+    const ende = (arcade.leadIn ?? DARE_LEAD_IN_MS) + DARE_ROUNDS * (DARE_ROLL_MS + DARE_SHOW_MS);
+    done = now - minigame.startedAt >= ende;
   } else if (arcade.family === "barrel") {
     // Im Wildwasser: steht nur noch einer auf dem Fass, hat er gewonnen.
     const oben = room.players.filter((player) => !arcade.players[player.id]?.outAt);
