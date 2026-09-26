@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 import { himmel, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
 
 // Eisstock: nach vorn wischen schiebt den Stein los — länger heisst weiter.
 // Wer seine Steine am nächsten ans Zentrum bringt, gewinnt.
@@ -37,6 +38,8 @@ export class IceStock extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.stoneMeshes = new Map();
+    // Die Steine kommen im Servertakt; gezeichnet wird ihre weiche Bahn.
+    this.nachlauf = new Nachlauf();
     this.throwers = new Map();
     this.drag = null;
     this.lastClacks = 0;
@@ -317,6 +320,10 @@ export class IceStock extends MinigameScene {
     this.bindDrag();
   }
 
+  onUpdate(update) {
+    this.nachlauf.merke(update.sentAt, this.now(), update?.arcade?.stones || [], (stone) => stone);
+  }
+
   unbind() {
     this.controls.style.pointerEvents = "";
     this.stoneMeshes.clear();
@@ -524,12 +531,16 @@ export class IceStock extends MinigameScene {
     let schnellster = 0;
     const stonesById = new Map();
     (arcade.stones || []).forEach((stone) => {
+      // Gezeichnet wird die weiche Bahn: der Serverpunkt kommt nur elfmal pro
+      // Sekunde, und ein gleitender Stein sprang sichtbar in Stufen.
+      const spur = this.nachlauf.wo(stone.id, now);
+      if (!spur) return;
       alive.add(stone.id);
       stonesById.set(stone.id, stone);
       const visual = this.ensureStone(stone, colourOf(stone.playerId));
-      const wx = this.worldX(stone.x);
-      visual.group.position.set(wx, 0, this.worldZ(stone.y, sheetY));
-      const tempo = Math.hypot(stone.vx, stone.vy);
+      const wx = this.worldX(spur.x);
+      visual.group.position.set(wx, 0, this.worldZ(spur.y, sheetY));
+      const tempo = Math.hypot(spur.vx, spur.vy);
       visual.group.rotation.y += dt * tempo * 2.4;
       if (tempo > schnellster) {
         schnellster = tempo;
@@ -590,7 +601,8 @@ export class IceStock extends MinigameScene {
         return;
       }
       const stone = thrower.stoneId !== null ? stonesById.get(thrower.stoneId) : null;
-      const moving = stone && Math.hypot(stone.vx, stone.vy) > 0.02;
+      const spur = stone ? this.nachlauf.wo(stone.id, now) : null;
+      const moving = spur && Math.hypot(spur.vx, spur.vy) > 0.02;
       const visual = stone ? this.stoneMeshes.get(stone.id) : null;
       kin.rotation.y = Math.PI;
       animator.lookAt(visual ? visual.group.position : null);

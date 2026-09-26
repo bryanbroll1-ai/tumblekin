@@ -1199,6 +1199,7 @@ const PLINKO_STALL_KICK = 0.7;
 const PLINKO_MAX_PLINKS = 60;
 const PLINKO_BALL_REST = 0.86;        // wie sehr zwei Kugeln voneinander abprallen
 const PLINKO_FLOOR_Y = 1.3;
+const PLINKO_STEP_S = 0.01;           // längster Rechenschritt der Kugelbahn
 const CURLING_SHEET_Y = 1.3;
 // Gerechnet, nicht geschaetzt: in einen Ring vom Radius r passen rund
 // (r/Steinradius)^2 * 0.8 Steine. Mit 0.075 und Steinen von 0.045 waren das
@@ -5756,6 +5757,19 @@ function plinkoJackpotSlot(elapsedMs, slotCount = PLINKO_SLOTS.length) {
 }
 
 function updatePlinko(room, minigame, arcade, dt, now) {
+  // In kleinen Schritten rechnen. Ein Servertakt dauert 90 ms; in dieser Zeit
+  // fällt eine schnelle Kugel bis zu 0.2 Brettbreiten — viermal so weit, wie
+  // Nagel und Kugel zusammen dick sind. Sie konnte also durch einen Nagel
+  // hindurchspringen, und wo sie auf ihn traf, entschied der Takt statt der
+  // Bahn. Mit Schritten von höchstens 10 ms bewegt sie sich je Schritt um
+  // weniger als ihren eigenen Radius.
+  const steps = Math.max(1, Math.ceil(dt / PLINKO_STEP_S));
+  const h = dt / steps;
+  for (let step = 0; step < steps; step += 1) plinkoStep(arcade, h, now);
+  plinkoSettle(room, minigame, arcade, now);
+}
+
+function plinkoStep(arcade, dt, now) {
   arcade.balls.forEach((ball) => {
     ball.vy += PLINKO_GRAVITY * dt;
     // Seitlich bremst die Luft: ein Abpraller trägt die Kugel einen halben
@@ -5842,7 +5856,9 @@ function updatePlinko(room, minigame, arcade, dt, now) {
       arcade.clacks = (arcade.clacks || 0) + 1;
     }
   }
+}
 
+function plinkoSettle(room, minigame, arcade, now) {
   // Eine Kugel MUSS unten ankommen. Verkeilt sie sich trotz des Abstands
   // zwischen Nagel und Wand irgendwo, bekommt sie nach kurzer Zeit einen
   // Schubs. Ohne das kostet ein einziger unglücklicher Winkel die ganze Runde,
@@ -5981,7 +5997,14 @@ function curlingSpeedFor(distance) {
 
 function updateCurling(room, minigame, arcade, dt, now) {
   const stoneRadius = CURLING_STONE_RADIUS;
-  const sub = CURLING_SUBSTEPS;
+  // Mindestens fünf Schritte, bei schnellen Steinen so viele, dass keiner je
+  // Schritt weiter als einen halben Radius gleitet. Mit festen fünf Schritten
+  // legte ein voll geworfener Stein 0.03 je Schritt zurück — fast seinen
+  // ganzen Radius —, und ein streifender Treffer wurde erst erkannt, als die
+  // Steine schon tief ineinander steckten; das Auseinanderschieben sah dann
+  // aus wie ein Sprung.
+  const fastest = arcade.stones.reduce((max, stone) => Math.max(max, Math.hypot(stone.vx, stone.vy)), 0);
+  const sub = Math.min(40, Math.max(CURLING_SUBSTEPS, Math.ceil((fastest * dt) / (stoneRadius * 0.5))));
   const h = dt / sub;
 
   for (let step = 0; step < sub; step += 1) {
@@ -8125,6 +8148,10 @@ function publicArcade(arcade) {
 function serializeMinigame(minigame) {
   return {
     id: minigame.id,
+    // Wann dieses Bild gerechnet wurde. Die Geräte zeichnen Kugeln und Steine
+    // zwischen zwei solchen Bildern (Nachlauf.js) — mit der Ankunftszeit statt
+    // der Absendezeit zitterte jede Netzverzögerung in die Bahn.
+    sentAt: Date.now(),
     type: minigame.type,
     title: minigame.title,
     reason: minigame.reason,

@@ -1871,6 +1871,23 @@ test("nagelbrett: jede Kugel kommt unten an, egal wo sie eingeworfen wird", () =
   assert.ok(werfer);
 });
 
+// Ein Servertakt dauert bis zu 120 ms. In einem Schritt gerechnet fiel eine
+// schnelle Kugel in dieser Zeit weiter, als Nagel und Kugel zusammen dick
+// sind — sie sprang durch den Nagel hindurch, statt abzuprallen.
+test("nagelbrett: eine schnelle Kugel springt nicht durch einen Nagel", () => {
+  const spieler = [player({ id: "pl", name: "PL", color: "#fff" })];
+  const arcade = createArcadeState("nagelbrett", spieler, Date.now());
+  const minigame = { arcade, scores: {}, startedAt: Date.now(), duration: 28000, finishing: false };
+  const room = { currentMinigame: minigame, players: spieler };
+  const nagel = arcade.pegs[Math.floor(arcade.pegs.length / 2)];
+  arcade.balls = [{ id: 1, playerId: "pl", x: nagel.x, y: nagel.y - 0.09, vx: 0, vy: 2.2, plinks: 0, nudged: false }];
+  updatePlinko(room, minigame, arcade, 0.12, Date.now());
+  const kugel = arcade.balls[0];
+  assert.ok(kugel, "die Kugel ist noch unterwegs");
+  assert.ok(kugel.plinks >= 1, "sie hat den Nagel getroffen");
+  assert.ok(kugel.y < nagel.y, `sie liegt über dem Nagel, nicht unter ihm (y ${kugel.y.toFixed(3)} gegen ${nagel.y.toFixed(3)})`);
+});
+
 // Der Abstand ist das Eigentliche: zwischen Wand und äusserstem Nagel muss eine
 // ganze Kugel Platz haben, sonst hilft auch der Notfall-Schubs nur noch beim
 // Aufräumen.

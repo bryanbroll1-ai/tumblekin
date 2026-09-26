@@ -2,6 +2,12 @@ import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
+
+// Eine Kugel-Form für alle Kugeln: vorher bekam jede Kugel eigene Geometrie,
+// und beim Landen wurde sie nur aus der Szene genommen, nie freigegeben.
+const KUGEL_FORM = new THREE.SphereGeometry(0.2, 12, 10);
+const RING_FORM = new THREE.RingGeometry(0.26, 0.33, 18);
 
 // Nagelbrett: oben tippen lässt die eigene Kugel dort fallen, ein Tipp links
 // oder rechts gibt ihr einen einzigen Stups. Unten zählt das Fach — und der
@@ -54,6 +60,9 @@ export class PegBoard extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.ballMeshes = new Map();
+    // Die Kugeln kommen im Servertakt; gezeichnet wird ihre weiche Bahn.
+    this.nachlauf = new Nachlauf();
+    this.ballMeta = new Map();
     this.pegMeshes = [];
     this.slotMeshes = [];
     this.droppers = new Map();
@@ -307,8 +316,18 @@ export class PegBoard extends MinigameScene {
     });
   }
 
+  onUpdate(update) {
+    const balls = update?.arcade?.balls || [];
+    balls.forEach((ball) => this.ballMeta.set(ball.id, ball));
+    this.nachlauf.merke(update.sentAt, this.now(), balls, (ball) => ball);
+  }
+
   unbind() {
     this.controls.style.pointerEvents = "";
+    this.ballMeshes.forEach((visual) => {
+      visual.mesh.material.dispose();
+      visual.ring.material.dispose();
+    });
     this.ballMeshes.clear();
     this.pegMeshes.length = 0;
     this.slotMeshes.length = 0;
@@ -336,7 +355,9 @@ export class PegBoard extends MinigameScene {
         this.feedback?.sound("clack");
         return;
       }
-      const ballShare = mine.x;
+      // Links oder rechts von der Kugel, wie man sie SIEHT — gezeichnet wird
+      // sie einen Hauch hinter dem Server.
+      const ballShare = this.nachlauf.wo(mine.id, this.now())?.x ?? mine.x;
       this.feedback?.sound("whoosh");
       this.feedback?.vibrate(12);
       this.sendInput({ action: "nudge", dir: share < ballShare ? -1 : 1 }).catch(() => {});
@@ -349,16 +370,13 @@ export class PegBoard extends MinigameScene {
   ensureBall(ball, colour) {
     if (this.ballMeshes.has(ball.id)) return this.ballMeshes.get(ball.id);
     const group = new THREE.Group();
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 12, 10),
-      new THREE.MeshLambertMaterial({ color: colour })
-    );
+    const mesh = new THREE.Mesh(KUGEL_FORM, new THREE.MeshLambertMaterial({ color: colour }));
     mesh.castShadow = true;
     group.add(mesh);
     // Ein heller Ring um die eigene Kugel, damit man sie unter vier Kugeln
     // wiederfindet, ohne die Farbe zu suchen.
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.26, 0.33, 18),
+      RING_FORM,
       new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, depthWrite: false, toneMapped: false })
     );
     ring.position.z = 0.22;
@@ -390,16 +408,22 @@ export class PegBoard extends MinigameScene {
     const colourOf = (id) => state.players.find((player) => player.id === id)?.color || "#ffffff";
     const alive = new Set();
     const ballOf = new Map();
-    (arcade.balls || []).forEach((ball) => {
+    // Gezeichnet wird die weiche Bahn, nicht der letzte Serverpunkt — der kommt
+    // nur elfmal pro Sekunde, und die Kugel sprang sichtbar in Stufen.
+    const zeit = this.nachlauf.zeichenzeit(now);
+    this.nachlauf.sichtbare(now).forEach((spur) => {
+      const ball = this.ballMeta.get(spur.id);
+      if (!ball) return;
       alive.add(ball.id);
       ballOf.set(ball.playerId, ball);
       const visual = this.ensureBall(ball, colourOf(ball.playerId));
-      visual.group.position.set(this.worldX(ball.x), this.worldY(ball.y, floorY), 0.12);
+      visual.group.position.set(this.worldX(spur.x), this.worldY(spur.y, floorY), 0.12);
       const isOwn = ball.playerId === controlledId;
       visual.ring.material.opacity = isOwn ? (ball.nudged ? 0.35 : 0.9) : 0;
       visual.ring.scale.setScalar(isOwn && !ball.nudged ? 1 + Math.sin(now / 160) * 0.12 : 1);
       visual.mesh.rotation.z -= dt * 6;
-      if (ball.bumpedAt && ball.bumpedAt !== visual.lastBump) {
+      // Das Klacken erst, wenn die gezeichnete Kugel auch dort ist.
+      if (ball.bumpedAt && ball.bumpedAt !== visual.lastBump && ball.bumpedAt <= zeit) {
         visual.lastBump = ball.bumpedAt;
         this.burst(visual.group.position.clone(), [colourOf(ball.playerId), "#ffffff"], { count: Math.round(7 * fxScale()), speed: 1.5, up: 0.5, size: 0.05, life: 0.4, drag: 2.4 });
         if (isOwn) {
@@ -412,7 +436,10 @@ export class PegBoard extends MinigameScene {
     this.ballMeshes.forEach((visual, id) => {
       if (alive.has(id)) return;
       this.scene.remove(visual.group);
+      visual.mesh.material.dispose();
+      visual.ring.material.dispose();
       this.ballMeshes.delete(id);
+      this.ballMeta.delete(id);
     });
     this.syncFlashes(dt);
 
@@ -440,7 +467,7 @@ export class PegBoard extends MinigameScene {
 
       // Gelandet: je nach Fach freuen oder ärgern.
       const landed = entry.lastSlot;
-      if (landed && landed.at !== d.lastSlotAt) {
+      if (landed && landed.at !== d.lastSlotAt && landed.at <= zeit) {
         const first = d.lastSlotAt === 0 && now - landed.at > 2000;
         d.lastSlotAt = landed.at;
         if (!first) {
