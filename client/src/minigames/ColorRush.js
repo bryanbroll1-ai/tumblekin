@@ -3,6 +3,7 @@ import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
 // Wischen hüpft man Feld für Feld. Runde und Phase kommen aus dem Zeitplan des
@@ -87,6 +88,8 @@ export class ColorRush extends MinigameScene {
     // vorher war sie eine einzige grüne Fläche.
     dressMeadow(scene, { groundY: -0.2, seed: 33, keepOut: { x: rimX + 0.5, z: rimZ + 0.5 }, spread: { x: 12, z: 14 }, trees: 22, treeRing: { x: 12, z: 14 }, crownShape: "blob", crownColor: "#4aa65a", crownColor2: "#63bf6b" });
 
+    this.buildFestival(scene, rimX, rimZ);
+
     // Unten in der Grube steht Wasser — wer fällt, landet mit einem Platsch,
     // statt in einem schwarzen Loch zu verschwinden. Die Wände sind Stein.
     const stone = new THREE.MeshLambertMaterial({ color: "#8b8f99" });
@@ -142,6 +145,56 @@ export class ColorRush extends MinigameScene {
       const entry = arcade?.players?.[player.id];
       this.addKin(player, index, { x: tileX(entry?.gx ?? 2), ground: TILE_TOP_Y, z: tileZ(entry?.gy ?? 2), facing: 0 });
     });
+  }
+
+  // Ein Farbenfest rund um die Grube: Farbkleckse im Gras, umgekippte Eimer
+  // mit Pfützen, Wimpelstäbe in den vier Farben und Farbpulverwolken, die über
+  // die Wiese ziehen. Vorher war die Grube eine grüne Fläche wie jede andere.
+  buildFestival(scene, rimX, rimZ) {
+    const zufall = streuer(47);
+    const kleckse = COLORS.map(() => []);
+    for (let i = 0; i < 34; i += 1) {
+      const vorn = i % 2 === 0;
+      const x = (zufall() - 0.5) * 7;
+      const z = (vorn ? 1 : -1) * (rimZ + 0.35 + zufall() * 2.6);
+      if (Math.abs(x) < rimX + 0.2 && Math.abs(z) < rimZ + 0.3) continue;
+      kleckse[i % COLORS.length].push({ p: [x, 0.003 + (i % 4) * 0.001, z], r: [-Math.PI / 2, 0, zufall() * 3], s: [0.25 + zufall() * 0.45, 0.2 + zufall() * 0.35, 1] });
+    }
+    COLORS.forEach((farbe, i) => viele(scene, new THREE.CircleGeometry(1, 9), lambert(farbe), kleckse[i], { empfangen: true }));
+    // Umgekippte Eimer mit Pfütze.
+    [[-1.5, rimZ + 1.0, 0], [1.6, rimZ + 1.5, 1], [-1.2, -rimZ - 1.2, 2], [1.4, -rimZ - 0.9, 3]].forEach(([x, z, c]) => {
+      const eimer = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.16, 0.36, 12, 1, true), lambert("#dfe4ea", { side: THREE.DoubleSide }));
+      eimer.rotation.set(0, zufall() * 3, Math.PI / 2 - 0.1);
+      eimer.position.set(x, 0.19, z);
+      eimer.castShadow = true;
+      scene.add(eimer);
+      const pfuetze = new THREE.Mesh(new THREE.CircleGeometry(1, 12), lambert(COLORS[c]));
+      pfuetze.rotation.x = -Math.PI / 2;
+      pfuetze.scale.set(0.55, 0.38, 1);
+      pfuetze.position.set(x + 0.35, 0.006, z + 0.1);
+      scene.add(pfuetze);
+    });
+    // Wimpelstäbe vorn und hinten am Rand.
+    const staebe = [];
+    const wimpel = COLORS.map(() => []);
+    [-1, 1].forEach((seite) => {
+      for (let i = 0; i < 6; i += 1) {
+        const x = -rimX + 0.2 + i * ((2 * rimX - 0.4) / 5);
+        const z = seite * (rimZ + 0.28);
+        staebe.push({ p: [x, 0.35, z] });
+        wimpel[(i + (seite > 0 ? 0 : 2)) % COLORS.length].push({ p: [x + 0.12, 0.62, z], s: [1, 1, 1] });
+      }
+    });
+    viele(scene, new THREE.BoxGeometry(0.035, 0.7, 0.035), lambert("#8a6238"), staebe, { schatten: true });
+    COLORS.forEach((farbe, i) => viele(scene, new THREE.BoxGeometry(0.22, 0.15, 0.02), lambert(farbe), wimpel[i]));
+    // Farbpulverwolken, die über die Wiese ziehen — aussen, nie über der Grube.
+    this.powder = [];
+    for (let i = 0; i < 6; i += 1) {
+      const wolke = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshLambertMaterial({ color: COLORS[i % COLORS.length], transparent: true, opacity: 0.35, depthWrite: false }));
+      wolke.userData = { isFx: true, phase: i * 1.1, side: i % 2 ? 1 : -1, z: (zufall() - 0.5) * 2 * (rimZ + 1.5) };
+      scene.add(wolke);
+      this.powder.push(wolke);
+    }
   }
 
   shot() {
@@ -214,6 +267,12 @@ export class ColorRush extends MinigameScene {
   }
 
   tick(f) {
+    this.powder?.forEach((wolke) => {
+      const u = f.now / 1000 * 0.25 + wolke.userData.phase;
+      const rimX = (COLS * TILE) / 2 + 0.12;
+      wolke.position.set(wolke.userData.side * (rimX + 1.2 + Math.sin(u) * 0.6), 1.2 + Math.sin(u * 1.7) * 0.3, wolke.userData.z + Math.cos(u) * 0.8);
+      wolke.scale.setScalar(0.9 + Math.sin(u * 2.3) * 0.25);
+    });
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
     const phase = this.computePhase(arcade, minigame, now);

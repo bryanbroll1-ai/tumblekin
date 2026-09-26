@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Spurmaler: der Farbroller fährt von selbst die Spur hinauf, man LENKT ihn —
 // irgendwo auf dem Bildschirm nach links oder rechts wischen.
@@ -101,8 +101,8 @@ export class TracePainter extends MinigameScene {
   stage() {
     return {
       label: "3D Spurmaler",
-      background: "#8fd3ef",
-      fog: ["#a8e2f4", 22, 60],
+      background: "#6b4f3a",
+      fog: ["#6b4f3a", 22, 60],
       lights: { sunPosition: [-4, 12, 9], shadow: { left: -5, right: 5, top: 5, bottom: -5 }, hemiIntensity: 2.6 }
     };
   }
@@ -117,10 +117,9 @@ export class TracePainter extends MinigameScene {
 
   build() {
     const scene = this.scene;
-    const lawn = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 30), new THREE.MeshLambertMaterial({ color: "#7fce6f" }));
-    lawn.position.y = -0.34;
-    lawn.receiveShadow = true;
-    scene.add(lawn);
+    // Die Leinwand liegt auf dem Arbeitstisch eines Malerateliers — vorher lag
+    // sie auf einer Wiese, und um sie herum war nichts.
+    this.buildStudio(scene);
     const frame = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.6, 0.16, BOARD_H + 0.6), new THREE.MeshLambertMaterial({ color: "#8a6b4a" }));
     frame.position.y = -0.1;
     scene.add(frame);
@@ -136,11 +135,6 @@ export class TracePainter extends MinigameScene {
     });
     this.buildRibbons();
     this.buildGems();
-    [[-4.6, 5.4, -8, 3], [4.4, 6.2, -9, 8]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
-    });
 
     // Die eigene Figur mit Farbroller.
     const players = this.getState()?.players || [];
@@ -269,6 +263,73 @@ export class TracePainter extends MinigameScene {
       visual.gem.rotation.y = now / 420 + i;
       visual.halo.scale.setScalar(1 + Math.sin(now / 260 + i) * 0.12);
     });
+  }
+
+  buildStudio(scene) {
+    const zufall = streuer(23);
+    // Tischplatte aus Holz mit Farbspritzern.
+    const platte = new THREE.Mesh(new THREE.BoxGeometry(12, 0.4, 13), new THREE.MeshLambertMaterial({ color: "#b9895a" }));
+    platte.position.y = -0.34;
+    platte.receiveShadow = true;
+    scene.add(platte);
+    const maserung = [];
+    for (let i = 0; i < 16; i += 1) maserung.push({ p: [-5.5 + i * 0.75, -0.139, 0], s: [0.04, 1, 13] });
+    viele(scene, new THREE.BoxGeometry(1, 0.001, 1), lambert("#a57a4e"), maserung);
+    const farben = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b", "#b57bff"];
+    const spritzer = farben.map(() => []);
+    for (let i = 0; i < 40; i += 1) {
+      const x = (zufall() - 0.5) * 9;
+      const z = (zufall() - 0.5) * 11;
+      if (Math.abs(x) < BOARD_W / 2 + 0.45 && Math.abs(z) < BOARD_H / 2 + 0.45) continue;
+      spritzer[i % farben.length].push({ p: [x, -0.138, z], r: [-Math.PI / 2, 0, zufall() * 3], s: [0.05 + zufall() * 0.14, 0.04 + zufall() * 0.12, 1] });
+    }
+    farben.forEach((farbe, i) => viele(scene, new THREE.CircleGeometry(1, 8), lambert(farbe), spritzer[i]));
+    // Farbtuben, halb ausgedrückt.
+    // Ausserhalb der Leinwand, aber im hochkanten Bild: oben und unten.
+    [[-1.3, 3.05, 0.3, 0], [-0.6, 3.25, -0.4, 1], [0.9, 3.1, 0.2, 2], [1.5, -3.15, 0.9, 3], [0.7, -3.3, -0.2, 4]].forEach(([x, z, dreh, c]) => {
+      const tube = new THREE.Group();
+      kiste(tube, 0.5, 0.1, 0.18, "#e8eaee", [0, 0, 0]);
+      kiste(tube, 0.14, 0.08, 0.16, farben[c], [-0.2, 0.001, 0], { schatten: false });
+      kiste(tube, 0.08, 0.06, 0.06, "#2c2f38", [0.29, 0, 0], { schatten: false });
+      const klecks = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), lambert(farben[c]));
+      klecks.scale.y = 0.5;
+      klecks.position.set(0.38, -0.03, 0);
+      tube.add(klecks);
+      tube.position.set(x, -0.08, z);
+      tube.rotation.y = dreh;
+      scene.add(tube);
+    });
+    // Palette mit Farbklecksen.
+    const palette = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.04, 20), lambert("#d9b27a"));
+    palette.scale.z = 0.72;
+    palette.position.set(-1.1, -0.12, -3.25);
+    scene.add(palette);
+    viele(scene, new THREE.SphereGeometry(0.07, 8, 6), lambert("#ffffff"), [[0, 0]].map(() => ({ p: [-0.9, -0.09, -3.5], s: [1, 0.4, 1] })));
+    farben.forEach((farbe, i) => {
+      const k = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), lambert(farbe));
+      k.scale.y = 0.4;
+      const a = -0.6 + i * 0.5;
+      k.position.set(-1.1 + Math.cos(a) * 0.42, -0.09, -3.25 + Math.sin(a) * 0.3);
+      scene.add(k);
+    });
+    // Pinselglas.
+    const glas = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.44, 12, 1, true), new THREE.MeshLambertMaterial({ color: "#bfe6ff", transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+    glas.position.set(1.55, 0.08, 3.2);
+    scene.add(glas);
+    [[-0.05, 0.2, "#ff5d73"], [0.06, -0.15, "#28c7d9"], [0.02, 0.05, "#ffd15c"]].forEach(([dx, tilt, farbe]) => {
+      const stiel = kiste(scene, 0.04, 0.7, 0.04, "#8a6238", [1.55 + dx, 0.32, 3.2]);
+      stiel.rotation.z = tilt;
+      kiste(scene, 0.05, 0.1, 0.05, farbe, [1.55 + dx + Math.sin(-tilt) * -0.35, 0.68, 3.2], { schatten: false });
+    });
+    // Klebeband an den Ecken der Leinwand.
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+      const band = kiste(scene, 0.34, 0.012, 0.14, "#f1e4b8", [sx * (BOARD_W / 2 + 0.2), -0.005, sz * (BOARD_H / 2 + 0.2)], { schatten: false });
+      band.rotation.y = sx * sz * 0.78;
+    });
+    // Schwamm und Bleistift.
+    kiste(scene, 0.44, 0.16, 0.3, "#ffd84a", [-1.7, -0.06, 3.3]).rotation.y = 0.4;
+    const stift = kiste(scene, 0.06, 0.06, 0.9, "#ffc400", [0.2, -0.1, -3.3]);
+    stift.rotation.y = -1.2;
   }
 
   shot() {

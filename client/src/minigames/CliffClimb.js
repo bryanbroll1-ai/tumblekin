@@ -194,6 +194,54 @@ export class CliffClimb extends MinigameScene {
       this.decor.push(boulder);
     }
 
+    // Schnee: auf den Felsstufen am Rand liegt eine Kappe, darunter hängen
+    // Eiszapfen, und hier und da wächst eine verschneite Latsche aus der Stufe.
+    // Alles hängt am Felsbrocken und wandert mit ihm.
+    const schnee = new THREE.MeshLambertMaterial({ color: "#f7fbff" });
+    const eis = new THREE.MeshLambertMaterial({ color: "#d6ecff", transparent: true, opacity: 0.9 });
+    const nadel = new THREE.MeshLambertMaterial({ color: "#2f6b4a" });
+    this.decor.filter((part) => part.material === boulderMat).forEach((boulder, i) => {
+      const w = boulder.geometry.parameters.width;
+      const kappe = new THREE.Mesh(new THREE.BoxGeometry(w + 0.06, 0.1, 0.46), schnee);
+      kappe.position.y = 0.26;
+      kappe.receiveShadow = true;
+      boulder.add(kappe);
+      const wehe = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, 0.08, 0.3), schnee);
+      wehe.position.set((i % 2 ? 0.15 : -0.15) * w, 0.34, -0.04);
+      boulder.add(wehe);
+      for (let k = 0; k < 3 + (i % 3); k += 1) {
+        const zapfen = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.22 + ((i + k) % 3) * 0.1, 5), eis);
+        zapfen.rotation.x = Math.PI;
+        zapfen.position.set(-w / 2 + 0.15 + (k / 4) * (w - 0.3), -0.3 - ((i + k) % 3) * 0.05, 0.18);
+        boulder.add(zapfen);
+      }
+      if (i % 3 === 0) {
+        const baum = new THREE.Group();
+        const krone = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.7, 6), nadel);
+        krone.position.y = 0.55;
+        baum.add(krone);
+        const spitze = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.28, 6), schnee);
+        spitze.position.y = 0.78;
+        baum.add(spitze);
+        baum.position.set((i % 2 ? -0.25 : 0.25) * w, 0.2, 0);
+        boulder.add(baum);
+      }
+    });
+    boulderMat.color.set("#9a8f80");
+    // Schneeflecken auf der Wand: flach wie die Gesteinsbänder, in Rissen und
+    // Mulden. Weiter oben mehr — dort ist es kälter.
+    const snowMats = [decal("#f2f7fc", 2), decal("#e3edf6", 2)];
+    for (let i = 0; i < 26; i += 1) {
+      const y = 0.5 + ((i * 0.618) % 1) * bandHeight;
+      const patch = flat(new THREE.CircleGeometry(0.5, 10), snowMats[i % 2]);
+      patch.scale.set(0.5 + (i % 4) * 0.45, 0.16 + (i % 3) * 0.1, 1);
+      patch.position.set(-6.8 + ((i * 3.7) % 13.6), y, -0.575);
+      scene.add(patch);
+      this.decor.push(patch);
+    }
+    // Auf jedem Griff liegt eine Handvoll Schnee.
+    this.snowOnHolds = schnee;
+
     // Höhenmarken: ein heller Streifen alle zehn Sprossen. Ohne sie fühlte sich
     // die Wand endlos gleich an, weil jeder Ausschnitt aussah wie der vorige.
     // Breiter und weicher als vorher — als dünne Linie sah der Streifen aus wie
@@ -263,6 +311,9 @@ export class CliffClimb extends MinigameScene {
         );
         hold.castShadow = true;
         hold.userData.step = step;
+        const puder = new THREE.Mesh(new THREE.BoxGeometry(HOLD_W * 0.8, 0.04, 0.16), this.snowOnHolds);
+        puder.position.set(0, 0.115, -0.02);
+        hold.add(puder);
         scene.add(hold);
         this.holds.push(hold);
         laneHolds[step] = hold;
@@ -296,6 +347,35 @@ export class CliffClimb extends MinigameScene {
       }
     });
     this.buildLadder();
+
+    // Schneefall vor der Wand, und ab und zu zieht ein Adler vorbei.
+    const flocken = 260;
+    const pos = new Float32Array(flocken * 3);
+    for (let i = 0; i < flocken; i += 1) {
+      pos[i * 3] = (Math.random() - 0.5) * 14;
+      pos[i * 3 + 1] = Math.random() * 16;
+      pos[i * 3 + 2] = -0.3 + Math.random() * 3.2;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    this.snowfall = new THREE.Points(geo, new THREE.PointsMaterial({ color: "#ffffff", size: 0.06, transparent: true, opacity: 0.85, depthWrite: false }));
+    this.snowfall.userData.isFx = true;
+    this.snowfall.frustumCulled = false;
+    scene.add(this.snowfall);
+    this.eagle = new THREE.Group();
+    const leib = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.5), new THREE.MeshLambertMaterial({ color: "#5a3e2a" }));
+    this.eagle.add(leib);
+    const kopf = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshLambertMaterial({ color: "#ffffff" }));
+    kopf.position.set(0, 0.04, 0.3);
+    this.eagle.add(kopf);
+    this.eagleWings = [-1, 1].map((seite) => {
+      const fluegel = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.03, 0.26), new THREE.MeshLambertMaterial({ color: "#4a321f" }));
+      fluegel.geometry.translate(seite * 0.35, 0, 0);
+      this.eagle.add(fluegel);
+      return fluegel;
+    });
+    this.eagle.rotation.y = Math.PI / 2;
+    scene.add(this.eagle);
   }
 
   // Schnee auf der Kante, Felsspitzen dahinter und je Bahn eine Fahnenstange,
@@ -696,6 +776,25 @@ export class CliffClimb extends MinigameScene {
       if (cloud.position.x > 11) cloud.position.x -= 22;
       wrap(cloud);
     });
+    if (this.snowfall) {
+      const p = this.snowfall.geometry.attributes.position;
+      const t = performance.now() / 1000;
+      for (let i = 0; i < p.count; i += 1) {
+        let y = p.getY(i) - dt * (0.7 + (i % 5) * 0.1);
+        if (y < ownY - 6) y += 16;
+        if (y > ownY + 10) y -= 16;
+        p.setY(i, y);
+        p.setX(i, p.getX(i) + Math.sin(t + i) * dt * 0.2);
+      }
+      p.needsUpdate = true;
+    }
+    if (this.eagle) {
+      const u = ((performance.now() / 1000) % 14) / 14;
+      this.eagle.visible = u < 0.45;
+      this.eagle.position.set(-9 + u * 40, ownY + 3.2 + Math.sin(u * 20) * 0.3, 2.4);
+      const flap = Math.sin(performance.now() / 160) * 0.5;
+      this.eagleWings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * flap; });
+    }
     // Sonne und Schattenfenster mitziehen, sonst endet die Schattenkarte
     // irgendwo auf halber Höhe und schneidet eine harte Kante quer durch die
     // Wand.

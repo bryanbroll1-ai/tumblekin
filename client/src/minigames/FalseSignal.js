@@ -1,7 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, flashKin } from "./VoxelKit.js?v=tumblekin200";
+import { flashKin } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer, himmel, zaun } from "./Kulisse.js?v=tumblekin200";
 
 // Falschsignal: ein Ring wächst in der Signaltafel. Schafft er die Marke,
 // muss man drücken — bleibt er vorher stehen, war es eine Finte.
@@ -41,8 +42,8 @@ export class FalseSignal extends MinigameScene {
   stage() {
     return {
       label: "3D Falschsignal",
-      background: "#9fd9f0",
-      fog: ["#9fd9f0", 16, 44],
+      background: "#c9a0a8",
+      fog: ["#e0b8a8", 18, 50],
       lights: { sunPosition: [-5, 13, 8], shadow: { left: -8, right: 8, top: 12, bottom: -4 } }
     };
   }
@@ -60,8 +61,8 @@ export class FalseSignal extends MinigameScene {
   build() {
     const scene = this.scene;
     const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(28, 0.5, 20),
-      new THREE.MeshLambertMaterial({ color: "#6fc4a0" })
+      new THREE.BoxGeometry(40, 0.5, 34),
+      new THREE.MeshLambertMaterial({ color: "#d6ae78" })
     );
     ground.position.y = -0.25;
     ground.receiveShadow = true;
@@ -71,7 +72,7 @@ export class FalseSignal extends MinigameScene {
     // Signal eine grosse leere Wiese; die Bahn füllt sie und gibt dem Bild Tiefe.
     const apron = new THREE.Mesh(
       new THREE.BoxGeometry(LANE_GAP * 4.6, 0.04, 6.2),
-      new THREE.MeshLambertMaterial({ color: "#adbcb2" })
+      new THREE.MeshLambertMaterial({ color: "#b8bcc4" })
     );
     apron.position.set(0, 0.005, 0.1);
     apron.receiveShadow = true;
@@ -80,13 +81,123 @@ export class FalseSignal extends MinigameScene {
     // Bahntrenner laufen auf den Mast zu — die Fluchtlinien führen den Blick
     // von den Figuren nach oben zur Lampe.
     this.buildTower();
-    [[-7.5, 6.8, -7, 4], [7.2, 7.6, -5, 9]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
-    });
+    this.buildSpaceport(scene);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.addLane(player, index, players.length));
+  }
+
+  // Der Signalmast steht auf einem Weltraumbahnhof in der Abenddämmerung:
+  // hinten die Rakete am Startturm, Radarschüsseln, die sich drehen, ein
+  // Leitbunker mit Blinklichtern, Treibstofftanks, Flutlichtmasten und ein
+  // Zaun. Vorher stand der Mast auf einer leeren Wiese.
+  buildSpaceport(scene) {
+    himmel(scene, { oben: "#3b5aa6", unten: "#ffb892" });
+    const zufall = streuer(19);
+    // Warnstreifen an der Startlinie.
+    const streifen = [];
+    for (let i = 0; i < 12; i += 1) streifen.push({ p: [-2.3 + i * 0.42, 0.03, 2.05], r: [-Math.PI / 2, 0, 0.6] });
+    viele(scene, new THREE.PlaneGeometry(0.18, 0.5), lambert("#ffd15c"), streifen);
+    // Rakete mit Startrampe und Turm.
+    const rakete = new THREE.Group();
+    kiste(rakete, 3.2, 0.5, 3.2, "#7c8290", [0, 0.25, 0]);
+    const rumpf = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 5.2, 16), lambert("#f4f6fa"));
+    rumpf.position.y = 3.2;
+    rumpf.castShadow = true;
+    rakete.add(rumpf);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.61, 0.61, 0.5, 16), lambert("#e0344a"));
+    band.position.y = 4.4;
+    rakete.add(band);
+    const spitze = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.5, 16), lambert("#e0344a"));
+    spitze.position.y = 6.55;
+    rakete.add(spitze);
+    [0, 1, 2, 3].forEach((i) => {
+      const flosse = kiste(rakete, 0.08, 1.1, 0.8, "#e0344a", [0, 1.2, 0]);
+      flosse.geometry.translate(0, 0, 0.75);
+      flosse.rotation.y = (i * Math.PI) / 2;
+    });
+    [3.6, 5.2].forEach((y) => {
+      const fenster = new THREE.Mesh(new THREE.CircleGeometry(0.18, 12), lambert("#6cc6ff"));
+      fenster.position.set(0, y, 0.605);
+      rakete.add(fenster);
+    });
+    const turm = new THREE.Group();
+    [[-0.4, -0.4], [0.4, -0.4], [-0.4, 0.4], [0.4, 0.4]].forEach(([x, z]) => kiste(turm, 0.12, 7, 0.12, "#c8413b", [x, 3.5, z]));
+    for (let y = 0.8; y < 7; y += 0.9) {
+      kiste(turm, 0.9, 0.08, 0.08, "#c8413b", [0, y, -0.4], { schatten: false });
+      kiste(turm, 0.9, 0.08, 0.08, "#c8413b", [0, y, 0.4], { schatten: false });
+      kiste(turm, 0.08, 0.08, 0.9, "#c8413b", [-0.4, y, 0], { schatten: false });
+    }
+    kiste(turm, 1.2, 0.1, 0.1, "#c8413b", [-0.9, 5.4, 0]);
+    turm.position.set(1.4, 0, 0);
+    rakete.add(turm);
+    rakete.position.set(-4.8, 0, -8.5);
+    scene.add(rakete);
+    this.steam = [];
+    for (let i = 0; i < 6; i += 1) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshLambertMaterial({ color: "#f2f2f2", transparent: true, opacity: 0.55, depthWrite: false }));
+      puff.userData = { phase: i / 6, isFx: true };
+      scene.add(puff);
+      this.steam.push(puff);
+    }
+    // Radarschüsseln.
+    this.radars = [[4.6, -6.2], [6.6, -3.2]].map(([x, z], i) => {
+      const g = new THREE.Group();
+      kiste(g, 0.5, 1.6, 0.5, "#9aa2b0", [0, 0.8, 0]);
+      const kopf = new THREE.Group();
+      const schale = new THREE.Mesh(new THREE.SphereGeometry(1.1, 18, 8, 0, Math.PI * 2, 0, Math.PI / 3.2), lambert("#eef1f5", { side: THREE.DoubleSide }));
+      schale.rotation.x = -Math.PI / 2 + 0.5;
+      kopf.add(schale);
+      const antenne = kiste(kopf, 0.05, 0.05, 0.9, "#6b7280", [0, 0.2, 0.45], { schatten: false });
+      antenne.rotation.x = 0.5;
+      kopf.position.y = 1.75;
+      g.add(kopf);
+      g.position.set(x, 0, z);
+      g.scale.setScalar(i ? 0.8 : 1);
+      scene.add(g);
+      return kopf;
+    });
+    // Leitbunker mit Blinklichtern.
+    const bunker = new THREE.Group();
+    kiste(bunker, 3.4, 1.4, 2.2, "#9aa2b0", [0, 0.7, 0]);
+    kiste(bunker, 3.6, 0.2, 2.4, "#7c8290", [0, 1.5, 0]);
+    kiste(bunker, 2.4, 0.4, 0.05, "#1d2a4a", [0, 0.95, 1.11], { schatten: false });
+    this.blinkers = [];
+    for (let i = 0; i < 5; i += 1) {
+      const licht = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.05), new THREE.MeshBasicMaterial({ color: "#ff3b3b" }));
+      licht.position.set(-0.8 + i * 0.4, 0.95, 1.14);
+      bunker.add(licht);
+      this.blinkers.push(licht);
+    }
+    kiste(bunker, 0.1, 1.2, 0.1, "#6b7280", [1.2, 2.1, 0.6]);
+    bunker.position.set(1.6, 0, -9.5);
+    scene.add(bunker);
+    // Treibstofftanks auf Stelzen.
+    [[-8.4, -3.2], [-8.4, -5.0]].forEach(([x, z]) => {
+      const tank = new THREE.Mesh(new THREE.SphereGeometry(0.8, 16, 12), lambert("#f4f6fa"));
+      tank.position.set(x, 1.6, z);
+      tank.castShadow = true;
+      scene.add(tank);
+      [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].forEach(([dx, dz]) => kiste(scene, 0.08, 1.2, 0.08, "#7c8290", [x + dx, 0.6, z + dz], { schatten: false }));
+    });
+    // Flutlichtmasten.
+    [[-6.2, -1.5], [6.4, 0.2]].forEach(([x, z]) => {
+      kiste(scene, 0.14, 5, 0.14, "#5a6270", [x, 2.5, z]);
+      const kopf = kiste(scene, 1.1, 0.5, 0.3, "#2c2f38", [x, 5.1, z]);
+      kopf.rotation.y = Math.atan2(-x, -z);
+      const glas = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.35), new THREE.MeshBasicMaterial({ color: "#fff4c8" }));
+      glas.position.set(x, 5.1, z);
+      glas.lookAt(0, 0, 0);
+      glas.position.addScaledVector(glas.getWorldDirection(new THREE.Vector3()), 0.16);
+      scene.add(glas);
+    });
+    // Zaun hinten, Kakteen und Kisten.
+    zaun(scene, [-12, -12], [12, -12], { color: "#9aa2b0", pfostenColor: "#6b7280", hoehe: 1.1 });
+    viele(scene, new THREE.BoxGeometry(0.6, 0.6, 0.6), lambert("#b98a55"), [[6.2, 0.3, 2.4], [6.8, 0.3, 2.9], [6.5, 0.9, 2.6]].map((p) => ({ p, r: [0, zufall(), 0] })), { schatten: true });
+    [[-6.5, 3.0], [5.2, -1.8], [-3.2, -5.2]].forEach(([x, z]) => {
+      kiste(scene, 0.3, 1.2, 0.3, "#4f9b4a", [x, 0.6, z]);
+      kiste(scene, 0.22, 0.5, 0.22, "#4f9b4a", [x + 0.28, 0.8, z]);
+      kiste(scene, 0.2, 0.2, 0.2, "#4f9b4a", [x + 0.18, 0.6, z]);
+    });
   }
 
   buildTower() {
@@ -275,6 +386,15 @@ export class FalseSignal extends MinigameScene {
   }
 
   tick(f) {
+    const tt = f.now / 1000;
+    this.radars?.forEach((kopf, i) => { kopf.rotation.y = tt * (0.4 + i * 0.25); });
+    this.blinkers?.forEach((licht, i) => { licht.material.color.set(Math.floor(tt * 3 + i) % 3 === 0 ? "#ff3b3b" : "#5a1414"); });
+    this.steam?.forEach((puff) => {
+      const u = (tt / 3 + puff.userData.phase) % 1;
+      puff.position.set(-4.8 + (puff.userData.phase - 0.5) * 3 + u * 1.2, 0.5 + u * 1.4, -8.5 + 1.8);
+      puff.scale.setScalar(0.6 + u * 1.6);
+      puff.material.opacity = 0.55 * (1 - u);
+    });
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
