@@ -942,8 +942,11 @@ const honey = {
 // Gerechnet wird in Welteinheiten auf der Fläche (x quer, z zur Kamera hin).
 // Hochkant wie das Handy: schmal und tief. Quer lag das Feld als Streifen
 // oben im Bild, und darunter war nur Schnee.
-const SNOW_W = 7;                      // Breite des Feldes
-const SNOW_D = 9;                      // Tiefe
+// Etwas kleiner als zuerst (7 × 9): auf dem grossen Feld standen die Figuren
+// als Punkte in einer weiten Schneefläche, und man lief lange, bis man jemanden
+// traf. Enger trifft man sich öfter, und die Kamera kommt näher heran.
+const SNOW_W = 6.2;                    // Breite des Feldes
+const SNOW_D = 8;                      // Tiefe
 const SNOW_DURATION_MS = 42000;
 const SNOW_SPEED = 3.3;                // Laufen ohne Kugel
 const SNOW_BALL_DRAG = 0.38;           // so viel langsamer mit voller Kugel
@@ -1266,6 +1269,11 @@ const snow = {
 const HOCKEY_W = 4.4;                  // Tischbreite
 const HOCKEY_L = 7.4;                  // Tischlänge
 const HOCKEY_GOAL = 2.2;               // Torbreite
+// Zwei gegen zwei stehen vier Scheiben auf dem Tisch, zwei davon vor jedem
+// Tor — die decken 2.2 Breite fast ganz ab. Gemessen fielen in 46 Sekunden
+// oft nur ein oder zwei Tore, viele davon Eigentore. Mit vollen Teams ist das
+// Tor deshalb breiter.
+const HOCKEY_GOAL_TEAMS = 2.9;
 const HOCKEY_DURATION_MS = 46000;
 const HOCKEY_WIN = 5;
 const HOCKEY_MALLET_R = 0.36;
@@ -1308,7 +1316,7 @@ const hockey = {
     arcade.hockey = {
       w: HOCKEY_W,
       l: HOCKEY_L,
-      goalW: HOCKEY_GOAL,
+      goalW: Math.min(...sizes) >= 2 ? HOCKEY_GOAL_TEAMS : HOCKEY_GOAL,
       puckR: HOCKEY_PUCK_R,
       score: [0, 0],
       win: HOCKEY_WIN,
@@ -1362,7 +1370,7 @@ const hockey = {
     // Der Roboter hält die Mitte seines Tores und schiebt, was kommt, zurück.
     if (state.robot) {
       const p = state.puck;
-      const tx = clamp(p.x * 0.7, -HOCKEY_GOAL / 2, HOCKEY_GOAL / 2);
+      const tx = clamp(p.x * 0.7, -state.goalW / 2, state.goalW / 2);
       const tz = p.z < -0.6 && p.vz < 0.5 ? p.z - 0.2 : -HOCKEY_L / 2 + 0.9;
       const dx = tx - state.robot.x;
       const dz = tz - state.robot.z;
@@ -1443,7 +1451,7 @@ const hockey = {
       const halfW = HOCKEY_W / 2 - HOCKEY_PUCK_R;
       const halfL = HOCKEY_L / 2 - HOCKEY_PUCK_R;
       if (Math.abs(p.x) > halfW) { p.x = Math.sign(p.x) * halfW; p.vx = -p.vx * HOCKEY_WALL_REST; }
-      const inMouth = Math.abs(p.x) < HOCKEY_GOAL / 2 - HOCKEY_PUCK_R * 0.4;
+      const inMouth = Math.abs(p.x) < state.goalW / 2 - HOCKEY_PUCK_R * 0.4;
       if (Math.abs(p.z) > halfL && !inMouth) { p.z = Math.sign(p.z) * halfL; p.vz = -p.vz * HOCKEY_WALL_REST; }
       // Hat die Bande den Puck zurück in eine Scheibe geschoben (in der Ecke
       // eingekeilt), weicht die Scheibe — der Puck kann nicht in die Wand.
@@ -1543,7 +1551,7 @@ const hockey = {
       const keepers = room.players.map((pl) => arcade.players[pl.id]).filter((e) => e && e.side !== side);
       if (state.robot) keepers.push(state.robot);
       const keeperX = keepers.length ? keepers.reduce((a, b) => (Math.abs(b.z - oppGoalZ) < Math.abs(a.z - oppGoalZ) ? b : a)).x : 0;
-      const gx = byLevel(entry, 0, 0.45, 0.5) * (HOCKEY_GOAL / 2) * (keeperX > 0 ? -1 : 1);
+      const gx = byLevel(entry, 0, 0.45, 0.5) * (state.goalW / 2) * (keeperX > 0 ? -1 : 1);
       let ax = gx - px;
       let az = oppGoalZ - pz;
       const al = Math.hypot(ax, az) || 1;
@@ -1568,7 +1576,7 @@ const hockey = {
     } else {
       // Decken: zwischen Puck und eigenem Tor, näher am Tor.
       const share = defender ? 0.28 : 0.45;
-      tx = clamp(px * 0.8, -HOCKEY_GOAL / 2 - 0.2, HOCKEY_GOAL / 2 + 0.2);
+      tx = clamp(px * 0.8, -state.goalW / 2 - 0.2, state.goalW / 2 + 0.2);
       tz = ownGoalZ + (pz - ownGoalZ) * share;
     }
     tx = clamp(tx + (Math.random() - 0.5) * sloppy, lim.xMin, lim.xMax);

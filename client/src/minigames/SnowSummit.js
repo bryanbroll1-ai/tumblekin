@@ -13,8 +13,8 @@ import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tu
 // Drumherum: verschneite Tannen, eine Hütte mit rauchendem Schornstein,
 // Schneemänner, Skier am Zaun, das Gipfelkreuz auf dem Felsen und ein
 // Bergpanorama. Es schneit.
-const W = 7;
-const D = 9;
+const W = 6.2;                // wie SNOW_W / SNOW_D auf dem Server
+const D = 8;
 const BODY_R = 0.3;
 
 function ballRadius(size) {
@@ -216,7 +216,7 @@ export class SnowSummit extends MinigameScene {
   shot() {
     return {
       look: [0, 0, 0.3],
-      frame: { w: W + 1.4, h: D * Math.sin(0.86) + 1.4 },
+      frame: { w: W + 0.9, h: D * Math.sin(0.86) + 1.2 },
       pitch: 0.86,
       fov: 36,
       fill: 0.96,

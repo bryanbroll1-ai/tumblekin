@@ -313,9 +313,12 @@ export class BalanceBoat extends MinigameScene {
 
   shot() {
     return {
-      look: [0.55, 1.45, -0.6],
-      frame: { w: 6.3, h: 4.0 },
-      pitch: 0.26,
+      // Steiler als zuerst (0.26): flach von der Seite lag das Boot als
+      // schmaler Streifen im Bild, darunter nur Wasser. Von etwas oben sieht
+      // man, wo die Passagiere sitzen — und genau darum geht es.
+      look: [0.3, 1.3, -0.6],
+      frame: { w: 6.4, h: 3.8 },
+      pitch: 0.4,
       yaw: -0.18,
       fov: 38,
       intro: { yaw: -0.5, pitch: 0.3, zoom: 1.4 },

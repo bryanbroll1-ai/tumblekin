@@ -225,8 +225,8 @@ export class PhotoShoot extends MinigameScene {
 
   shot() {
     return {
-      look: [0, STAGE_Y, 0.35],
-      frame: { w: this.W + 1.4, h: this.D * Math.sin(0.88) + 1.4 },
+      look: [0, STAGE_Y, 0.05],
+      frame: { w: this.W + 0.8, h: this.D * Math.sin(0.88) + 1.0 },
       pitch: 0.88,
       fov: 36,
       fill: 0.96,
