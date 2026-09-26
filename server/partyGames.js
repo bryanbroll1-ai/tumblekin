@@ -427,17 +427,217 @@ const face = {
   }
 };
 
+
+// --- Flaggen hoch ----------------------------------------------------------
+//
+// Der Fahnenmeister hebt Rot, Blau oder beide Fahnen — alle machen es nach,
+// so schnell sie können. Manchmal zuckt er nur an und lässt die Fahne wieder
+// sinken: wer dann drückt, ist reingefallen. Die Kommandos kommen immer
+// schneller, das Antwortfenster wird enger. Drei Fehler, und man ist raus.
+//
+// Gewertet werden die richtigen Antworten; wer ausscheidet, sammelt eben
+// nicht weiter. Bei Gleichstand zählt die schnellere Hand.
+const FLAG_LEAD_MS = 1800;
+const FLAG_GAP_START = 1900;
+const FLAG_GAP_END = 950;
+const FLAG_WINDOW_START = 1500;
+const FLAG_WINDOW_END = 700;
+const FLAG_DURATION_MS = 36000;
+const FLAG_LIVES = 3;
+const FLAG_FAKE_SHARE = 0.2;
+const FLAG_BOTH_SHARE = 0.16;
+const FLAG_MIN_PRESS_MS = 35;
+
+function buildFlagCommands(seed, durationMs = FLAG_DURATION_MS) {
+  // Erst die Zeiten, dann die Arten. Gewürfelt je Kommando kam mal eine
+  // einzige Täuschung in einer Runde, mal fünf; aus einem gemischten Stapel
+  // mit festen Anteilen ist jede Runde gleich gemein.
+  const slots = [];
+  let at = FLAG_LEAD_MS;
+  while (true) {
+    const progress = clamp(at / durationMs, 0, 1);
+    const window = Math.round(FLAG_WINDOW_START + (FLAG_WINDOW_END - FLAG_WINDOW_START) * progress);
+    if (at + window > durationMs - 400) break;
+    slots.push({ at, window });
+    const gap = FLAG_GAP_START + (FLAG_GAP_END - FLAG_GAP_START) * progress;
+    at += Math.round(Math.max(window + 250, gap + (noise(seed + slots.length * 19) - 0.5) * 260));
+  }
+  const rest = Math.max(0, slots.length - 3);
+  const fakes = Math.round(rest * FLAG_FAKE_SHARE);
+  const boths = Math.round(rest * FLAG_BOTH_SHARE);
+  const deck = [];
+  for (let i = 0; i < rest; i += 1) {
+    deck.push(i < fakes ? "fake" : i < fakes + boths ? "both" : (i % 2 ? "red" : "blue"));
+  }
+  // Mischen (deterministisch aus dem Seed) …
+  for (let i = deck.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(noise(seed + i * 71) * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  // … und nie zwei Täuschungen hintereinander — sonst lernt man, nie zu drücken.
+  for (let i = 1; i < deck.length; i += 1) {
+    if (deck[i] !== "fake" || deck[i - 1] !== "fake") continue;
+    const swap = deck.findIndex((kind, k) => kind !== "fake" && (k === 0 || deck[k - 1] !== "fake") && (k + 1 >= deck.length || deck[k + 1] !== "fake") && Math.abs(k - i) > 1);
+    if (swap >= 0) [deck[i], deck[swap]] = [deck[swap], deck[i]];
+  }
+  return slots.map((slot, index) => {
+    const kind = index < 3 ? (noise(seed + index * 53 + 7) < 0.5 ? "red" : "blue") : deck[index - 3];
+    // Bei einer Täuschung zuckt die Fahne auf einer Seite.
+    const side = kind === "fake" ? (noise(seed + index * 11) < 0.5 ? "red" : "blue") : null;
+    return { index, at: slot.at, window: slot.window, kind, side };
+  });
+}
+
+function activeFlagCommand(commands, elapsed) {
+  for (let i = commands.length - 1; i >= 0; i -= 1) {
+    const c = commands[i];
+    if (elapsed >= c.at) return elapsed <= c.at + c.window ? c : null;
+  }
+  return null;
+}
+
+function flagMistake(entry, command, elapsed, why) {
+  entry.answers[command.index] = { result: why, at: elapsed };
+  entry.lives = Math.max(0, entry.lives - 1);
+  entry.mistakes += 1;
+  entry.lastMistakeAt = elapsed;
+  if (entry.lives <= 0 && !entry.outAt) {
+    entry.outAt = elapsed;
+    entry.outMs = elapsed;
+  }
+}
+
+function flagCorrect(entry, command, elapsed) {
+  const reaction = command.kind === "fake" ? 0 : Math.max(0, elapsed - command.at);
+  entry.answers[command.index] = { result: "ok", at: elapsed, reaction };
+  entry.correct += 1;
+  entry.reactionSum += reaction;
+  entry.score = entry.correct;
+}
+
+const flags = {
+  cooldown: 0,
+  fastHand: true,
+  create(arcade) {
+    arcade.flags = {
+      commands: buildFlagCommands(arcade.seed),
+      lives: FLAG_LIVES
+    };
+    Object.values(arcade.players).forEach((entry) => {
+      entry.lives = FLAG_LIVES;
+      entry.correct = 0;
+      entry.mistakes = 0;
+      entry.reactionSum = 0;
+      entry.answers = {};              // Kommandonummer → { result, at, reaction }
+      entry.pressed = {};              // Kommandonummer → { red, blue }
+      entry.outAt = null;
+      entry.lastPressAt = 0;
+      entry.lastMistakeAt = -1;
+      entry.raised = null;             // zuletzt gehobene Fahne, fürs Bild
+      entry.score = 0;
+    });
+  },
+  input(ctx, player, entry, input) {
+    if (input.action !== "flag" || !["red", "blue"].includes(input.flag)) return { ok: false, error: "Rot oder Blau?" };
+    if (entry.outAt) return { ok: true };
+    if (ctx.now - entry.lastPressAt < FLAG_MIN_PRESS_MS) return { ok: true };
+    entry.lastPressAt = ctx.now;
+    entry.raised = { flag: input.flag, at: ctx.elapsed };
+    const command = activeFlagCommand(ctx.arcade.flags.commands, ctx.elapsed);
+    // Ausserhalb eines Fensters passiert nichts — Fahne hoch ist erlaubt,
+    // es zählt nur eben nicht.
+    if (!command || entry.answers[command.index]) return { ok: true };
+    if (command.kind === "fake") {
+      flagMistake(entry, command, ctx.elapsed, "fooled");
+      return { ok: true };
+    }
+    if (command.kind === "both") {
+      const pressed = entry.pressed[command.index] || (entry.pressed[command.index] = { red: false, blue: false });
+      pressed[input.flag] = true;
+      if (pressed.red && pressed.blue) flagCorrect(entry, command, ctx.elapsed);
+      return { ok: true };
+    }
+    if (input.flag === command.kind) flagCorrect(entry, command, ctx.elapsed);
+    else flagMistake(entry, command, ctx.elapsed, "wrong");
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, elapsed } = ctx;
+    // Abgelaufene Fenster abrechnen: echte Kommandos ohne Antwort sind zu spät,
+    // Täuschungen ohne Druck sind richtig.
+    arcade.flags.commands.forEach((command) => {
+      if (elapsed <= command.at + command.window) return;
+      Object.values(arcade.players).forEach((entry) => {
+        if (entry.answers[command.index]) return;
+        if (entry.outAt && entry.outAt <= command.at + command.window) {
+          entry.answers[command.index] = { result: "out", at: command.at + command.window };
+          return;
+        }
+        if (command.kind === "fake") flagCorrect(entry, command, command.at + command.window);
+        else flagMistake(entry, command, command.at + command.window, "late");
+      });
+    });
+  },
+  bot(ctx, player, entry) {
+    const { arcade, elapsed } = ctx;
+    if (entry.outAt) return null;
+    const command = activeFlagCommand(arcade.flags.commands, elapsed);
+    if (!command || entry.answers[command.index]) return null;
+    if (entry.botCommand !== command.index) {
+      entry.botCommand = command.index;
+      const profile = entry.botProfile || { level: "normal", reactionMs: 550, spreadMs: 340, mistake: 0.16 };
+      entry.botReactAt = command.at + Math.max(180, (profile.reactionMs || 550) * 0.8 + (Math.random() - 0.3) * (profile.spreadMs || 300));
+      const r = Math.random();
+      const fooled = byLevel(entry, 0.5, 0.25, 0.08);
+      const wrong = byLevel(entry, 0.12, 0.05, 0.015);
+      entry.botPlan = command.kind === "fake"
+        ? (r < fooled ? [command.side] : [])
+        : command.kind === "both"
+          ? ["red", "blue"]
+          : [r < wrong ? (command.kind === "red" ? "blue" : "red") : command.kind];
+    }
+    if (elapsed < entry.botReactAt || !entry.botPlan.length) return null;
+    return { action: "flag", flag: entry.botPlan.shift() };
+  },
+  rank(arcade, entry) {
+    // Richtige zuerst, dann wer länger im Spiel war, dann die schnellere Hand.
+    const avg = entry.correct ? entry.reactionSum / entry.correct : 2000;
+    return (entry.correct || 0) * 100000 + (entry.lives || 0) * 10000 + Math.max(0, 9999 - Math.round(avg * 4));
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: entry.correct || 0, label: "richtig" };
+  },
+  done(ctx) {
+    const { room, arcade, elapsed } = ctx;
+    const commands = arcade.flags.commands;
+    const last = commands[commands.length - 1];
+    if (last && elapsed > last.at + last.window + 600) return true;
+    const entries = room.players.map((player) => arcade.players[player.id]).filter(Boolean);
+    const alive = entries.filter((entry) => !entry.outAt);
+    if (alive.length === 0) return true;
+    // Steht nur noch einer und hat schon mehr richtige als alle anderen, ist
+    // es entschieden — die übrigen Kommandos würde er allein abarbeiten.
+    if (entries.length > 1 && alive.length === 1) {
+      const best = Math.max(...entries.filter((entry) => entry !== alive[0]).map((entry) => entry.correct || 0));
+      return (alive[0].correct || 0) > best;
+    }
+    return false;
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
   tug,
-  face
+  face,
+  flags
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
 const PARTY_GAMES = [
   { type: "tauziehen", title: "Tauziehen", duration: TUG_DURATION_MS, arcadeFamily: "tug", seed: 811 },
-  { type: "grimassen", title: "Grimassen", duration: FACE_DURATION_MS, arcadeFamily: "face", seed: 823 }
+  { type: "grimassen", title: "Grimassen", duration: FACE_DURATION_MS, arcadeFamily: "face", seed: 823 },
+  { type: "flaggenhoch", title: "Flaggen hoch", duration: FLAG_DURATION_MS, arcadeFamily: "flags", seed: 827 }
 ];
 
 module.exports = {
@@ -446,8 +646,11 @@ module.exports = {
   constants: {
     TUG_LEAD_MS, TUG_ROUND_MS, TUG_SHOW_MS, TUG_ROUNDS, TUG_WINS, TUG_DURATION_MS,
     TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
-    FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS
+    FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS,
+    FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS
   },
+  buildFlagCommands,
+  activeFlagCommand,
   faceTarget,
   faceError,
   facePoints,

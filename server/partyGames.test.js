@@ -185,3 +185,73 @@ test("Grimassen: der starke Bot trifft besser als der schwache", () => {
   }
   assert.ok(scores.hard > scores.easy, JSON.stringify(scores));
 });
+
+// --- Flaggen hoch ----------------------------------------------------------
+
+test("Flaggen hoch: jede Runde hat Täuschungen und Doppelkommandos, nie zwei Fallen nacheinander", () => {
+  for (const seed of [827001, 827555, 827999, 12]) {
+    const commands = party.buildFlagCommands(seed);
+    const kinds = commands.map((c) => c.kind);
+    assert.ok(commands.length >= 20, `${commands.length} Kommandos`);
+    assert.ok(kinds.filter((k) => k === "fake").length >= 3, kinds.join(","));
+    assert.ok(kinds.filter((k) => k === "both").length >= 2, kinds.join(","));
+    assert.ok(kinds.slice(0, 3).every((k) => k === "red" || k === "blue"), "die ersten drei sind einfach");
+    kinds.forEach((k, i) => { if (i > 0) assert.ok(!(k === "fake" && kinds[i - 1] === "fake"), "zwei Fallen nacheinander"); });
+    commands.forEach((c, i) => { if (i > 0) assert.ok(c.at >= commands[i - 1].at + commands[i - 1].window, "Fenster überlappen"); });
+  }
+});
+
+test("Flaggen hoch: richtig, falsch, zu spät und reingefallen", () => {
+  const g = setup("flaggenhoch", 3);
+  const [a, b, c] = g.players;
+  const commands = g.arcade.flags.commands;
+  const first = commands[0];
+  g.run(0, first.at + 100, 30);
+  g.input(a, { action: "flag", flag: first.kind });
+  g.input(b, { action: "flag", flag: first.kind === "red" ? "blue" : "red" });
+  g.run(first.at + 130, first.at + first.window + 60, 30);
+  assert.equal(g.arcade.players[a.id].answers[0].result, "ok");
+  assert.equal(g.arcade.players[b.id].answers[0].result, "wrong");
+  assert.equal(g.arcade.players[c.id].answers[0].result, "late", "wer nichts tut, ist zu spät");
+  assert.equal(g.arcade.players[b.id].lives, C.FLAG_LIVES - 1);
+  // Eine Falle: wer drückt, fällt rein; wer stillhält, hat richtig.
+  const fake = commands.find((command) => command.kind === "fake");
+  g.run(first.at + first.window + 90, fake.at + 50, 30);
+  g.input(a, { action: "flag", flag: fake.side });
+  g.run(fake.at + 80, fake.at + fake.window + 60, 30);
+  assert.equal(g.arcade.players[a.id].answers[fake.index].result, "fooled");
+  g.restore();
+});
+
+test("Flaggen hoch: bei BEIDE zählt es erst, wenn beide Flaggen oben sind", () => {
+  const g = setup("flaggenhoch", 2);
+  const [p] = g.players;
+  const commands = g.arcade.flags.commands;
+  const both = commands.find((command) => command.kind === "both");
+  // Bis dahin alles richtig beantworten, damit niemand vorher rausfliegt.
+  g.run(0, both.at + 50, 20, (t) => {
+    const active = party.activeFlagCommand(commands, t);
+    if (!active || active === both || g.arcade.players[p.id].answers[active.index]) return;
+    if (active.kind === "red" || active.kind === "blue") g.input(p, { action: "flag", flag: active.kind });
+    if (active.kind === "both" && t > active.at + 100) { g.input(p, { action: "flag", flag: "red" }); g.at(t + 50); g.input(p, { action: "flag", flag: "blue" }); }
+  });
+  const vorher = g.arcade.players[p.id].correct;
+  g.input(p, { action: "flag", flag: "red" });
+  assert.equal(g.arcade.players[p.id].answers[both.index], undefined, "eine Flagge reicht nicht");
+  g.at(both.at + 120);
+  g.input(p, { action: "flag", flag: "blue" });
+  assert.equal(g.arcade.players[p.id].answers[both.index].result, "ok");
+  assert.equal(g.arcade.players[p.id].correct, vorher + 1);
+  g.restore();
+});
+
+test("Flaggen hoch: drei Fehler, und man ist raus", () => {
+  const g = setup("flaggenhoch", 2);
+  const [lazy] = g.players;
+  g.run(0, g.minigame.duration, 40);
+  const entry = g.arcade.players[lazy.id];
+  assert.equal(entry.lives, 0);
+  assert.ok(entry.outAt, "wer nie drückt, fliegt nach drei echten Kommandos raus");
+  assert.ok(entry.correct <= 3, "danach sammelt man nichts mehr");
+  g.restore();
+});

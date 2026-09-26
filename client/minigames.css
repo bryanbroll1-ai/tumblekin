@@ -2255,3 +2255,68 @@ canvas.is-stunned {
 .kinetic-hud .tug-teams ~ .color-banner {
   top: calc(98px + env(safe-area-inset-top));
 }
+
+/* Flaggen hoch: das Kommando steht gross in der Mitte. „Käpt'n sagt:"
+   darüber — fehlt die Zeile, ist es eine Falle. */
+.flag-call {
+  position: absolute;
+  top: calc(104px + env(safe-area-inset-top));
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  min-width: 190px;
+  padding: 6px 20px 10px;
+  border: 4px solid #ffffff;
+  border-radius: 22px;
+  background: #2f7bff;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: banner-pop 0.18s ease-out;
+}
+
+.flag-call[hidden] { display: none; }
+.flag-call[data-color="red"] { background: #ff3b52; }
+.flag-call[data-color="both"] { background: linear-gradient(90deg, #ff3b52 50%, #2f7bff 50%); }
+
+.flag-call small {
+  font-size: 0.9rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.flag-call.is-fake small {
+  visibility: hidden;
+}
+
+.flag-call b {
+  font-size: 2.4rem;
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
+}
+
+.flag-controls button {
+  min-height: 112px;
+  font-size: 1.8rem;
+  letter-spacing: 0.06em;
+}
+
+.flag-controls .flag-red {
+  border-color: #ffffff;
+  background: linear-gradient(180deg, #ff5d6f, #d81330);
+  box-shadow: 0 7px 0 #7c0a1c;
+}
+
+.flag-controls .flag-blue {
+  border-color: #ffffff;
+  background: linear-gradient(180deg, #4d95ff, #1757d6);
+  box-shadow: 0 7px 0 #0b2f7c;
+}
+
+.flag-controls button:disabled {
+  opacity: 0.45;
+}
