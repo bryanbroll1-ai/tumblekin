@@ -51,6 +51,51 @@ Die Tumblekin haben ein Gerüst — Hüfte, Rumpf, Kopf, zwei Arme, zwei Beine �
 
 Alle 40 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern eine Beschreibung — worauf geschaut wird, wie gross das Motiv ist, aus welchem Winkel — und rahmt in das Band, das Punkteleiste und Knöpfe frei lassen, im Hoch- wie im Querformat. Dazu kommen einheitlich ein Anflug im Countdown, eine Sicherung, die weglaufende Figuren ins Bild zurückholt, Schütteln mit Abklingen und eine Fahrt auf den Sieger in den letzten Sekunden.
 
+## 40 Orte
+
+Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Kulisse bewegt sich etwas: Fahnen wehen, Rauch steigt, Lichterketten laufen, Enten treiben vorbei.
+
+- Bumper Pool — Freibad mit Badeinsel, Liegen und Rutsche
+- Zielgerade — Laufbahn im Stadion mit Tribünen
+- Farbflucht — Farbfest mit Pulverwolken
+- Nervenprobe — Fernsehstudio mit Publikum und Kamera
+- Lichtwächter — Schlossgarten mit Formschnitt, Statuen und Springbrunnen
+- Pump-Panik — Geburtstagsfeier im Garten mit Torte und Geschenken
+- Fassmut — Holzhof vor dem Fasslager
+- Fassrolle — Wildbach mit Wasserfall, Felsen und Enten
+- Zündstoff — Zeltlager am Lagerfeuer
+- Münzregen — Goldmine mit Stollen, Lore und Dynamit
+- Blob-Klopfe — Gemüsegarten mit Vogelscheuche
+- Seilspringen — Schulhof mit Hüpfkästchen und Basketballkorb
+- Kanonenflug — Burghof mit Türmen und Ritterzelten
+- Messerwurf — Holzfällerlager mit Blockhütte
+- Turmbau — Baustelle mit schwenkendem Kran
+- Bergsteiger — verschneite Felswand mit Eiszapfen und Adler
+- Ballonfahrt — Bauernland mit Dörfern, Kühen und Bergkette
+- Trampolin — Zirkuswiese mit Manege und Zirkuszelt
+- Falschsignal — Weltraumbahnhof in der Dämmerung
+- Spurmaler — Maleratelier
+- Sortierband — Lagerhalle mit Hochregalen und Gabelstapler
+- Angelduell — See mit Steg und Schilf
+- Leuchtfolge — Zauberwald mit Pilzring und Glühlichtern
+- Blitzreflex — Rennstrecke an der Startampel
+- Nagelbrett — Pachinko-Stand auf einem japanischen Sommerfest
+- Eisstock — Weihnachtsmarkt mit Buden und Schneefall
+- Tiefenrausch — Tauchschacht mit Quallen
+- Farbenjagd — Graffiti-Hinterhof
+- Spürsinn — Grabungsstätte bei Laternenlicht
+- Augenmaß — Sommernacht mit Glühwürmchen
+- Tauziehen — Dorffest mit Schlammgrube
+- Grimassen — Jahrmarktbude
+- Flaggen hoch — Segelschiff auf See
+- Honigwabe — Bienengarten unter einem Apfelbaum
+- Schneeballhang — Gipfel mit Hütte und Tannen
+- Luftpuck — Neon-Spielhalle mit Discokugel
+- Bücherwurm — Riesenbuch auf dem Schreibtisch
+- Schnappschuss — Premiere auf dem roten Teppich
+- Kippboot — Südsee-Lagune mit Kranbrücke
+- Rohrsalat — Heizungskeller mit Dampfkessel
+
 ## 40 Challenges
 
 Alle Challenges sind auf einen Blick verständlich, dauern höchstens eine
@@ -263,6 +308,7 @@ Gemeinsame Bausteine der Minispiele:
 - `minigames/Kin.js` — Figur, Posen, Gesicht und `KinAnimator`.
 - `minigames/MinigameScene.js` — Grundgerüst jedes Spiels: Bühne, HUD, Figuren samt Schild und Schatten, eigener Pfeil, Partikel, Kamera, Finale, Abbau. Ein Spiel baut nur noch seine Welt und seine Handlung.
 - `minigames/CameraRig.js` — die Kamera aller Spiele (siehe oben).
+- `minigames/Kulisse.js` — Bausteine für Kulissen: Zäune, Wimpel, Heuballen, Bäume, Berge, Laternen, Tribünen, Himmel und Schilder. Gleiche Teile laufen als InstancedMesh in einem Zeichenaufruf, Zufall kommt aus einem Seed, damit jede Szene bei jedem Start gleich aussieht.
 - `minigames/VoxelKit.js` — Voxel-Bausteine, Partikel (`CubeBurst`) und Pop-up-Texte (`FloatingText`); reicht die Figur aus `Kin.js` weiter.
 - `minigames/SceneKit.js` — Renderer, Licht, HUD und Teardown.
 - `minigames/Quality.js` — Bewegungspräferenz (`prefers-reduced-motion`) und Gerätestufe; steuert Kamera-Shake, Partikelmenge, Schattenauflösung und Pixelratio.
