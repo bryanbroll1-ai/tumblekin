@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Nervenprobe: die Uhr läuft sichtbar an, dann verschwindet sie — man zählt im
 // Kopf weiter und drückt, wenn man glaubt, das Ziel sei erreicht.
@@ -207,11 +208,8 @@ export class Nervenprobe extends MinigameScene {
       pfuetze.position.set(x, 0.1, z);
       scene.add(pfuetze);
     });
-    // Publikumsränder im Vordergrund: dunkle Köpfe am unteren Bildrand. Im
-    // Hochformat ist das Sichtfeld dicht vor der Kamera nur gut einen Meter
-    // breit — mehr als drei, vier Köpfe passen dort ohnehin nicht ins Bild.
-    // Als Instanzen: 28 Einzelmeshes wären 28 Zeichenaufrufe für eine
-    // Silhouette, die sich nie bewegt.
+    this.buildAudience(scene);
+    // Der Vorhang hinter der Bühne.
     for (let i = 0; i < 12; i += 1) {
       const pleat = new THREE.Mesh(
         new THREE.BoxGeometry(0.95, 4.6, 0.4 + (i % 2) * 0.18),
@@ -320,6 +318,69 @@ export class Nervenprobe extends MinigameScene {
 
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.addStation(player, index, players.length));
+  }
+
+  // Studiopublikum vor der Bühne: drei Reihen Sitze mit Zuschauern, die man
+  // von hinten sieht, und rechts eine Fernsehkamera mit roter Lampe. Alles
+  // bleibt niedrig — die Köpfe liegen im Bild unter den Podesten.
+  buildAudience(scene) {
+    const zufall = streuer(17);
+    const plaetze = [];
+    [5.9, 7.0, 8.1].forEach((z, reihe) => {
+      for (let i = 0; i < 8; i += 1) {
+        const x = (i - 3.5) * 0.8 + (reihe % 2) * 0.25;
+        if (x > 2.0 && reihe === 0) continue;
+        plaetze.push({ x, z, farbe: ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b98cff", "#ff9a3c"][Math.floor(zufall() * 6)], haar: ["#2c2f38", "#6b4a2e", "#e8c15a", "#c8413b"][Math.floor(zufall() * 4)], phase: zufall() * 6 });
+      }
+    });
+    viele(scene, new THREE.BoxGeometry(0.62, 0.42, 0.1), lambert("#7a1f3a"), plaetze.map((p) => ({ p: [p.x, 0.38, p.z + 0.28] })));
+    viele(scene, new THREE.BoxGeometry(0.62, 0.08, 0.42), lambert("#5a1a2e"), plaetze.map((p) => ({ p: [p.x, 0.26, p.z + 0.06] })));
+    const koerper = new THREE.InstancedMesh(new THREE.BoxGeometry(0.38, 0.38, 0.26), new THREE.MeshLambertMaterial({ color: "#ffffff" }), plaetze.length);
+    const koepfe = new THREE.InstancedMesh(new THREE.BoxGeometry(0.28, 0.26, 0.26), new THREE.MeshLambertMaterial({ color: "#ffffff" }), plaetze.length);
+    plaetze.forEach((p, i) => {
+      koerper.setColorAt(i, new THREE.Color(p.farbe));
+      koepfe.setColorAt(i, new THREE.Color(p.haar));
+    });
+    [koerper, koepfe].forEach((m) => { m.frustumCulled = false; scene.add(m); });
+    this.audience = { plaetze, koerper, koepfe, jubel: 0 };
+    this.placeAudience(0);
+
+    // Fernsehkamera rechts.
+    const kamera = new THREE.Group();
+    kamera.position.set(2.9, 0, 5.6);
+    kamera.rotation.y = 0.35;
+    scene.add(kamera);
+    [0, 2.1, 4.2].forEach((a) => {
+      const bein = kiste(kamera, 0.05, 1.2, 0.05, "#2b3242", [Math.sin(a) * 0.25, 0.55, Math.cos(a) * 0.25], { schatten: false });
+      bein.rotation.set(Math.cos(a) * 0.35, 0, -Math.sin(a) * 0.35);
+    });
+    kiste(kamera, 0.4, 0.4, 0.7, "#2b3242", [0, 1.3, 0]);
+    const objektiv = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.35, 12), lambert("#1a1e28"));
+    objektiv.rotation.x = Math.PI / 2;
+    objektiv.position.set(0, 1.3, -0.5);
+    kamera.add(objektiv);
+    this.tally = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: "#ff3040" }));
+    this.tally.position.set(0.14, 1.55, -0.2);
+    kamera.add(this.tally);
+    kiste(kamera, 0.03, 0.03, 0.6, "#8a90a0", [0, 1.1, 0.5], { schatten: false }).rotation.x = 0.4;
+  }
+
+  placeAudience(now) {
+    const a = this.audience;
+    if (!a) return;
+    const o = new THREE.Object3D();
+    a.plaetze.forEach((p, i) => {
+      const hopser = a.jubel > 0 ? Math.max(0, Math.sin(now / 110 + p.phase)) * 0.18 * a.jubel : Math.sin(now / 900 + p.phase) * 0.015;
+      o.position.set(p.x, 0.5 + hopser, p.z);
+      o.rotation.set(0, 0, Math.sin(now / 1300 + p.phase) * 0.04);
+      o.updateMatrix();
+      a.koerper.setMatrixAt(i, o.matrix);
+      o.position.set(p.x, 0.83 + hopser, p.z);
+      o.updateMatrix();
+      a.koepfe.setMatrixAt(i, o.matrix);
+    });
+    a.koerper.instanceMatrix.needsUpdate = true;
+    a.koepfe.instanceMatrix.needsUpdate = true;
   }
 
   buildStopwatch() {
@@ -474,6 +535,11 @@ export class Nervenprobe extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
+    if (this.audience) {
+      this.audience.jubel += ((minigame?.finaleAt ? 1 : 0) - this.audience.jubel) * Math.min(1, dt * 3);
+      this.placeAudience(now);
+    }
+    if (this.tally) this.tally.visible = Math.floor(now / 700) % 2 === 0;
     if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
     const hidden = elapsed >= arcade.hideAfterMs;

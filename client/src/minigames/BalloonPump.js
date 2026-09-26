@@ -3,6 +3,7 @@ import { createCloud, standOn } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Pump-Panik — ein reiner Klicker: jeder Tipp pumpt den eigenen Ballon
 // grösser. Wer am Ende am meisten gepumpt hat, bringt seinen zum Platzen.
@@ -41,8 +42,9 @@ export class BalloonPump extends MinigameScene {
     dressMeadow(scene, {
       seed: 6, keepOut: { x: 4.8, z: 3.4 }, spread: { x: 17, z: 15 },
       grassColor: "#7ec96a", patchColors: ["#8ed477", "#a7e08c"],
-      crownColor: "#3fa05a", crownColor2: "#5cb96f", crownShape: "palm", trunkColor: "#94693c"
+      crownColor: "#3fa05a", crownColor2: "#5cb96f", crownShape: "blob", trunkColor: "#94693c"
     });
+    this.buildParty(scene);
 
     // Holzbühne mit Planken und einem Rand — eine Jahrmarktbühne, keine Platte.
     const deck = new THREE.Mesh(new THREE.BoxGeometry(7.2, DECK_Y, 3.2), new THREE.MeshLambertMaterial({ color: "#c98d4e" }));
@@ -196,8 +198,104 @@ export class BalloonPump extends MinigameScene {
     animator.trigger("pump");
   }
 
+  // Eine Geburtstagsfeier im Garten: vorn eine karierte Picknickdecke mit
+  // Torte und Kerzen, ein Geschenkestapel, ein Ballonbündel und Konfetti im
+  // Gras; hinten ein Partyzelt und das Haus.
+  buildParty(scene) {
+    const zufall = streuer(19);
+    const decke = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.25), new THREE.MeshLambertMaterial({ map: karoTextur() }));
+    decke.rotation.set(-Math.PI / 2, 0, 0.12);
+    decke.position.set(-0.95, 0.02, 3.3);
+    decke.receiveShadow = true;
+    scene.add(decke);
+    const torte = new THREE.Group();
+    torte.position.set(-0.95, 0.02, 3.25);
+    scene.add(torte);
+    [[0.34, 0.22, 0.11, "#ffb3c8"], [0.24, 0.18, 0.31, "#fff4e0"]].forEach(([r, h, y, farbe]) => {
+      const stufe = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), lambert(farbe));
+      stufe.position.y = y;
+      stufe.castShadow = true;
+      torte.add(stufe);
+    });
+    const kerzen = [0, 1, 2, 3, 4].map((i) => ({ p: [Math.cos(i * 1.26) * 0.14, 0.47, Math.sin(i * 1.26) * 0.14] }));
+    viele(torte, new THREE.CylinderGeometry(0.02, 0.02, 0.14, 6), lambert("#7fd6ff"), kerzen);
+    this.candleFlames = viele(torte, new THREE.SphereGeometry(0.03, 6, 4), new THREE.MeshBasicMaterial({ color: "#ffb020" }), kerzen.map((k) => ({ p: [k.p[0], 0.57, k.p[2]] })));
+    viele(scene, new THREE.CylinderGeometry(0.16, 0.16, 0.02, 12), lambert("#ffffff"), [[-1.55, 3.0], [-0.4, 3.7], [-1.45, 3.75]].map(([x, z]) => ({ p: [x, 0.03, z] })));
+    viele(scene, new THREE.CylinderGeometry(0.06, 0.05, 0.14, 8), lambert("#28c7d9"), [[-1.3, 2.85], [-0.5, 3.0]].map(([x, z]) => ({ p: [x, 0.09, z] })));
+
+    // Geschenke.
+    [[1.05, 3.0, 0.42, "#b98cff", "#ffd15c"], [1.5, 3.25, 0.32, "#28c7d9", "#ff5d73"], [1.2, 3.02, 0.26, "#ff5d73", "#ffffff", 0.34]].forEach(([x, z, g, farbe, band, y = 0]) => {
+      const paket = kiste(scene, g, g, g, farbe, [x, y + g / 2, z]);
+      paket.rotation.y = x * 0.6;
+      kiste(paket, g + 0.01, g + 0.01, 0.06, band, [0, 0, 0], { schatten: false });
+      kiste(paket, 0.06, g + 0.01, g + 0.01, band, [0, 0, 0], { schatten: false });
+      kiste(paket, 0.14, 0.06, 0.14, band, [0, g / 2 + 0.03, 0], { schatten: false }).rotation.y = 0.8;
+    });
+
+    // Ballonbündel an einem Gewicht.
+    this.partyBalloons = [];
+    kiste(scene, 0.14, 0.1, 0.14, "#8a90a0", [1.85, 0.05, 3.9]);
+    ["#ff5d73", "#ffd15c", "#28c7d9"].forEach((farbe, i) => {
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), lambert(farbe));
+      ball.scale.y = 1.2;
+      ball.userData = { basis: new THREE.Vector3(1.85 + (i - 1) * 0.2, 1.25 + (i % 2) * 0.22, 3.9 + (i === 1 ? -0.12 : 0.05)), phase: i * 2 };
+      scene.add(ball);
+      this.partyBalloons.push(ball);
+    });
+    const faeden = this.partyBalloons.map((b) => {
+      const faden = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 1, 4), lambert("#ffffff"));
+      scene.add(faden);
+      return faden;
+    });
+    this.partyStrings = faeden;
+
+    // Konfetti im Gras.
+    const farben = ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b98cff"];
+    farben.forEach((farbe) => {
+      const schnipsel = [];
+      for (let i = 0; i < 16; i += 1) schnipsel.push({ p: [(zufall() - 0.5) * 4.4, 0.015, 1.9 + zufall() * 3.4], r: [-Math.PI / 2, 0, zufall() * 3], s: 0.07 });
+      viele(scene, new THREE.PlaneGeometry(1, 1), lambert(farbe), schnipsel);
+    });
+
+    // Partyzelt rechts hinten und das Haus links.
+    const zelt = new THREE.Group();
+    zelt.position.set(2.8, 0, -6.5);
+    scene.add(zelt);
+    kiste(zelt, 3.2, 1.6, 2.4, "#fdfaf2", [0, 0.8, 0]);
+    const dach = new THREE.Mesh(new THREE.ConeGeometry(2.4, 1.2, 4), lambert("#fdfaf2"));
+    dach.rotation.y = Math.PI / 4;
+    dach.scale.set(1, 1, 0.78);
+    dach.position.y = 2.2;
+    zelt.add(dach);
+    const zacken = [];
+    for (let i = 0; i < 8; i += 1) zacken.push({ p: [-1.4 + i * 0.4, 1.52, 1.22], r: [Math.PI, 0, 0] });
+    viele(zelt, new THREE.ConeGeometry(0.2, 0.26, 3), lambert("#ff5d73"), zacken);
+    kiste(zelt, 1.4, 1.2, 0.02, "#e8dfcc", [0, 0.6, 1.21], { schatten: false });
+
+    const haus = new THREE.Group();
+    haus.position.set(-3.4, 0, -9.5);
+    haus.rotation.y = 0.2;
+    scene.add(haus);
+    kiste(haus, 4, 2.8, 3, "#f3d9b0", [0, 1.4, 0]);
+    [-1, 1].forEach((seite) => kiste(haus, 4.4, 0.14, 2, "#c8513b", [0, 3.3, seite * 0.72]).rotation.x = seite * 0.72);
+    kiste(haus, 0.8, 1.4, 0.05, "#6b4a2e", [0.6, 0.7, 1.52]);
+    viele(haus, new THREE.PlaneGeometry(0.6, 0.6), lambert("#8fc6e8"), [[-1.1, 1.6], [-1.1, 0.6], [1.5, 1.8]].map(([x, y]) => ({ p: [x, y, 1.53] })));
+  }
+
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale } = f;
+    if (this.candleFlames) this.candleFlames.scale.setScalar(1 + Math.sin(now / 70) * 0.15);
+    this.partyBalloons?.forEach((ball, i) => {
+      const b = ball.userData.basis;
+      ball.position.set(b.x + Math.sin(now / 900 + ball.userData.phase) * 0.05, b.y + Math.sin(now / 700 + ball.userData.phase) * 0.04, b.z);
+      const faden = this.partyStrings[i];
+      const unten = new THREE.Vector3(1.85, 0.1, 3.9);
+      const oben = ball.position.clone().add(new THREE.Vector3(0, -0.2, 0));
+      faden.position.copy(unten).lerp(oben, 0.5);
+      faden.scale.y = unten.distanceTo(oben);
+      faden.lookAt(oben);
+      faden.rotateX(Math.PI / 2);
+    });
     if (!arcade) return;
 
     let best = -1;
@@ -370,3 +468,22 @@ function buildCrown() {
 }
 
 export { standOn };
+
+// Rot-weiss karierte Picknickdecke.
+function karoTextur() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff8ee";
+  ctx.fillRect(0, 0, 128, 96);
+  ctx.fillStyle = "rgba(224, 69, 59, 0.55)";
+  for (let i = 0; i < 8; i += 2) {
+    ctx.fillRect(i * 16, 0, 16, 96);
+    ctx.fillRect(0, i * 16, 128, 16);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  return texture;
+}

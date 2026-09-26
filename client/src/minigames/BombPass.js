@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Zündstoff — heisse Kartoffel mit einer Bombe. Die Zündzeit blinkt kurz auf,
 // dann heisst es: merken und rechtzeitig weitergeben. Wer sie beim Knall hält,
@@ -139,6 +140,7 @@ export class BombPass extends MinigameScene {
       scene.add(crag);
     }
 
+    this.buildCamp(scene);
     this.buildBomb();
 
     const players = this.getState()?.players || [];
@@ -147,6 +149,101 @@ export class BombPass extends MinigameScene {
       this.spots.set(player.id, spot);
       this.addKin(player, index, { x: spot.x, ground: 0.3, z: spot.z, facing: spot.facing });
     });
+  }
+
+  // Ein Zeltlager am Abend: zwei Zelte hinter dem Platz, dunkle Tannen als
+  // Silhouetten, vorn ein Rucksack, eine Laterne, eine Gitarre, Stöcke mit
+  // Marshmallows und ein Schlafsack — und Glühwürmchen, die herumschwirren.
+  buildCamp(scene) {
+    const zufall = streuer(29);
+    // Zwei Zelte: dreieckige Prismen, die Öffnung zum Feuer.
+    const prisma = new THREE.CylinderGeometry(0.8, 0.8, 1.7, 3);
+    prisma.rotateX(-Math.PI / 2);
+    prisma.translate(0, 0.4, 0);
+    const tuer = new THREE.CircleGeometry(0.42, 3);
+    tuer.rotateZ(Math.PI / 2);
+    [[-3.3, -7.4, 0.5, "#e0703b"], [3.4, -7.8, -0.45, "#3f8fc8"]].forEach(([x, z, dreh, farbe]) => {
+      const zelt = new THREE.Group();
+      zelt.position.set(x, 0, z);
+      zelt.rotation.y = dreh;
+      scene.add(zelt);
+      const huelle = new THREE.Mesh(prisma, lambert(farbe));
+      huelle.castShadow = true;
+      zelt.add(huelle);
+      const eingang = new THREE.Mesh(tuer, lambert("#2c2436"));
+      eingang.position.set(0, 0.22, 0.86);
+      zelt.add(eingang);
+      kiste(zelt, 0.04, 0.06, 1.9, "#8a8a8a", [0, 1.21, 0], { schatten: false });
+    });
+    // Tannen als Silhouetten.
+    const tannen = [];
+    for (let i = 0; i < 16; i += 1) {
+      const x = -13 + i * 1.8 + (zufall() - 0.5) * 1.2;
+      if (Math.abs(x) < 1.4) continue;
+      const h = 2.6 + zufall() * 2.2;
+      tannen.push({ p: [x, h / 2, -10 - zufall() * 5], s: [h * 0.32, h, h * 0.32] });
+    }
+    viele(scene, new THREE.ConeGeometry(1, 1, 6), new THREE.MeshLambertMaterial({ color: "#1d2a2e" }), tannen);
+
+    // Vorn: Rucksack, Laterne, Gitarre, Marshmallows, Schlafsack.
+    const rucksack = new THREE.Group();
+    rucksack.position.set(-1.35, 0.3, 4.2);
+    rucksack.rotation.y = 0.5;
+    rucksack.scale.setScalar(0.8);
+    scene.add(rucksack);
+    kiste(rucksack, 0.5, 0.6, 0.32, "#2f8f5a", [0, 0.3, 0]);
+    kiste(rucksack, 0.36, 0.24, 0.1, "#27774a", [0, 0.22, 0.2]);
+    kiste(rucksack, 0.52, 0.14, 0.34, "#c8413b", [0, 0.64, 0]);
+    const laterne = new THREE.Group();
+    laterne.position.set(1.35, 0.3, 4.0);
+    scene.add(laterne);
+    kiste(laterne, 0.26, 0.05, 0.26, "#2c2f38", [0, 0.03, 0]);
+    this.campLantern = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.28, 0.2), new THREE.MeshBasicMaterial({ color: "#ffd88a" }));
+    this.campLantern.position.y = 0.2;
+    laterne.add(this.campLantern);
+    kiste(laterne, 0.26, 0.05, 0.26, "#2c2f38", [0, 0.37, 0]);
+    const buegel = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.015, 4, 10, Math.PI), lambert("#2c2f38"));
+    buegel.position.y = 0.4;
+    laterne.add(buegel);
+    const gitarre = new THREE.Group();
+    gitarre.position.set(0.55, 0.32, 4.8);
+    gitarre.rotation.set(-Math.PI / 2, 0, 0.9);
+    scene.add(gitarre);
+    [[0.2, 0, "#c98d4e"], [0.15, 0.28, "#c98d4e"]].forEach(([r, y, farbe]) => {
+      const bauch = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.1, 14), lambert(farbe));
+      bauch.rotation.x = Math.PI / 2;
+      bauch.position.y = y;
+      gitarre.add(bauch);
+    });
+    const loch = new THREE.Mesh(new THREE.CircleGeometry(0.06, 10), lambert("#2c1e14"));
+    loch.position.set(0, 0.12, 0.051);
+    gitarre.add(loch);
+    kiste(gitarre, 0.07, 0.6, 0.05, "#6b4a2e", [0, 0.68, 0]);
+    kiste(gitarre, 0.1, 0.14, 0.05, "#4a3222", [0, 1.02, 0]);
+    // Marshmallow-Stöcke, an die Steine gelehnt.
+    [[-0.7, 1.55, -0.5], [0.75, 1.5, 0.45]].forEach(([x, z, dreh]) => {
+      const stock = new THREE.Group();
+      stock.position.set(x, 0.3, z);
+      stock.rotation.set(0.9, dreh, 0);
+      scene.add(stock);
+      kiste(stock, 0.025, 0.9, 0.025, "#8a6238", [0, 0.45, 0], { schatten: false });
+      kiste(stock, 0.08, 0.09, 0.08, "#fff4e6", [0, 0.9, 0], { schatten: false });
+    });
+    const schlafsack = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.7, 12), lambert("#6a4fc4"));
+    schlafsack.rotation.z = Math.PI / 2;
+    schlafsack.position.set(-0.5, 0.48, 5.0);
+    scene.add(schlafsack);
+    viele(scene, new THREE.CylinderGeometry(0.185, 0.185, 0.05, 12), lambert("#3a2a7a"), [-0.2, 0, 0.2].map((dx) => ({ p: [-0.5 + dx, 0.48, 5.0], r: [0, 0, Math.PI / 2] })));
+
+    // Glühwürmchen.
+    this.fireflies = [];
+    const leucht = new THREE.MeshBasicMaterial({ color: "#e8ff8a" });
+    for (let i = 0; i < 14; i += 1) {
+      const f = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 4), leucht);
+      f.userData = { isFx: true, cx: (zufall() - 0.5) * 9, cz: -3 - zufall() * 5, cy: 0.8 + zufall() * 1.6, phase: zufall() * 10 };
+      scene.add(f);
+      this.fireflies.push(f);
+    }
   }
 
   buildBomb() {
@@ -261,6 +358,12 @@ export class BombPass extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale } = f;
+    this.fireflies?.forEach((ff) => {
+      const d = ff.userData;
+      ff.position.set(d.cx + Math.sin(now / 1700 + d.phase) * 0.8, d.cy + Math.sin(now / 900 + d.phase * 2) * 0.3, d.cz + Math.cos(now / 2100 + d.phase) * 0.6);
+      ff.visible = Math.sin(now / 400 + d.phase * 3) > -0.4;
+    });
+    if (this.campLantern) this.campLantern.scale.setScalar(1 + Math.sin(now / 120) * 0.03);
     if (!arcade) return;
 
     if ((arcade.explosions || 0) > this.lastExplosions) {

@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Trampolin: im Takt tippen — jeder Treffer trägt höher hinaus, ein
 // Fehlgriff kostet Höhe. Der Takt wird mit der Zeit schneller.
@@ -110,6 +111,7 @@ export class Trampoline extends MinigameScene {
 
     const players = this.getState()?.players || [];
     this.buildWorld(players.length);
+    this.buildCircus(players.length);
     players.forEach((player, index) => this.addPad(player, index, players.length));
   }
 
@@ -234,6 +236,91 @@ export class Trampoline extends MinigameScene {
     scene.add(moon);
   }
 
+  // Zirkuswiese: eine Manege mit Sägemehl und rot-weissem Rand um die
+  // Trampoline, dahinter das gestreifte Zirkuszelt mit Fahne, vorn ein
+  // Popcornwagen und Artistenpodeste mit Sternen.
+  buildCircus(count) {
+    const scene = this.scene;
+    const zufall = streuer(61);
+    const manege = new THREE.Mesh(new THREE.CircleGeometry(4.4, 40), lambert("#e6c58f"));
+    manege.rotation.x = -Math.PI / 2;
+    manege.position.set(0, 0.012, -0.6);
+    manege.receiveShadow = true;
+    scene.add(manege);
+    const spaene = [];
+    for (let i = 0; i < 70; i += 1) {
+      const a = zufall() * Math.PI * 2;
+      const r = Math.sqrt(zufall()) * 4.2;
+      spaene.push({ p: [Math.cos(a) * r, 0.016, -0.6 + Math.sin(a) * r], r: [-Math.PI / 2, 0, zufall() * 3], s: 0.05 + zufall() * 0.05 });
+    }
+    viele(scene, new THREE.PlaneGeometry(1, 1), lambert("#cfa56a"), spaene);
+    const rand = [[], []];
+    for (let i = 0; i < 36; i += 1) {
+      const a = (i / 36) * Math.PI * 2;
+      rand[i % 2].push({ p: [Math.cos(a) * 4.5, 0.16, -0.6 + Math.sin(a) * 4.5], r: [0, -a, 0] });
+    }
+    viele(scene, new THREE.BoxGeometry(0.28, 0.32, 0.8), lambert("#d8313b"), rand[0], { schatten: true });
+    viele(scene, new THREE.BoxGeometry(0.28, 0.32, 0.8), lambert("#fdf6ea"), rand[1], { schatten: true });
+
+    // Zirkuszelt.
+    const streifen = zirkusTextur();
+    const zelt = new THREE.Group();
+    zelt.position.set(1.6, 0, -10);
+    scene.add(zelt);
+    const wand = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 2.4, 24, 1, true), new THREE.MeshLambertMaterial({ map: streifen }));
+    wand.position.y = 1.2;
+    zelt.add(wand);
+    const dach = new THREE.Mesh(new THREE.ConeGeometry(3.7, 2.6, 24, 1, true), new THREE.MeshLambertMaterial({ map: streifen }));
+    dach.position.y = 3.7;
+    zelt.add(dach);
+    const zacken = [];
+    for (let i = 0; i < 24; i += 1) {
+      const a = (i / 24) * Math.PI * 2;
+      zacken.push({ p: [Math.sin(a) * 3.72, 2.3, Math.cos(a) * 3.72], r: [Math.PI, a, 0] });
+    }
+    viele(zelt, new THREE.ConeGeometry(0.26, 0.34, 3), lambert("#ffd15c"), zacken);
+    const eingang = new THREE.Mesh(new THREE.CircleGeometry(1.0, 3), lambert("#3a1a2a"));
+    eingang.geometry.rotateZ(Math.PI / 2);
+    eingang.position.set(0, 0.5, 3.41);
+    zelt.add(eingang);
+    kiste(zelt, 0.08, 1.4, 0.08, "#f3e6cf", [0, 5.6, 0], { schatten: false });
+    this.circusFlag = kiste(zelt, 0.8, 0.45, 0.03, "#d8313b", [0.42, 6.05, 0], { schatten: false });
+
+    // Popcornwagen links vorn.
+    const wagen = new THREE.Group();
+    // Tief und weit vorn: höher stehend verdeckte die Glashaube im Bild das
+    // Trampolin ganz links.
+    wagen.position.set(-1.75, 0, 7.2);
+    wagen.rotation.y = 0.4;
+    wagen.scale.setScalar(0.7);
+    scene.add(wagen);
+    kiste(wagen, 0.9, 0.6, 0.55, "#d8313b", [0, 0.55, 0]);
+    const glas = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.55, 0.5), new THREE.MeshLambertMaterial({ color: "#fff6c8", transparent: true, opacity: 0.55, depthWrite: false }));
+    glas.position.y = 1.13;
+    wagen.add(glas);
+    const koerner = [];
+    for (let i = 0; i < 24; i += 1) koerner.push({ p: [(zufall() - 0.5) * 0.7, 0.9 + zufall() * 0.22, (zufall() - 0.5) * 0.4] });
+    viele(wagen, new THREE.DodecahedronGeometry(0.05, 0), lambert("#fff4d0"), koerner);
+    kiste(wagen, 1.0, 0.1, 0.62, "#fdf6ea", [0, 1.45, 0]);
+    [[-0.4, 0.3], [0.4, 0.3]].forEach(([x, z]) => {
+      const rad = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.05, 12), lambert("#2c2f38"));
+      rad.rotation.x = Math.PI / 2;
+      rad.position.set(x, 0.18, z);
+      wagen.add(rad);
+    });
+
+    // Artistenpodeste mit Sternen rechts vorn.
+    [[1.35, 6.4, 0.42, "#2f6fb0"], [1.85, 7.0, 0.3, "#ffd15c"]].forEach(([x, z, h, farbe]) => {
+      const podest = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, h, 16), lambert(farbe));
+      podest.position.set(x, h / 2, z);
+      podest.castShadow = true;
+      scene.add(podest);
+      const stern = new THREE.Mesh(new THREE.CircleGeometry(0.14, 5), lambert("#ffffff"));
+      stern.position.set(x, h / 2, z + 0.37);
+      scene.add(stern);
+    });
+  }
+
   laneX(index, count) {
     return (index - (count - 1) / 2) * LANE_GAP;
   }
@@ -300,6 +387,7 @@ export class Trampoline extends MinigameScene {
   }
 
   tick(f) {
+    if (this.circusFlag) this.circusFlag.rotation.y = Math.sin(f.now / 380) * 0.35;
     // Wolken ziehen, Ballons schweben.
     const drift = (f.dt || 0);
     this.skyClouds?.forEach((entry) => {
@@ -458,4 +546,19 @@ export class Trampoline extends MinigameScene {
       }
     }
   }
+}
+
+// Rot-weisse Zirkusstreifen für Zeltwand und Dach.
+function zirkusTextur() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 8;
+  const ctx = canvas.getContext("2d");
+  for (let i = 0; i < 16; i += 1) {
+    ctx.fillStyle = i % 2 ? "#fdf6ea" : "#d8313b";
+    ctx.fillRect(i * 16, 0, 16, 8);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
