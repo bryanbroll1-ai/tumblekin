@@ -23,7 +23,8 @@ export const GESTURES = {
   flags: { icon: "👆🚩", label: "Rot oder Blau tippen" },
   pick: { icon: "👆🍎", label: "Eins oder zwei pflücken" },
   stickThrow: { icon: "🕹️👆", label: "Stick steuern, Knopf werfen" },
-  stickShove: { icon: "🕹️💥", label: "Stick laufen, Knopf schubsen" }
+  stickShove: { icon: "🕹️💥", label: "Stick laufen, Knopf schubsen" },
+  follow: { icon: "👀👆", label: "Mit den Augen folgen, dann tippen" }
 };
 
 export const MINIGAME_CATALOG = [
@@ -65,7 +66,8 @@ export const MINIGAME_CATALOG = [
   { type: "luftpuck", title: "Luftpuck", family: "hockey", gesture: "joystick", help: "Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte; lenk sie mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende." },
   { type: "buecherwurm", title: "Bücherwurm", family: "book", gesture: "joystick", help: "Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten." },
   { type: "schnappschuss", title: "Schnappschuss", family: "photo", gesture: "stickShove", help: "Premiere auf dem roten Teppich! Die Kameradrohne zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und wer ganz allein drauf ist, bekommt noch 5. SCHUBS lässt dich nach vorn schnellen und stösst alle vor dir aus dem Bild." },
-  { type: "kippboot", title: "Kippboot", family: "boat", gesture: "tap", help: "Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier — Küken, Pinguin, Schaf oder Schwein. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker; die Wasserwaage oben zeigt, wie schief es liegt. Wer es zum Kentern bringt, verliert zehn Punkte. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu." }
+  { type: "kippboot", title: "Kippboot", family: "boat", gesture: "tap", help: "Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier — Küken, Pinguin, Schaf oder Schwein. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker; die Wasserwaage oben zeigt, wie schief es liegt. Wer es zum Kentern bringt, verliert zehn Punkte. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu." },
+  { type: "rohrsalat", title: "Rohrsalat", family: "pipes", gesture: "follow", help: "Im Kesselhaus hängt ein Gewirr aus Kupferrohren: oben Ventile, unten Ausgänge, nur einer führt in die Schatztruhe. Folge einem Rohr mit den Augen nach unten und bieg an jedem Querrohr ab — dann tipp das richtige Ventil an. Richtig bringt 100 Punkte plus bis zu 60 fürs Tempo, falsch eine Ladung Russ. Vier Runden, jedes Mal mehr Rohre." }
 ];
 
 export const ARCADE_TYPES = new Set(

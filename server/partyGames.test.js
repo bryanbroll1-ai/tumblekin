@@ -574,3 +574,39 @@ test("Kippboot: ein volles Boot legt ab, und alle Lader bekommen die Zugabe", ()
   assert.ok(g.arcade.players[b.id].score >= before.b + C.BOAT_DEPART_BONUS);
   g.restore();
 });
+
+// --- Rohrsalat -------------------------------------------------------------
+
+test("Rohrsalat: jedes Rohrnetz ist eine Vertauschung mit genau einer richtigen Lösung", () => {
+  for (const seed of [877001, 877555, 42]) {
+    for (let round = 0; round < C.PIPE_ROUNDS; round += 1) {
+      const maze = party.buildPipeRound(seed, round);
+      const ends = [...Array(maze.cols).keys()].map((v) => party.pipeTrace(maze.rungs, v));
+      assert.deepEqual([...ends].sort((a, b) => a - b), [...Array(maze.cols).keys()], "jeder Ausgang genau einmal");
+      assert.equal(party.pipeTrace(maze.rungs, maze.answer), maze.target);
+      // Zwei Querrohre auf derselben Höhe teilen sich nie ein Rohr.
+      maze.rungs.forEach((r, i) => maze.rungs.forEach((o, k) => {
+        if (i !== k && r.level === o.level) assert.ok(Math.abs(r.col - o.col) >= 2);
+      }));
+    }
+  }
+});
+
+test("Rohrsalat: richtig und schnell bringt am meisten, falsch nichts, eine Wahl je Runde", () => {
+  const g = setup("rohrsalat", 3);
+  const [fast, slow, wrong] = g.players;
+  const maze = g.arcade.pipes.rounds[0];
+  g.run(0, C.PIPE_LEAD_MS + 500, 50);
+  g.input(fast, { action: "pick", valve: maze.answer });
+  g.input(fast, { action: "pick", valve: (maze.answer + 1) % maze.cols });
+  g.input(wrong, { action: "pick", valve: (maze.answer + 1) % maze.cols });
+  g.run(C.PIPE_LEAD_MS + 550, C.PIPE_LEAD_MS + 6000, 50);
+  g.input(slow, { action: "pick", valve: maze.answer });
+  g.run(C.PIPE_LEAD_MS + 6050, C.PIPE_LEAD_MS + C.PIPE_ANSWER_MS[0] + 200, 50);
+  const r = (p) => g.arcade.players[p.id].results[0];
+  assert.equal(r(fast).valve, maze.answer, "die erste Wahl zählt");
+  assert.ok(r(fast).correct && r(slow).correct && !r(wrong).correct);
+  assert.ok(r(fast).points > r(slow).points && r(slow).points >= C.PIPE_POINTS);
+  assert.equal(r(wrong).points, 0);
+  g.restore();
+});

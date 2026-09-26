@@ -2176,6 +2176,149 @@ const boat = {
   }
 };
 
+
+// --- Rohrsalat -------------------------------------------------------------
+//
+// An der Wand des Kesselhauses hängt ein Gewirr aus Rohren: oben Ventile,
+// unten Ausgänge, dazwischen Querrohre. Nur ein Ausgang führt in die
+// Schatztruhe. Welches Ventil muss man aufdrehen? Man folgt mit den Augen
+// einem Rohr nach unten und biegt bei jedem Querrohr ab — wie bei einer
+// Leiterlotterie. Wer richtig liegt, bekommt Punkte, und zwar umso mehr, je
+// schneller er war. Wer falsch liegt, bekommt eine Ladung Russ.
+const PIPE_ROUNDS = 4;
+const PIPE_LEAD_MS = 1200;
+const PIPE_ANSWER_MS = [8500, 8000, 7500, 7000];
+const PIPE_REVEAL_MS = 2600;
+const PIPE_LEVELS = 12;
+const PIPE_POINTS = 100;
+const PIPE_SPEED_BONUS = 60;
+const PIPE_COLS = [4, 5, 5, 6];
+const PIPE_RUNGS = [7, 10, 12, 15];
+
+function buildPipeRound(seed, round) {
+  const cols = PIPE_COLS[round];
+  const wanted = PIPE_RUNGS[round];
+  const rungs = [];
+  const taken = new Set();
+  let tries = 0;
+  while (rungs.length < wanted && tries < 400) {
+    tries += 1;
+    const level = Math.floor(noise(seed + round * 997 + tries * 13) * PIPE_LEVELS);
+    const col = Math.floor(noise(seed + round * 991 + tries * 7) * (cols - 1));
+    // Zwei Querrohre auf derselben Höhe dürfen sich kein Rohr teilen.
+    if (taken.has(`${level}:${col}`) || taken.has(`${level}:${col - 1}`) || taken.has(`${level}:${col + 1}`)) continue;
+    taken.add(`${level}:${col}`);
+    rungs.push({ level, col });
+  }
+  rungs.sort((a, b) => a.level - b.level || a.col - b.col);
+  const target = Math.floor(noise(seed + round * 983 + 5) * cols);
+  const answer = [...Array(cols).keys()].find((valve) => pipeTrace(rungs, valve) === target);
+  return { round, cols, rungs, target, answer };
+}
+
+// Einem Rohr von oben folgen: bei jedem Querrohr auf der Höhe biegt man ab.
+function pipeTrace(rungs, start) {
+  let col = start;
+  for (let level = 0; level < PIPE_LEVELS; level += 1) {
+    if (rungs.some((r) => r.level === level && r.col === col)) col += 1;
+    else if (rungs.some((r) => r.level === level && r.col === col - 1)) col -= 1;
+  }
+  return col;
+}
+
+function pipePhase(elapsed) {
+  let t = elapsed - PIPE_LEAD_MS;
+  if (t < 0) return { phase: "lead", round: 0, since: elapsed };
+  for (let round = 0; round < PIPE_ROUNDS; round += 1) {
+    const answer = PIPE_ANSWER_MS[round];
+    if (t < answer) return { phase: "answer", round, since: t, left: answer - t };
+    t -= answer;
+    if (t < PIPE_REVEAL_MS) return { phase: "reveal", round, since: t };
+    t -= PIPE_REVEAL_MS;
+  }
+  return { phase: "over", round: PIPE_ROUNDS - 1, since: t };
+}
+
+const PIPE_DURATION_MS = PIPE_LEAD_MS + PIPE_ANSWER_MS.reduce((a, b) => a + b, 0) + PIPE_ROUNDS * PIPE_REVEAL_MS + 400;
+
+const pipes = {
+  cooldown: 150,
+  fastHand: false,
+  create(arcade) {
+    arcade.pipes = {
+      rounds: Array.from({ length: PIPE_ROUNDS }, (_, round) => buildPipeRound(arcade.seed, round)),
+      levels: PIPE_LEVELS,
+      leadMs: PIPE_LEAD_MS,
+      answerMs: PIPE_ANSWER_MS,
+      revealMs: PIPE_REVEAL_MS,
+      scored: -1
+    };
+    Object.values(arcade.players).forEach((entry) => {
+      entry.picks = [];                // je Runde { valve, ms }
+      entry.results = [];              // je Runde { correct, points }
+      entry.correct = 0;
+      entry.score = 0;
+    });
+  },
+  input(ctx, player, entry, input) {
+    if (input.action !== "pick") return { ok: false, error: "Tippe ein Ventil an." };
+    const { phase, round, since } = pipePhase(ctx.elapsed);
+    if (phase !== "answer") return { ok: true };
+    if (entry.picks[round]) return { ok: true };
+    const maze = ctx.arcade.pipes.rounds[round];
+    const valve = Number(input.valve);
+    if (!Number.isInteger(valve) || valve < 0 || valve >= maze.cols) return { ok: false, error: "Dieses Ventil gibt es nicht." };
+    entry.picks[round] = { valve, ms: Math.round(since) };
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, elapsed } = ctx;
+    const state = arcade.pipes;
+    const { phase, round } = pipePhase(elapsed);
+    const due = phase === "reveal" || phase === "over" ? round : round - 1;
+    while (state.scored < due) {
+      state.scored += 1;
+      const maze = state.rounds[state.scored];
+      const answerMs = PIPE_ANSWER_MS[state.scored];
+      Object.values(arcade.players).forEach((entry) => {
+        const pick = entry.picks[state.scored];
+        const correct = Boolean(pick && pick.valve === maze.answer);
+        const points = correct ? PIPE_POINTS + Math.round(PIPE_SPEED_BONUS * Math.max(0, 1 - pick.ms / answerMs)) : 0;
+        entry.results[state.scored] = { correct, points, valve: pick ? pick.valve : null };
+        if (correct) entry.correct += 1;
+        entry.score += points;
+      });
+    }
+  },
+  bot(ctx, player, entry) {
+    const { arcade, elapsed } = ctx;
+    const { phase, round, since } = pipePhase(elapsed);
+    if (phase !== "answer" || entry.picks[round]) return null;
+    const maze = arcade.pipes.rounds[round];
+    if (entry.botRound !== round) {
+      entry.botRound = round;
+      // Wie lange der Bot „mit den Augen folgt" und wie oft er sich verzählt.
+      const think = byLevel(entry, 5200, 3800, 2500) + maze.rungs.length * byLevel(entry, 60, 40, 25);
+      entry.botAt = Math.min(PIPE_ANSWER_MS[round] - 300, think * (0.8 + Math.random() * 0.4));
+      const right = byLevel(entry, 0.4, 0.68, 0.9) - maze.rungs.length * 0.008;
+      entry.botValve = Math.random() < right
+        ? maze.answer
+        : (maze.answer + 1 + Math.floor(Math.random() * (maze.cols - 1))) % maze.cols;
+    }
+    if (since < entry.botAt) return null;
+    return { action: "pick", valve: entry.botValve };
+  },
+  rank(arcade, entry) {
+    return Math.max(0, Math.round(entry.score || 0)) * 10 + (entry.correct || 0);
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte" };
+  },
+  done(ctx) {
+    return pipePhase(ctx.elapsed).phase === "over";
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
@@ -2187,7 +2330,8 @@ const PARTY_FAMILIES = {
   hockey,
   book,
   photo,
-  boat
+  boat,
+  pipes
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
@@ -2200,7 +2344,8 @@ const PARTY_GAMES = [
   { type: "luftpuck", title: "Luftpuck", duration: HOCKEY_DURATION_MS, arcadeFamily: "hockey", seed: 853 },
   { type: "buecherwurm", title: "Bücherwurm", duration: BOOK_DURATION_MS, arcadeFamily: "book", seed: 857 },
   { type: "schnappschuss", title: "Schnappschuss", duration: PHOTO_DURATION_MS, arcadeFamily: "photo", seed: 859 },
-  { type: "kippboot", title: "Kippboot", duration: BOAT_DURATION_MS, arcadeFamily: "boat", seed: 863 }
+  { type: "kippboot", title: "Kippboot", duration: BOAT_DURATION_MS, arcadeFamily: "boat", seed: 863 },
+  { type: "rohrsalat", title: "Rohrsalat", duration: PIPE_DURATION_MS, arcadeFamily: "pipes", seed: 877 }
 ];
 
 module.exports = {
@@ -2216,8 +2361,12 @@ module.exports = {
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS,
     BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS,
     PHOTO_W, PHOTO_D, PHOTO_IN, PHOTO_COVER, PHOTO_SOLO, PHOTO_SHOVE_COOLDOWN_MS,
-    BOAT_LEAD_MS, BOAT_REACH, BOAT_TORQUE_MAX, BOAT_CAPACITY, BOAT_CAPSIZE_COST, BOAT_DEPART_BONUS
+    BOAT_LEAD_MS, BOAT_REACH, BOAT_TORQUE_MAX, BOAT_CAPACITY, BOAT_CAPSIZE_COST, BOAT_DEPART_BONUS,
+    PIPE_ROUNDS, PIPE_LEAD_MS, PIPE_ANSWER_MS, PIPE_REVEAL_MS, PIPE_LEVELS, PIPE_POINTS, PIPE_SPEED_BONUS
   },
+  buildPipeRound,
+  pipeTrace,
+  pipePhase,
   boatSwingX,
   boatTorque,
   boatPoints,

@@ -2563,3 +2563,43 @@ canvas.is-stunned {
 .kinetic-hud .boat-level ~ .color-banner {
   top: calc(124px + env(safe-area-inset-top));
 }
+
+/* Rohrsalat: ein Knopf je Ventil, in dessen Farbe. */
+.pipe-controls {
+  display: flex;
+  gap: 8px;
+  width: min(100%, 420px);
+  margin: 0 auto;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: rgba(18, 14, 12, 0.88);
+}
+
+.pipe-controls button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 96px;
+  border: 3px solid #ffffff;
+  border-radius: 18px;
+  background: var(--valve);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
+  color: #1c1c28;
+  font-size: 2rem;
+  font-weight: 1000;
+  touch-action: manipulation;
+}
+
+.pipe-controls button:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+
+.pipe-controls button:disabled {
+  opacity: 0.38;
+}
+
+.pipe-controls button.is-picked {
+  opacity: 1;
+  outline: 4px solid #ffe25c;
+  outline-offset: 2px;
+}
