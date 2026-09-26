@@ -367,3 +367,58 @@ test("Schneeballhang: die eigene grosse Kugel ist ein Schild", () => {
   assert.equal(ea.score, 0);
   g.restore();
 });
+
+// --- Luftpuck --------------------------------------------------------------
+
+test("Luftpuck: jeder bleibt in seiner Hälfte", () => {
+  const g = setup("luftpuck", 2);
+  const [a, b] = g.players;
+  g.input(a, { action: "steer", x: 0, y: -1 });      // Team 0 will nach oben über die Mitte
+  g.input(b, { action: "steer", x: 0, y: 1 });       // Team 1 nach unten
+  g.run(0, 3000, 30, () => { g.input(a, { action: "steer", x: 0, y: -1 }); g.input(b, { action: "steer", x: 0, y: 1 }); });
+  assert.ok(g.arcade.players[a.id].z > 0, "Team 0 bleibt unten");
+  assert.ok(g.arcade.players[b.id].z < 0, "Team 1 bleibt oben");
+  g.restore();
+});
+
+test("Luftpuck: ein Schuss ins Tor zählt für das andere Team, dann Anstoss", () => {
+  const g = setup("luftpuck", 2);
+  const [a] = g.players;
+  const state = g.arcade.hockey;
+  g.run(0, C.HOCKEY_SERVE_MS + 100, 30);
+  // Puck direkt aufs obere Tor (das von Team 1) schicken; der Torwart steht
+  // aus dem Weg.
+  Object.assign(g.arcade.players[g.players[1].id], { x: 1.8, z: -1 });
+  Object.assign(state.puck, { x: 0, z: -2, vx: 0, vz: -8 });
+  state.lastTouch = a.id;
+  g.run(C.HOCKEY_SERVE_MS + 130, C.HOCKEY_SERVE_MS + 900, 20);
+  assert.deepEqual(state.score, [1, 0]);
+  assert.equal(g.arcade.players[a.id].goals, 1);
+  assert.equal(state.puck.x, 0);
+  assert.equal(state.puck.z, 0, "nach dem Tor liegt der Puck in der Mitte");
+  g.restore();
+});
+
+test("Luftpuck: ein eingeklemmter Puck wird freigeblasen", () => {
+  const g = setup("luftpuck", 2);
+  const [a] = g.players;
+  const state = g.arcade.hockey;
+  g.run(0, C.HOCKEY_SERVE_MS + 100, 30);
+  // Scheibe drückt den Puck in die Ecke.
+  const corner = { x: C.HOCKEY_W / 2 - C.HOCKEY_PUCK_R, z: C.HOCKEY_L / 2 - C.HOCKEY_PUCK_R };
+  Object.assign(state.puck, { ...corner, vx: 0, vz: 0 });
+  Object.assign(g.arcade.players[a.id], { x: corner.x - 0.4, z: corner.z - 0.4 });
+  g.run(C.HOCKEY_SERVE_MS + 130, C.HOCKEY_SERVE_MS + 2600, 30, () => g.input(a, { action: "steer", x: 1, y: 1 }));
+  assert.ok(state.nudges >= 1, "der Tisch hat geblasen");
+  g.restore();
+});
+
+test("Luftpuck: fünf Tore beenden das Spiel", () => {
+  const g = setup("luftpuck", 2);
+  g.arcade.hockey.score = [5, 2];
+  g.run(0, 2000, 50);
+  assert.ok(g.minigame.finaleAt, "Finale beginnt");
+  const [a, b] = g.players;
+  assert.ok(arcadeRankingScore(g.arcade, g.arcade.players[a.id]) > arcadeRankingScore(g.arcade, g.arcade.players[b.id]));
+  g.restore();
+});

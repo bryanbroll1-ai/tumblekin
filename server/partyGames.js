@@ -1171,6 +1171,339 @@ const snow = {
   }
 };
 
+
+// --- Luftpuck --------------------------------------------------------------
+//
+// Airhockey, zwei gegen zwei. Jeder steht auf einer Schwebescheibe und bleibt
+// in seiner Hälfte; der Puck gleitet fast ohne Reibung und prallt von den
+// Banden ab. Das eigene Tor liegt für Team 0 vorn (zur Kamera), für Team 1
+// hinten. Wer zuerst fünf Tore hat, gewinnt — sonst nach Ablauf der Zeit.
+//
+// Ein Einzelner gegen zwei bekommt eine grössere Scheibe; wer allein spielt,
+// hat einen Torwart-Roboter gegen sich.
+const HOCKEY_W = 4.4;                  // Tischbreite
+const HOCKEY_L = 7.4;                  // Tischlänge
+const HOCKEY_GOAL = 2.2;               // Torbreite
+const HOCKEY_DURATION_MS = 46000;
+const HOCKEY_WIN = 5;
+const HOCKEY_MALLET_R = 0.36;
+const HOCKEY_SOLO_R = 0.48;
+const HOCKEY_PUCK_R = 0.22;
+const HOCKEY_SPEED = 4.3;
+const HOCKEY_ACCEL = 16;
+const HOCKEY_PUCK_DAMP = 0.18;         // der Puck gleitet fast frei
+const HOCKEY_PUCK_MAX = 9.5;
+const HOCKEY_WALL_REST = 0.9;
+const HOCKEY_HIT_REST = 0.85;
+const HOCKEY_SERVE_MS = 1300;          // Pause nach einem Tor
+const HOCKEY_SUBSTEPS = 5;
+const HOCKEY_ROBOT = "robot";
+
+function hockeyLimits(side, r) {
+  // Team 0 unten (z > 0), Team 1 oben (z < 0); die Mittellinie ist die Grenze.
+  const zMin = side === 0 ? 0.12 + r : -HOCKEY_L / 2 + r;
+  const zMax = side === 0 ? HOCKEY_L / 2 - r : -0.12 - r;
+  return { xMin: -HOCKEY_W / 2 + r, xMax: HOCKEY_W / 2 - r, zMin, zMax };
+}
+
+function hockeyServe(state, towardSide, now) {
+  state.puck = { x: 0, z: 0, vx: 0, vz: 0 };
+  state.serveAt = now + HOCKEY_SERVE_MS;
+  state.serveToward = towardSide;
+  state.lastTouch = null;
+}
+
+const hockey = {
+  cooldown: 0,
+  fastHand: true,
+  create(arcade, players) {
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      entry.side = players.length === 1 ? 0 : index % 2;
+    });
+    const sizes = [0, 1].map((side) => Object.values(arcade.players).filter((e) => e.side === side).length);
+    const robot = players.length === 1;
+    arcade.hockey = {
+      w: HOCKEY_W,
+      l: HOCKEY_L,
+      goalW: HOCKEY_GOAL,
+      puckR: HOCKEY_PUCK_R,
+      score: [0, 0],
+      win: HOCKEY_WIN,
+      goals: [],                       // { side, by, at }
+      puck: { x: 0, z: 0, vx: 0, vz: 0 },
+      serveAt: 0,
+      serveToward: 0,
+      lastTouch: null,
+      touches: 0,
+      robot: robot ? { x: 0, z: -HOCKEY_L / 2 + 0.9, vx: 0, vz: 0, r: HOCKEY_MALLET_R } : null
+    };
+    const team = [[], []];
+    players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      const r = sizes[entry.side] < Math.max(...sizes) ? HOCKEY_SOLO_R : HOCKEY_MALLET_R;
+      const slot = team[entry.side].length;
+      team[entry.side].push(player.id);
+      const count = sizes[entry.side];
+      const x = count > 1 ? (slot === 0 ? -0.9 : 0.9) : 0;
+      const z = (entry.side === 0 ? 1 : -1) * (count > 1 && slot === 1 ? 2.6 : 1.8);
+      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, r, role: slot === 0 ? "sturm" : "abwehr", goals: 0, ownGoals: 0, touches: 0, lastTouchAt: 0, score: 0 });
+    });
+    hockeyServe(arcade.hockey, 0, arcade.startedAt);
+  },
+  input(ctx, player, entry, input) {
+    if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
+    const x = Number(input.x);
+    const y = Number(input.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
+    const len = Math.hypot(x, y);
+    const k = len > 1 ? 1 / len : 1;
+    entry.dirX = x * k;
+    entry.dirZ = y * k;
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, room, now } = ctx;
+    const state = arcade.hockey;
+    const frame = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    const mallets = room.players.map((player) => ({ id: player.id, e: arcade.players[player.id] })).filter((m) => m.e);
+    if (state.robot) mallets.push({ id: HOCKEY_ROBOT, e: state.robot, robot: true });
+    const dt = frame / HOCKEY_SUBSTEPS;
+    const serving = now < state.serveAt;
+    if (!serving && state.serveAt && !state.served) {
+      // Anstoss: der Puck rutscht langsam zu dem Team, das das Tor kassiert hat.
+      state.served = true;
+      state.puck.vz = (state.serveToward === 0 ? 1 : -1) * 1.1;
+      state.puck.vx = (Math.random() - 0.5) * 0.6;
+    }
+    // Der Roboter hält die Mitte seines Tores und schiebt, was kommt, zurück.
+    if (state.robot) {
+      const p = state.puck;
+      const tx = clamp(p.x * 0.7, -HOCKEY_GOAL / 2, HOCKEY_GOAL / 2);
+      const tz = p.z < -0.6 && p.vz < 0.5 ? p.z - 0.2 : -HOCKEY_L / 2 + 0.9;
+      const dx = tx - state.robot.x;
+      const dz = tz - state.robot.z;
+      const d = Math.hypot(dx, dz);
+      state.robot.dirX = d > 0.05 ? (dx / d) * Math.min(1, d * 2) * 0.55 : 0;
+      state.robot.dirZ = d > 0.05 ? (dz / d) * Math.min(1, d * 2) * 0.55 : 0;
+    }
+    for (let step = 0; step < HOCKEY_SUBSTEPS; step += 1) {
+      mallets.forEach(({ e, robot }) => {
+        const side = robot ? 1 : e.side;
+        const speed = HOCKEY_SPEED * (e.r > HOCKEY_MALLET_R ? 1.08 : 1);
+        e.vx += ((e.dirX || 0) * speed - e.vx) * Math.min(1, HOCKEY_ACCEL * dt);
+        e.vz += ((e.dirZ || 0) * speed - e.vz) * Math.min(1, HOCKEY_ACCEL * dt);
+        const lim = hockeyLimits(side, e.r);
+        const nx = clamp(e.x + e.vx * dt, lim.xMin, lim.xMax);
+        const nz = clamp(e.z + e.vz * dt, lim.zMin, lim.zMax);
+        // Tatsächliche Geschwindigkeit (nach der Bande) — die gibt den Stoss.
+        e.mvx = (nx - e.x) / dt;
+        e.mvz = (nz - e.z) / dt;
+        e.x = nx;
+        e.z = nz;
+      });
+      // Scheiben untereinander (im selben Team) schieben sich auseinander.
+      for (let a = 0; a < mallets.length; a += 1) {
+        for (let b = a + 1; b < mallets.length; b += 1) {
+          const one = mallets[a].e;
+          const two = mallets[b].e;
+          const dx = two.x - one.x;
+          const dz = two.z - one.z;
+          const dist = Math.hypot(dx, dz);
+          const min = one.r + two.r;
+          if (dist >= min || dist < 1e-6) continue;
+          const push = (min - dist) / 2;
+          one.x -= (dx / dist) * push;
+          one.z -= (dz / dist) * push;
+          two.x += (dx / dist) * push;
+          two.z += (dz / dist) * push;
+        }
+      }
+      if (serving) continue;
+      const p = state.puck;
+      p.x += p.vx * dt;
+      p.z += p.vz * dt;
+      // Puck gegen Scheiben.
+      mallets.forEach(({ id, e }) => {
+        const dx = p.x - e.x;
+        const dz = p.z - e.z;
+        const dist = Math.hypot(dx, dz);
+        const min = e.r + HOCKEY_PUCK_R;
+        if (dist >= min || dist < 1e-6) return;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        p.x = e.x + nx * min;
+        p.z = e.z + nz * min;
+        const rvx = p.vx - (e.mvx || 0);
+        const rvz = p.vz - (e.mvz || 0);
+        const vn = rvx * nx + rvz * nz;
+        if (vn < 0) {
+          p.vx -= (1 + HOCKEY_HIT_REST) * vn * nx;
+          p.vz -= (1 + HOCKEY_HIT_REST) * vn * nz;
+        }
+        // Wer die Scheibe dagegen schiebt, gibt Schwung mit.
+        p.vx += (e.mvx || 0) * 0.35;
+        p.vz += (e.mvz || 0) * 0.35;
+        if (id !== HOCKEY_ROBOT && now - (e.lastTouchAt || 0) > 150) {
+          e.touches += 1;
+          e.lastTouchAt = now;
+          state.touches += 1;
+        }
+        state.lastTouch = id;
+      });
+      const speed = Math.hypot(p.vx, p.vz);
+      if (speed > HOCKEY_PUCK_MAX) {
+        p.vx *= HOCKEY_PUCK_MAX / speed;
+        p.vz *= HOCKEY_PUCK_MAX / speed;
+      }
+      // Banden. An den Stirnseiten ist in der Mitte das Tor offen.
+      const halfW = HOCKEY_W / 2 - HOCKEY_PUCK_R;
+      const halfL = HOCKEY_L / 2 - HOCKEY_PUCK_R;
+      if (Math.abs(p.x) > halfW) { p.x = Math.sign(p.x) * halfW; p.vx = -p.vx * HOCKEY_WALL_REST; }
+      const inMouth = Math.abs(p.x) < HOCKEY_GOAL / 2 - HOCKEY_PUCK_R * 0.4;
+      if (Math.abs(p.z) > halfL && !inMouth) { p.z = Math.sign(p.z) * halfL; p.vz = -p.vz * HOCKEY_WALL_REST; }
+      // Hat die Bande den Puck zurück in eine Scheibe geschoben (in der Ecke
+      // eingekeilt), weicht die Scheibe — der Puck kann nicht in die Wand.
+      mallets.forEach(({ e, robot }) => {
+        const dx = e.x - p.x;
+        const dz = e.z - p.z;
+        const dist = Math.hypot(dx, dz);
+        const min = e.r + HOCKEY_PUCK_R;
+        if (dist >= min) return;
+        const nx = dist < 1e-6 ? -Math.sign(p.x || 1) : dx / dist;
+        const nz = dist < 1e-6 ? -Math.sign(p.z || 1) : dz / dist;
+        const lim = hockeyLimits(robot ? 1 : e.side, e.r);
+        e.x = clamp(p.x + nx * min, lim.xMin, lim.xMax);
+        e.z = clamp(p.z + nz * min, lim.zMin, lim.zMax);
+      });
+      if (Math.abs(p.z) > HOCKEY_L / 2 + HOCKEY_PUCK_R) {
+        // Tor! Vorn (z > 0) ist das Tor von Team 0 — getroffen hat Team 1.
+        const scoringSide = p.z > 0 ? 1 : 0;
+        state.score[scoringSide] += 1;
+        const shooter = state.lastTouch && state.lastTouch !== HOCKEY_ROBOT ? arcade.players[state.lastTouch] : null;
+        let by = null;
+        if (shooter) {
+          if (shooter.side === scoringSide) { shooter.goals += 1; by = state.lastTouch; }
+          else shooter.ownGoals += 1;
+        }
+        state.goals.push({ side: scoringSide, by, at: now, x: p.x, own: Boolean(shooter && shooter.side !== scoringSide) });
+        hockeyServe(state, 1 - scoringSide, now);
+        state.served = false;
+        break;
+      }
+    }
+    // Festgeklemmt? Kommt der Puck anderthalb Sekunden lang nicht vom Fleck —
+    // in einer Ecke eingekeilt oder still liegend —, bläst der Tisch ihn zur
+    // Mitte. In der ersten Fassung lag er dort zwanzig Sekunden lang, während
+    // eine Scheibe ihn gegen die Bande drückte.
+    const p = state.puck;
+    if (serving) {
+      state.stuck = null;
+    } else if (!state.stuck || Math.hypot(p.x - state.stuck.x, p.z - state.stuck.z) > 0.45) {
+      state.stuck = { x: p.x, z: p.z, at: now };
+    } else if (now - state.stuck.at > 1500) {
+      p.vx = -Math.sign(p.x || 0.01) * 2.2 + (Math.random() - 0.5) * 0.6;
+      p.vz = -Math.sign(p.z || 0.01) * 2.8;
+      state.nudgeAt = now;
+      state.nudges = (state.nudges || 0) + 1;
+      state.stuck = { x: p.x, z: p.z, at: now };
+    }
+    const exp = Math.exp(-HOCKEY_PUCK_DAMP * frame);
+    p.vx *= exp;
+    p.vz *= exp;
+    // Was die Bots „gesehen" haben: der Puck von vor ein paar Zehnteln. Ohne
+    // diese Verzögerung stand der Torwart-Bot immer schon dort, wo der Schuss
+    // hinging, und es fiel kaum ein Tor.
+    state.history ||= [];
+    state.history.push({ t: now, x: p.x, z: p.z, vx: p.vx, vz: p.vz });
+    while (state.history.length > 12) state.history.shift();
+    mallets.forEach(({ e, robot }) => { if (!robot) e.score = state.score[e.side]; });
+  },
+  bot(ctx, player, entry) {
+    const { arcade, room, now } = ctx;
+    const state = arcade.hockey;
+    const p = state.puck;
+    const side = entry.side;
+    const ownGoalZ = side === 0 ? HOCKEY_L / 2 : -HOCKEY_L / 2;
+    const attackDir = side === 0 ? -1 : 1;           // Richtung zum gegnerischen Tor
+    const inOwnHalf = side === 0 ? p.z > 0 : p.z < 0;
+    const mates = room.players.filter((pl) => pl.id !== player.id && arcade.players[pl.id]?.side === side);
+    const defender = mates.length > 0 && entry.role === "abwehr";
+    // Wie gut der Bot den Puck vorausberechnet und wie schnell er reagiert.
+    const look = byLevel(entry, 0.05, 0.18, 0.3);
+    const sloppy = byLevel(entry, 0.35, 0.16, 0.05);
+    const lag = byLevel(entry, 380, 240, 130);
+    const seen = (state.history || []).find((h) => h.t >= now - lag) || p;
+    const px = seen.x + seen.vx * look;
+    const pz = seen.z + seen.vz * look;
+    let tx;
+    let tz;
+    const lim = hockeyLimits(side, entry.r);
+    const oppGoalZ = -ownGoalZ;
+    const nearOwnGoal = Math.abs(pz - ownGoalZ) < 2.2;
+    if (inOwnHalf && (!defender || nearOwnGoal)) {
+      // Schlagen: sich HINTER den Puck stellen — hinter heisst: auf der Linie
+      // vom Zielpunkt im gegnerischen Tor durch den Puck — und durchziehen.
+      // Der starke zielt in die Ecke, die der gegnerische Torwart gerade nicht
+      // deckt; der schwache schiesst geradeaus. Wer auf der falschen Seite
+      // steht, geht aussen herum, statt den Puck ins eigene Tor zu schieben.
+      const keepers = room.players.map((pl) => arcade.players[pl.id]).filter((e) => e && e.side !== side);
+      if (state.robot) keepers.push(state.robot);
+      const keeperX = keepers.length ? keepers.reduce((a, b) => (Math.abs(b.z - oppGoalZ) < Math.abs(a.z - oppGoalZ) ? b : a)).x : 0;
+      const gx = byLevel(entry, 0, 0.45, 0.8) * (HOCKEY_GOAL / 2) * (keeperX > 0 ? -1 : 1);
+      let ax = gx - px;
+      let az = oppGoalZ - pz;
+      const al = Math.hypot(ax, az) || 1;
+      ax /= al;
+      az /= al;
+      const reachBack = entry.r + HOCKEY_PUCK_R + 0.12;
+      const bx = px - ax * reachBack;
+      const bz = pz - az * reachBack;
+      const toB = Math.hypot(entry.x - bx, entry.z - bz);
+      const ahead = (entry.x - px) * ax + (entry.z - pz) * az;
+      if (toB < 0.3) {
+        tx = px + ax * 0.6;
+        tz = pz + az * 0.6;
+      } else if (ahead > -0.05) {
+        const sideX = entry.x >= px ? 1 : -1;
+        tx = px + sideX * (reachBack + 0.25);
+        tz = clamp(bz, lim.zMin, lim.zMax);
+      } else {
+        tx = bx;
+        tz = bz;
+      }
+    } else {
+      // Decken: zwischen Puck und eigenem Tor, näher am Tor.
+      const share = defender ? 0.28 : 0.45;
+      tx = clamp(px * 0.8, -HOCKEY_GOAL / 2 - 0.2, HOCKEY_GOAL / 2 + 0.2);
+      tz = ownGoalZ + (pz - ownGoalZ) * share;
+    }
+    tx = clamp(tx + (Math.random() - 0.5) * sloppy, lim.xMin, lim.xMax);
+    tz = clamp(tz + (Math.random() - 0.5) * sloppy, lim.zMin, lim.zMax);
+    const dx = tx - entry.x;
+    const dz = tz - entry.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.05) return { action: "steer", x: 0, y: 0 };
+    const gain = Math.min(1, d * byLevel(entry, 1.4, 2.2, 3.2));
+    return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+  },
+  rank(arcade, entry) {
+    const score = arcade.hockey?.score || [0, 0];
+    const own = score[entry.side] || 0;
+    const other = score[1 - entry.side] || 0;
+    // Tore des Teams, dann Tordifferenz, dann eigene Tore, dann Ballkontakte.
+    return own * 1000000 + Math.max(0, 50 + own - other) * 10000 + (entry.goals || 0) * 100 + Math.min(99, entry.touches || 0);
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: arcade.hockey?.score?.[entry.side] || 0, label: "Tore" };
+  },
+  done(ctx) {
+    const score = ctx.arcade.hockey.score;
+    return score[0] >= HOCKEY_WIN || score[1] >= HOCKEY_WIN;
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
@@ -1178,7 +1511,8 @@ const PARTY_FAMILIES = {
   face,
   flags,
   honey,
-  snow
+  snow,
+  hockey
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
@@ -1187,7 +1521,8 @@ const PARTY_GAMES = [
   { type: "grimassen", title: "Grimassen", duration: FACE_DURATION_MS, arcadeFamily: "face", seed: 823 },
   { type: "flaggenhoch", title: "Flaggen hoch", duration: FLAG_DURATION_MS, arcadeFamily: "flags", seed: 827 },
   { type: "honigwabe", title: "Honigwabe", duration: HONEY_DURATION_MS, arcadeFamily: "honey", seed: 829 },
-  { type: "schneeball", title: "Schneeballhang", duration: SNOW_DURATION_MS, arcadeFamily: "snow", seed: 839 }
+  { type: "schneeball", title: "Schneeballhang", duration: SNOW_DURATION_MS, arcadeFamily: "snow", seed: 839 },
+  { type: "luftpuck", title: "Luftpuck", duration: HOCKEY_DURATION_MS, arcadeFamily: "hockey", seed: 853 }
 ];
 
 module.exports = {
@@ -1199,7 +1534,8 @@ module.exports = {
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS,
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS,
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_LOSS,
-    SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R
+    SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R,
+    HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS
   },
   snowBallRadius,
   snowValue,
