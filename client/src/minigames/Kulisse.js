@@ -234,7 +234,8 @@ export function wolken(parent, spots, { color = "#ffffff", opacity = 0.95 } = {}
       teile.push({ p: [x + dx * s, y + dy * s, z + dz * s], s: [ds * s, ds * s * 0.7, ds * s * 0.8] });
     });
   });
-  return viele(parent, new THREE.SphereGeometry(0.7, 10, 8), new THREE.MeshLambertMaterial({ color, transparent: opacity < 1, opacity }), teile);
+  // Leicht selbstleuchtend, damit die Unterseiten nicht ins Graue kippen.
+  return viele(parent, new THREE.SphereGeometry(0.7, 10, 8), new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35, transparent: opacity < 1, opacity }), teile);
 }
 
 // Himmelsverlauf als grosse Kugel von innen. Ein einfarbiger Hintergrund wirkt

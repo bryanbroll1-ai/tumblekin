@@ -130,7 +130,11 @@ export class ColorHunt extends MinigameScene {
       const angle = (i * 2.399) % (Math.PI * 2);
       const reach = 1 + ((i * 7) % 11) * 0.55;
       const x = Math.cos(angle) * (w / 2 + reach);
-      const z = Math.sin(angle) * (d / 2 + reach) - (i % 3 === 0 ? 2 : 0);
+      let z = Math.sin(angle) * (d / 2 + reach) - (i % 3 === 0 ? 2 : 0);
+      // Nicht direkt vor die Kamera: dort wurde ein kleiner Klecks zum
+      // grossen Farbfleck am unteren Bildrand. Vorn wird er nach hinten
+      // gespiegelt.
+      if (z > d / 2 + 0.7) z = -z;
       _dummy.position.set(x, -0.24, z);
       _dummy.rotation.set(0, angle, 0);
       const size = 0.18 + ((i * 5) % 7) * 0.05;

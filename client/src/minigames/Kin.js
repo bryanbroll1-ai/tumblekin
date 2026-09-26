@@ -644,7 +644,11 @@ const STATES = {
       p.aRs = -sin(u * 17) * 0.8;
       p.lL = wob * 0.6;
       p.lR = -wob * 0.4;
-      p.y = -sin(u * Math.PI) * 0.03;
+      // Das Vornüberkippen dreht um die Körpermitte und drückte einen Fuss
+      // bis 0.13 in den Boden (gemessen bei der Zielgerade). Angehoben wird
+      // um das, was der Fuss bei diesem Winkel absinkt.
+      const winkel = Math.hypot(p.lean, p.tilt);
+      p.y = -sin(u * Math.PI) * 0.03 + 0.6 * (1 - Math.cos(winkel)) + 0.16 * Math.abs(sin(winkel));
       face(p, "surprised");
       p.mouth = "open";
     }
@@ -680,9 +684,13 @@ const STATES = {
       p.aRr = 0.2 + lie * 1.3;
       p.lL = -lie * 0.25;
       p.lR = -lie * 0.35;
+      // Gekippt wird um den Fusspunkt: flach liegend rutschten Bauch und
+      // Schuhspitzen um die halbe Körpertiefe unter den Boden (gemessen 0.11
+      // beim Seilspringen). So viel wird die liegende Figur angehoben.
+      p.y = lie * 0.13;
       if (u >= 0.7) {
         const up = (u - 0.7) / 0.3;
-        p.y = sin(up * Math.PI) * 0.1;
+        p.y += sin(up * Math.PI) * 0.1;
         p.hY = sin(up * 18) * 0.3 * (1 - up);
       }
       if (u > 0.2 && u < 0.72) p.sq = 1 - bump(u, 0.2, 0.3) * 0.15;

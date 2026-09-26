@@ -57,14 +57,27 @@ export function createShadowBlob(size = 0.55) {
   return mesh;
 }
 
+// Eine Voxelwolke: ein breiter, flacher Sockel und zwei, drei Aufbauten
+// darauf. Deckend und leicht selbstleuchtend — halbtransparent und nur vom
+// Himmelslicht beleuchtet wurden die Unterseiten grau-grünlich, und die
+// Wolken sahen aus wie schmutzige Platten statt wie Wolken.
+let wolkenMaterial = null;
 export function createCloud(seed = 0) {
   const group = new THREE.Group();
-  const cloudMaterial = new THREE.MeshLambertMaterial({ color: "#ffffff", transparent: true, opacity: 0.92 });
-  const chunks = 2 + (seed % 2);
-  for (let index = 0; index <= chunks; index += 1) {
-    const size = 0.5 + noise(seed * 3 + index * 7) * 0.5;
-    const chunk = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.5, size * 0.8), cloudMaterial);
-    chunk.position.set(index * 0.42 - chunks * 0.21, (index % 2) * 0.12, noise(seed + index) * 0.2);
+  if (!wolkenMaterial || wolkenMaterial.userData.disposed) {
+    wolkenMaterial = new THREE.MeshLambertMaterial({ color: "#ffffff", emissive: "#e8f1fa", emissiveIntensity: 0.45 });
+    const dispose = wolkenMaterial.dispose.bind(wolkenMaterial);
+    wolkenMaterial.dispose = () => { wolkenMaterial.userData.disposed = true; dispose(); };
+  }
+  const breite = 1.3 + noise(seed * 5 + 1) * 0.6;
+  const sockel = new THREE.Mesh(new THREE.BoxGeometry(breite, 0.24, 0.62), wolkenMaterial);
+  group.add(sockel);
+  const aufbauten = 2 + (seed % 2);
+  for (let index = 0; index < aufbauten; index += 1) {
+    const size = 0.38 + noise(seed * 3 + index * 7) * 0.3;
+    const chunk = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.72, size * 0.85), wolkenMaterial);
+    const t = aufbauten === 1 ? 0.5 : index / (aufbauten - 1);
+    chunk.position.set((t - 0.5) * (breite - size) * 0.9, 0.12 + size * 0.36, (noise(seed + index) - 0.5) * 0.15);
     group.add(chunk);
   }
   return group;
