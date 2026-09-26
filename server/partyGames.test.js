@@ -515,3 +515,62 @@ test("Schnappschuss: SCHUBS stösst den, der vor einem steht, weg", () => {
   assert.equal(g.arcade.players[a.id].shoves, 1, "danach erst wieder nach der Pause");
   g.restore();
 });
+
+// --- Kippboot --------------------------------------------------------------
+
+test("Kippboot: abgesetzt wird, wo der Haken gerade hängt — aussen gibt es mehr", () => {
+  const g = setup("kippboot", 2);
+  g.run(0, C.BOAT_LEAD_MS + 50, 30);
+  const state = g.arcade.boat;
+  const turn = state.turn;
+  const current = g.players.find((p) => p.id === turn.playerId);
+  const other = g.players.find((p) => p.id !== turn.playerId);
+  assert.equal(g.input(other, { action: "drop" }).ok, false, "wer nicht dran ist, darf nicht");
+  g.at(turn.from + 400);
+  const x = party.boatSwingX(turn, turn.from + 400);
+  g.input(current, { action: "drop" });
+  assert.equal(state.passengers.length, 1);
+  assert.ok(Math.abs(state.passengers[0].x - x) < 0.02, "dort, wo der Haken war");
+  assert.equal(g.arcade.players[current.id].score, party.boatPoints(turn.w, x));
+  assert.ok(party.boatPoints(2, C.BOAT_REACH) === 6 && party.boatPoints(2, 0) === 2, "Rand dreifach, Mitte einfach");
+  g.restore();
+});
+
+test("Kippboot: zu viel auf einer Seite kentert — der Kipper verliert, alle gehen baden", () => {
+  const g = setup("kippboot", 2);
+  g.run(0, C.BOAT_LEAD_MS + 50, 30);
+  const state = g.arcade.boat;
+  state.passengers = [{ kind: "schwein", w: 3, x: 1.2, by: "x", slot: 0 }];
+  state.torque = 3.6;
+  const turn = state.turn;
+  // Den Moment abpassen, in dem der Haken weit rechts ist.
+  let t = 0;
+  while (party.boatSwingX(turn, turn.from + t) < 1.3 && t < 4000) t += 10;
+  g.at(turn.from + t);
+  const current = g.players.find((p) => p.id === turn.playerId);
+  g.input(current, { action: "drop" });
+  assert.equal(state.last.kind, "capsize");
+  assert.equal(g.arcade.players[current.id].score, -C.BOAT_CAPSIZE_COST);
+  assert.equal(state.passengers.length, 0, "ein neues, leeres Boot");
+  g.restore();
+});
+
+test("Kippboot: ein volles Boot legt ab, und alle Lader bekommen die Zugabe", () => {
+  const g = setup("kippboot", 2);
+  g.run(0, C.BOAT_LEAD_MS + 50, 30);
+  const state = g.arcade.boat;
+  const [a, b] = g.players;
+  state.passengers = Array.from({ length: C.BOAT_CAPACITY - 1 }, (_, i) => ({ kind: "kueken", w: 1, x: 0, by: i % 2 ? a.id : b.id, slot: i }));
+  state.torque = 0;
+  const turn = state.turn;
+  let t = 0;
+  while (Math.abs(party.boatSwingX(turn, turn.from + t)) > 0.2 && t < 4000) t += 10;
+  g.at(turn.from + t);
+  const current = g.players.find((p) => p.id === turn.playerId);
+  const before = { a: g.arcade.players[a.id].score, b: g.arcade.players[b.id].score };
+  g.input(current, { action: "drop" });
+  assert.equal(state.last.kind, "depart");
+  assert.ok(g.arcade.players[a.id].score >= before.a + C.BOAT_DEPART_BONUS);
+  assert.ok(g.arcade.players[b.id].score >= before.b + C.BOAT_DEPART_BONUS);
+  g.restore();
+});

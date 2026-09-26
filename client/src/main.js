@@ -40,6 +40,7 @@ import { SnowSummit } from "./minigames/SnowSummit.js?v=tumblekin200";
 import { AirHockey } from "./minigames/AirHockey.js?v=tumblekin200";
 import { BookSquirm } from "./minigames/BookSquirm.js?v=tumblekin200";
 import { PhotoShoot } from "./minigames/PhotoShoot.js?v=tumblekin200";
+import { BalanceBoat } from "./minigames/BalanceBoat.js?v=tumblekin200";
 
 // socket.io kommt als eigenes Skript vom Server. Fehlt es, würde
 // `new ClientNetwork()` beim Laden werfen — der Startbildschirm stünde schon im
@@ -93,7 +94,8 @@ const MINIGAMES = {
   schneeball: SnowSummit,
   luftpuck: AirHockey,
   buecherwurm: BookSquirm,
-  schnappschuss: PhotoShoot
+  schnappschuss: PhotoShoot,
+  kippboot: BalanceBoat
 };
 
 const network = new ClientNetwork();

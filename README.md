@@ -1,6 +1,6 @@
 # Tumblekin
 
-Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN — nur Minispiele, kein Brett. Gespielt wird in 38 touch-optimierten Challenges, jede zwischen 12 und 46 Sekunden lang: als Marathon, Punktejagd, K.O.-Runde oder einzeln.
+Tumblekin ist ein mobile-first Partyspiel für bis zu vier Spieler im gleichen WLAN — nur Minispiele, kein Brett. Gespielt wird in 39 touch-optimierten Challenges, jede zwischen 12 und 46 Sekunden lang: als Marathon, Punktejagd, K.O.-Runde oder einzeln.
 
 ## Start
 
@@ -49,9 +49,9 @@ Zwischen den Spielen zeigt die Ergebnistafel die Plätze von hinten nach vorn, d
 
 Die Tumblekin haben ein Gerüst — Hüfte, Rumpf, Kopf, zwei Arme, zwei Beine — und ein Gesicht mit Blick, Lidern, Brauen und sieben Mündern. Bewegung ist in Posen beschrieben, zwischen denen überblendet wird; die Arme können eine eigene Handlung spielen, während die Beine weiterlaufen. In jedem Minispiel tun die Figuren, was der Spieler tut: pumpen, kurbeln, klettern, graben, werfen, angeln, schieben — statt daneben zu hüpfen.
 
-Alle 38 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern eine Beschreibung — worauf geschaut wird, wie gross das Motiv ist, aus welchem Winkel — und rahmt in das Band, das Punkteleiste und Knöpfe frei lassen, im Hoch- wie im Querformat. Dazu kommen einheitlich ein Anflug im Countdown, eine Sicherung, die weglaufende Figuren ins Bild zurückholt, Schütteln mit Abklingen und eine Fahrt auf den Sieger in den letzten Sekunden.
+Alle 39 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern eine Beschreibung — worauf geschaut wird, wie gross das Motiv ist, aus welchem Winkel — und rahmt in das Band, das Punkteleiste und Knöpfe frei lassen, im Hoch- wie im Querformat. Dazu kommen einheitlich ein Anflug im Countdown, eine Sicherung, die weglaufende Figuren ins Bild zurückholt, Schütteln mit Abklingen und eine Fahrt auf den Sieger in den letzten Sekunden.
 
-## 38 Challenges
+## 39 Challenges
 
 Alle Challenges sind auf einen Blick verständlich, dauern höchstens eine
 Dreiviertelminute und setzen auf Physik plus weiches Audio-Feedback (ASMR-Pops, Plinks
@@ -88,6 +88,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Seilspringen:** Die zwei Dreher schwingen das Riesenseil, und es wird immer schneller. Tipp, wenn es unter dir durchgeht — du bist nur kurz in der Luft. Achtung bei DOPPELT: dann kommt es zweimal kurz hintereinander. Einmal hängen geblieben und du bist raus.
 - **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt, jeder dreht sich anders. Äpfel bringen Extrapunkte, ein Klirren kostet den Stamm.
 - **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
+- **Kippboot:** Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier — Küken, Pinguin, Schaf oder Schwein. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker; die Wasserwaage oben zeigt, wie schief es liegt. Wer es zum Kentern bringt, verliert zehn Punkte. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu.
 
 ### 👆⏺️ Knopf gedrückt halten
 
@@ -176,7 +177,7 @@ Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-G
 
 ## Dev-Testmodus
 
-Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät, zwischen denen man im Minispiel umschaltet. Jedes der 38 Minispiele lässt sich über **🎮 Einzel** direkt auswählen.
+Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät, zwischen denen man im Minispiel umschaltet. Jedes der 39 Minispiele lässt sich über **🎮 Einzel** direkt auswählen.
 
 Mit `?dev=1` legt der Client ausserdem `window.__tumblekin` offen — `state()` und `request(ereignis, daten)` —, über den die Prüfskripte Räume öffnen, Modi wählen und Spiele starten, ohne sich durch die Oberfläche zu klicken. Das Ereignis `devSkipMinigame` wertet ein laufendes Minispiel sofort; es gibt es nur mit freigegebenen Dev-Werkzeugen und nur für den Host.
 
@@ -249,7 +250,7 @@ Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
 - Express liefert PWA, Three.js und Clientmodule aus.
 - Socket.io synchronisiert Raum, Modus, Minispiel-Eingaben, Ergebnisse und Reconnects. Der Server ist massgeblich: er wertet jedes Minispiel, die Clients zeigen nur an.
 - `server/modes.js` enthält die Regeln der Modi — Spielliste, Punkte, Leben, Ende — ohne Sockets und Timer, damit jede Regel ohne laufenden Server prüfbar ist.
-- Three.js rendert die Menübühne (Lobby, Podest, Siegerehrung) und alle 38 Minispiele mit denselben Figuren.
+- Three.js rendert die Menübühne (Lobby, Podest, Siegerehrung) und alle 39 Minispiele mit denselben Figuren.
 - Service Worker, Manifest und App-Icon erlauben die Installation auf dem Homescreen.
 
 Gemeinsame Bausteine der Minispiele:

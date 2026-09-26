@@ -2527,3 +2527,39 @@ canvas.is-stunned {
   background: linear-gradient(180deg, #ff6fa8, #e0306e);
   box-shadow: 0 8px 0 #7a1238, 0 0 22px rgba(255, 93, 150, 0.45);
 }
+
+/* Kippboot: Wasserwaage. Der Punkt wandert mit der Neigung; an den Enden
+   wird es rot — dort kentert das Boot. */
+.boat-level {
+  position: absolute;
+  top: calc(98px + env(safe-area-inset-top));
+  left: 50%;
+  width: min(62vw, 240px);
+  height: 16px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff5d73 0 8%, #ffd15c 8% 22%, #6dff9a 22% 78%, #ffd15c 78% 92%, #ff5d73 92% 100%);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.boat-level i {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #1c2a3a;
+  transform: translate(-50%, -50%);
+  transition: left 160ms ease-out;
+}
+
+.boat-level[data-risk="high"] {
+  animation: tug-shake 0.25s linear infinite;
+}
+
+.kinetic-hud .boat-level ~ .color-banner {
+  top: calc(124px + env(safe-area-inset-top));
+}
