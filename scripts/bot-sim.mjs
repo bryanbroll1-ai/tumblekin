@@ -53,8 +53,24 @@ const SEAT_SETS = {
 const SEAT_COUNT = Math.max(2, Math.min(4, Number(process.env.TUMBLEKIN_SEATS) || 4));
 const SEATS = SEAT_SETS[SEAT_COUNT];
 
+// Die Sitzordnung wird je Runde gemischt. Mannschaftsspiele (Tauziehen,
+// Luftpuck) teilen nach Sitzplatz ein — mit fester Ordnung spielte der starke
+// Bot IMMER zusammen mit dem schwachen gegen zwei mittlere, und der schwache
+// sah dank seines Partners besser aus als „normal". Das Urteil lautete
+// „UMGEKEHRT", gemessen war aber nur die Paarung. Gemischt sitzt jede Stufe
+// mal mit jeder zusammen, und auch Bahnen und Startplätze wechseln.
+function seatOrder() {
+  const order = [...SEATS];
+  for (let i = order.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
 function makeRoom(type) {
-  const players = SEATS.map((level, index) => ({
+  const seats = seatOrder();
+  const players = seats.map((level, index) => ({
     id: `b${index}`,
     name: `Bot ${index}`,
     isBot: true,
@@ -67,13 +83,13 @@ function makeRoom(type) {
   // Die Stufe wird gesetzt, statt gewürfelt: sonst misst der Lauf, wer welche
   // Stufe gezogen hat, und nicht, was die Stufen taugen.
   players.forEach((player, index) => {
-    arcade.players[player.id].botProfile = profileFor(SEATS[index]);
+    arcade.players[player.id].botProfile = profileFor(seats[index]);
   });
   const minigame = {
     id: 1, type, startedAt, duration: template.duration,
     arcade, scores: {}, lastInputAt: {}
   };
-  return { room: { currentMinigame: minigame, players }, minigame, arcade, players };
+  return { room: { currentMinigame: minigame, players }, minigame, arcade, players, seats };
 }
 
 function profileFor(level) {
@@ -85,7 +101,7 @@ function profileFor(level) {
 function playRound(type) {
   const setup = makeRoom(type);
   if (!setup) return null;
-  const { room, minigame, arcade, players } = setup;
+  const { room, minigame, arcade, players, seats } = setup;
 
   // Jeder Bot bekommt eine eigene Periode und Phase. Gleichgetaktet lieferten
   // alle vier dieselben Zeitstempel und damit dieselben Entscheidungen.
@@ -121,10 +137,24 @@ function playRound(type) {
   // verschwand ein echter Unterschied dort im Rauschen der Grundzahl und sah
   // aus wie „flach" — obwohl der starke Bot jede Runde gewann. Der Platz ist
   // ausserdem genau das, was im Spiel zaehlt.
-  const scored = players.map((player, index) => ({
-    level: SEATS[index],
+  let scored = players.map((player, index) => ({
+    level: seats[index],
+    side: arcade.players[player.id].side,
     score: arcadeRankingScore(arcade, arcade.players[player.id])
-  })).sort((a, b) => b.score - a.score);
+  }));
+  // Mannschaftsspiele (Tauziehen, Luftpuck) zählen das TEAM. Innerhalb eines
+  // Teams entscheidet über den Platz, wer mehr Tore oder Zugarbeit hatte — und
+  // das hängt an der Rolle (Sturm oder Abwehr), nicht am Können: der starke
+  // Bot in der Abwehr landete hinter seinem mittleren Stürmer, und die Waage
+  // meldete „UMGEKEHRT", obwohl sein Team deutlich öfter gewann. Jedes
+  // Teammitglied bekommt darum den Wert seines besten Mitglieds, Sieger teilen
+  // sich Platz 1, Verlierer den Platz dahinter.
+  const sides = new Set(scored.map((seat) => seat.side));
+  if (sides.size === 2 && scored.every((seat) => seat.side === 0 || seat.side === 1)) {
+    const best = [0, 1].map((side) => Math.max(...scored.filter((seat) => seat.side === side).map((seat) => seat.score)));
+    scored = scored.map((seat) => ({ ...seat, score: best[seat.side] }));
+  }
+  scored.sort((a, b) => b.score - a.score);
 
   const byLevel = {};
   scored.forEach((seat, position) => {

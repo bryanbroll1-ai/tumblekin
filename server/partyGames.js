@@ -1444,12 +1444,22 @@ const hockey = {
     const mates = room.players.filter((pl) => pl.id !== player.id && arcade.players[pl.id]?.side === side);
     const defender = mates.length > 0 && entry.role === "abwehr";
     // Wie gut der Bot den Puck vorausberechnet und wie schnell er reagiert.
-    const look = byLevel(entry, 0.05, 0.18, 0.3);
+    // Der starke schaute früher 0.3 s voraus und zielte knapp an den Pfosten:
+    // er traf seltener als der mittlere und schoss die meisten Abpraller ins
+    // eigene Tor — sein Team verlor sogar gegen zwei mittlere. Sein Vorsprung
+    // liegt jetzt in Reaktion und Genauigkeit, nicht in Wagemut.
+    const look = byLevel(entry, 0.05, 0.18, 0.2);
     const sloppy = byLevel(entry, 0.35, 0.16, 0.05);
     const lag = byLevel(entry, 380, 240, 130);
     const seen = (state.history || []).find((h) => h.t >= now - lag) || p;
-    const px = seen.x + seen.vx * look;
-    const pz = seen.z + seen.vz * look;
+    // Vorausberechnet MIT Bande: geradeaus gerechnet lag der Punkt nach einem
+    // Abpraller jenseits der Wand, und gerade der starke Bot mit dem weitesten
+    // Blick stand dann am falschsten Fleck.
+    const halfW = HOCKEY_W / 2 - HOCKEY_PUCK_R;
+    let px = seen.x + seen.vx * look;
+    if (Math.abs(px) > halfW) px = Math.sign(px) * (2 * halfW - Math.abs(px) * HOCKEY_WALL_REST);
+    px = clamp(px, -halfW, halfW);
+    const pz = clamp(seen.z + seen.vz * look, -HOCKEY_L / 2, HOCKEY_L / 2);
     let tx;
     let tz;
     const lim = hockeyLimits(side, entry.r);
@@ -1458,13 +1468,13 @@ const hockey = {
     if (inOwnHalf && (!defender || nearOwnGoal)) {
       // Schlagen: sich HINTER den Puck stellen — hinter heisst: auf der Linie
       // vom Zielpunkt im gegnerischen Tor durch den Puck — und durchziehen.
-      // Der starke zielt in die Ecke, die der gegnerische Torwart gerade nicht
-      // deckt; der schwache schiesst geradeaus. Wer auf der falschen Seite
+      // Der starke zielt in die Hälfte, die der gegnerische Torwart gerade
+      // nicht deckt; der schwache schiesst geradeaus. Wer auf der falschen Seite
       // steht, geht aussen herum, statt den Puck ins eigene Tor zu schieben.
       const keepers = room.players.map((pl) => arcade.players[pl.id]).filter((e) => e && e.side !== side);
       if (state.robot) keepers.push(state.robot);
       const keeperX = keepers.length ? keepers.reduce((a, b) => (Math.abs(b.z - oppGoalZ) < Math.abs(a.z - oppGoalZ) ? b : a)).x : 0;
-      const gx = byLevel(entry, 0, 0.45, 0.8) * (HOCKEY_GOAL / 2) * (keeperX > 0 ? -1 : 1);
+      const gx = byLevel(entry, 0, 0.45, 0.5) * (HOCKEY_GOAL / 2) * (keeperX > 0 ? -1 : 1);
       let ax = gx - px;
       let az = oppGoalZ - pz;
       const al = Math.hypot(ax, az) || 1;
