@@ -79,7 +79,9 @@ function buildBalloon(color) {
 
 function buildTarget() {
   const target = new THREE.Group();
-  [[1.4, "#ffffff"], [1.12, "#ff4668"], [0.8, "#ffffff"], [0.56, "#ff4668"], [0.35, "#ffd15c"]].forEach(([r, color], i) => {
+  // Die Ringe sind die Wertungsgrenzen des Servers (GLIDE_RINGS): weiss aussen
+  // 30, weiss innen 60, Gold 100; die roten liegen nur dazwischen.
+  [[1.1, "#ffffff"], [0.85, "#ff4668"], [0.6, "#ffffff"], [0.42, "#ff4668"], [0.25, "#ffd15c"]].forEach(([r, color], i) => {
     const ring = new THREE.Mesh(new THREE.CircleGeometry(r, 28), new THREE.MeshLambertMaterial({ color }));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.02 + i * 0.004;
@@ -494,7 +496,9 @@ export class BalloonGlide extends MinigameScene {
           if (bag.points > 0) {
             this.bursts.ring(at, bag.points >= 100 ? "#ffd15c" : "#ffffff", { radius: 1.8, life: 0.6, y: 0.1 });
             const text = bag.points >= 100 ? "VOLLTREFFER! +100" : `+${bag.points}`;
-            if (mine || bag.points >= 100) this.pop(at.clone().add(new THREE.Vector3(0, 1.2, 0.5)), text, { color: bag.points >= 100 ? "#ffe36b" : "#ffffff", size: bag.points >= 100 ? 0.5 : 0.4, life: 1.2 });
+            // Nur der eigene Sack bekommt Text — trafen drei zugleich, lagen drei
+            // „VOLLTREFFER!" übereinander. Die anderen zeigen Ring und Konfetti.
+            if (mine) this.pop(at.clone().add(new THREE.Vector3(0, 1.2, 0.5)), text, { color: bag.points >= 100 ? "#ffe36b" : "#ffffff", size: bag.points >= 100 ? 0.5 : 0.4, life: 1.2 });
             if (bag.points >= 100) this.burst(at.clone().add(new THREE.Vector3(0, 0.5, 0)), ["#ffd15c", "#ff4668", "#ffffff", player.color], { count: 26, speed: 3, up: 3, size: 0.09, life: 1 });
             if (mine) {
               this.feedback?.sound(bag.points >= 100 ? "perfect" : "coin");

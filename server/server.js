@@ -169,7 +169,12 @@ const GLIDE_BASKET = 0.4;              // Abwurfhöhe über dem Höhenanteil
 const GLIDE_FALL_G = 9;                // Fallbeschleunigung eines Sacks
 const GLIDE_TARGET_FIRST_MS = 5200;
 const GLIDE_TARGET_EVERY_MS = 3300;
-const GLIDE_RINGS = [[0.35, 100], [0.8, 60], [1.4, 30]];   // Weltabstand → Punkte
+// Der Landeschatten zeigt genau, wo ein Sack aufkommt. Mit einem Volltreffer-
+// Ring von 0.35 (±160 ms bei voller Fahrt) traf deshalb jeder jede Scheibe
+// mittig — gemessen endeten starke und mittlere Bots punktgleich am Maximum.
+// Enger gezogen zählt jetzt, wer tief fliegt (kleiner, scharfer Schatten) und
+// genau loslässt.
+const GLIDE_RINGS = [[0.25, 100], [0.6, 60], [1.1, 30]];   // Weltabstand → Punkte
 const GLIDE_BAG_COOLDOWN_MS = 650;
 const GLIDE_STAR_POINTS = 15;
 const GLIDE_STAR_REACH = 0.08;         // so nah muss man in der Höhe sein
@@ -2354,6 +2359,15 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     // Die Serie ordnet jetzt nur noch, was auf dieselbe angezeigte Hoehe faellt.
     return Math.round((arcadePlayer.best || 0) * 10) * 1000 + (arcadePlayer.bestStreak || 0);
   }
+  if (arcade.family === "belt") {
+    const sorted = arcadePlayer.sorted || 0;
+    const reach = sorted ? (arcadePlayer.reachSum || 0) / sorted : 1;
+    return score * 1000 + Math.max(0, 999 - Math.round(reach * 1000));
+  }
+  if (arcade.family === "glide") {
+    // Punkte zuerst; bei Gleichstand, wer insgesamt dichter an den Mitten lag.
+    return score * 1000 + Math.max(0, 999 - Math.round((arcadePlayer.offSum || 0) * 100));
+  }
   if (arcade.family === "stack") {
     // Tallest tower wins; perfect stacks are the tie-breaker.
     return (arcadePlayer.height || 0) * 1000 + (arcadePlayer.perfects || 0);
@@ -4524,6 +4538,9 @@ function handleArcadeInput(room, player, rawInput) {
       const bonus = Math.min(arcadePlayer.streak, BELT_STREAK_MAX) * BELT_STREAK_BONUS;
       arcadePlayer.score += BELT_POINTS + bonus;
       arcadePlayer.sorted += 1;
+      // Wie weit war das Paket schon gerollt? Wer fehlerfrei durchkommt, landet
+      // am Punktemaximum — dann ordnet, wer schneller zugegriffen hat.
+      arcadePlayer.reachSum = (arcadePlayer.reachSum || 0) + Math.max(0, arcadePlayer.beltPos - BELT_REACH_AT);
       arcadePlayer.lastVerdict = { kind: "good", chute, colour: parcel.colour, icon: parcel.icon, name: parcel.name, at: now, bonus };
     } else {
       arcadePlayer.streak = 0;
@@ -5097,6 +5114,7 @@ function updateArcade(room) {
             bag.points = ring[1];
             bag.target = best.target.index;
             bag.off = Math.round(best.off * 100) / 100;
+            entry.offSum = (entry.offSum || 0) + best.off;
             entry.scoredTargets[best.target.index] = true;
             entry.hits += 1;
             if (ring[1] >= 100) entry.bulls += 1;
@@ -6540,7 +6558,11 @@ function paintBotPlan(arcade, entry, profile, now) {
     const side = (2 + Math.random() * 4.5) * (Math.random() < 0.5 ? -1 : 1);
     const first = inside(entry.px + Math.sin(angle) * out, entry.py + Math.cos(angle) * out);
     const second = inside(first.x + Math.cos(angle) * side, first.y - Math.sin(angle) * side);
-    const back = home(second.x, second.y);
+    // Heimweg nur beim schwachen Bot: seit Farbe beim Drüberfahren zählt und
+    // keine Schleife mehr geschlossen werden muss, ist der Rückweg über die
+    // eigene Farbe verschenkte Zeit. Vorher planten alle Stufen ihn ein, und
+    // der starke Bot malte gemessen nicht mehr als der mittlere.
+    const back = profile.level === "easy" ? home(second.x, second.y) : null;
     const points = back ? [first, second, back] : [first, second];
     const value = judge(points);
     if (!best || value > best.value) best = { points, value };
@@ -7817,7 +7839,7 @@ function arcadeBotStep(room, bot) {
     // Abwurf: wenn der Sack ungefähr auf der Scheibe landen würde.
     if (player.botTargetId !== target.index) {
       player.botTargetId = target.index;
-      const slop = profile.level === "hard" ? 90 : profile.level === "normal" ? 200 : 380;
+      const slop = profile.level === "hard" ? 70 : profile.level === "normal" ? 190 : 360;
       player.botDropError = (Math.random() - 0.5) * 2 * slop;
     }
     const landAt = elapsed + glideFallMs(player.y) + BOT_TICK_LEAD_MS * 0.5;

@@ -1169,7 +1169,12 @@ const snow = {
     const { arcade, room, now } = ctx;
     const state = arcade.snow;
     if (now < entry.stunUntil) return { action: "steer", x: 0, y: 0 };
-    const others = room.players.filter((p) => p.id !== player.id).map((p) => arcade.players[p.id]).filter((e) => e && now >= e.stunUntil);
+    // Ziele sind nur, wer stehen UND getroffen werden kann. Der starke Bot sieht
+    // auch den kurzen Schutz nach dem Aufstehen — wer darauf wirft, verschenkt
+    // seine Kugel. Vorher warfen alle Stufen gleich blind darauf, und der starke
+    // gewann gemessen nicht öfter als der mittlere.
+    const others = room.players.filter((p) => p.id !== player.id).map((p) => arcade.players[p.id])
+      .filter((e) => e && now >= e.stunUntil && (level(entry) !== "hard" || now >= e.safeUntil - 250));
     // Ausweichen: kommt eine fremde Kugel direkt auf einen zu, zur Seite.
     const dodge = byLevel(entry, 0.15, 0.5, 0.85);
     if (entry.botDodgeUntil && now < entry.botDodgeUntil) return { action: "steer", x: entry.botDodgeX, y: entry.botDodgeZ };
@@ -1198,7 +1203,15 @@ const snow = {
       if (entry.size > 0.7 && now - entry.lastThrowAt > 900) return { action: "throw" };
       return { action: "steer", x: Math.cos(a), y: Math.sin(a) };
     }
-    const target = others.reduce((best, e) => (Math.hypot(e.x - entry.x, e.z - entry.z) < Math.hypot(best.x - entry.x, best.z - entry.z) ? e : best));
+    // Der starke Bot meidet Ziele, die ihre grosse Kugel als Schild zu ihm
+    // halten — ein Wurf darauf zerplatzt nur. Die anderen nehmen den Nächsten.
+    const cost = (e) => {
+      const dist = Math.hypot(e.x - entry.x, e.z - entry.z);
+      if (level(entry) !== "hard" || e.size < 0.5) return dist;
+      const facing = (Math.sin(e.heading) * (entry.x - e.x) + Math.cos(e.heading) * (entry.z - e.z)) / Math.max(0.01, dist);
+      return dist + (facing > 0.5 ? 3 : 0);
+    };
+    const target = others.reduce((best, e) => (cost(e) < cost(best) ? e : best));
     // Vorhalten: wohin läuft das Ziel, bis die Kugel dort ist? Der starke
     // rechnet das voll, der mittlere halb, der schwache wirft aufs Jetzt.
     const lead = byLevel(entry, 0, 0.3, 1);
@@ -1210,7 +1223,7 @@ const snow = {
     const dist = Math.hypot(dx, dz);
     const aimError = Math.abs(Math.atan2(Math.sin(Math.atan2(dx, dz) - entry.heading), Math.cos(Math.atan2(dx, dz) - entry.heading)));
     const wantSize = byLevel(entry, 0.42, 0.6, 0.6);
-    const tolerance = byLevel(entry, 0.45, 0.3, 0.2);
+    const tolerance = byLevel(entry, 0.45, 0.3, 0.24);
     const reach = byLevel(entry, 4.8, 4.4, 4.6);
     if (entry.size >= wantSize && dist < reach && aimError < tolerance && now - entry.lastThrowAt > SNOW_THROW_COOLDOWN_MS) {
       return { action: "throw" };
@@ -2236,7 +2249,10 @@ const boat = {
       // greift nach dem Rand, ohne auf die Neigung zu achten.
       const safe = BOAT_TORQUE_MAX * byLevel(entry, 1, 0.7, 0.62);
       let aim = clamp(-state.torque / turn.w, -BOAT_REACH * 0.95, BOAT_REACH * 0.95);
-      if (level(entry) === "hard") {
+      // Der mittlere sucht inzwischen meist auch nach Punkten, nur mit mehr
+      // Sicherheitsabstand — nur auszugleichen brachte ihm so wenig, dass der
+      // schwache, der wild zum Rand greift, gemessen gleichauf lag.
+      if (level(entry) === "hard" || (level(entry) === "normal" && Math.random() < 0.6)) {
         let best = aim;
         let bestPoints = -1;
         for (let x = -BOAT_REACH * 0.95; x <= BOAT_REACH * 0.95; x += 0.05) {

@@ -3160,7 +3160,20 @@ test("belt: the result reports one number and it is the one that ranks", () => {
   const detail = arcadeResultDetail(arcade, entry);
   assert.equal(detail.kind, "points");
   assert.equal(detail.value, Math.round(entry.score));
-  assert.equal(arcadeRankingScore(arcade, entry), Math.round(entry.score));
+  // Die Wertung folgt der angezeigten Zahl; darunter ordnet nur noch, wer
+  // schneller zugegriffen hat — das kann einen Punkt Abstand nie umdrehen.
+  assert.equal(Math.floor(arcadeRankingScore(arcade, entry) / 1000), Math.round(entry.score));
+});
+
+test("belt: bei gleichen Punkten gewinnt, wer früher zugreift", () => {
+  const schnell = beltRoom();
+  schnell.entry.beltPos = BELT_REACH_AT + 0.02;
+  schnell.sort(schnell.rightChute());
+  const langsam = beltRoom();
+  langsam.entry.beltPos = BELT_REACH_AT + 0.3;
+  langsam.sort(langsam.rightChute());
+  assert.equal(schnell.entry.score, langsam.entry.score);
+  assert.ok(arcadeRankingScore(schnell.arcade, schnell.entry) > arcadeRankingScore(langsam.arcade, langsam.entry));
 });
 
 test("belt: unknown chute and wrong action are refused", () => {
