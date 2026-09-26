@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { baeume, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Fassrolle — alle stehen auf einem Riesenfass über dem Fluss. Die Strömung
 // dreht es mal so, mal so; mit ◀ oder ▶ läuft man dagegen an. Aber wer läuft,
@@ -88,10 +89,19 @@ export class BarrelRoll extends MinigameScene {
       this.scene.add(bank);
     });
     dressMeadow(this.scene, {
-      seed: 21, groundY: WATER_Y + 1.1, keepOut: { x: 6.4, z: 0 }, spread: { x: 19, z: 26 },
-      treeRing: { x: 15, z: 22 }, frontCut: 7, trees: 26, patches: 22, tufts: 150, stones: 14,
+      // Nur auf den Ufern: keepOut.z so gross, dass allein |x| entscheidet —
+      // vorher trieben Büschel, Grasflecken und Bäume mitten auf dem Fluss.
+      seed: 21, groundY: WATER_Y + 1.1, keepOut: { x: 6.6, z: 999 }, spread: { x: 19, z: 26 },
+      frontCut: 7, trees: 0, patches: 0, tufts: 150, stones: 14,
       grassColor: "#67b95f", patchColors: ["#75c46b", "#8bd47f"], crownColor: "#4f9b4a", crownColor2: "#6cb45e", crownShape: "blob"
     });
+    this.buildRiver(this.scene);
+    const ufer = streuer(12);
+    const baumSpots = [];
+    [-1, 1].forEach((seite) => {
+      for (let z = -32; z < 5; z += 2 + ufer() * 1.6) baumSpots.push([seite * (7.4 + ufer() * 5), z, 1.6 + ufer() * 0.9]);
+    });
+    baeume(this.scene, baumSpots, { krone: "#4f9b4a", krone2: "#6cb45e" });
 
     // Das Riesenfass mit Dauben, Deckeln und Ringen — die Streifen machen die
     // Drehung sichtbar.
@@ -186,6 +196,114 @@ export class BarrelRoll extends MinigameScene {
       // kippte nach vorn statt zur Seite.
       kin.rotation.order = "ZYX";
       this.shadows.get(player.id).userData.manual = true;
+    });
+  }
+
+  // Der Fluss: hinten ein Wasserfall über eine Felskante, im Wasser Felsen
+  // mit Schaumkränzen, am Ufer Schilf und Rohrkolben, rechts ein Steg mit
+  // Ruderboot, und drei Enten, die vorbeitreiben.
+  buildRiver(scene) {
+    const zufall = streuer(46);
+    const fels = lambert("#8d949c");
+    const felsDunkel = lambert("#6f767e");
+    const fallZ = -26;
+    const kante = [];
+    for (let x = -10; x <= 10; x += 1.6) kante.push({ p: [x, WATER_Y + 2.4 + zufall() * 1.2, fallZ - 1 - zufall()], r: [zufall(), zufall(), zufall()], s: [1.4 + zufall() * 0.6, 2.8 + zufall() * 1.4, 1.4] });
+    viele(scene, new THREE.DodecahedronGeometry(1, 0), fels, kante, { schatten: true });
+    kiste(scene, 24, 5.4, 3, "#7d848c", [0, WATER_Y + 2.7, fallZ - 2.2], { schatten: false });
+    // Das fallende Wasser mit Streifen, die herunterlaufen.
+    const vorhang = new THREE.Mesh(new THREE.PlaneGeometry(7, 5), new THREE.MeshLambertMaterial({ color: "#7fd0f5", emissive: "#2a90c8", emissiveIntensity: 0.3 }));
+    vorhang.position.set(0, WATER_Y + 2.5, fallZ + 0.4);
+    scene.add(vorhang);
+    const streifen = [];
+    for (let i = 0; i < 26; i += 1) streifen.push({ x: -3.3 + zufall() * 6.6, phase: zufall(), laenge: 0.6 + zufall() * 0.8 });
+    this.fallStreaks = { mesh: viele(scene, new THREE.BoxGeometry(0.08, 1, 0.02), new THREE.MeshBasicMaterial({ color: "#e8f8ff" }), streifen.map((st) => ({ p: [st.x, WATER_Y + 2, fallZ + 0.45], s: [1, st.laenge, 1] }))), streifen, top: WATER_Y + 5, bottom: WATER_Y, z: fallZ + 0.45 };
+    const gischt = [];
+    for (let i = 0; i < 14; i += 1) gischt.push({ p: [-3.4 + i * 0.52, WATER_Y + 0.15, fallZ + 0.9 + zufall() * 0.6], s: [0.5 + zufall() * 0.3, 0.3, 0.5] });
+    this.fallFoam = viele(scene, new THREE.SphereGeometry(1, 10, 6), lambert("#f4fbff"), gischt);
+
+    // Felsen im Strom.
+    const steine = [[-4.2, -3.5, 0.8], [4.4, -5.5, 0.9], [-3.6, -10, 0.7], [3.4, -13, 1.0], [-4.8, -17, 1.1], [1.8, -20, 0.8], [5.2, 1.5, 0.7], [-5.2, 3, 0.6]];
+    viele(scene, new THREE.DodecahedronGeometry(1, 0), felsDunkel, steine.map(([x, z, r]) => ({ p: [x, WATER_Y + r * 0.2, z], r: [zufall(), zufall(), zufall()], s: [r, r * 0.7, r] })), { schatten: true });
+    this.foamRings = viele(scene, new THREE.TorusGeometry(1, 0.12, 6, 18), new THREE.MeshBasicMaterial({ color: "#e8f8ff", transparent: true, opacity: 0.8 }), steine.map(([x, z, r]) => ({ p: [x, WATER_Y + 0.03, z], r: [Math.PI / 2, 0, 0], s: [r * 1.05, r * 1.05, 1] })));
+    this.foamRingSpots = steine;
+
+    // Schilf und Rohrkolben an beiden Ufern.
+    const halme = [];
+    const kolben = [];
+    [-1, 1].forEach((seite) => {
+      for (let z = -22; z < 8; z += 0.5 + zufall() * 0.5) {
+        const x = seite * (5.7 + zufall() * 0.5);
+        const h = 0.9 + zufall() * 0.8;
+        halme.push({ p: [x, WATER_Y + h / 2, z], r: [(zufall() - 0.5) * 0.3, 0, (zufall() - 0.5) * 0.3], s: [1, h, 1] });
+        if (zufall() < 0.4) kolben.push({ p: [x, WATER_Y + h + 0.05, z], s: [1, 1, 1] });
+      }
+    });
+    viele(scene, new THREE.CylinderGeometry(0.03, 0.04, 1, 5), lambert("#5a9a3a"), halme);
+    viele(scene, new THREE.CylinderGeometry(0.06, 0.06, 0.28, 6), lambert("#6b4a2e"), kolben);
+
+    // Steg mit Ruderboot am rechten Ufer.
+    const steg = new THREE.Group();
+    steg.position.set(6.2, 0, -8);
+    scene.add(steg);
+    kiste(steg, 2.6, 0.12, 1.1, "#a8743f", [-1.2, WATER_Y + 0.55, 0]);
+    const pfosten = [[-2.4, -0.5], [-2.4, 0.5], [-1.2, -0.5], [-1.2, 0.5], [0, -0.5], [0, 0.5]].map(([x, z]) => ({ p: [x, WATER_Y + 0.2, z] }));
+    viele(steg, new THREE.CylinderGeometry(0.08, 0.08, 1, 8), lambert("#6b4a2e"), pfosten);
+    const boot = new THREE.Group();
+    boot.position.set(-1.7, WATER_Y + 0.12, 1.1);
+    steg.add(boot);
+    kiste(boot, 1.9, 0.3, 0.75, "#c8413b", [0, 0, 0]);
+    kiste(boot, 1.7, 0.08, 0.6, "#8a5a32", [0, 0.1, 0]);
+    kiste(boot, 0.2, 0.05, 0.72, "#f6f3ec", [0.2, 0.2, 0]);
+    this.rowboat = boot;
+
+    // Enten.
+    this.ducks = [0, 1, 2].map((i) => {
+      const ente = new THREE.Group();
+      const koerper = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), lambert(i === 1 ? "#8a6a4a" : "#f6f3ec"));
+      koerper.scale.set(1.3, 0.8, 1);
+      ente.add(koerper);
+      const kopf = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), lambert(i === 1 ? "#2f7a4a" : "#f6f3ec"));
+      kopf.position.set(0.18, 0.16, 0);
+      ente.add(kopf);
+      kiste(ente, 0.1, 0.04, 0.06, "#ff9a1e", [0.3, 0.14, 0], { schatten: false });
+      ente.userData = { isFx: true, lane: [-4.6, 4.8, -3.8][i], start: zufall() * 30 };
+      scene.add(ente);
+      return ente;
+    });
+  }
+
+  animateRiver(now) {
+    const fall = this.fallStreaks;
+    if (fall?.mesh) {
+      const o = new THREE.Object3D();
+      fall.streifen.forEach((st, i) => {
+        const t = (now / 900 + st.phase) % 1;
+        o.position.set(st.x, fall.top - t * (fall.top - fall.bottom), fall.z);
+        o.scale.set(1, st.laenge, 1);
+        o.updateMatrix();
+        fall.mesh.setMatrixAt(i, o.matrix);
+      });
+      fall.mesh.instanceMatrix.needsUpdate = true;
+    }
+    if (this.fallFoam) this.fallFoam.scale.setScalar(1 + Math.sin(now / 160) * 0.04);
+    if (this.foamRings) {
+      const o = new THREE.Object3D();
+      this.foamRingSpots.forEach(([x, z, r], i) => {
+        const puls = 1.05 + ((now / 1300 + i * 0.37) % 1) * 0.35;
+        o.position.set(x, WATER_Y + 0.03, z);
+        o.rotation.set(Math.PI / 2, 0, 0);
+        o.scale.set(r * puls, r * puls, 1);
+        o.updateMatrix();
+        this.foamRings.setMatrixAt(i, o.matrix);
+      });
+      this.foamRings.instanceMatrix.needsUpdate = true;
+    }
+    if (this.rowboat) this.rowboat.rotation.z = Math.sin(now / 800) * 0.05;
+    this.ducks?.forEach((ente, i) => {
+      const t = ((now / 1000 + ente.userData.start) % 34) / 34;
+      ente.position.set(ente.userData.lane + Math.sin(now / 1500 + i) * 0.3, WATER_Y + 0.08 + Math.sin(now / 300 + i) * 0.02, -22 + t * 30);
+      ente.rotation.y = -Math.PI / 2;
     });
   }
 
@@ -453,6 +571,7 @@ export class BarrelRoll extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale } = f;
+    this.animateRiver(now);
     if (!arcade) return;
 
     // Die Serverdrehung mit dem aktuellen Tempo fortschreiben, damit das Fass

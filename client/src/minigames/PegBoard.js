@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
+import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Nagelbrett: oben tippen lässt die eigene Kugel dort fallen, ein Tipp links
 // oder rechts gibt ihr einen einzigen Stups. Unten zählt das Fach — und der
@@ -75,9 +75,9 @@ export class PegBoard extends MinigameScene {
   stage() {
     return {
       label: "3D Nagelbrett",
-      background: "#8fd3ef",
-      fog: ["#b3e4f6", 24, 60],
-      lights: { sunPosition: [-3, 10, 9], shadow: { left: -5, right: 5, top: 6, bottom: -6 } }
+      background: "#f0a58a",
+      fog: ["#f0b89a", 24, 60],
+      lights: { sunPosition: [-3, 10, 9], sunColor: 0xffe2c4, skyColor: 0xffd8e8, shadow: { left: -5, right: 5, top: 6, bottom: -6 } }
     };
   }
 
@@ -95,7 +95,7 @@ export class PegBoard extends MinigameScene {
 
     const board = new THREE.Mesh(
       new THREE.BoxGeometry(BOARD_W + 0.5, BOARD_H + 0.6, 0.3),
-      new THREE.MeshLambertMaterial({ color: "#2b3648" })
+      new THREE.MeshLambertMaterial({ color: "#ffffff", map: wellenTextur() })
     );
     board.position.set(0, 0.4, -0.4);
     board.receiveShadow = true;
@@ -103,10 +103,11 @@ export class PegBoard extends MinigameScene {
 
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(BOARD_W + 0.9, BOARD_H + 1.0, 0.24),
-      new THREE.MeshLambertMaterial({ color: "#9a7748" })
+      new THREE.MeshLambertMaterial({ color: "#c8313b" })
     );
     frame.position.set(0, 0.4, -0.58);
     scene.add(frame);
+    this.buildMatsuri(scene);
 
     // Die Nägel. Sie stehen exakt dort, wo der Server sie rechnet — sonst
     // prallt die Kugel im Bild woanders ab als in der Wertung.
@@ -186,15 +187,10 @@ export class PegBoard extends MinigameScene {
     this.jackpot = jackpot;
     this.jackpotGlow = glow;
 
-    [[-6.4, 4.6, -9, 3], [6.2, 5.2, -10, 8]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
-    });
 
 
     // Laufleiste über dem Brett.
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 1.2, 0.16, 0.7), new THREE.MeshLambertMaterial({ color: "#9a7748" }));
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 1.2, 0.16, 0.7), new THREE.MeshLambertMaterial({ color: "#5a3522" }));
     rail.position.set(0, this.railY - 0.08, 0.1);
     rail.receiveShadow = true;
     scene.add(rail);
@@ -207,6 +203,87 @@ export class PegBoard extends MinigameScene {
       scene.add(held);
       this.droppers.set(player.id, { homeX: x, x, ballId: null, lastSlotAt: 0, held, droppedAt: -1e9 });
     });
+  }
+
+  // Ein Pachinko-Stand auf einem Sommerfest in der Dämmerung: roter Lackrahmen
+  // mit Goldecken, Wellenmuster auf dem Brett, Papierlaternen an den Seiten,
+  // Kirschblütenzweige hinter den oberen Ecken und ein paar Blütenblätter,
+  // die durchs Bild segeln. Hinten ein Torii und Laternenketten.
+  buildMatsuri(scene) {
+    const zufall = streuer(88);
+    himmel(scene, { oben: "#5a4aa0", unten: "#ffb38a" });
+    const hw = (BOARD_W + 0.9) / 2;
+    const hh = (BOARD_H + 1.0) / 2;
+    viele(scene, new THREE.BoxGeometry(0.34, 0.34, 0.3), lambert("#ffc400"), [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => ({ p: [sx * (hw - 0.12), 0.4 + sy * (hh - 0.12), -0.42] })));
+
+    // Der Tresen unter dem Brett, vorn ein rot-weiss gestreiftes Tuch.
+    const tresenY = 0.4 - hh - 0.5;
+    kiste(scene, BOARD_W + 1.6, 1.0, 0.9, "#6b4a2e", [0, tresenY, 0.05]);
+    kiste(scene, BOARD_W + 1.8, 0.1, 1.0, "#8a5a32", [0, tresenY + 0.52, 0.05]);
+    const tuch = [];
+    for (let i = 0; i < 14; i += 1) tuch.push({ p: [-(BOARD_W + 1.5) / 2 + (i + 0.5) * ((BOARD_W + 1.5) / 14), tresenY - 0.05, 0.51], s: [(BOARD_W + 1.5) / 14, 0.8, 1] });
+    viele(scene, new THREE.PlaneGeometry(1, 1), lambert("#e0453b"), tuch.filter((_, i) => i % 2 === 0));
+    viele(scene, new THREE.PlaneGeometry(1, 1), lambert("#fff1d6"), tuch.filter((_, i) => i % 2 === 1));
+
+    // Papierlaternen an beiden Seiten.
+    this.lanterns = [];
+    [-1, 1].forEach((seite) => {
+      [2.4, 0.7, -1.0].forEach((y, i) => {
+        const laterne = new THREE.Group();
+        laterne.position.set(seite * (hw - 0.05), y, 0.12);
+        const koerper = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 10), new THREE.MeshLambertMaterial({ color: (i + (seite > 0 ? 1 : 0)) % 2 ? "#fff1d6" : "#e0453b", emissive: "#ff9a3c", emissiveIntensity: 0.45 }));
+        koerper.scale.y = 1.3;
+        laterne.add(koerper);
+        [-0.24, 0.24].forEach((dy) => kiste(laterne, 0.2, 0.05, 0.2, "#2c2f38", [0, dy, 0], { schatten: false }));
+        kiste(laterne, 0.02, 0.3, 0.02, "#2c2f38", [0, 0.4, 0], { schatten: false });
+        scene.add(laterne);
+        this.lanterns.push(laterne);
+      });
+    });
+
+    // Kirschblütenzweige hinter den oberen Ecken.
+    const aeste = [];
+    const blueten = [];
+    [-1, 1].forEach((seite) => {
+      let x = seite * (hw - 0.3);
+      let y = 0.4 + hh - 0.4;
+      for (let k = 0; k < 5; k += 1) {
+        const nx = x + seite * (0.35 + zufall() * 0.25);
+        const ny = y + 0.3 + zufall() * 0.2;
+        aeste.push({ p: [(x + nx) / 2, (y + ny) / 2, -0.8], r: [0, 0, Math.atan2(nx - x, ny - y) * -1], s: [1, Math.hypot(nx - x, ny - y), 1] });
+        for (let b = 0; b < 3; b += 1) blueten.push({ p: [nx + (zufall() - 0.5) * 0.5, ny + (zufall() - 0.5) * 0.4, -0.75 + zufall() * 0.1], r: [zufall(), zufall(), 0], s: 0.14 + zufall() * 0.1 });
+        x = nx;
+        y = ny;
+      }
+    });
+    viele(scene, new THREE.BoxGeometry(0.07, 1, 0.07), lambert("#5a3522"), aeste);
+    viele(scene, new THREE.DodecahedronGeometry(1, 0), lambert("#ffc2d8"), blueten);
+
+    // Torii und Laternenketten in der Ferne.
+    const torii = new THREE.Group();
+    torii.position.set(0, -3, -22);
+    scene.add(torii);
+    [-4, 4].forEach((x) => kiste(torii, 0.7, 12, 0.7, "#d0452f", [x, 6, 0], { schatten: false }));
+    kiste(torii, 11.5, 0.6, 0.9, "#2c2f38", [0, 12.3, 0], { schatten: false });
+    kiste(torii, 10, 0.5, 0.6, "#d0452f", [0, 11.6, 0], { schatten: false });
+    kiste(torii, 9, 0.4, 0.5, "#d0452f", [0, 9.8, 0], { schatten: false });
+    const ketten = [];
+    for (let i = 0; i < 26; i += 1) {
+      const x = -13 + i;
+      ketten.push({ p: [x, 6.4 - Math.cos((x / 13) * Math.PI) * 0.7, -12] });
+    }
+    viele(scene, new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffcf7a" }), ketten);
+
+    // Blütenblätter.
+    const blatt = new THREE.PlaneGeometry(0.07, 0.05);
+    const blattMat = new THREE.MeshBasicMaterial({ color: "#ffd0e0", transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+    this.petals = [];
+    for (let i = 0; i < 16; i += 1) {
+      const p = new THREE.Mesh(blatt, blattMat);
+      p.userData = { isFx: true, x: (zufall() - 0.5) * 6, phase: zufall() * 10, speed: 0.25 + zufall() * 0.2 };
+      scene.add(p);
+      this.petals.push(p);
+    }
   }
 
   shot() {
@@ -294,6 +371,13 @@ export class PegBoard extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, state, minigame } = f;
+    this.lanterns?.forEach((laterne, i) => { laterne.rotation.z = Math.sin(now / 700 + i) * 0.08; });
+    this.petals?.forEach((p) => {
+      const d = p.userData;
+      const t = ((now / 1000) * d.speed + d.phase) % 1;
+      p.position.set(d.x + Math.sin(now / 800 + d.phase) * 0.4 + t * 1.2, 4.2 - t * 8, 0.45);
+      p.rotation.set(now / 400 + d.phase, now / 530, 0);
+    });
     if (!arcade) return;
     const floorY = arcade.floorY || 1.3;
     if (this.jackpot && arcade.jackpotPeriod) {
@@ -447,4 +531,34 @@ export class PegBoard extends MinigameScene {
       banner.hidden = true;
     }
   }
+}
+
+// Seigaiha: Wellenmuster in zwei dunklen Blautönen — ruhig genug, dass Nägel
+// und Kugeln davor klar bleiben.
+function wellenTextur() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 640;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#2b3648";
+  ctx.fillRect(0, 0, 512, 640);
+  const r = 32;
+  ctx.lineWidth = 3;
+  for (let row = 0; row < 640 / (r / 2) + 2; row += 1) {
+    const y = row * (r / 2);
+    const off = row % 2 ? r : 0;
+    for (let x = -r + off; x < 512 + r; x += r * 2) {
+      for (let k = 3; k >= 1; k -= 1) {
+        ctx.beginPath();
+        ctx.arc(x, y, (r * k) / 3, Math.PI, 0);
+        ctx.fillStyle = k % 2 ? "#2f3b50" : "#2b3648";
+        ctx.fill();
+        ctx.strokeStyle = "#374762";
+        ctx.stroke();
+      }
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }

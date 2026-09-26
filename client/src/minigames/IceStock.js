@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { himmel, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
 
 // Eisstock: nach vorn wischen schiebt den Stein los — länger heisst weiter.
 // Wer seine Steine am nächsten ans Zentrum bringt, gewinnt.
@@ -27,6 +27,7 @@ const GAIN_Z = 1.7;
 const _ray = new THREE.Raycaster();
 const _ice = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.06);
 const _ndc = new THREE.Vector2();
+const MARKET_COLORS = ["#ffd15c", "#ff6b6b", "#ffd15c", "#7fd6ff", "#fff3c0"].map((c) => new THREE.Color(c));
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -50,9 +51,9 @@ export class IceStock extends MinigameScene {
   stage() {
     return {
       label: "3D Eisstock",
-      background: "#bfe6f7",
-      fog: ["#dff2fb", 20, 56],
-      lights: { sunPosition: [-4, 12, 6], shadow: { left: -5, right: 5, top: 8, bottom: -8 } }
+      background: "#6a78b0",
+      fog: ["#8a90b8", 22, 56],
+      lights: { sunPosition: [-4, 12, 6], sunColor: 0xffe8d0, sunIntensity: 2.4, hemiIntensity: 1.9, skyColor: 0xd0dcff, groundColor: 0x9aa6c8, shadow: { left: -5, right: 5, top: 8, bottom: -8 } }
     };
   }
 
@@ -127,12 +128,6 @@ export class IceStock extends MinigameScene {
     line.position.set(0, 0.07, this.worldZ(sheetY - 0.14, sheetY));
     scene.add(line);
 
-    [[-7.4, 5.6, -9, 6], [7.0, 6.2, -11, 1]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
-    });
-
     // Winterkulisse hinter der Bahn. Vorher waren Bahn, Schnee und Himmel drei
     // Abstufungen von Weissgrau — das Bild hatte weder Farbe noch Horizont.
     const tannenStamm = new THREE.MeshLambertMaterial({ color: "#6b4a2c" });
@@ -160,6 +155,7 @@ export class IceStock extends MinigameScene {
       huegel.scale.y = 0.5;
       scene.add(huegel);
     }
+    this.buildMarket(scene);
 
 
     // Alle Werfer am Abwurf nebeneinander.
@@ -170,6 +166,134 @@ export class IceStock extends MinigameScene {
       this.addKin(player, index, { x, ground: 0.05, z: baseZ, facing: Math.PI, scale: 0.9 });
       this.throwers.set(player.id, { x, z: baseZ, left: arcade.players[player.id]?.stonesLeft ?? 3, threwAt: -1e9, stoneId: null, reacted: true });
     });
+  }
+
+  // Ein Weihnachtsmarkt in der Dämmerung hinter der Bahn: Holzbuden mit
+  // verschneiten Dächern, warm leuchtenden Theken und Schildern, ein
+  // geschmückter Baum mit Stern, Lichterketten über dem Platz, zwei
+  // Schneemänner am Rand und leiser Schneefall.
+  buildMarket(scene) {
+    const zufall = streuer(24);
+    himmel(scene, { oben: "#2c3a78", unten: "#f0a878" });
+    const endeZ = -SHEET_LEN / 2;
+
+    // Buden.
+    const buden = [[-3.7, "GLÜHWEIN"], [-1.25, "LEBKUCHEN"], [1.25, "MARONEN"], [3.7, "KERZEN"]];
+    buden.forEach(([x, text], i) => {
+      const bude = new THREE.Group();
+      bude.position.set(x, 0, endeZ - 5.2 - (i % 2) * 0.5);
+      bude.rotation.y = -x * 0.05;
+      scene.add(bude);
+      kiste(bude, 2.1, 1.5, 1.3, "#8a5a32", [0, 0.75, 0]);
+      kiste(bude, 1.7, 0.55, 0.05, "#ffcf7a", [0, 1.0, 0.66], { schatten: false, material: new THREE.MeshBasicMaterial({ color: "#ffcf7a" }) });
+      kiste(bude, 2.2, 0.12, 0.35, "#6b4a2e", [0, 0.72, 0.8]);
+      [-1, 1].forEach((seite) => {
+        const dach = kiste(bude, 2.5, 0.12, 0.95, "#5a3522", [0, 1.78, seite * 0.36]);
+        dach.rotation.x = seite * 0.55;
+        const schnee = kiste(bude, 2.5, 0.1, 0.9, "#f4f9ff", [0, 1.86, seite * 0.34]);
+        schnee.rotation.x = seite * 0.55;
+      });
+      const tafel = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.32), new THREE.MeshBasicMaterial({ map: schild(text, { grund: "#8a1f2a", schrift: "#ffe08a", rahmen: "#ffe08a", groesse: 62 }) }));
+      tafel.position.set(0, 1.42, 0.68);
+      bude.add(tafel);
+      kiste(bude, 2.2, 0.08, 0.08, "#2f6f42", [0, 1.52, 0.72], { schatten: false });
+    });
+
+    // Der Baum.
+    const baum = new THREE.Group();
+    baum.position.set(0, 0, endeZ - 3.2);
+    scene.add(baum);
+    kiste(baum, 0.3, 0.6, 0.3, "#6b4a2c", [0, 0.3, 0]);
+    [[1.3, 1.5, 1.1], [1.0, 1.3, 1.9], [0.7, 1.1, 2.6]].forEach(([r, h, y]) => {
+      const kegel = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), lambert("#2f6f42"));
+      kegel.position.y = y;
+      kegel.castShadow = true;
+      baum.add(kegel);
+    });
+    const kugeln = [];
+    for (let i = 0; i < 22; i += 1) {
+      const y = 0.7 + zufall() * 2.3;
+      const r = (1 - (y - 0.4) / 3) * 1.25;
+      const a = zufall() * Math.PI * 2;
+      kugeln.push({ p: [Math.cos(a) * r * 0.85, y, Math.sin(a) * r * 0.85], color: ["#e0453b", "#ffd15c", "#4bb8ff", "#ffffff"][i % 4] });
+    }
+    this.treeLights = viele(baum, new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffffff" }), kugeln);
+    kugeln.forEach((k, i) => this.treeLights.setColorAt(i, new THREE.Color(k.color)));
+    const stern = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), new THREE.MeshBasicMaterial({ color: "#ffe36b" }));
+    stern.position.y = 3.3;
+    stern.scale.set(1, 1.3, 0.4);
+    baum.add(stern);
+    this.treeStar = stern;
+
+    // Lichterketten über dem Platz.
+    const birnen = [];
+    [endeZ - 1.6, endeZ - 4.3].forEach((z) => {
+      for (let i = 0; i <= 24; i += 1) {
+        const t = i / 24;
+        birnen.push({ p: [-5.5 + t * 11, 3.1 - Math.sin(t * Math.PI) * 0.7, z] });
+      }
+    });
+    viele(scene, new THREE.BoxGeometry(0.04, 0.04, 0.04), lambert("#2c2f38"), [-5.5, 5.5].flatMap((x) => [endeZ - 1.6, endeZ - 4.3].map((z) => ({ p: [x, 1.55, z], s: [1.5, 78, 1.5] }))));
+    this.marketBulbs = viele(scene, new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffffff" }), birnen);
+
+    // Schneemänner am Rand.
+    [[-2.9, endeZ - 0.6, 0.4], [2.95, endeZ - 1.2, -0.4]].forEach(([x, z, dreh]) => {
+      const mann = new THREE.Group();
+      mann.position.set(x, 0, z);
+      mann.rotation.y = dreh;
+      scene.add(mann);
+      [[0.42, 0.38], [0.3, 0.98], [0.22, 1.42]].forEach(([r, y]) => {
+        const kugel = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), lambert("#f4f9ff"));
+        kugel.position.y = y;
+        kugel.castShadow = true;
+        mann.add(kugel);
+      });
+      const nase = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.22, 6), lambert("#ff8a2a"));
+      nase.rotation.x = Math.PI / 2;
+      nase.position.set(0, 1.42, 0.3);
+      mann.add(nase);
+      kiste(mann, 0.34, 0.3, 0.34, "#2c2f38", [0, 1.72, 0]);
+      kiste(mann, 0.5, 0.04, 0.5, "#2c2f38", [0, 1.58, 0]);
+      kiste(mann, 0.5, 0.1, 0.12, "#e0453b", [0, 1.22, 0.1]);
+    });
+
+    // Schneefall.
+    const flocken = 160;
+    const pos = new Float32Array(flocken * 3);
+    for (let i = 0; i < flocken; i += 1) {
+      pos[i * 3] = (zufall() - 0.5) * 14;
+      pos[i * 3 + 1] = zufall() * 7;
+      pos[i * 3 + 2] = -14 + zufall() * 20;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    this.snowfall = new THREE.Points(geo, new THREE.PointsMaterial({ color: "#ffffff", size: 0.07, transparent: true, opacity: 0.85, depthWrite: false }));
+    this.snowfall.frustumCulled = false;
+    this.snowfall.userData.isFx = true;
+    scene.add(this.snowfall);
+  }
+
+  animateMarket(now, dt) {
+    if (this.marketBulbs) {
+      const schritt = Math.floor(now / 380);
+      for (let i = 0; i < this.marketBulbs.count; i += 1) this.marketBulbs.setColorAt(i, MARKET_COLORS[(i + schritt) % MARKET_COLORS.length]);
+      this.marketBulbs.instanceColor.needsUpdate = true;
+    }
+    if (this.treeStar) {
+      this.treeStar.rotation.y = now / 900;
+      this.treeStar.scale.setScalar(1 + Math.sin(now / 250) * 0.08);
+      this.treeStar.scale.y *= 1.3;
+    }
+    if (this.snowfall) {
+      const pos = this.snowfall.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += 1) {
+        let y = pos.getY(i) - dt * 0.6;
+        if (y < 0) y += 7;
+        pos.setY(i, y);
+        pos.setX(i, pos.getX(i) + Math.sin(now / 900 + i) * dt * 0.08);
+      }
+      pos.needsUpdate = true;
+    }
   }
 
   shot() {
@@ -392,6 +516,7 @@ export class IceStock extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, state } = f;
+    this.animateMarket(now, dt);
     if (!arcade) return;
     const sheetY = arcade.sheetY || 1.3;
     const colourOf = (id) => state.players.find((player) => player.id === id)?.color || "#ffffff";

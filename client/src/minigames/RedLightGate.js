@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Lichtwächter — "Ochs am Berg": halten heisst laufen. Solange der Riese am
 // Ende der Wiese wegschaut und summt, ist Grün. Bevor er sich umdreht, sieht
@@ -45,7 +46,7 @@ export class RedLightGate extends MinigameScene {
     return {
       label: "3D Lichtwächter",
       background: "#a8e2f4",
-      fog: ["#a8e2f4", 24, 56],
+      fog: ["#a8e2f4", 28, 80],
       lights: { sunPosition: [-5, 12, 6], shadow: { left: -12, right: 12, top: 18, bottom: -18 }, sunIntensity: 2.9, skyColor: 0xe6f6ff, groundColor: 0x76b8a8 }
     };
   }
@@ -178,10 +179,107 @@ export class RedLightGate extends MinigameScene {
     });
 
     this.gateZ = gateZ;
+    this.buildPalaceGarden(scene, gateZ);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
       this.addKin(player, index, { x: this.laneX(index), ground: TRACK_TOP_Y, z: START_Z, facing: Math.PI });
     });
+  }
+
+  // Ein Schlossgarten: hinten das Schloss mit Säulenportal und Kuppel, entlang
+  // der Bahn Formschnitt-Kegel und -Kugeln in Kübeln, zwei steinerne Statuen
+  // am Tor, rechts ein plätschernder Brunnen und Gartenlaternen.
+  buildPalaceGarden(scene, gateZ) {
+    const zufall = streuer(57);
+    const schloss = new THREE.Group();
+    schloss.position.set(0, 0, gateZ - 13);
+    scene.add(schloss);
+    const putz = lambert("#f1e6cf");
+    kiste(schloss, 22, 6, 3, "", [0, 3, 0], { material: putz, schatten: false });
+    const dach = kiste(schloss, 22.4, 1.6, 2.2, "#5f6f8a", [0, 6.6, -0.2], { schatten: false });
+    dach.scale.set(1, 1, 1);
+    kiste(schloss, 6, 8, 3.6, "", [0, 4, 0.3], { material: putz, schatten: false });
+    const giebel = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 3.4, 1.6, 3, 1), putz);
+    giebel.rotation.set(Math.PI / 2, 0, 0);
+    giebel.scale.set(1, 0.3, 1);
+    giebel.position.set(0, 8.3, 2.05);
+    schloss.add(giebel);
+    const kuppel = new THREE.Mesh(new THREE.SphereGeometry(1.8, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), lambert("#6fae9a"));
+    kuppel.position.set(0, 8, 0);
+    schloss.add(kuppel);
+    kiste(schloss, 0.08, 1.4, 0.08, "#2c2f38", [0, 10.4, 0], { schatten: false });
+    this.palaceFlag = kiste(schloss, 0.9, 0.5, 0.03, "#c8313b", [0.47, 10.8, 0], { schatten: false });
+    viele(schloss, new THREE.CylinderGeometry(0.22, 0.24, 5.6, 10), lambert("#ffffff"), [-2.2, -1.1, 0, 1.1, 2.2].map((x) => ({ p: [x, 2.8, 2.25] })));
+    const fenster = [];
+    [-1, 1].forEach((seite) => {
+      for (let i = 0; i < 6; i += 1) {
+        [1.7, 4.2].forEach((y) => fenster.push({ p: [seite * (4 + i * 1.2), y, 1.52], s: [0.6, 1.3, 1] }));
+      }
+    });
+    viele(schloss, new THREE.PlaneGeometry(1, 1), lambert("#6f8fb0"), fenster);
+    viele(schloss, new THREE.PlaneGeometry(1, 1), lambert("#ffffff"), fenster.map((f) => ({ p: [f.p[0], f.p[1], 1.515], s: [0.76, 1.46, 1] })));
+
+    // Formschnitt in Kübeln an beiden Seiten.
+    const kuebel = [];
+    const kegel = [];
+    const kugeln = [];
+    for (let i = 0; i < 5; i += 1) {
+      const z = START_Z - 2.2 - i * 4.4;
+      [[-4.35, i % 2], [3.65, (i + 1) % 2]].forEach(([x, form]) => {
+        kuebel.push({ p: [x, 0.25, z] });
+        if (form) kegel.push({ p: [x, 1.25, z], s: [0.55, 1.5, 0.55] });
+        else kugeln.push({ p: [x, 1.05, z], s: 0.55 });
+      });
+    }
+    viele(scene, new THREE.CylinderGeometry(0.34, 0.26, 0.5, 10), lambert("#c2653e"), kuebel, { schatten: true });
+    viele(scene, new THREE.ConeGeometry(1, 1, 8), lambert("#2f7f45"), kegel, { schatten: true });
+    viele(scene, new THREE.SphereGeometry(1, 12, 10), lambert("#3f9b52"), kugeln, { schatten: true });
+
+    // Statuen am Tor.
+    [-4.4, 4.4].forEach((x, i) => {
+      kiste(scene, 1.0, 1.2, 1.0, "#d8d2c4", [x, 0.6, gateZ + 0.4]);
+      const statue = createKin("#e8e4dc", i ? 2 : 6);
+      statue.scale.setScalar(1.15);
+      statue.position.set(x, 1.2 + KIN_SOLE * 1.15, gateZ + 0.4);
+      statue.rotation.y = x < 0 ? 0.4 : -0.4;
+      statue.traverse((teil) => {
+        if (teil.material) teil.material = lambert("#e8e4dc");
+      });
+      scene.add(statue);
+    });
+
+    // Brunnen rechts.
+    const brunnen = new THREE.Group();
+    brunnen.position.set(6.4, 0, gateZ + 4);
+    scene.add(brunnen);
+    const becken = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.6, 0.5, 20), lambert("#d8d2c4"));
+    becken.position.y = 0.25;
+    brunnen.add(becken);
+    const wasser = new THREE.Mesh(new THREE.CircleGeometry(1.35, 20), lambert("#5ec8ec", { emissive: "#1f7fa8", emissiveIntensity: 0.25 }));
+    wasser.rotation.x = -Math.PI / 2;
+    wasser.position.y = 0.46;
+    brunnen.add(wasser);
+    const saeule = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.25, 1.4, 10), lambert("#d8d2c4"));
+    saeule.position.y = 1.0;
+    brunnen.add(saeule);
+    const schale = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.3, 0.2, 14), lambert("#d8d2c4"));
+    schale.position.y = 1.75;
+    brunnen.add(schale);
+    this.fountainDrops = [];
+    const tropfenMat = new THREE.MeshBasicMaterial({ color: "#c9f0ff", transparent: true, opacity: 0.85 });
+    for (let i = 0; i < 14; i += 1) {
+      const tropfen = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 4), tropfenMat);
+      tropfen.userData = { isFx: true, winkel: (i / 14) * Math.PI * 2, phase: zufall() };
+      brunnen.add(tropfen);
+      this.fountainDrops.push(tropfen);
+    }
+
+    // Gartenlaternen rechts der Bahn.
+    const laternen = [];
+    for (let i = 0; i < 4; i += 1) laternen.push({ p: [3.15, 0.8, START_Z - 4.4 - i * 4.4] });
+    viele(scene, new THREE.BoxGeometry(0.08, 1.6, 0.08), lambert("#2c2f38"), laternen);
+    viele(scene, new THREE.BoxGeometry(0.24, 0.3, 0.24), new THREE.MeshBasicMaterial({ color: "#fff1b8" }), laternen.map((l) => ({ p: [l.p[0], 1.72, l.p[2]] })));
+    viele(scene, new THREE.ConeGeometry(0.22, 0.16, 4), lambert("#2c2f38"), laternen.map((l) => ({ p: [l.p[0], 1.95, l.p[2]], r: [0, Math.PI / 4, 0] })));
   }
 
   // Zielband in Rot-Weiss quer über die Bahn.
@@ -312,6 +410,13 @@ export class RedLightGate extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
+    this.fountainDrops?.forEach((tropfen) => {
+      const d = tropfen.userData;
+      const t = (now / 900 + d.phase) % 1;
+      const r = 0.15 + t * 0.9;
+      tropfen.position.set(Math.cos(d.winkel) * r, 1.9 + t * 0.9 - t * t * 1.5, Math.sin(d.winkel) * r);
+    });
+    if (this.palaceFlag) this.palaceFlag.rotation.y = Math.sin(now / 400) * 0.3;
     if (!arcade) return;
     const phase = this.phaseAt(arcade, minigame, now);
     const kind = finale ? "green" : phase.kind;
