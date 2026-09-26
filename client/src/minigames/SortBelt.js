@@ -2,7 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createShadowBlob } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
 // wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt
@@ -361,9 +361,9 @@ export class SortBelt extends MinigameScene {
     });
     uhr.position.set(-4.2, GROUND_Y + 4.6, wandZ + 0.05);
     scene.add(uhr);
-    const schild = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.7), new THREE.MeshBasicMaterial({ map: schildTextur("SORTIERBAND 3") }));
-    schild.position.set(3.6, GROUND_Y + 4.6, wandZ + 0.05);
-    scene.add(schild);
+    const tafel = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.7), new THREE.MeshBasicMaterial({ map: schild("SORTIERBAND 3") }));
+    tafel.position.set(3.6, GROUND_Y + 4.6, wandZ + 0.05);
+    scene.add(tafel);
     // Rohre und Lampen unter der Decke.
     [-2.8, 2.8].forEach((x) => {
       const rohr = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 16, 10), lambert("#9aa2b0"));
@@ -825,24 +825,4 @@ function paintSign(sprite, category, background, color) {
   ctx.fillStyle = color;
   ctx.fillText(category.name, 78, h / 2 + 2);
   sprite.material.map.needsUpdate = true;
-}
-
-function schildTextur(text) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#2f6fb0";
-  ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = "#ffffff";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(6, 6, 500, 116);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "900 58px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, 256, 68);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
 }

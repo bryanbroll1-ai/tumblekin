@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, flashKin } from "./VoxelKit.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
+import { flashKin } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
 
 // Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
 // Bomben ausspuckt. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den
@@ -17,6 +17,7 @@ const LANE_WIDTH = 1.35;
 const DROP_TOP_Y = 3.05;
 const CATCH_Y = 1.05;
 const KIN_Z = 0.7;
+const BULB_COLORS = ["#ffe36b", "#ffe36b", "#ff4fd8", "#3a2a5a"].map((c) => new THREE.Color(c));
 
 export class CoinRain extends MinigameScene {
   constructor(ctx) {
@@ -31,27 +32,17 @@ export class CoinRain extends MinigameScene {
   }
 
   stage() {
-    return { label: "3D Münzregen", background: "#bfe6f2", fog: ["#cdeaf2", 18, 40], lights: { shadow: { top: 10 } } };
+    return {
+      label: "3D Münzregen",
+      background: "#1e1636",
+      fog: ["#1e1636", 22, 42],
+      lights: { sunPosition: [-3, 10, 8], sunColor: 0xfff0d8, sunIntensity: 2.1, hemiIntensity: 1.7, skyColor: 0xe0d0ff, groundColor: 0x4a3a6a, shadow: { top: 10 } }
+    };
   }
 
   build() {
     const scene = this.scene;
-    const meadow = new THREE.Mesh(new THREE.BoxGeometry(24, 0.5, 16), new THREE.MeshLambertMaterial({ color: "#a8b055" }));
-    meadow.position.y = -0.25;
-    meadow.receiveShadow = true;
-    scene.add(meadow);
-    dressMeadow(scene, {
-      seed: 9,
-      keepOut: { x: 3.6, z: 3.4 },
-      spread: { x: 17, z: 15 },
-      grassColor: "#a8b055",
-      patchColors: ["#b9b45f", "#cfc07a"],
-      crownColor: "#c9772e",
-      crownColor2: "#e0a63a",
-      trunkColor: "#6b4a2c",
-      crownShape: "blob",
-      flowerColors: ["#ffd15c", "#ff9a4d", "#ffffff"]
-    });
+    this.buildArcadeHall(scene);
     this.laneStrips = [];
     for (let lane = 0; lane < 3; lane += 1) {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH - 0.1, 0.12, 2.6), new THREE.MeshLambertMaterial({ color: lane === 1 ? "#ffdd8a" : "#f4cd6e" }));
@@ -85,16 +76,97 @@ export class CoinRain extends MinigameScene {
     scene.add(machine);
     this.machine = machine;
 
-    [[-6, 4.6, -5, 5], [6.4, 5.2, -4, 6]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
-    });
-
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
       this.addKin(player, index, { x: this.laneX(1) + this.offset(index, players.length), ground: 0.06, z: KIN_Z + this.depth(index), facing: 0 });
     });
+  }
+
+  // Eine Spielhalle: Teppich mit Konfettimuster, dunkle Wand mit Neonleisten,
+  // eine Reihe einarmiger Banditen, ein JACKPOT-Schild mit Lauflichtern, ein
+  // Greifautomat und ein Münzschieber, vorn Münzhaufen.
+  buildArcadeHall(scene) {
+    const zufall = streuer(64);
+    const boden = new THREE.Mesh(new THREE.BoxGeometry(24, 0.5, 16), lambert("#3b2a63"));
+    boden.position.y = -0.25;
+    boden.receiveShadow = true;
+    scene.add(boden);
+    ["#ffc400", "#28c7d9", "#ff4fa8"].forEach((farbe, k) => {
+      const tupfen = [];
+      for (let i = 0; i < 50; i += 1) tupfen.push({ p: [(zufall() - 0.5) * 14, 0.004 + k * 0.001, -4.5 + zufall() * 10], r: [-Math.PI / 2, 0, zufall() * 3], s: 0.08 + zufall() * 0.1 });
+      viele(scene, k === 1 ? new THREE.CircleGeometry(1, 3) : new THREE.CircleGeometry(1, 12), lambert(farbe), tupfen);
+    });
+
+    // Rückwand mit Neon.
+    const wandZ = -5.2;
+    kiste(scene, 18, 8, 0.3, "#2a1f4a", [0, 4, wandZ], { schatten: false });
+    kiste(scene, 18, 0.08, 0.05, "", [0, 6.2, wandZ + 0.18], { schatten: false, material: new THREE.MeshBasicMaterial({ color: "#ff4fd8" }) });
+    kiste(scene, 18, 0.06, 0.05, "", [0, 0.25, wandZ + 0.18], { schatten: false, material: new THREE.MeshBasicMaterial({ color: "#28e0f0" }) });
+    const tafel = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.85), new THREE.MeshBasicMaterial({ map: schild("JACKPOT", { grund: "#1a1230", schrift: "#ffe36b", rahmen: "#ff4fd8", groesse: 76, glow: "#ffb000" }) }));
+    tafel.position.set(0, 4.7, wandZ + 0.17);
+    scene.add(tafel);
+    const birnen = [];
+    for (let i = 0; i < 18; i += 1) {
+      const t = i / 18;
+      const umfang = 2 * (3.7 + 1.15);
+      let d = t * umfang;
+      let x;
+      let y;
+      if (d < 3.7) { x = -1.85 + d; y = 0.58; } else if ((d -= 3.7) < 1.15) { x = 1.85; y = 0.58 - d; } else if ((d -= 1.15) < 3.7) { x = 1.85 - d; y = -0.58; } else { d -= 3.7; x = -1.85; y = -0.58 + d; }
+      birnen.push({ p: [x, 4.7 + y, wandZ + 0.2] });
+    }
+    this.hallBulbs = viele(scene, new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffffff" }), birnen);
+
+    // Einarmige Banditen an der Wand.
+    const spots = [-3.9, -2.9, -1.9, 1.9, 2.9, 3.9].map((x) => ({ x, z: wandZ + 0.7 }));
+    viele(scene, new THREE.BoxGeometry(0.8, 1.5, 0.6), lambert("#c8413b"), spots.filter((_, i) => i % 2 === 0).map((m) => ({ p: [m.x, 0.75, m.z] })), { schatten: true });
+    viele(scene, new THREE.BoxGeometry(0.8, 1.5, 0.6), lambert("#2f6fb0"), spots.filter((_, i) => i % 2 === 1).map((m) => ({ p: [m.x, 0.75, m.z] })), { schatten: true });
+    viele(scene, new THREE.CylinderGeometry(0.3, 0.3, 0.8, 12, 1, false, 0, Math.PI), lambert("#ffc400"), spots.map((m) => ({ p: [m.x, 1.5, m.z], r: [0, 0, Math.PI / 2] })));
+    viele(scene, new THREE.PlaneGeometry(0.6, 0.3), new THREE.MeshBasicMaterial({ map: walzenTextur() }), spots.map((m) => ({ p: [m.x, 1.1, m.z + 0.305] })));
+    viele(scene, new THREE.BoxGeometry(0.5, 0.1, 0.2), lambert("#ffc400"), spots.map((m) => ({ p: [m.x, 0.45, m.z + 0.36] })));
+    viele(scene, new THREE.CylinderGeometry(0.03, 0.03, 0.6, 6), lambert("#c9d1dc"), spots.map((m) => ({ p: [m.x + 0.46, 1.25, m.z] })));
+    viele(scene, new THREE.SphereGeometry(0.08, 10, 8), lambert("#ff4668"), spots.map((m) => ({ p: [m.x + 0.46, 1.58, m.z] })));
+
+    // Greifautomat links, Münzschieber rechts.
+    const greifer = new THREE.Group();
+    greifer.position.set(-2.9, 0, -2.6);
+    scene.add(greifer);
+    kiste(greifer, 1.1, 0.9, 1.1, "#ff7ab6", [0, 0.45, 0]);
+    const glas = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.1, 1.0), new THREE.MeshLambertMaterial({ color: "#cfefff", transparent: true, opacity: 0.25, depthWrite: false }));
+    glas.position.y = 1.45;
+    greifer.add(glas);
+    kiste(greifer, 1.1, 0.25, 1.1, "#ff7ab6", [0, 2.1, 0]);
+    const pluesch = [];
+    ["#ffd15c", "#71d97b", "#28c7d9", "#b98cff", "#ff9a3c"].forEach((farbe, i) => {
+      const kugel = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), lambert(farbe));
+      kugel.position.set((i % 3 - 1) * 0.28, 1.05 + (i > 2 ? 0.2 : 0), (i % 2 - 0.5) * 0.3);
+      greifer.add(kugel);
+      pluesch.push(kugel);
+    });
+    kiste(greifer, 0.03, 0.4, 0.03, "#c9d1dc", [0.15, 1.75, 0.1], { schatten: false });
+    kiste(greifer, 0.2, 0.08, 0.2, "#c9d1dc", [0.15, 1.55, 0.1], { schatten: false });
+
+    const schieber = new THREE.Group();
+    schieber.position.set(2.9, 0, -2.6);
+    scene.add(schieber);
+    kiste(schieber, 1.2, 1.0, 1.1, "#ffc400", [0, 0.5, 0]);
+    kiste(schieber, 1.1, 0.06, 0.9, "#7a4ddb", [0, 1.05, 0.05]);
+    const muenzen = [];
+    for (let i = 0; i < 16; i += 1) muenzen.push({ p: [(zufall() - 0.5) * 0.9, 1.1 + (i > 11 ? 0.04 : 0), (zufall() - 0.4) * 0.7] });
+    viele(schieber, new THREE.CylinderGeometry(0.09, 0.09, 0.03, 12), lambert("#ffd23a"), muenzen);
+    kiste(schieber, 1.2, 0.9, 0.2, "#7a4ddb", [0, 1.55, -0.45]);
+    kiste(schieber, 0.9, 0.3, 0.02, "#ffe36b", [0, 1.6, -0.34], { schatten: false });
+
+    // Münzhaufen vorn links und rechts.
+    const haufen = [];
+    [[-2.3, 2.9], [2.3, 3.1]].forEach(([hx, hz]) => {
+      for (let i = 0; i < 26; i += 1) {
+        const r = Math.sqrt(zufall()) * 0.45;
+        const a = zufall() * Math.PI * 2;
+        haufen.push({ p: [hx + Math.cos(a) * r, 0.03 + (0.45 - r) * 0.5 * zufall(), hz + Math.sin(a) * r * 0.8], r: [(zufall() - 0.5) * 0.6, 0, (zufall() - 0.5) * 0.6] });
+      }
+    });
+    viele(scene, new THREE.CylinderGeometry(0.11, 0.11, 0.035, 12), lambert("#ffd23a", { emissive: "#6a4a00" }), haufen, { schatten: true });
   }
 
   laneX(lane) {
@@ -218,6 +290,11 @@ export class CoinRain extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale } = f;
+    if (this.hallBulbs) {
+      const schritt = Math.floor(now / 140);
+      for (let i = 0; i < this.hallBulbs.count; i += 1) this.hallBulbs.setColorAt(i, BULB_COLORS[(i + schritt) % BULB_COLORS.length]);
+      this.hallBulbs.instanceColor.needsUpdate = true;
+    }
     if (!arcade) return;
     const elapsed = Math.max(0, now - f.minigame.startedAt);
     const fallMs = arcade.fallMs || 1400;
@@ -395,4 +472,39 @@ export class CoinRain extends MinigameScene {
       banner.hidden = true;
     }
   }
+}
+
+// Walzen eines Spielautomaten: drei Felder mit 7, Kirsche und Glocke.
+function walzenTextur() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 192;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#1a1230";
+  ctx.fillRect(0, 0, 192, 96);
+  for (let i = 0; i < 3; i += 1) {
+    ctx.fillStyle = "#fff8e6";
+    ctx.fillRect(8 + i * 62, 10, 52, 76);
+  }
+  ctx.fillStyle = "#e0453b";
+  ctx.font = "900 56px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("7", 34, 52);
+  ctx.fillText("7", 158, 52);
+  ctx.beginPath();
+  ctx.arc(88, 58, 11, 0, Math.PI * 2);
+  ctx.arc(104, 60, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#2f8f4a";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(88, 48);
+  ctx.quadraticCurveTo(96, 24, 108, 22);
+  ctx.moveTo(104, 50);
+  ctx.lineTo(108, 22);
+  ctx.stroke();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }

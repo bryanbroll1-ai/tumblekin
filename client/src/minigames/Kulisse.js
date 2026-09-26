@@ -257,3 +257,33 @@ export function himmel(scene, { oben = "#6fc3ff", unten = "#d8f1ff", radius = 70
   scene.add(mesh);
   return mesh;
 }
+
+// Beschriftetes Schild als Textur: Grund, Rahmen, Schrift. Mit `glow` leuchtet
+// die Schrift wie Neon (für dunkle Wände).
+export function schild(text, { breite = 512, hoehe = 128, grund = "#2f6fb0", schrift = "#ffffff", rahmen = "#ffffff", groesse = 58, glow = null } = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = breite;
+  canvas.height = hoehe;
+  const ctx = canvas.getContext("2d");
+  if (grund) {
+    ctx.fillStyle = grund;
+    ctx.fillRect(0, 0, breite, hoehe);
+  }
+  if (rahmen) {
+    ctx.strokeStyle = rahmen;
+    ctx.lineWidth = 8;
+    ctx.strokeRect(6, 6, breite - 12, hoehe - 12);
+  }
+  ctx.font = `900 ${groesse}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if (glow) {
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 18;
+  }
+  ctx.fillStyle = schrift;
+  ctx.fillText(text, breite / 2, hoehe / 2 + 4);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}

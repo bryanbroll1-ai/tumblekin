@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)
 // kommen Blobs. Wer schnell draufhaut, bekommt mehr (3/2/1 Punkte), der
@@ -87,7 +88,8 @@ export class WhackBlob extends MinigameScene {
     scene.add(meadow);
     // Kulisse: Bodenflecken, Büschel, Blumen, Steine und ein Baumkranz als
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
-    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 5.2 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#69bd5f", "#87d276"], crownColor: "#2f7f45", crownColor2: "#4a9c58", flowers: 80 });
+    dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 5.2 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#69bd5f", "#87d276"], crownColor: "#2f7f45", crownColor2: "#4a9c58", crownShape: "blob", trees: 20, flowers: 80 });
+    this.buildGarden(scene);
     const mound = new THREE.Mesh(
       new THREE.BoxGeometry(CELL * COLS + 0.9, 0.4, CELL * ROWS + 0.9),
       new THREE.MeshLambertMaterial({ color: "#8ad07f" })
@@ -296,6 +298,113 @@ export class WhackBlob extends MinigameScene {
     return blob;
   }
 
+  // Ein Gemüsegarten: Holzrahmen ums Beet, dahinter Gemüsereihen mit
+  // Kohl, Salat und Möhren, eine Vogelscheuche, ein Gartenhäuschen, an den
+  // Seiten Möhrenreihen, vorn Kürbisse und eine Giesskanne; zwei
+  // Schmetterlinge flattern übers Feld.
+  buildGarden(scene) {
+    const zufall = streuer(27);
+    const breite = CELL * COLS + 0.9;
+    const tiefe = CELL * ROWS + 0.9;
+    const rahmen = lambert("#a8743f");
+    [[0, -tiefe / 2, breite + 0.24, 0.12], [0, tiefe / 2, breite + 0.24, 0.12], [-breite / 2, 0, 0.12, tiefe], [breite / 2, 0, 0.12, tiefe]].forEach(([x, z, w, d]) => {
+      kiste(scene, w, 0.5, d, "", [x, 0.15, z], { material: rahmen });
+    });
+
+    // Gemüsereihen hinter dem Zaun.
+    const erde = lambert("#6b4a2e");
+    const reihen = [-5, -5.9, -6.8];
+    reihen.forEach((z) => kiste(scene, 7.4, 0.12, 0.6, "", [0.2, 0.06, z], { material: erde }));
+    const kohl = [];
+    const salat = [];
+    const kraut = [];
+    const moehren = [];
+    for (let x = -3.3; x <= 3.7; x += 0.62) {
+      kohl.push({ p: [x + (zufall() - 0.5) * 0.1, 0.24, reihen[0]], r: [zufall(), zufall() * 3, 0], s: 0.24 + zufall() * 0.05 });
+      salat.push({ p: [x + 0.3, 0.2, reihen[1]], r: [0, zufall() * 3, 0], s: [0.22, 0.14, 0.22] });
+      moehren.push({ p: [x, 0.12, reihen[2]], r: [Math.PI, 0, 0] });
+      kraut.push({ p: [x, 0.3, reihen[2]], r: [0, zufall() * 3, 0], s: [1, 1 + zufall() * 0.4, 1] });
+    }
+    // Seitliche Möhrenreihen.
+    [-3.55, 3.55].forEach((x) => {
+      kiste(scene, 0.55, 0.1, 6.4, "", [x, 0.05, 0], { material: erde });
+      for (let z = -2.8; z <= 2.9; z += 0.55) {
+        moehren.push({ p: [x + (zufall() - 0.5) * 0.12, 0.1, z], r: [Math.PI, 0, 0] });
+        kraut.push({ p: [x, 0.28, z], r: [0, zufall() * 3, 0], s: [1, 0.9 + zufall() * 0.5, 1] });
+      }
+    });
+    viele(scene, new THREE.IcosahedronGeometry(1, 0), lambert("#4f9e4a"), kohl, { schatten: true });
+    viele(scene, new THREE.SphereGeometry(1, 10, 6), lambert("#9fd66b"), salat, { schatten: true });
+    viele(scene, new THREE.ConeGeometry(0.07, 0.22, 8), lambert("#ff8a2a"), moehren);
+    viele(scene, new THREE.ConeGeometry(0.1, 0.26, 5), lambert("#3f9b4a"), kraut);
+
+    // Vogelscheuche.
+    const scheuche = new THREE.Group();
+    scheuche.position.set(2.5, 0, -6.3);
+    scene.add(scheuche);
+    kiste(scheuche, 0.1, 1.9, 0.1, "#7a5330", [0, 0.95, 0]);
+    kiste(scheuche, 1.3, 0.08, 0.08, "#7a5330", [0, 1.35, 0]);
+    kiste(scheuche, 0.55, 0.6, 0.3, "#c8413b", [0, 1.2, 0]);
+    kiste(scheuche, 0.56, 0.08, 0.31, "#3a5a8a", [0, 1.05, 0]);
+    const kopf = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), lambert("#e0c48a"));
+    kopf.position.y = 1.78;
+    scheuche.add(kopf);
+    const hut = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.26, 10), lambert("#6b4a2e"));
+    hut.position.y = 2.02;
+    scheuche.add(hut);
+    const krempe = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.03, 12), lambert("#6b4a2e"));
+    krempe.position.y = 1.91;
+    scheuche.add(krempe);
+    [-0.68, 0.68].forEach((x) => kiste(scheuche, 0.14, 0.18, 0.04, "#e8c15a", [x, 1.3, 0]));
+    this.scarecrow = scheuche;
+
+    // Gartenhäuschen hinten links.
+    const haus = new THREE.Group();
+    haus.position.set(-3.6, 0, -6.6);
+    haus.rotation.y = 0.35;
+    scene.add(haus);
+    kiste(haus, 1.8, 1.4, 1.4, "#5f9fb8", [0, 0.7, 0]);
+    kiste(haus, 0.5, 0.95, 0.04, "#f6f3ec", [0.3, 0.48, 0.71]);
+    kiste(haus, 0.4, 0.35, 0.04, "#fff4c0", [-0.45, 0.85, 0.71], { schatten: false });
+    [-1, 1].forEach((seite) => kiste(haus, 2.1, 0.08, 1.0, "#c8413b", [0, 1.62, seite * 0.4]).rotation.x = seite * 0.6);
+
+    // Vorn: Kürbisse, Giesskanne, Eimer.
+    const kuerbisse = [[-2.1, 4.9, 0.3], [-1.5, 5.4, 0.24], [2.1, 5.1, 0.28], [2.6, 4.7, 0.2]].map(([x, z, r]) => ({ p: [x, r * 0.7, z], s: [r, r * 0.75, r] }));
+    viele(scene, new THREE.SphereGeometry(1, 12, 8), lambert("#ff8a1e"), kuerbisse, { schatten: true });
+    viele(scene, new THREE.CylinderGeometry(0.03, 0.04, 0.12, 6), lambert("#4f7a2c"), kuerbisse.map((k) => ({ p: [k.p[0], k.p[1] + k.s[1], k.p[2]] })));
+    const kanne = new THREE.Group();
+    const bauch = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.34, 12), lambert("#2fa36b"));
+    bauch.position.y = 0.17;
+    kanne.add(bauch);
+    const tuelle = kiste(kanne, 0.05, 0.05, 0.4, "#2fa36b", [0, 0.3, 0.3]);
+    tuelle.rotation.x = -0.7;
+    const griff = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.025, 6, 12, Math.PI), lambert("#2fa36b"));
+    griff.position.y = 0.34;
+    kanne.add(griff);
+    kanne.position.set(0.3, 0, 5.2);
+    kanne.rotation.y = -0.8;
+    scene.add(kanne);
+
+    // Schmetterlinge.
+    this.butterflies = [0, 1].map((i) => {
+      const falter = new THREE.Group();
+      const farbe = i ? "#ffd15c" : "#b98cff";
+      const fluegel = [-1, 1].map((seite) => {
+        const f = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), lambert(farbe, { side: THREE.DoubleSide }));
+        f.geometry.translate(0.08, 0, 0);
+        const gelenk = new THREE.Group();
+        gelenk.scale.x = seite;
+        gelenk.add(f);
+        falter.add(gelenk);
+        return gelenk;
+      });
+      falter.userData.fluegel = fluegel;
+      falter.userData.isFx = true;
+      scene.add(falter);
+      return falter;
+    });
+  }
+
   shot() {
     return {
       look: [0, 0.35, 0.3],
@@ -358,6 +467,14 @@ export class WhackBlob extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    if (this.scarecrow) this.scarecrow.rotation.z = Math.sin(now / 900) * 0.04;
+    this.butterflies?.forEach((falter, i) => {
+      const t = now / 1000 + i * 3;
+      falter.position.set(Math.sin(t * 0.4 + i) * 3.8, 1.2 + Math.sin(t * 1.3) * 0.3, -1 + Math.cos(t * 0.3 + i * 2) * 4.2);
+      falter.rotation.y = t * 0.4 + i;
+      const schlag = Math.sin(now / 55 + i) * 0.9;
+      falter.userData.fluegel.forEach((f) => { f.rotation.z = schlag; });
+    });
     if (!arcade) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
     const active = new Set();
