@@ -2320,3 +2320,59 @@ canvas.is-stunned {
 .flag-controls button:disabled {
   opacity: 0.45;
 }
+
+/* Honigwabe: zwei Pflückknöpfe, nur im eigenen Zug aktiv, und ein Zeitbalken. */
+.honey-controls button {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  min-height: 108px;
+  border-color: #ffffff;
+  background: linear-gradient(180deg, #ffc93c, #f09a12);
+  box-shadow: 0 7px 0 #8a5208;
+  color: #4a2a05;
+}
+
+.honey-controls button span {
+  font-size: 2.6rem;
+  line-height: 1;
+}
+
+.honey-controls button small {
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.honey-controls button:disabled {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+
+.honey-timer {
+  position: absolute;
+  top: calc(146px + env(safe-area-inset-top));
+  left: 50%;
+  width: min(60vw, 220px);
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.honey-timer[hidden] { display: none; }
+
+.honey-timer i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #ffd15c;
+}
+
+.hud-chip.is-turn {
+  background: rgba(255, 201, 60, 0.92);
+  color: #4a2a05;
+}

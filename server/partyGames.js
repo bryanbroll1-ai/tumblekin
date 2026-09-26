@@ -625,19 +625,257 @@ const flags = {
   }
 };
 
+
+// --- Honigwabe -------------------------------------------------------------
+//
+// Am Ast hängt eine Ranke voller Früchte, dazwischen Honigwaben. Reihum
+// pflückt jeder von unten eine oder zwei. Wer eine Wabe erwischt, wird
+// gestochen — und lässt vor Schreck die Hälfte seiner Früchte fallen. Alles
+// ist sichtbar: wer abzählt, schiebt die Wabe dem Nächsten zu und greift nach
+// den goldenen Früchten (drei Punkte), wenn sie sicher zu haben sind.
+//
+// Zuerst war ein Stich das Aus, wie im Vorbild. Zu viert entschied dann fast
+// nur die Sitzordnung: wer hinter einem guten Spieler sitzt, bekam die Wabe
+// zugeschoben, und zum Ausgleichen blieb keine Gelegenheit. Gemessen gewann
+// der starke Bot nicht häufiger als der schwache. Jetzt bleibt jeder bis zum
+// Schluss dabei, und wer besser zählt, sammelt mehr.
+const HONEY_LEAD_MS = 1500;
+const HONEY_TURN_MS = 4200;            // so lange hat man Zeit, dann wird eine gepflückt
+const HONEY_TURN_MIN_MS = 2800;
+const HONEY_GAP_MS = 700;              // nach dem Pflücken, bis der Nächste dran ist
+const HONEY_STING_MS = 1500;           // nach einem Stich
+const HONEY_DURATION_MS = 46000;
+const HONEY_VINE = 14;
+const HONEY_GOLD = 3;
+const HONEY_STING_LOSS = 0.5;          // so viel der Früchte fällt beim Stich herunter
+
+function buildHoneyVine(seed, number) {
+  const items = [];
+  let nextComb = 2 + Math.floor(noise(seed + number * 97) * 3);      // erste Wabe an Stelle 2 bis 4
+  for (let i = 0; i < HONEY_VINE; i += 1) {
+    if (i === nextComb) {
+      items.push("comb");
+      nextComb = i + 3 + Math.floor(noise(seed + number * 97 + i * 13) * 3);
+    } else {
+      items.push(noise(seed + number * 31 + i * 7) < 0.18 ? "gold" : "fruit");
+    }
+  }
+  return items;
+}
+
+// Die Reihenfolge wird mit jeder neuen Ranke neu gemischt. Bei fester
+// Sitzordnung bekam immer derselbe die Wabe zugeschoben — wer direkt hinter
+// einem Unsicheren sass, gewann gemessen deutlich öfter, egal wie er spielte.
+function honeyOrder(arcade, room) {
+  const ids = room.players.map((player) => player.id).filter((id) => arcade.players[id]);
+  const state = arcade.honey;
+  if (state.orderFor === state.vineNumber && state.order?.length === ids.length && ids.every((id) => state.order.includes(id))) return state.order;
+  const order = [...ids];
+  for (let i = order.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(noise(arcade.seed + state.vineNumber * 131 + i * 17) * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  state.order = order;
+  state.orderFor = state.vineNumber;
+  return order;
+}
+
+function honeyNextTurn(ctx, afterId, delay, fresh = false) {
+  const { arcade, room, elapsed } = ctx;
+  const state = arcade.honey;
+  const order = honeyOrder(arcade, room);
+  if (!order.length) return;
+  // Mit einer neuen Ranke beginnt die neue Reihenfolge vorn — ausser der
+  // Erste wäre der, der gerade gepflückt hat; dann der Zweite.
+  const index = fresh
+    ? (order[0] === afterId && order.length > 1 ? 1 : 0)
+    : (order.indexOf(afterId) + 1) % order.length;
+  const turnMs = Math.max(HONEY_TURN_MIN_MS, HONEY_TURN_MS - state.turns * 50);
+  const from = elapsed + delay;
+  // Kein Zug mehr, der nicht mehr zu Ende gespielt werden kann.
+  if (from + 900 > HONEY_DURATION_MS) {
+    state.turn = null;
+    return;
+  }
+  state.turn = { playerId: order[index], from, until: Math.min(HONEY_DURATION_MS - 200, from + turnMs), number: state.turns };
+  state.turns += 1;
+}
+
+function honeyTake(ctx, player, entry, count) {
+  const { arcade, elapsed } = ctx;
+  const state = arcade.honey;
+  const taken = state.vine.splice(0, Math.min(count, state.vine.length));
+  const stung = taken.includes("comb");
+  const fruits = taken.filter((item) => item !== "comb").reduce((sum, item) => sum + (item === "gold" ? HONEY_GOLD : 1), 0);
+  let dropped = 0;
+  if (stung) {
+    dropped = Math.floor(entry.fruits * HONEY_STING_LOSS);
+    entry.fruits -= dropped;
+    entry.stings += 1;
+    entry.stungAt = elapsed;
+  } else {
+    entry.fruits += fruits;
+    entry.golds += taken.filter((item) => item === "gold").length;
+  }
+  entry.score = entry.fruits;
+  entry.picks += 1;
+  state.last = { playerId: player.id, taken, stung, dropped, gained: stung ? 0 : fruits, at: elapsed, auto: false, number: state.picks };
+  state.picks += 1;
+  // Ranke leer: eine neue wächst nach.
+  let fresh = false;
+  if (state.vine.length === 0) {
+    state.vineNumber += 1;
+    state.vine = buildHoneyVine(arcade.seed, state.vineNumber);
+    state.vineAt = elapsed;
+    fresh = true;
+  }
+  honeyNextTurn(ctx, player.id, stung ? HONEY_STING_MS : HONEY_GAP_MS, fresh);
+  return state.last;
+}
+
+// Wie weit ist die nächste Wabe von unten weg? 0 = ganz unten.
+function honeyCombAt(vine) {
+  const index = vine.indexOf("comb");
+  return index < 0 ? Infinity : index;
+}
+
+// Wie wahrscheinlich trifft die nächste Wabe MICH, wenn ich jetzt `take`
+// nehme? Die anderen spielen dabei so, wie man es am Tisch erwartet: eine
+// Wabe direkt vor sich lassen sie liegen (bei 1 nehmen sie eine, bei 2 zwei),
+// sonst greifen sie zufällig. Ich selbst wähle später wieder das Beste.
+function honeyRisk(distance, take, players) {
+  if (take > distance) return 1;                     // ich griffe selbst in die Wabe
+  if (!Number.isFinite(distance)) return 0;          // keine Wabe mehr an der Ranke
+  const memo = new Map();
+  const f = (d, turn) => {
+    if (d === 0) return turn === 0 ? 1 : 0;
+    const key = d * 8 + turn;
+    if (memo.has(key)) return memo.get(key);
+    const next = (turn + 1) % players;
+    let value;
+    if (turn === 0) value = Math.min(...[1, 2].filter((c) => c <= d).map((c) => f(d - c, next)));
+    else if (d <= 2) value = f(0, next);
+    else value = 0.5 * f(d - 1, next) + 0.5 * f(d - 2, next);
+    memo.set(key, value);
+    return value;
+  };
+  return f(distance - take, 1 % players);
+}
+
+function honeyGain(vine, take) {
+  return vine.slice(0, take).reduce((sum, item) => sum + (item === "gold" ? HONEY_GOLD : item === "fruit" ? 1 : 0), 0);
+}
+
+const honey = {
+  cooldown: 120,
+  fastHand: false,
+  create(arcade, players) {
+    arcade.honey = {
+      vine: buildHoneyVine(arcade.seed, 0),
+      vineNumber: 0,
+      vineAt: 0,
+      turns: 0,
+      picks: 0,
+      turn: null,
+      last: null,
+      leadMs: HONEY_LEAD_MS,
+      gold: HONEY_GOLD,
+      turnMs: HONEY_TURN_MS
+    };
+    Object.values(arcade.players).forEach((entry) => {
+      entry.fruits = 0;
+      entry.golds = 0;
+      entry.picks = 0;
+      entry.stings = 0;
+      entry.stungAt = null;
+      entry.score = 0;
+    });
+  },
+  input(ctx, player, entry, input) {
+    if (input.action !== "take" || ![1, 2].includes(Number(input.count))) return { ok: false, error: "Eine oder zwei nehmen." };
+    const turn = ctx.arcade.honey.turn;
+    if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
+    if (ctx.elapsed < turn.from) return { ok: true };
+    honeyTake(ctx, player, entry, Number(input.count));
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, room, elapsed } = ctx;
+    const state = arcade.honey;
+    if (!state.turn && state.turns === 0 && elapsed >= HONEY_LEAD_MS) {
+      honeyNextTurn(ctx, null, 0, true);
+    }
+    const turn = state.turn;
+    if (turn && elapsed >= turn.until) {
+      // Zeit um: eine wird gepflückt, ob man will oder nicht.
+      const player = room.players.find((p) => p.id === turn.playerId);
+      const entry = player && arcade.players[player.id];
+      if (entry) {
+        honeyTake(ctx, player, entry, 1);
+        state.last.auto = true;
+      } else {
+        honeyNextTurn(ctx, turn.playerId, 0);
+      }
+    }
+  },
+  bot(ctx, player, entry) {
+    const { arcade, room, elapsed } = ctx;
+    const state = arcade.honey;
+    const turn = state.turn;
+    if (!turn || turn.playerId !== player.id || elapsed < turn.from) return null;
+    if (entry.botTurn !== turn.number) {
+      entry.botTurn = turn.number;
+      entry.botAt = turn.from + byLevel(entry, 1500, 1100, 800) + Math.random() * 700;
+      const k = honeyCombAt(state.vine);
+      const players = Math.max(1, room.players.length);
+      let count;
+      if (k === 0) count = 1;                                   // verloren, so oder so
+      else if (level(entry) === "hard") {
+        // Gewinn gegen Risiko: ein Stich kostet die Hälfte des Korbs.
+        const loss = entry.fruits * HONEY_STING_LOSS + 2;
+        const value = (c) => (c > k ? -Infinity : honeyGain(state.vine, c) - honeyRisk(k, c, players) * loss);
+        const one = value(1);
+        const two = value(2);
+        count = Math.abs(one - two) < 0.05 ? 1 + Math.floor(Math.random() * 2) : one > two ? 1 : 2;
+      } else if (k === 1) count = 1;                            // die Wabe dem Nächsten lassen
+      else if (k === 2) count = 2;
+      else if (level(entry) === "normal" && state.vine[1] === "gold") count = 2;
+      else count = 1 + Math.floor(Math.random() * 2);
+      // Der schwache greift manchmal daneben, der mittlere selten.
+      if (k === 1 && Math.random() < byLevel(entry, 0.3, 0.08, 0)) count = 2;
+      if (k === 2 && Math.random() < byLevel(entry, 0.35, 0.15, 0)) count = 1;
+      entry.botCount = count;
+    }
+    if (elapsed < entry.botAt) return null;
+    return { action: "take", count: entry.botCount };
+  },
+  rank(arcade, entry) {
+    // Früchte zuerst; bei Gleichstand, wer seltener gestochen wurde.
+    return (entry.fruits || 0) * 100 + Math.max(0, 99 - (entry.stings || 0));
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: entry.fruits || 0, label: "Früchte" };
+  },
+  done() {
+    return false;
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
   tug,
   face,
-  flags
+  flags,
+  honey
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
 const PARTY_GAMES = [
   { type: "tauziehen", title: "Tauziehen", duration: TUG_DURATION_MS, arcadeFamily: "tug", seed: 811 },
   { type: "grimassen", title: "Grimassen", duration: FACE_DURATION_MS, arcadeFamily: "face", seed: 823 },
-  { type: "flaggenhoch", title: "Flaggen hoch", duration: FLAG_DURATION_MS, arcadeFamily: "flags", seed: 827 }
+  { type: "flaggenhoch", title: "Flaggen hoch", duration: FLAG_DURATION_MS, arcadeFamily: "flags", seed: 827 },
+  { type: "honigwabe", title: "Honigwabe", duration: HONEY_DURATION_MS, arcadeFamily: "honey", seed: 829 }
 ];
 
 module.exports = {
@@ -647,8 +885,12 @@ module.exports = {
     TUG_LEAD_MS, TUG_ROUND_MS, TUG_SHOW_MS, TUG_ROUNDS, TUG_WINS, TUG_DURATION_MS,
     TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS,
-    FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS
+    FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS,
+    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_LOSS
   },
+  buildHoneyVine,
+  honeyCombAt,
+  honeyRisk,
   buildFlagCommands,
   activeFlagCommand,
   faceTarget,

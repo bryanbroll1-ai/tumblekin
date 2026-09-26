@@ -20,7 +20,8 @@ export const GESTURES = {
   estimate: { icon: "👆📏", label: "Regler auf die Schätzung ziehen" },
   fish: { icon: "👆🎣", label: "Halten und im Schub loslassen" },
   sculpt: { icon: "👆🙂", label: "Gesicht zurechtziehen" },
-  flags: { icon: "👆🚩", label: "Rot oder Blau tippen" }
+  flags: { icon: "👆🚩", label: "Rot oder Blau tippen" },
+  pick: { icon: "👆🍎", label: "Eins oder zwei pflücken" }
 };
 
 export const MINIGAME_CATALOG = [
@@ -56,7 +57,8 @@ export const MINIGAME_CATALOG = [
   { type: "augenmass", title: "Augenmaß", family: "estimate", gesture: "estimate", help: "Ein Schwarm Glühkäfer blitzt anderthalb Sekunden auf — dann sind sie weg und du schätzt, wie viele es waren. Zieh den Regler auf deine Zahl. Vier Durchgänge, und der Schwarm wird jedes Mal grösser: zählen klappt am Anfang noch, später nicht mehr. Je näher an der echten Zahl, desto mehr Punkte." },
   { type: "tauziehen", title: "Tauziehen", family: "tug", gesture: "taps", help: "Zwei Teams, ein Seil, dazwischen die Schlammgrube. Jeder Tipp zieht — aber jeder Zug kostet Griffkraft (der Balken im Knopf). Wer wild hämmert, rutscht ab und schenkt den anderen einen Ruck; im ruhigen Takt zieht man am längsten mit voller Kraft. Zieht ihr fast gleichzeitig, gibt es ein HAU-RUCK. Wer zuerst zwei Runden holt, gewinnt — die anderen landen im Schlamm." },
   { type: "grimassen", title: "Grimassen", family: "face", gesture: "sculpt", help: "Oben hängt ein verzogenes Gesicht, vor dir eine Gummimaske. Zieh die sechs gelben Punkte — Brauen, Nase, Mundwinkel, Kinn —, bis deine Maske genauso aussieht. Nach neun Sekunden wird verglichen: je näher jeder Punkt am Vorbild liegt, desto mehr Punkte. Drei Gesichter, jedes schiefer als das vorige." },
-  { type: "flaggenhoch", title: "Flaggen hoch", family: "flags", gesture: "flags", help: "Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand." }
+  { type: "flaggenhoch", title: "Flaggen hoch", family: "flags", gesture: "flags", help: "Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand." },
+  { type: "honigwabe", title: "Honigwabe", family: "honey", gesture: "pick", help: "Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und lässt die Hälfte seiner Früchte fallen. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Goldene Äpfel zählen drei. Wer am Ende die meisten Früchte hat, gewinnt." }
 ];
 
 export const ARCADE_TYPES = new Set(

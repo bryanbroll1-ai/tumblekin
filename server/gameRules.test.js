@@ -201,7 +201,7 @@ test("catalog contains only the 3D challenges", () => {
     [
       "angelduell", "augenmass", "ballonPump", "ballonfahrt", "bergsteiger", "blitzreflex",
       "blobklopfe", "bounceArena", "colorEscape", "eisstock", "falschsignal",
-      "farbenjagd", "fassmut", "fassrolle", "finishRush", "flaggenhoch", "grimassen", "kanonenflug", "leuchtfolge",
+      "farbenjagd", "fassmut", "fassrolle", "finishRush", "flaggenhoch", "grimassen", "honigwabe", "kanonenflug", "leuchtfolge",
       "lichtwaechter", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
       "seilspringen", "sortierband", "spuersinn", "spurmaler", "tauziehen", "tiefenrausch",
       "trampolin", "turmbau", "zuendstoff"

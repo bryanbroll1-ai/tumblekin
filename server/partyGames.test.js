@@ -255,3 +255,63 @@ test("Flaggen hoch: drei Fehler, und man ist raus", () => {
   assert.ok(entry.correct <= 3, "danach sammelt man nichts mehr");
   g.restore();
 });
+
+// --- Honigwabe -------------------------------------------------------------
+
+test("Honigwabe: nur wer dran ist, pflückt — und eine Wabe kostet die Hälfte", () => {
+  const g = setup("honigwabe", 3);
+  g.run(0, C.HONEY_LEAD_MS + 50, 30);
+  const state = g.arcade.honey;
+  const turn = state.turn;
+  assert.ok(turn, "nach dem Vorlauf ist jemand dran");
+  const current = g.players.find((p) => p.id === turn.playerId);
+  const other = g.players.find((p) => p.id !== turn.playerId);
+  assert.equal(g.input(other, { action: "take", count: 1 }).ok, false, "wer nicht dran ist, darf nicht");
+  assert.equal(g.input(current, { action: "take", count: 3 }).ok, false, "mehr als zwei gibt es nicht");
+  // Die Ranke so stellen, dass eine Frucht und dann eine Wabe unten hängen.
+  state.vine = ["gold", "comb", "fruit", "fruit"];
+  const entry = g.arcade.players[current.id];
+  g.at(turn.from + 400);             // über die Eingabesperre der Fehlgriffe hinaus
+  g.input(current, { action: "take", count: 1 });
+  assert.equal(entry.fruits, C.HONEY_GOLD, "goldener Apfel zählt drei");
+  // Der Nächste ist dran; er greift zwei und erwischt die Wabe.
+  const next = g.players.find((p) => p.id === state.turn.playerId);
+  assert.notEqual(next.id, current.id);
+  g.arcade.players[next.id].fruits = 7;
+  g.at(state.turn.from + 10);
+  g.input(next, { action: "take", count: 2 });
+  assert.equal(g.arcade.players[next.id].stings, 1);
+  assert.equal(g.arcade.players[next.id].fruits, 4, "die Hälfte (abgerundet) fällt herunter");
+  assert.equal(state.last.stung, true);
+  g.restore();
+});
+
+test("Honigwabe: wer zu lange zögert, pflückt automatisch eine", () => {
+  const g = setup("honigwabe", 2);
+  g.run(0, C.HONEY_LEAD_MS + 50, 30);
+  const first = g.arcade.honey.turn;
+  g.run(C.HONEY_LEAD_MS + 80, first.until + 60, 30);
+  assert.equal(g.arcade.honey.last.auto, true);
+  assert.notEqual(g.arcade.honey.turn.playerId, first.playerId, "danach ist der Nächste dran");
+  g.restore();
+});
+
+test("Honigwabe: das Risiko-Abzählen stimmt zu zweit mit dem Rest-drei-Gesetz überein", () => {
+  // Zu zweit ist Abstand 3 (und jedes Vielfache) verloren: was ich auch nehme,
+  // der andere kann mir die Wabe zurückschieben.
+  assert.equal(Math.min(party.honeyRisk(3, 1, 2), party.honeyRisk(3, 2, 2)), 1);
+  assert.equal(Math.min(party.honeyRisk(4, 1, 2), party.honeyRisk(4, 2, 2)), 0);
+  assert.equal(Math.min(party.honeyRisk(5, 1, 2), party.honeyRisk(5, 2, 2)), 0);
+  assert.equal(party.honeyRisk(1, 2, 2), 1, "wer über die Wabe greift, hat sie");
+});
+
+test("Honigwabe: eine leere Ranke wächst nach, und die Runde läuft bis zum Schluss", () => {
+  const g = setup("honigwabe", 4, { bots: true });
+  const next = g.players.map(() => 0);
+  g.run(0, g.minigame.duration, 40, (t) => {
+    g.players.forEach((p, i) => { if (t >= next[i]) { next[i] = t + 300; arcadeBotStep(g.room, p); } });
+  });
+  assert.ok(g.arcade.honey.vineNumber >= 1, "mindestens eine Ranke wurde leergepflückt");
+  assert.ok(g.arcade.honey.picks > 12);
+  g.restore();
+});
