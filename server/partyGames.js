@@ -17,6 +17,19 @@
 // `ctx` = { room, minigame, arcade, now, elapsed }. Die Regeln lesen die Zeit
 // nur aus `ctx.now`, damit Tests und Simulationen die Uhr verschieben können.
 
+// Zahlen aus Spielereingaben. `Number(x)` wirft bei Objekten ohne brauchbares
+// valueOf/toString ({ toString: null }, Object.create(null)) — mitten im Tick
+// nähme das die ganze Partie mit. Wie `inputNumber` im Server: nur echte
+// Zahlen und Zahlen-Zeichenketten, alles andere wird NaN.
+function inputNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+  return NaN;
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -355,7 +368,7 @@ const face = {
     if (!input.final && ctx.now - entry.lastShapeAt < FACE_MIN_INPUT_MS) return { ok: true };
     const h = Array.isArray(input.h) ? input.h : null;
     if (!h || h.length !== FACE_HANDLES.length * 2) return { ok: false, error: "Ungültige Form." };
-    const next = h.map((value) => (Number.isFinite(Number(value)) ? clamp(Math.round(Number(value) * 100) / 100, -1, 1) : 0));
+    const next = h.map((value) => (Number.isFinite(inputNumber(value)) ? clamp(Math.round(inputNumber(value) * 100) / 100, -1, 1) : 0));
     entry.shape = next;
     entry.lastShapeAt = ctx.now;
     entry.moves += 1;
@@ -792,11 +805,11 @@ const honey = {
     });
   },
   input(ctx, player, entry, input) {
-    if (input.action !== "take" || ![1, 2].includes(Number(input.count))) return { ok: false, error: "Eine oder zwei nehmen." };
+    if (input.action !== "take" || ![1, 2].includes(inputNumber(input.count))) return { ok: false, error: "Eine oder zwei nehmen." };
     const turn = ctx.arcade.honey.turn;
     if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
     if (ctx.elapsed < turn.from) return { ok: true };
-    honeyTake(ctx, player, entry, Number(input.count));
+    honeyTake(ctx, player, entry, inputNumber(input.count));
     return { ok: true };
   },
   update(ctx) {
@@ -944,8 +957,8 @@ const snow = {
   input(ctx, player, entry, input) {
     const { arcade, now } = ctx;
     if (input.action === "steer") {
-      const x = Number(input.x);
-      const y = Number(input.y);
+      const x = inputNumber(input.x);
+      const y = inputNumber(input.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
       const len = Math.hypot(x, y);
       const k = len > 1 ? 1 / len : 1;
@@ -1253,8 +1266,8 @@ const hockey = {
   },
   input(ctx, player, entry, input) {
     if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
-    const x = Number(input.x);
-    const y = Number(input.y);
+    const x = inputNumber(input.x);
+    const y = inputNumber(input.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
     const len = Math.hypot(x, y);
     const k = len > 1 ? 1 / len : 1;
@@ -1590,8 +1603,8 @@ const book = {
   },
   input(ctx, player, entry, input) {
     if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
-    const x = Number(input.x);
-    const y = Number(input.y);
+    const x = inputNumber(input.x);
+    const y = inputNumber(input.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
     const len = Math.hypot(x, y);
     const k = len > 1 ? 1 / len : 1;
@@ -1792,8 +1805,8 @@ const photo = {
   input(ctx, player, entry, input) {
     const { arcade, now } = ctx;
     if (input.action === "steer") {
-      const x = Number(input.x);
-      const y = Number(input.y);
+      const x = inputNumber(input.x);
+      const y = inputNumber(input.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
       const len = Math.hypot(x, y);
       const k = len > 1 ? 1 / len : 1;
@@ -2266,7 +2279,7 @@ const pipes = {
     if (phase !== "answer") return { ok: true };
     if (entry.picks[round]) return { ok: true };
     const maze = ctx.arcade.pipes.rounds[round];
-    const valve = Number(input.valve);
+    const valve = inputNumber(input.valve);
     if (!Number.isInteger(valve) || valve < 0 || valve >= maze.cols) return { ok: false, error: "Dieses Ventil gibt es nicht." };
     entry.picks[round] = { valve, ms: Math.round(since) };
     return { ok: true };

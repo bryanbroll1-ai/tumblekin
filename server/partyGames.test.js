@@ -610,3 +610,25 @@ test("Rohrsalat: richtig und schnell bringt am meisten, falsch nichts, eine Wahl
   assert.equal(r(wrong).points, 0);
   g.restore();
 });
+
+// --- Robustheit --------------------------------------------------------------
+
+test("Partyklassiker: Objekte statt Zahlen in Eingaben werfen nicht", () => {
+  const boese = [Object.create(null), { toString: null, valueOf: null }, { valueOf: () => { throw new Error("x"); } }];
+  const faelle = [
+    ["schneeball", (v) => ({ action: "steer", x: v, y: v })],
+    ["luftpuck", (v) => ({ action: "steer", x: v, y: 0 })],
+    ["buecherwurm", (v) => ({ action: "steer", x: 0, y: v })],
+    ["schnappschuss", (v) => ({ action: "steer", x: v, y: v })],
+    ["honigwabe", (v) => ({ action: "take", count: v })],
+    ["rohrsalat", (v) => ({ action: "pick", valve: v })],
+    ["grimassen", (v) => ({ action: "shape", h: Array(12).fill(v), final: true })]
+  ];
+  faelle.forEach(([type, bau]) => {
+    const g = setup(type, 2);
+    g.at(12000);
+    boese.forEach((v) => assert.doesNotThrow(() => g.input(g.players[0], bau(v)), type));
+    assert.doesNotThrow(() => g.tick(), type);
+    g.restore();
+  });
+});
