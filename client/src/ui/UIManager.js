@@ -956,6 +956,14 @@ function formatScore(value) {
 // EINE Zahl je Spiel, und zwar die, nach der auch sortiert wird. Stand eine
 // andere Grösse im Vordergrund, widersprach die Anzeige der Rangfolge.
 export function formatResultMetric(entry) {
+  const main = formatMainMetric(entry);
+  // Der Feinwert, der bei gleicher Hauptzahl entscheidet — sonst sähe man zwei
+  // gleiche Zahlen auf verschiedenen Plätzen und wüsste nicht, warum.
+  const extra = entry?.detail?.extra;
+  return extra ? `${main} · ${extra}` : main;
+}
+
+function formatMainMetric(entry) {
   const detail = entry?.detail;
   if (!detail) return `${formatScore(entry?.score)} Punkte`;
   if (detail.kind === "time") return `${formatMilliseconds(detail.value)} Zielzeit`;

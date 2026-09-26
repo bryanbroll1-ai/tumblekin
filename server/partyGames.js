@@ -30,6 +30,11 @@ function inputNumber(value) {
   return NaN;
 }
 
+// Sekunden für die Ergebniszeile, deutsch: 0,8 s.
+function sekunden(ms) {
+  return `${(Math.max(0, Number(ms) || 0) / 1000).toFixed(1).replace(".", ",")} s`;
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -652,15 +657,25 @@ const flags = {
 // zugeschoben, und zum Ausgleichen blieb keine Gelegenheit. Gemessen gewann
 // der starke Bot nicht häufiger als der schwache. Jetzt bleibt jeder bis zum
 // Schluss dabei, und wer besser zählt, sammelt mehr.
+//
+// Danach kostete ein Stich die HÄLFTE des Korbs. Damit entschied fast nur,
+// wann der letzte Stich kam: früh gestochen kostete nichts, spät gestochen
+// alles — egal, wie gut man vorher gezählt hatte. Gemessen lag der starke Bot
+// im Schnitt sogar hinter dem schwachen. Ein Stich kostet jetzt immer gleich
+// viel, und jeder vermiedene Stich zählt gleich.
 const HONEY_LEAD_MS = 1500;
-const HONEY_TURN_MS = 4200;            // so lange hat man Zeit, dann wird eine gepflückt
-const HONEY_TURN_MIN_MS = 2800;
-const HONEY_GAP_MS = 700;              // nach dem Pflücken, bis der Nächste dran ist
+// Etwas flotter als zuerst: mit 4,2 s Bedenkzeit und 0,7 s Pause kam jeder in
+// 46 Sekunden nur auf vier Züge — zu wenige Entscheidungen, als dass gutes
+// Zählen sich gegen einen einzigen unglücklichen Stich durchsetzen konnte.
+const HONEY_TURN_MS = 3600;            // so lange hat man Zeit, dann wird eine gepflückt
+const HONEY_TURN_MIN_MS = 2400;
+const HONEY_GAP_MS = 500;              // nach dem Pflücken, bis der Nächste dran ist
 const HONEY_STING_MS = 1500;           // nach einem Stich
 const HONEY_DURATION_MS = 46000;
 const HONEY_VINE = 14;
 const HONEY_GOLD = 3;
-const HONEY_STING_LOSS = 0.5;          // so viel der Früchte fällt beim Stich herunter
+const HONEY_STING_COST = 4;            // so viele Früchte fallen beim Stich herunter
+const HONEY_PASSES = 1;                // so oft darf jeder seinen Zug weiterschieben
 
 function buildHoneyVine(seed, number) {
   const items = [];
@@ -722,7 +737,7 @@ function honeyTake(ctx, player, entry, count) {
   const fruits = taken.filter((item) => item !== "comb").reduce((sum, item) => sum + (item === "gold" ? HONEY_GOLD : 1), 0);
   let dropped = 0;
   if (stung) {
-    dropped = Math.floor(entry.fruits * HONEY_STING_LOSS);
+    dropped = Math.min(entry.fruits, HONEY_STING_COST);
     entry.fruits -= dropped;
     entry.stings += 1;
     entry.stungAt = elapsed;
@@ -743,6 +758,23 @@ function honeyTake(ctx, player, entry, count) {
     fresh = true;
   }
   honeyNextTurn(ctx, player.id, stung ? HONEY_STING_MS : HONEY_GAP_MS, fresh);
+  return state.last;
+}
+
+// Einmal im Spiel darf jeder seinen Zug weiterschieben, ohne zu pflücken. Die
+// Ranke bleibt, wie sie ist — der Nächste steht vor genau derselben Lage.
+//
+// Ohne den Joker war Honigwabe ein Nim-Spiel, das die Sitzordnung entschied:
+// wer im falschen Abstand zur Wabe dran war, konnte nichts mehr tun. Jetzt
+// ist genau dort eine Entscheidung zu treffen — und wer den Joker für eine
+// harmlose Lage verschwendet, hat ihn nicht mehr, wenn es darauf ankommt.
+function honeyPass(ctx, player, entry) {
+  const { arcade, elapsed } = ctx;
+  const state = arcade.honey;
+  entry.passes -= 1;
+  state.last = { playerId: player.id, taken: [], stung: false, dropped: 0, gained: 0, at: elapsed, auto: false, passed: true, number: state.picks };
+  state.picks += 1;
+  honeyNextTurn(ctx, player.id, HONEY_GAP_MS);
   return state.last;
 }
 
@@ -801,10 +833,19 @@ const honey = {
       entry.picks = 0;
       entry.stings = 0;
       entry.stungAt = null;
+      entry.passes = HONEY_PASSES;
       entry.score = 0;
     });
   },
   input(ctx, player, entry, input) {
+    if (input.action === "pass") {
+      const turn = ctx.arcade.honey.turn;
+      if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
+      if ((entry.passes || 0) <= 0) return { ok: false, error: "Du hast schon geschoben." };
+      if (ctx.elapsed < turn.from) return { ok: true };
+      honeyPass(ctx, player, entry);
+      return { ok: true };
+    }
     if (input.action !== "take" || ![1, 2].includes(inputNumber(input.count))) return { ok: false, error: "Eine oder zwei nehmen." };
     const turn = ctx.arcade.honey.turn;
     if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
@@ -838,14 +879,26 @@ const honey = {
     if (!turn || turn.playerId !== player.id || elapsed < turn.from) return null;
     if (entry.botTurn !== turn.number) {
       entry.botTurn = turn.number;
-      entry.botAt = turn.from + byLevel(entry, 1500, 1100, 800) + Math.random() * 700;
+      entry.botAt = turn.from + byLevel(entry, 1300, 950, 700) + Math.random() * 600;
       const k = honeyCombAt(state.vine);
       const players = Math.max(1, room.players.length);
+      entry.botPass = false;
+      if ((entry.passes || 0) > 0 && players > 1) {
+        // Der Joker: der starke hebt ihn für die Wabe direkt vor sich auf, spät
+        // im Spiel auch für die verlorene Lage drei davor. Der mittlere
+        // erkennt nur die Wabe direkt vor sich, und nicht immer; der schwache
+        // schiebt irgendwann, wenn ihm gerade danach ist.
+        const late = elapsed > HONEY_DURATION_MS * 0.55;
+        if (level(entry) === "hard") entry.botPass = k === 0 || (late && k === 3 && entry.fruits >= HONEY_STING_COST);
+        else if (level(entry) === "normal") entry.botPass = k === 0 && Math.random() < 0.7;
+        else entry.botPass = Math.random() < 0.18;
+      }
       let count;
       if (k === 0) count = 1;                                   // verloren, so oder so
       else if (level(entry) === "hard") {
-        // Gewinn gegen Risiko: ein Stich kostet die Hälfte des Korbs.
-        const loss = entry.fruits * HONEY_STING_LOSS + 2;
+        // Gewinn gegen Risiko: ein Stich kostet einen festen Teil des Korbs,
+        // dazu die Pause danach.
+        const loss = Math.min(entry.fruits, HONEY_STING_COST) + 1.5;
         const value = (c) => (c > k ? -Infinity : honeyGain(state.vine, c) - honeyRisk(k, c, players) * loss);
         const one = value(1);
         const two = value(2);
@@ -860,6 +913,7 @@ const honey = {
       entry.botCount = count;
     }
     if (elapsed < entry.botAt) return null;
+    if (entry.botPass && (entry.passes || 0) > 0) return { action: "pass" };
     return { action: "take", count: entry.botCount };
   },
   rank(arcade, entry) {
@@ -1608,7 +1662,7 @@ const book = {
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
       const [x, z] = bookSpawn(index);
-      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, lives: BOOK_LIVES, flatUntil: 0, survived: 0, squashed: 0, outAt: null, lastPage: -1, score: 0 });
+      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, lives: BOOK_LIVES, flatUntil: 0, survived: 0, squashed: 0, outAt: null, lastPage: -1, score: 0, safeSince: null, safeMs: 0 });
     });
   },
   input(ctx, player, entry, input) {
@@ -1656,6 +1710,21 @@ const book = {
         two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
       }
     }
+    // Seit wann steht man im Loch der Seite, die gerade herankommt? Das ist
+    // die Feinwertung: wer gleich viele Seiten übersteht, den ordnet, wer
+    // schneller in Deckung war. Vorher teilten sich in vier von zehn Runden
+    // zwei den Sieg.
+    const coming = state.pages.find((page) => page.index > state.slammed);
+    if (coming && elapsed >= coming.at) {
+      entries.forEach((entry) => {
+        if (entry.outAt) return;
+        if (bookInHole(coming, entry.x, entry.z)) {
+          if (entry.safeSince === null || entry.safeSince === undefined) entry.safeSince = elapsed;
+        } else {
+          entry.safeSince = null;
+        }
+      });
+    }
     // Seiten schlagen auf.
     state.pages.forEach((page) => {
       if (page.index <= state.slammed || elapsed < page.slamAt) return;
@@ -1664,6 +1733,8 @@ const book = {
       entries.forEach((entry) => {
         if (entry.outAt) return;
         if (bookInHole(page, entry.x, entry.z)) {
+          const since = entry.safeSince ?? page.slamAt;
+          entry.safeMs = (entry.safeMs || 0) + clamp(since - page.at, 0, page.flip);
           entry.survived += 1;
         } else {
           entry.lives -= 1;
@@ -1675,6 +1746,7 @@ const book = {
           }
         }
         entry.lastPage = page.index;
+        entry.safeSince = null;
         entry.score = entry.survived;
       });
       room.players.forEach((player) => {
@@ -1717,10 +1789,13 @@ const book = {
     return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
   },
   rank(arcade, entry) {
-    return (entry.survived || 0) * 1000 + (entry.lives || 0) * 100 + (entry.outAt ? Math.min(99, Math.round((entry.outMs || 0) / 1000)) : 99);
+    const bis = entry.outAt ? Math.min(99, Math.round((entry.outMs || 0) / 1000)) : 99;
+    const tempo = Math.max(0, 9999 - Math.round((entry.safeMs || 0) / 10));
+    return (entry.survived || 0) * 1e7 + (entry.lives || 0) * 1e6 + bis * 1e4 + tempo;
   },
   detail(arcade, entry) {
-    return { kind: "points", value: entry.survived || 0, label: "Seiten" };
+    const survived = entry.survived || 0;
+    return { kind: "points", value: survived, label: "Seiten", extra: survived ? `Ø ${sekunden((entry.safeMs || 0) / survived)}` : null };
   },
   done(ctx) {
     const { room, arcade, elapsed } = ctx;
@@ -2379,7 +2454,7 @@ module.exports = {
     TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS,
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS,
-    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_LOSS,
+    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS,
     BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS,

@@ -8,7 +8,7 @@ import { kiste, lambert, viele, streuer, zaun, sonnenblumen, himmel, wolken } fr
 // Honigwabe — ein Bienengarten im Abendlicht. Vom Ast eines grossen Baumes
 // hängt eine Ranke: Äpfel, ab und zu ein goldener, dazwischen Honigwaben, um
 // die Bienen summen. Wer dran ist, tritt an die Ranke und pflückt von unten
-// eine oder zwei. Erwischt man eine Wabe, fallen einem vor Schreck die Hälfte
+// eine oder zwei. Erwischt man eine Wabe, fallen einem vor Schreck vier
 // der Früchte aus dem Korb, und die Bienen jagen einen einmal um den Baum.
 const VINE_X = 0;
 const VINE_Z = 0.15;
@@ -297,7 +297,17 @@ export class HoneyVine extends MinigameScene {
       <div class="runner-lane-controls barrel-run-controls honey-controls">
         <button type="button" data-honey-take="1"><span>1</span><small>pflücken</small></button>
         <button type="button" data-honey-take="2"><span>2</span><small>pflücken</small></button>
+        <button type="button" class="honey-pass" data-honey-pass><span>↷</span><small>schieben</small></button>
       </div>`;
+    // Einmal im Spiel: den Zug weitergeben, ohne zu pflücken.
+    const pass = this.controls.querySelector("[data-honey-pass]");
+    this.on(pass, "pointerdown", (event) => {
+      event.preventDefault();
+      if (pass.disabled) return;
+      this.feedback?.sound("select");
+      this.feedback?.vibrate(10);
+      this.sendInput({ action: "pass" }).catch(() => {});
+    });
     this.controls.querySelectorAll("[data-honey-take]").forEach((button) => {
       this.on(button, "pointerdown", (event) => {
         event.preventDefault();
@@ -337,8 +347,13 @@ export class HoneyVine extends MinigameScene {
           : basket.group.position.clone().add(new THREE.Vector3(0, 0.35, 0));
         this.flying.push({ item, from: item.position.clone(), to, at: performance.now() + i * 90, comb: item.userData.kind === "comb" });
       });
-      if (animator) animator.trigger(last.stung ? "panic" : "reach");
-      if (last.stung) {
+      if (animator && !last.passed) animator.trigger(last.stung ? "panic" : "reach");
+      if (last.passed) {
+        // Geschoben: nichts gepflückt, der Nächste steht vor derselben Ranke.
+        if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), "GESCHOBEN!", { color: "#b8e4ff", size: 0.36, life: 1.1 });
+        if (animator) animator.trigger("shrug");
+        if (isOwn) this.feedback?.sound("whoosh");
+      } else if (last.stung) {
         this.chase.set(last.playerId, performance.now() + 2600);
         if (kin) {
           this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), last.dropped ? `AUA! −${last.dropped}` : "AUA!", { color: "#ffb3bd", size: 0.42, life: 1.3 });
@@ -528,8 +543,12 @@ export class HoneyVine extends MinigameScene {
       const who = room.players.find((p) => p.id === state.last.playerId);
       message = state.last.playerId === controlledId ? "Gestochen! 🐝" : `${escapeName(who?.name)} wurde gestochen! 🐝`;
       tone = "#ff5d73";
+    } else if (state.last && elapsed - state.last.at < 1100 && state.last.passed) {
+      const who = room.players.find((p) => p.id === state.last.playerId);
+      message = state.last.playerId === controlledId ? "Geschoben!" : `${escapeName(who?.name)} schiebt weiter!`;
+      tone = "#3d8fd6";
     } else if (ownTurn) {
-      message = "Du bist dran — 1 oder 2?";
+      message = (own?.passes || 0) > 0 ? "Du bist dran — 1, 2 oder schieben?" : "Du bist dran — 1 oder 2?";
       tone = "#1fbf5b";
     } else if (turn) {
       const who = room.players.find((p) => p.id === turn.playerId);
@@ -553,6 +572,12 @@ export class HoneyVine extends MinigameScene {
       const count = Number(button.dataset.honeyTake);
       button.disabled = !ownTurn || state.vine.length < count || Boolean(minigame.finaleAt);
     });
+    const pass = this.controls.querySelector("[data-honey-pass]");
+    if (pass) {
+      const left = own?.passes || 0;
+      pass.disabled = !ownTurn || left <= 0 || room.players.length < 2 || Boolean(minigame.finaleAt);
+      pass.classList.toggle("is-used", left <= 0);
+    }
   }
 }
 

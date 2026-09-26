@@ -931,6 +931,7 @@ function setupKnifeStage(arcade, entry, index, now) {
   entry.stuckAngles = [];
   entry.apples = [];
   entry.nextStageAt = null;
+  entry.stagePoints = 0;             // was dieser Stamm bisher eingebracht hat
   const seed = arcade.seed + index * 97;
   for (let i = 0; i < stage.preset; i += 1) {
     const angle = Math.round((i / Math.max(1, stage.preset)) * 360 + arcadeNoise(seed + i * 13) * 40) % 360;
@@ -1052,8 +1053,14 @@ const WHACK_GOLD_POINTS = 5;
 // Anzeigen laufen gleichmässig durch, und Punkte gibt es für die Nähe zur
 // Flagge. Beim Winkel zeigt eine Landevorschau (ohne Wind), wo man aufkäme —
 // den Wind muss man selbst einrechnen.
-const CANNON_PERIOD_MS = 1150;        // Kraft: 0 → 1 → 0, gleichmässig
-const CANNON_ANGLE_PERIOD_MS = 1300;  // Winkel: 10° → 80° → 10°, gleichmässig
+//
+// Beide Anzeigen liefen danach so schnell, dass Treffen Glück war: die Kraft
+// ging in 575 ms von leer auf voll, der Winkel in 650 ms über 70°. Ein Daumen
+// streut um gut 40 ms — das waren ±12 m Weite, bei 3,5 Punkten Abzug je Meter.
+// Der starke Bot landete gemessen nicht öfter vorn als der schwache. Jetzt
+// laufen beide etwa halb so schnell; wer genau hinschaut, trifft auch.
+const CANNON_PERIOD_MS = 1800;        // Kraft: 0 → 1 → 0, gleichmässig
+const CANNON_ANGLE_PERIOD_MS = 2600;  // Winkel: 10° → 80° → 10°, gleichmässig
 const CANNON_ANGLE_MIN = 10;
 const CANNON_ANGLE_MAX = 80;
 const CANNON_TARGET_MIN = 42;
@@ -1076,7 +1083,7 @@ function cannonDistance(power, angleDeg, wind = 0) {
 // Punkte nach Abstand zur Flagge; ein Volltreffer (bis 2 m) gibt Zugabe.
 function cannonPoints(distance, target) {
   const off = Math.abs(distance - target);
-  return Math.round(Math.max(0, 100 - off * 3.5) + (off <= 2 ? 25 : 0));
+  return Math.round(Math.max(0, 100 - off * 3) + (off <= 2 ? 25 : 0));
 }
 
 // Blitzfang — wait for green, tap first; a false start costs dearly.
@@ -2242,8 +2249,10 @@ function arcadeRankingScore(arcade, arcadePlayer) {
       : Math.round(arcadePlayer.progress || 0);
   }
   if (arcade.family === "colorgrid") {
-    // More survived rounds wins; fewer falls breaks ties.
-    return Math.max(0, (arcadePlayer.survived || 0) * 1000 - (arcadePlayer.stumbles || 0));
+    // Mehr überstandene Runden zuerst. Wer gleich viele hat, den ordnet, wer
+    // schneller auf seinem sicheren Feld stand — vorher teilten sich in gut der
+    // Hälfte der Runden zwei den Sieg, weil beide bis zum Schluss durchkamen.
+    return Math.max(0, (arcadePlayer.survived || 0) * 1000000 - Math.min(999999, Math.round(arcadePlayer.safeMs || 0)));
   }
   if (arcade.family === "redlight") {
     // Finishers rank above runners, fastest first; getting caught costs progress anyway.
@@ -2252,8 +2261,11 @@ function arcadeRankingScore(arcade, arcadePlayer) {
       : Math.round((arcadePlayer.progress || 0) * 100);
   }
   if (arcade.family === "wave") {
-    // Survive more waves to win; later elimination breaks ties.
-    return (arcadePlayer.eliminated ? 0 : 5000000) + (arcadePlayer.survived || 0) * 1000;
+    // Survive more waves to win; later elimination breaks ties — and among
+    // equals, whoever jumped closer to the middle of each swing.
+    const survived = arcadePlayer.survived || 0;
+    const timing = survived ? Math.min(999, Math.round((arcadePlayer.timingMs || 0) / survived)) : 999;
+    return (arcadePlayer.eliminated ? 0 : 5000000) + survived * 1000 + (999 - timing);
   }
   if (arcade.family === "daredevil") {
     // Punkte entscheiden; bei Gleichstand der dichteste einzelne Treffer.
@@ -2302,7 +2314,11 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return (arcadePlayer.points || 0) * 10000 + Math.max(1, Math.round(5000 - off * 50));
   }
   if (arcade.family === "simon") {
-    return Math.max(0, (arcadePlayer.survived || 0) * 1000 - (arcadePlayer.mistakes || 0));
+    // Richtige Runden zuerst, dann weniger Fehler, dann das Tempo: wer eine
+    // Folge schneller nachtippt, hat sie sicherer im Kopf. Ohne das teilten
+    // sich in einem Drittel der Runden zwei den Sieg.
+    const tempo = Math.max(0, 99999 - Math.round((arcadePlayer.solveMs || 0) / 10));
+    return Math.max(0, (arcadePlayer.survived || 0) * 10000000 - (arcadePlayer.mistakes || 0) * 100000 + tempo);
   }
   if (arcade.family === "react") {
     // Zuerst die Bestzeit; bei gleicher Bestzeit die Summe aller Versuche.
@@ -2392,7 +2408,12 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       : { kind: "progress", value: Math.round(arcadePlayer.progress || 0), total: RUNNER_LENGTH, label: "Meter" };
   }
   if (arcade.family === "colorgrid") {
-    return { kind: "points", value: arcadePlayer.survived || 0, label: "Runden" };
+    return {
+      kind: "points",
+      value: arcadePlayer.survived || 0,
+      label: "Runden",
+      extra: arcadePlayer.survived ? `Ø ${formatSekunden((arcadePlayer.safeMs || 0) / arcadePlayer.survived)}` : null
+    };
   }
   if (arcade.family === "redlight") {
     return arcadePlayer.finishedAt
@@ -2400,7 +2421,13 @@ function arcadeResultDetail(arcade, arcadePlayer) {
       : { kind: "progress", value: Math.round(arcadePlayer.progress || 0), total: REDLIGHT_GOAL, label: "Meter" };
   }
   if (arcade.family === "wave") {
-    return { kind: "points", value: arcadePlayer.survived || 0, label: "Wellen" };
+    const survived = arcadePlayer.survived || 0;
+    return {
+      kind: "points",
+      value: survived,
+      label: "Wellen",
+      extra: survived ? `Timing ±${Math.round((arcadePlayer.timingMs || 0) / survived)} ms` : null
+    };
   }
   if (arcade.family === "daredevil") {
     return { kind: "points", value: Math.round(arcadePlayer.points || 0), label: "Punkte" };
@@ -2445,7 +2472,8 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte" };
   }
   if (arcade.family === "simon") {
-    return { kind: "correct", value: arcadePlayer.survived || 0, label: "Runden" };
+    const survived = arcadePlayer.survived || 0;
+    return { kind: "correct", value: survived, label: "Runden", extra: survived ? `Ø ${formatSekunden((arcadePlayer.solveMs || 0) / survived)}` : null };
   }
   if (arcade.family === "react") {
     const best = reactBest(arcadePlayer);
@@ -2535,6 +2563,17 @@ function botProfile(arcadePlayer, seedHint = 0) {
         : { level: "hard", reactionMs: 300, mistake: 0.07, spreadMs: 160 };
   }
   return arcadePlayer.botProfile;
+}
+
+// Sekunden für die Ergebniszeile, deutsch: 0,8 s.
+function formatSekunden(ms) {
+  return `${(Math.max(0, Number(ms) || 0) / 1000).toFixed(1).replace(".", ",")} s`;
+}
+
+// Ein Wert je Bot-Stufe, wie byLevel in partyGames.js.
+function byBotLevel(profile, easy, normal, hard) {
+  const level = profile?.level || "normal";
+  return level === "easy" ? easy : level === "hard" ? hard : normal;
 }
 
 // Alle verbundenen Menschen im Raum. Bots und getrennte Geräte zählen nicht —
@@ -2949,6 +2988,8 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.fallenRound = -1;
       entry.eliminated = false;
       entry.survived = 0;
+      entry.lastStepAt = 0;
+      entry.safeMs = 0;                  // Summe: so lange bis aufs sichere Feld
     });
     advanceColorRound(arcade, 0, startedAt);
   }
@@ -2977,6 +3018,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.jumpUntil = 0;
       entry.eliminated = false;
       entry.survived = 0;
+      entry.timingMs = 0;                // Summe: Abstand der Sprungmitte zum Seil
     });
   }
   if (config.family === "daredevil") {
@@ -3088,6 +3130,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.roundFailed = false;
       entry.survived = 0;
       entry.mistakes = 0;
+      entry.solveMs = 0;                 // Summe: so lange bis zur letzten richtigen Farbe
     });
   }
   if (config.family === "react") {
@@ -4139,6 +4182,7 @@ function handleArcadeInput(room, player, rawInput) {
       arcadePlayer.roundProgress += 1;
       arcadePlayer.hasMoved = true;
       if (arcadePlayer.roundProgress >= round.sequence.length) {
+        arcadePlayer.solveMs = (arcadePlayer.solveMs || 0) + Math.max(0, elapsed - round.inputFrom);
         arcadePlayer.survived += 1;
         arcadePlayer.flash = "good";
         arcadePlayer.lastHitAt = now;
@@ -4211,25 +4255,36 @@ function handleArcadeInput(room, player, rawInput) {
     const angle = knifeImpactAngle(arcadePlayer, now);
     const clash = arcadePlayer.stuckAngles.some((knife) => knifeAngleGap(knife.angle, angle) < KNIFE_MIN_GAP_DEG);
     if (clash) {
-      // Klirr — das Messer prallt ab, der Stamm ist verloren. Nach der Pause
+      // Klirr — das Messer prallt ab, der Stamm ist verloren, und mit ihm alles,
+      // was er schon eingebracht hat: die Messer fallen heraus. Nach der Pause
       // kommt der nächste.
+      //
+      // Vorher kostete ein Klirren nur den Bonus für den vollen Stamm, und der
+      // nächste Stamm kam sofort. Blind drauflos zu werfen lohnte sich damit:
+      // der schwache Bot, der kaum hinschaut, gewann gemessen fast so oft wie
+      // der starke. Jetzt ist ein voller Stamm etwas, das man sich verdient.
+      const lost = arcadePlayer.stagePoints || 0;
+      arcadePlayer.points = Math.max(0, arcadePlayer.points - lost);
+      arcadePlayer.stagePoints = 0;
       arcadePlayer.clashes += 1;
       arcadePlayer.knivesLeft = 0;
       arcadePlayer.stunUntil = now + KNIFE_CLASH_MS;
       arcadePlayer.nextStageAt = now + KNIFE_CLASH_MS;
-      arcadePlayer.lastThrow = { at: now, angle, result: "clash" };
+      arcadePlayer.lastThrow = { at: now, angle, result: "clash", lost };
       arcadePlayer.flash = "bad";
     } else {
       arcadePlayer.stuckAngles.push({ angle, preset: false });
       arcadePlayer.stuck += 1;
       arcadePlayer.knivesLeft -= 1;
       arcadePlayer.points += 1;
+      arcadePlayer.stagePoints = (arcadePlayer.stagePoints || 0) + 1;
       let result = "stuck";
       const apple = arcadePlayer.apples.find((candidate) => !candidate.hit && knifeAngleGap(candidate.angle, angle) < KNIFE_APPLE_GAP_DEG);
       if (apple) {
         apple.hit = true;
         arcadePlayer.applesHit += 1;
         arcadePlayer.points += KNIFE_APPLE_POINTS;
+        arcadePlayer.stagePoints += KNIFE_APPLE_POINTS;
         result = "apple";
       }
       if (arcadePlayer.knivesLeft <= 0) {
@@ -4623,6 +4678,7 @@ function handleArcadeInput(room, player, rawInput) {
     arcadePlayer.gx = targetGx;
     arcadePlayer.gy = targetGy;
     arcadePlayer.hasMoved = true;
+    arcadePlayer.lastStepAt = now;
     return { ok: true };
   }
 
@@ -5444,6 +5500,10 @@ function updateWave(room, minigame, arcade, now) {
       const jumpStartedAt = entry.jumpUntil - arcade.jumpMs - minigame.startedAt;
       const airborne = entry.jumpUntil - minigame.startedAt >= wave.hitAt && jumpStartedAt <= wave.hitAt;
       if (airborne) {
+        // Wie mittig lag der Sprung über dem Seil? Das ordnet, wer gleich viele
+        // Wellen übersteht — sonst teilten sich die Letzten den Sieg.
+        const mitte = jumpStartedAt + arcade.jumpMs / 2;
+        entry.timingMs = (entry.timingMs || 0) + Math.abs(mitte - wave.hitAt);
         entry.survived = index + 1;
         entry.score = entry.survived * 1000;
         entry.flash = "good";
@@ -5567,6 +5627,10 @@ function updateColorGrid(room, minigame, arcade, now) {
       if (!entry || entry.eliminated) return;
       const tileColor = arcade.grid[entry.gy * COLORGRID_COLS + entry.gx];
       if (tileColor === arcade.targetColor) {
+        // Wann stand man endgültig? Der letzte Schritt dieser Runde; wer gar
+        // nicht laufen musste, stand von Anfang an richtig.
+        const roundStart = minigame.startedAt + (phase.slot?.start || 0);
+        entry.safeMs = (entry.safeMs || 0) + (entry.lastStepAt > roundStart ? entry.lastStepAt - roundStart : 0);
         entry.survived += 1;
         entry.score = entry.survived;
         entry.flash = "good";
@@ -7305,7 +7369,7 @@ function arcadeBotStep(room, bot) {
         // Eine Kraft wählen und den Moment treffen, in dem die Anzeige dort
         // steht (steigend), mit Streuung nach Können.
         player.botPower = 0.78 + Math.random() * 0.2;
-        const at = (player.botPower / 2) * arcade.periodMs + (Math.random() - 0.5) * profile.spreadMs * 0.5;
+        const at = (player.botPower / 2) * arcade.periodMs + (Math.random() - 0.5) * profile.spreadMs * byBotLevel(profile, 0.7, 0.45, 0.25);
         const cycle = 1 + Math.floor(Math.random() * 3);
         player.botLaunchAt = cycle * arcade.periodMs + Math.max(60, at) - BOT_TICK_LEAD_MS;
       }
@@ -7327,7 +7391,7 @@ function arcadeBotStep(room, bot) {
       const share = (best - CANNON_ANGLE_MIN) / (CANNON_ANGLE_MAX - CANNON_ANGLE_MIN);
       const first = (share / 2) * arcade.anglePeriodMs;
       const aim = first >= 260 ? first : arcade.anglePeriodMs - first;
-      player.botAngleAt = player.powerAt + aim - BOT_TICK_LEAD_MS + (Math.random() - 0.5) * profile.spreadMs * 0.7;
+      player.botAngleAt = player.powerAt + aim - BOT_TICK_LEAD_MS + (Math.random() - 0.5) * profile.spreadMs * byBotLevel(profile, 0.9, 0.6, 0.3);
     }
     if (now >= player.botAngleAt) {
       handleArcadeInput(room, bot, { action: "launch" });

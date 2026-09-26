@@ -157,7 +157,10 @@ function player(overrides = {}) {
 test("every game reports exactly one number in its result", () => {
   const players = [{ id: "a", name: "A", isBot: false }, { id: "b", name: "B", isBot: false }];
   // Nebenangaben, die KEINE zweite Zahl sind, sondern zur ersten gehören.
-  const allowed = new Set(["kind", "label", "value", "total", "survived"]);
+  // `extra` ist der Feinwert, der NUR bei gleicher Hauptzahl entscheidet — er
+  // steht klein dahinter, damit man sieht, warum zwei gleiche Zahlen auf
+  // verschiedenen Plätzen landen.
+  const allowed = new Set(["kind", "label", "value", "total", "survived", "extra"]);
   MINIGAMES.filter((game) => game.arcadeFamily).forEach((game) => {
     const arcade = createArcadeState(game.type, players, Date.now());
     const detail = arcadeResultDetail(arcade, arcade.players.a);
@@ -1609,8 +1612,9 @@ test("blobklopfe: nie zwei Blobs zugleich im selben Loch, und es gibt alle drei 
 test("kanonenflug: erster Tipp Kraft, zweiter Winkel, Punkte für die Nähe zur Flagge", () => {
   const { cannonDistance, cannonPoints } = testRules;
   const gunner = player({ id: "ka", name: "KA", color: "#fff" });
-  const startedAt = Date.now() - 575;
-  const arcade = createArcadeState("kanonenflug", [gunner], startedAt);
+  const arcade = createArcadeState("kanonenflug", [gunner], Date.now());
+  // Eine halbe Kraftperiode zurück: die Anzeige steht gerade ganz oben.
+  const startedAt = Date.now() - Math.round(arcade.periodMs / 2);
   const minigame = { arcade, scores: {}, startedAt, duration: 16000, finishing: false };
   const room = { currentMinigame: minigame, players: [gunner] };
   const entry = arcade.players[gunner.id];

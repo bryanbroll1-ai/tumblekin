@@ -2362,6 +2362,27 @@ canvas.is-stunned {
   filter: grayscale(0.6);
 }
 
+/* Der Joker daneben: schmaler und blau, damit er nicht wie ein dritter
+   Pflückknopf aussieht. Verbraucht bleibt er als blasser Umriss stehen. */
+.honey-controls {
+  grid-template-columns: 1fr 1fr 0.78fr;
+  grid-auto-flow: row;
+}
+
+.honey-controls .honey-pass {
+  background: linear-gradient(180deg, #6cc4ff, #2f86d6);
+  box-shadow: 0 7px 0 #164d80;
+  color: #06243f;
+}
+
+.honey-controls .honey-pass span {
+  font-size: 2.1rem;
+}
+
+.honey-controls .honey-pass.is-used {
+  opacity: 0.22;
+}
+
 .honey-timer {
   position: absolute;
   top: calc(146px + env(safe-area-inset-top));

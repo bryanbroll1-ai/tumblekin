@@ -258,7 +258,7 @@ test("Flaggen hoch: drei Fehler, und man ist raus", () => {
 
 // --- Honigwabe -------------------------------------------------------------
 
-test("Honigwabe: nur wer dran ist, pflückt — und eine Wabe kostet die Hälfte", () => {
+test("Honigwabe: nur wer dran ist, pflückt — und eine Wabe kostet vier Früchte", () => {
   const g = setup("honigwabe", 3);
   g.run(0, C.HONEY_LEAD_MS + 50, 30);
   const state = g.arcade.honey;
@@ -281,8 +281,33 @@ test("Honigwabe: nur wer dran ist, pflückt — und eine Wabe kostet die Hälfte
   g.at(state.turn.from + 10);
   g.input(next, { action: "take", count: 2 });
   assert.equal(g.arcade.players[next.id].stings, 1);
-  assert.equal(g.arcade.players[next.id].fruits, 4, "die Hälfte (abgerundet) fällt herunter");
+  assert.equal(g.arcade.players[next.id].fruits, 7 - C.HONEY_STING_COST, "ein fester Teil fällt herunter");
   assert.equal(state.last.stung, true);
+  g.restore();
+});
+
+test("Honigwabe: einmal schieben — die Ranke bleibt, der Nächste ist dran", () => {
+  const g = setup("honigwabe", 3);
+  g.run(0, C.HONEY_LEAD_MS + 50, 30);
+  const state = g.arcade.honey;
+  const turn = state.turn;
+  const current = g.players.find((p) => p.id === turn.playerId);
+  const entry = g.arcade.players[current.id];
+  const vorher = [...state.vine];
+  g.at(turn.from + 10);
+  assert.equal(g.input(current, { action: "pass" }).ok, true);
+  assert.deepEqual(state.vine, vorher, "geschoben wird, nicht gepflückt");
+  assert.equal(entry.passes, 0);
+  assert.equal(state.last.passed, true);
+  assert.notEqual(state.turn.playerId, current.id, "der Nächste ist dran");
+  // Ein zweites Mal geht es nicht — auch nicht, wenn man wieder dran ist.
+  while (state.turn.playerId !== current.id) {
+    const who = g.players.find((p) => p.id === state.turn.playerId);
+    g.at(state.turn.from + 10);
+    g.input(who, { action: "take", count: 1 });
+  }
+  g.at(state.turn.from + 10);
+  assert.equal(g.input(current, { action: "pass" }).ok, false, "der Joker ist verbraucht");
   g.restore();
 });
 

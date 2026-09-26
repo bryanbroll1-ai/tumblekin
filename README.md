@@ -131,7 +131,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus.
 - **Blob-Klopfe:** Blobs poppen aus den Löchern — tipp drauf, bevor sie abtauchen. Je schneller, desto mehr: 3, 2 oder 1 Punkt, der goldene bringt 5. Finger weg von den dunkelroten mit Stachelkrone: zwei Punkte weg und kurz benommen.
 - **Seilspringen:** Die zwei Dreher schwingen das Riesenseil, und es wird immer schneller. Tipp, wenn es unter dir durchgeht — du bist nur kurz in der Luft. Achtung bei DOPPELT: dann kommt es zweimal kurz hintereinander. Einmal hängen geblieben und du bist raus.
-- **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt, jeder dreht sich anders. Äpfel bringen Extrapunkte, ein Klirren kostet den Stamm.
+- **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt, jeder dreht sich anders. Äpfel bringen Extrapunkte. Ein Klirren kostet den Stamm — und alle Punkte, die er dir schon gebracht hat.
 - **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
 - **Kippboot:** Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier — Küken, Pinguin, Schaf oder Schwein. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker; die Wasserwaage oben zeigt, wie schief es liegt. Wer es zum Kentern bringt, verliert zehn Punkte. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu.
 
@@ -202,7 +202,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🍎 Eins oder zwei pflücken
 
-- **Honigwabe:** Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und lässt die Hälfte seiner Früchte fallen. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Goldene Äpfel zählen drei. Wer am Ende die meisten Früchte hat, gewinnt.
+- **Honigwabe:** Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und lässt vier Früchte fallen. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Einmal im Spiel darfst du deinen Zug ganz weiterschieben. Goldene Äpfel zählen drei. Wer am Ende die meisten Früchte hat, gewinnt.
 
 ### 🕹️👆 Stick steuern, Knopf werfen
 

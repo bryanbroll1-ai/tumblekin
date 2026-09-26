@@ -411,7 +411,9 @@ export class KnifeThrow extends MinigameScene {
         this.flying.push({ knife, from, to, start: now, result: entry.lastThrow?.result, scale: st.scale });
         const result = entry.lastThrow?.result;
         if (result === "clash") {
-          this.pop(to.clone().add(new THREE.Vector3(0, -0.3 * st.scale, 0.4)), "KLIRR!", { color: "#ff6b7f", size: 0.38 * Math.max(0.6, st.scale), life: 0.9 });
+          // Mit dem Stamm fallen auch seine Punkte — das soll man sehen.
+          const lost = entry.lastThrow?.lost || 0;
+          this.pop(to.clone().add(new THREE.Vector3(0, -0.3 * st.scale, 0.4)), lost > 0 ? `KLIRR! −${lost}` : "KLIRR!", { color: "#ff6b7f", size: 0.38 * Math.max(0.6, st.scale), life: 1.1 });
           animator.trigger("flinch");
           animator.expression("scared", 900);
           if (mine) {
