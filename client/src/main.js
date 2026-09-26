@@ -32,6 +32,7 @@ import { IceStock } from "./minigames/IceStock.js?v=tumblekin200";
 import { DeepDig } from "./minigames/DeepDig.js?v=tumblekin200";
 import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin200";
 import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin200";
+import { TugOfWar } from "./minigames/TugOfWar.js?v=tumblekin200";
 
 // socket.io kommt als eigenes Skript vom Server. Fehlt es, würde
 // `new ClientNetwork()` beim Laden werfen — der Startbildschirm stünde schon im
@@ -77,7 +78,8 @@ const MINIGAMES = {
   angelduell: FishDuel,
   farbenjagd: ColorHunt,
   spuersinn: SeekGrid,
-  augenmass: SwarmCount
+  augenmass: SwarmCount,
+  tauziehen: TugOfWar
 };
 
 const network = new ClientNetwork();

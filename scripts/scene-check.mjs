@@ -116,11 +116,16 @@ for (const game of liste) {
       // einer "schwebenden" Figur auf der Liste, die gerade in den Fluss fiel.
       const raus = new Set();
       const versteckt = new Set();
+      // Wer ABSICHTLICH einsinkt — beim Tauziehen bis zu den Knien im
+      // Schlamm —, markiert das mit userData.sunk. Nur die Bodenmessung fällt
+      // dann weg; im Bild sein muss die Figur weiterhin.
+      const versunken = new Set();
       const bis = performance.now() + 1300;
       while (performance.now() < bis) {
         await new Promise((r) => requestAnimationFrame(r));
         kins.forEach((kin, index) => {
           if (kin.userData.outOfPlay) raus.add(index);
+          if (kin.userData.sunk) versunken.add(index);
           // Unsichtbares kann nicht falsch stehen — aber im Bild sein muss
           // eine Spielerfigur trotzdem, darum nur für den Boden.
           if (!kin.visible) versteckt.add(index);
@@ -133,7 +138,7 @@ for (const game of liste) {
       const down = new THREE.Vector3(0, -1, 0);
       const aus = [];
       kins.forEach((kin, index) => {
-        if (raus.has(index) || versteckt.has(index)) return;
+        if (raus.has(index) || versteckt.has(index) || versunken.has(index)) return;
         const box = new THREE.Box3().setFromObject(kin);
         if (!Number.isFinite(box.min.y)) return;
         // Gemessen wird die SOHLE, also die Unterkante der Fussmeshes.

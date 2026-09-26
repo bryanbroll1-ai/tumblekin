@@ -2130,3 +2130,128 @@ canvas.is-stunned {
 .bomb-button.is-queued {
   border-color: #ffe36b;
 }
+
+/* --- Partyklassiker ------------------------------------------------------- */
+
+/* Tauziehen: der Knopf trägt die Griffkraft als Balken. Grün heisst: ziehen,
+   gelb: gleich wird es knapp, rot: jetzt nicht hämmern, sonst rutscht man ab. */
+.tug-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(100%, 340px);
+  min-height: 104px;
+  margin: 0 auto;
+  padding: 0 0 18px;
+  overflow: hidden;
+  border: 4px solid #ffffff;
+  border-radius: 24px;
+  background: linear-gradient(180deg, #3fc4ff, #1283d6);
+  box-shadow: 0 8px 0 #0a4f85, 0 18px 30px rgba(18, 131, 214, 0.4);
+  color: #fff;
+  font-size: 1.7rem;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  touch-action: manipulation;
+}
+
+.tug-button:active {
+  transform: translateY(6px);
+  box-shadow: 0 2px 0 #0a4f85;
+}
+
+.tug-grip {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.tug-grip i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: #6dff9a;
+  transition: width 90ms linear, background 160ms ease;
+}
+
+.tug-button[data-grip="mid"] .tug-grip i { background: #ffd84a; }
+.tug-button[data-grip="low"] .tug-grip i { background: #ff5d73; }
+
+.tug-button.is-slipping {
+  background: linear-gradient(180deg, #8b98a8, #5b6674);
+  box-shadow: 0 8px 0 #333b45;
+  animation: tug-shake 0.18s linear infinite;
+}
+
+@keyframes tug-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.tug-teams {
+  position: absolute;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.tug-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(21, 33, 38, 0.82);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.tug-team.is-own {
+  box-shadow: inset 0 0 0 2px #ffffff;
+}
+
+.tug-team b {
+  color: var(--chip);
+}
+
+.tug-pips {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 2px;
+}
+
+.tug-pips i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.tug-pips i.is-won {
+  background: #ffd15c;
+  box-shadow: 0 0 6px #ffd15c;
+}
+
+.tug-vs {
+  color: #fff;
+  font-weight: 1000;
+  font-size: 0.8rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.kinetic-hud .tug-teams ~ .color-banner {
+  top: calc(98px + env(safe-area-inset-top));
+}

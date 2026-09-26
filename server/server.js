@@ -5,6 +5,7 @@ const path = require("path");
 const { Server } = require("socket.io");
 const QRCode = require("qrcode");
 const modes = require("./modes");
+const { PARTY_FAMILIES, PARTY_GAMES } = require("./partyGames");
 
 const PORT = Number(process.env.PORT || 3000);
 // Developer tooling (four local players, launching any challenge on demand) is
@@ -130,6 +131,17 @@ const ARCADE_CONFIGS = {
   spuersinn: { family: "seek", seed: 619 },
   augenmass: { family: "estimate", seed: 733 }
 };
+
+// Die zehn Partyklassiker stehen in partyGames.js — Katalog und Seeds kommen
+// von dort, damit eine Familie an genau einer Stelle beschrieben ist.
+PARTY_GAMES.forEach((game) => {
+  MINIGAMES.push({ type: game.type, title: game.title, duration: game.duration, arcadeFamily: game.arcadeFamily });
+  ARCADE_CONFIGS[game.type] = { family: game.arcadeFamily, seed: game.seed };
+});
+
+function partyContext(room, minigame, now) {
+  return { room, minigame, arcade: minigame.arcade, now, elapsed: Math.max(0, now - minigame.startedAt) };
+}
 
 // Ballonfahrt — halten steigt, loslassen sinkt, und der Kurs kommt in Toren
 // auf einen zu. Ersetzt den Schleuderschuss.
@@ -1903,7 +1915,8 @@ function scheduleBotMinigameInputs(room) {
       // vom Kurs ab — mehr als die lichte Weite eines spaeten Tores.
       // pump ebenso: ein Mensch schafft im Wechsel sechs bis zehn Stösse pro
       // Sekunde, ein Bot im langsamen Takt kam nie über drei.
-      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel", "pump", "dive"].includes(minigame.arcade.family);
+      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel", "pump", "dive"].includes(minigame.arcade.family)
+        || Boolean(PARTY_FAMILIES[minigame.arcade.family]?.fastHand);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
         : 260 + Math.floor(Math.random() * 150);
@@ -2204,6 +2217,7 @@ function arenaSpawnPoint(arena, self) {
 
 function arcadeRankingScore(arcade, arcadePlayer) {
   if (!arcadePlayer) return 0;
+  if (PARTY_FAMILIES[arcade.family]) return PARTY_FAMILIES[arcade.family].rank(arcade, arcadePlayer);
   const score = Math.max(0, Math.round(arcadePlayer.score || 0));
   const successes = arcadePlayer.successes || 0;
   const mistakes = arcadePlayer.mistakes || 0;
@@ -2352,6 +2366,7 @@ function minigameResultDetail(minigame, playerId, _finishedAt) {
 
 function arcadeResultDetail(arcade, arcadePlayer) {
   if (!arcadePlayer) return null;
+  if (PARTY_FAMILIES[arcade.family]) return PARTY_FAMILIES[arcade.family].detail(arcade, arcadePlayer);
   if (arcade.family === "plinko") {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
   }
@@ -3434,6 +3449,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.finishMs = null;
     });
   }
+  PARTY_FAMILIES[config.family]?.create(arcade, players, startedAt);
   return arcade;
 }
 
@@ -3923,9 +3939,16 @@ function handleArcadeInput(room, player, rawInput) {
   // Cooldown geschluckt hielte der Server den Strich für weiterhin unten — der
   // nächste Fingeraufsatz gälte dann als Abrutscher statt als Wiedereinstieg.
   const exempt = input.action === "lift";
-  const cooldown = exempt ? 0 : (cooldowns[arcade.family] ?? 100);
+  const party = PARTY_FAMILIES[arcade.family];
+  const cooldown = exempt ? 0 : (cooldowns[arcade.family] ?? party?.cooldown ?? 100);
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
   if (!exempt) arcadePlayer.lastInputAt = now;
+
+  if (party) {
+    const result = party.input(partyContext(room, minigame, now), player, arcadePlayer, input) || { ok: true };
+    syncArcadeScore(minigame, player, arcadePlayer);
+    return result;
+  }
 
   if (arcade.family === "stopclock") {
     if (input.action !== "stop") return { ok: false, error: "Tippe, um die Uhr zu stoppen." };
@@ -5118,6 +5141,15 @@ function updateArcade(room) {
     updateSimon(room, minigame, arcade, now);
   }
 
+  const party = PARTY_FAMILIES[arcade.family];
+  if (party) {
+    party.update?.(partyContext(room, minigame, now));
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (entry) syncArcadeScore(minigame, player, entry);
+    });
+  }
+
   maybeFinishArcadeEarly(room, minigame, arcade, now);
 }
 
@@ -5602,6 +5634,8 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     // Im Wildwasser: steht nur noch einer auf dem Fass, hat er gewonnen.
     const oben = room.players.filter((player) => !arcade.players[player.id]?.outAt);
     done = room.players.length > 1 && oben.length <= 1;
+  } else if (PARTY_FAMILIES[arcade.family]?.done) {
+    done = Boolean(PARTY_FAMILIES[arcade.family].done(partyContext(room, minigame, now)));
   } else if (arcade.family === "plinko") {
     // Alle Kugeln geworfen und unten.
     done = room.players.every((player) => (arcade.players[player.id]?.ballsLeft ?? 1) <= 0)
@@ -6831,6 +6865,11 @@ function arcadeBotStep(room, bot) {
   const arcade = minigame?.arcade;
   const player = arcade?.players?.[bot.id];
   if (!arcade || !player) return;
+  if (PARTY_FAMILIES[arcade.family]) {
+    const move = PARTY_FAMILIES[arcade.family].bot(partyContext(room, minigame, Date.now()), bot, player);
+    if (move) handleArcadeInput(room, bot, move);
+    return;
+  }
   if (arcade.family === "plinko") {
     const profile = botProfile(player);
     const now = Date.now();
@@ -7988,6 +8027,7 @@ function publicArcade(arcade) {
     const { cells, ...rest } = arcade;
     return rest;
   }
+  if (PARTY_FAMILIES[arcade.family]?.publicView) return PARTY_FAMILIES[arcade.family].publicView(arcade);
   if (!arcade.secret) return arcade;
   const { secret, ...rest } = arcade;
   return rest;
