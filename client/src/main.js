@@ -36,6 +36,7 @@ import { TugOfWar } from "./minigames/TugOfWar.js?v=tumblekin200";
 import { FaceLift } from "./minigames/FaceLift.js?v=tumblekin200";
 import { FlagCaller } from "./minigames/FlagCaller.js?v=tumblekin200";
 import { HoneyVine } from "./minigames/HoneyVine.js?v=tumblekin200";
+import { SnowSummit } from "./minigames/SnowSummit.js?v=tumblekin200";
 
 // socket.io kommt als eigenes Skript vom Server. Fehlt es, würde
 // `new ClientNetwork()` beim Laden werfen — der Startbildschirm stünde schon im
@@ -85,7 +86,8 @@ const MINIGAMES = {
   tauziehen: TugOfWar,
   grimassen: FaceLift,
   flaggenhoch: FlagCaller,
-  honigwabe: HoneyVine
+  honigwabe: HoneyVine,
+  schneeball: SnowSummit
 };
 
 const network = new ClientNetwork();

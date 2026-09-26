@@ -315,3 +315,55 @@ test("Honigwabe: eine leere Ranke wächst nach, und die Runde läuft bis zum Sch
   assert.ok(g.arcade.honey.picks > 12);
   g.restore();
 });
+
+// --- Schneeballhang --------------------------------------------------------
+
+test("Schneeballhang: die Kugel wächst nur beim Rollen und ist erst ab einer Mindestgrösse wurfbereit", () => {
+  const g = setup("schneeball", 2);
+  const [a] = g.players;
+  const entry = g.arcade.players[a.id];
+  g.run(0, 1000, 30);
+  assert.equal(entry.size, C.SNOW_MIN_SIZE, "im Stehen wächst nichts");
+  g.input(a, { action: "throw" });
+  assert.equal(g.arcade.snow.balls.length, 0, "zu klein zum Werfen");
+  g.input(a, { action: "steer", x: 1, y: 0 });
+  g.run(1030, 2600, 30, (t) => { if (t % 300 < 30) g.input(a, { action: "steer", x: t % 600 < 300 ? 1 : -1, y: 0 }); });
+  assert.ok(entry.size >= C.SNOW_THROW_MIN, `nach anderthalb Sekunden Rollen: ${entry.size.toFixed(2)}`);
+  g.input(a, { action: "throw" });
+  assert.equal(g.arcade.snow.balls.length, 1);
+  assert.equal(entry.size, C.SNOW_MIN_SIZE, "nach dem Wurf beginnt eine neue Kugel");
+  g.restore();
+});
+
+test("Schneeballhang: ein Treffer wirft um und bringt dem Werfer Punkte", () => {
+  const g = setup("schneeball", 2);
+  const [a, b] = g.players;
+  const ea = g.arcade.players[a.id];
+  const eb = g.arcade.players[b.id];
+  // Aufstellen: a schaut auf b, b steht mit kleiner Kugel still.
+  Object.assign(ea, { x: 0, z: 2, heading: Math.PI, size: 0.9, dirX: 0, dirZ: 0 });
+  Object.assign(eb, { x: 0, z: -2, heading: 0.5 * Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0 });
+  g.at(1000);
+  g.input(a, { action: "throw" });
+  g.run(1030, 2200, 20);
+  assert.equal(eb.taken, 1, "b wurde getroffen");
+  assert.ok(eb.stunUntil > 1000 + g.minigame.startedAt, "und liegt kurz");
+  assert.equal(ea.score, party.snowValue(0.9), "eine grosse Kugel bringt drei");
+  g.restore();
+});
+
+test("Schneeballhang: die eigene grosse Kugel ist ein Schild", () => {
+  const g = setup("schneeball", 2);
+  const [a, b] = g.players;
+  const ea = g.arcade.players[a.id];
+  const eb = g.arcade.players[b.id];
+  Object.assign(ea, { x: 0, z: 2, heading: Math.PI, size: 0.6, dirX: 0, dirZ: 0 });
+  Object.assign(eb, { x: 0, z: -2, heading: 0, size: 0.9, dirX: 0, dirZ: 0 });   // schaut auf a, Kugel vorn
+  g.at(1000);
+  g.input(a, { action: "throw" });
+  g.run(1030, 2200, 20);
+  assert.equal(eb.taken, 0, "der Schild hat gehalten");
+  assert.equal(eb.blocks, 1);
+  assert.equal(ea.score, 0);
+  g.restore();
+});

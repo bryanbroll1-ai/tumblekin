@@ -861,13 +861,324 @@ const honey = {
   }
 };
 
+
+// --- Schneeballhang --------------------------------------------------------
+//
+// Auf einem verschneiten Gipfel schiebt jeder eine Schneekugel vor sich her.
+// Beim Fahren wächst sie; ein Tipp schickt sie los. Wer getroffen wird, fällt
+// kurz um und verliert seine Kugel — wer trifft, bekommt Punkte, und zwar umso
+// mehr, je grösser die Kugel war. Zwei Kugeln, die sich treffen, zerplatzen
+// beide: wer seine grosse Kugel vor sich hält, hat damit einen Schild.
+//
+// Gerechnet wird in Welteinheiten auf der Fläche (x quer, z zur Kamera hin).
+// Hochkant wie das Handy: schmal und tief. Quer lag das Feld als Streifen
+// oben im Bild, und darunter war nur Schnee.
+const SNOW_W = 7;                      // Breite des Feldes
+const SNOW_D = 9;                      // Tiefe
+const SNOW_DURATION_MS = 42000;
+const SNOW_SPEED = 3.3;                // Laufen ohne Kugel
+const SNOW_BALL_DRAG = 0.38;           // so viel langsamer mit voller Kugel
+const SNOW_ACCEL = 14;
+const SNOW_TURN = 9;                   // rad/s
+const SNOW_GROW = 0.24;                // Kugelgrösse je Sekunde bei voller Fahrt
+const SNOW_MIN_SIZE = 0.2;
+const SNOW_THROW_MIN = 0.4;            // kleiner lässt sie sich nicht werfen
+const SNOW_THROW_COOLDOWN_MS = 450;
+const SNOW_BALL_SPEED = 6.2;
+const SNOW_BALL_FRICTION = 2.1;        // Abbremsen (Einheiten/s²)
+const SNOW_BALL_STOP = 0.9;            // darunter zerfällt sie
+const SNOW_BODY_R = 0.3;
+const SNOW_STUN_MS = 1200;
+const SNOW_SAFE_MS = 900;              // nach dem Aufstehen kurz sicher
+const SNOW_BUMP = 0.62;                // Figuren schieben sich auseinander
+
+function snowBallRadius(size) {
+  return 0.12 + size * 0.26;
+}
+
+function snowValue(size) {
+  return size >= 0.85 ? 3 : size >= 0.6 ? 2 : 1;
+}
+
+function snowSpawn(index, count) {
+  const spots = [[-2.2, -3], [2.2, 3], [2.2, -3], [-2.2, 3]];
+  const [x, z] = spots[index % spots.length];
+  return { x, z, heading: Math.atan2(-x, -z) };
+}
+
+const snow = {
+  cooldown: 0,
+  fastHand: true,
+  create(arcade, players) {
+    arcade.snow = {
+      w: SNOW_W,
+      d: SNOW_D,
+      balls: [],
+      nextBall: 1,
+      bursts: [],                      // { x, z, size, at } — für den Schneestaub
+      throwMin: SNOW_THROW_MIN
+    };
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      const spot = snowSpawn(index, players.length);
+      entry.x = spot.x;
+      entry.z = spot.z;
+      entry.vx = 0;
+      entry.vz = 0;
+      entry.dirX = 0;
+      entry.dirZ = 0;
+      entry.heading = spot.heading;
+      entry.size = SNOW_MIN_SIZE;
+      entry.stunUntil = 0;
+      entry.safeUntil = 0;
+      entry.lastThrowAt = 0;
+      entry.hits = 0;
+      entry.taken = 0;
+      entry.throws = 0;
+      entry.blocks = 0;
+      entry.lastHitAt = 0;
+      entry.lastHitBy = null;
+      entry.score = 0;
+    });
+  },
+  input(ctx, player, entry, input) {
+    const { arcade, now } = ctx;
+    if (input.action === "steer") {
+      const x = Number(input.x);
+      const y = Number(input.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
+      const len = Math.hypot(x, y);
+      const k = len > 1 ? 1 / len : 1;
+      entry.dirX = x * k;
+      entry.dirZ = y * k;
+      return { ok: true };
+    }
+    if (input.action !== "throw") return { ok: false, error: "Lenken oder werfen." };
+    if (now < entry.stunUntil || now - entry.lastThrowAt < SNOW_THROW_COOLDOWN_MS) return { ok: true };
+    if (entry.size < SNOW_THROW_MIN) return { ok: true };
+    const r = snowBallRadius(entry.size);
+    const hx = Math.sin(entry.heading);
+    const hz = Math.cos(entry.heading);
+    arcade.snow.balls.push({
+      id: arcade.snow.nextBall,
+      owner: player.id,
+      x: entry.x + hx * (SNOW_BODY_R + r + 0.05),
+      z: entry.z + hz * (SNOW_BODY_R + r + 0.05),
+      vx: hx * SNOW_BALL_SPEED + entry.vx * 0.3,
+      vz: hz * SNOW_BALL_SPEED + entry.vz * 0.3,
+      size: entry.size,
+      r,
+      value: snowValue(entry.size),
+      bornAt: now,
+      spin: 0
+    });
+    arcade.snow.nextBall += 1;
+    entry.size = SNOW_MIN_SIZE;
+    entry.lastThrowAt = now;
+    entry.throws += 1;
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, room, now } = ctx;
+    const state = arcade.snow;
+    const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    const halfW = SNOW_W / 2 - SNOW_BODY_R;
+    const halfD = SNOW_D / 2 - SNOW_BODY_R;
+    const entries = room.players.map((player) => ({ id: player.id, entry: arcade.players[player.id] })).filter((e) => e.entry);
+    state.bursts = state.bursts.filter((b) => now - b.at < 1500);
+
+    entries.forEach(({ entry }) => {
+      const stunned = now < entry.stunUntil;
+      const want = stunned ? 0 : Math.min(1, Math.hypot(entry.dirX, entry.dirZ));
+      const top = SNOW_SPEED * (1 - SNOW_BALL_DRAG * entry.size);
+      const dx = stunned ? 0 : entry.dirX;
+      const dz = stunned ? 0 : entry.dirZ;
+      entry.vx += (dx * top - entry.vx) * Math.min(1, SNOW_ACCEL * dt);
+      entry.vz += (dz * top - entry.vz) * Math.min(1, SNOW_ACCEL * dt);
+      entry.x = clamp(entry.x + entry.vx * dt, -halfW, halfW);
+      entry.z = clamp(entry.z + entry.vz * dt, -halfD, halfD);
+      const speed = Math.hypot(entry.vx, entry.vz);
+      // Die Kugel wächst nur, wenn man sie wirklich rollt.
+      if (!stunned && speed > 0.4) entry.size = Math.min(1, entry.size + SNOW_GROW * (speed / SNOW_SPEED) * dt);
+      if (want > 0.15) {
+        const target = Math.atan2(entry.dirX, entry.dirZ);
+        const diff = Math.atan2(Math.sin(target - entry.heading), Math.cos(target - entry.heading));
+        entry.heading += clamp(diff, -SNOW_TURN * dt, SNOW_TURN * dt);
+      }
+    });
+
+    // Figuren schieben sich auseinander.
+    for (let a = 0; a < entries.length; a += 1) {
+      for (let b = a + 1; b < entries.length; b += 1) {
+        const one = entries[a].entry;
+        const two = entries[b].entry;
+        const dx = two.x - one.x;
+        const dz = two.z - one.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist >= SNOW_BUMP || dist < 1e-6) continue;
+        const push = (SNOW_BUMP - dist) / 2;
+        one.x = clamp(one.x - (dx / dist) * push, -halfW, halfW);
+        one.z = clamp(one.z - (dz / dist) * push, -halfD, halfD);
+        two.x = clamp(two.x + (dx / dist) * push, -halfW, halfW);
+        two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
+      }
+    }
+
+    // Rollende Kugeln.
+    const gone = new Set();
+    state.balls.forEach((ball) => {
+      const speed = Math.hypot(ball.vx, ball.vz);
+      const slower = Math.max(0, speed - SNOW_BALL_FRICTION * dt);
+      if (speed > 0) {
+        ball.vx *= slower / speed;
+        ball.vz *= slower / speed;
+      }
+      ball.x += ball.vx * dt;
+      ball.z += ball.vz * dt;
+      ball.spin += (slower / Math.max(0.1, ball.r)) * dt;
+      // Am Zaun prallt sie ab und verliert Schwung.
+      const limX = SNOW_W / 2 - ball.r;
+      const limZ = SNOW_D / 2 - ball.r;
+      if (Math.abs(ball.x) > limX) { ball.x = Math.sign(ball.x) * limX; ball.vx *= -0.55; ball.vz *= 0.8; }
+      if (Math.abs(ball.z) > limZ) { ball.z = Math.sign(ball.z) * limZ; ball.vz *= -0.55; ball.vx *= 0.8; }
+      if (slower < SNOW_BALL_STOP) {
+        gone.add(ball.id);
+        state.bursts.push({ x: ball.x, z: ball.z, size: ball.size, at: now, kind: "fizzle" });
+        return;
+      }
+      // Treffer auf Figuren — nicht auf den Werfer, nicht auf Liegende.
+      entries.forEach(({ id, entry }) => {
+        if (gone.has(ball.id) || id === ball.owner) return;
+        if (now < entry.stunUntil || now < entry.safeUntil) return;
+        // Die eigene grosse Kugel vorn ist ein Schild.
+        const hx = Math.sin(entry.heading);
+        const hz = Math.cos(entry.heading);
+        const shieldR = snowBallRadius(entry.size);
+        const sx = entry.x + hx * (SNOW_BODY_R + shieldR);
+        const sz = entry.z + hz * (SNOW_BODY_R + shieldR);
+        if (entry.size >= 0.5 && Math.hypot(ball.x - sx, ball.z - sz) < ball.r + shieldR) {
+          gone.add(ball.id);
+          entry.size = SNOW_MIN_SIZE;
+          entry.blocks += 1;
+          state.bursts.push({ x: (ball.x + sx) / 2, z: (ball.z + sz) / 2, size: Math.max(ball.size, shieldR), at: now, kind: "block", by: id });
+          return;
+        }
+        if (Math.hypot(ball.x - entry.x, ball.z - entry.z) < ball.r + SNOW_BODY_R) {
+          gone.add(ball.id);
+          entry.stunUntil = now + SNOW_STUN_MS;
+          entry.safeUntil = now + SNOW_STUN_MS + SNOW_SAFE_MS;
+          entry.size = SNOW_MIN_SIZE;
+          entry.taken += 1;
+          entry.lastHitAt = now;
+          entry.lastHitBy = ball.owner;
+          entry.vx = ball.vx * 0.25;
+          entry.vz = ball.vz * 0.25;
+          const thrower = arcade.players[ball.owner];
+          if (thrower) {
+            thrower.hits += 1;
+            thrower.score += ball.value;
+          }
+          state.bursts.push({ x: entry.x, z: entry.z, size: ball.size, at: now, kind: "hit", victim: id, by: ball.owner, value: ball.value });
+        }
+      });
+    });
+    // Zwei Kugeln prallen zusammen: beide zerplatzen.
+    for (let a = 0; a < state.balls.length; a += 1) {
+      for (let b = a + 1; b < state.balls.length; b += 1) {
+        const one = state.balls[a];
+        const two = state.balls[b];
+        if (gone.has(one.id) || gone.has(two.id)) continue;
+        if (Math.hypot(one.x - two.x, one.z - two.z) < one.r + two.r) {
+          gone.add(one.id);
+          gone.add(two.id);
+          state.bursts.push({ x: (one.x + two.x) / 2, z: (one.z + two.z) / 2, size: Math.max(one.size, two.size), at: now, kind: "clash" });
+        }
+      }
+    }
+    if (gone.size) state.balls = state.balls.filter((ball) => !gone.has(ball.id));
+  },
+  bot(ctx, player, entry) {
+    const { arcade, room, now } = ctx;
+    const state = arcade.snow;
+    if (now < entry.stunUntil) return { action: "steer", x: 0, y: 0 };
+    const others = room.players.filter((p) => p.id !== player.id).map((p) => arcade.players[p.id]).filter((e) => e && now >= e.stunUntil);
+    // Ausweichen: kommt eine fremde Kugel direkt auf einen zu, zur Seite.
+    const dodge = byLevel(entry, 0.15, 0.5, 0.85);
+    if (entry.botDodgeUntil && now < entry.botDodgeUntil) return { action: "steer", x: entry.botDodgeX, y: entry.botDodgeZ };
+    for (const ball of state.balls) {
+      if (ball.owner === player.id) continue;
+      const rx = entry.x - ball.x;
+      const rz = entry.z - ball.z;
+      const speed = Math.hypot(ball.vx, ball.vz);
+      const along = (rx * ball.vx + rz * ball.vz) / Math.max(0.01, speed);
+      if (along < 0 || along > 3.2) continue;
+      const miss = Math.abs(rx * ball.vz - rz * ball.vx) / Math.max(0.01, speed);
+      if (miss > ball.r + SNOW_BODY_R + 0.15) continue;
+      if (entry.botDodgedBall === ball.id) continue;
+      entry.botDodgedBall = ball.id;
+      if (Math.random() > dodge) continue;
+      // Quer zur Flugbahn, weg von der Mitte der Bahn.
+      const side = (rx * ball.vz - rz * ball.vx) >= 0 ? 1 : -1;
+      entry.botDodgeX = (ball.vz / speed) * side;
+      entry.botDodgeZ = (-ball.vx / speed) * side;
+      entry.botDodgeUntil = now + 420;
+      return { action: "steer", x: entry.botDodgeX, y: entry.botDodgeZ };
+    }
+    if (!others.length) {
+      // Allein: im Kreis rollen und werfen.
+      const a = now / 900;
+      if (entry.size > 0.7 && now - entry.lastThrowAt > 900) return { action: "throw" };
+      return { action: "steer", x: Math.cos(a), y: Math.sin(a) };
+    }
+    const target = others.reduce((best, e) => (Math.hypot(e.x - entry.x, e.z - entry.z) < Math.hypot(best.x - entry.x, best.z - entry.z) ? e : best));
+    // Vorhalten: wohin läuft das Ziel, bis die Kugel dort ist? Der starke
+    // rechnet das voll, der mittlere halb, der schwache wirft aufs Jetzt.
+    const lead = byLevel(entry, 0, 0.3, 1);
+    const flight = Math.hypot(target.x - entry.x, target.z - entry.z) / SNOW_BALL_SPEED;
+    const px = target.x + target.vx * flight * lead;
+    const pz = target.z + target.vz * flight * lead;
+    const dx = px - entry.x;
+    const dz = pz - entry.z;
+    const dist = Math.hypot(dx, dz);
+    const aimError = Math.abs(Math.atan2(Math.sin(Math.atan2(dx, dz) - entry.heading), Math.cos(Math.atan2(dx, dz) - entry.heading)));
+    const wantSize = byLevel(entry, 0.42, 0.6, 0.6);
+    const tolerance = byLevel(entry, 0.45, 0.3, 0.2);
+    const reach = byLevel(entry, 4.8, 4.4, 4.6);
+    if (entry.size >= wantSize && dist < reach && aimError < tolerance && now - entry.lastThrowAt > SNOW_THROW_COOLDOWN_MS) {
+      return { action: "throw" };
+    }
+    // Die Kugel wachsen lassen: auf Abstand um den Gegner kreisen, bis sie
+    // gross genug ist — dann auf ihn zu drehen.
+    if (entry.size < wantSize) {
+      const around = Math.atan2(dx, dz) + Math.PI / 2 * (entry.botSide || (entry.botSide = Math.random() < 0.5 ? 1 : -1));
+      const keep = dist < 2.2 ? -0.6 : dist > 3.6 ? 0.6 : 0;
+      return { action: "steer", x: Math.sin(around) + (dx / Math.max(0.01, dist)) * keep, y: Math.cos(around) + (dz / Math.max(0.01, dist)) * keep };
+    }
+    const wobble = byLevel(entry, 0.35, 0.15, 0.04) * (Math.random() * 2 - 1);
+    const aim = Math.atan2(dx, dz) + wobble;
+    return { action: "steer", x: Math.sin(aim) * 0.6, y: Math.cos(aim) * 0.6 };
+  },
+  rank(arcade, entry) {
+    // Punkte zuerst, dann weniger eingesteckt.
+    return (entry.score || 0) * 1000 + Math.max(0, 999 - (entry.taken || 0) * 10);
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte" };
+  },
+  done() {
+    return false;
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
   tug,
   face,
   flags,
-  honey
+  honey,
+  snow
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
@@ -875,7 +1186,8 @@ const PARTY_GAMES = [
   { type: "tauziehen", title: "Tauziehen", duration: TUG_DURATION_MS, arcadeFamily: "tug", seed: 811 },
   { type: "grimassen", title: "Grimassen", duration: FACE_DURATION_MS, arcadeFamily: "face", seed: 823 },
   { type: "flaggenhoch", title: "Flaggen hoch", duration: FLAG_DURATION_MS, arcadeFamily: "flags", seed: 827 },
-  { type: "honigwabe", title: "Honigwabe", duration: HONEY_DURATION_MS, arcadeFamily: "honey", seed: 829 }
+  { type: "honigwabe", title: "Honigwabe", duration: HONEY_DURATION_MS, arcadeFamily: "honey", seed: 829 },
+  { type: "schneeball", title: "Schneeballhang", duration: SNOW_DURATION_MS, arcadeFamily: "snow", seed: 839 }
 ];
 
 module.exports = {
@@ -886,8 +1198,11 @@ module.exports = {
     TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS,
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS,
-    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_LOSS
+    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_LOSS,
+    SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R
   },
+  snowBallRadius,
+  snowValue,
   buildHoneyVine,
   honeyCombAt,
   honeyRisk,
