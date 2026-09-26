@@ -63,6 +63,7 @@ export class SnowSummit extends MinigameScene {
       const kugel = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshLambertMaterial({ color: "#fbfdff" }));
       kugel.castShadow = true;
       kugel.receiveShadow = true;
+      kugel.userData.isFx = true;       // wird geschoben, ist kein Boden
       // Ein farbiger Ring um die eigene Kugel, damit man sie im Getümmel findet.
       const band = new THREE.Mesh(new THREE.TorusGeometry(1.01, 0.05, 6, 24), new THREE.MeshLambertMaterial({ color: player.color }));
       kugel.add(band);
@@ -294,8 +295,11 @@ export class SnowSummit extends MinigameScene {
       const ball = this.carried.get(player.id);
       if (!entry || !kin || !animator || !ball) return;
       const isOwn = player.id === controlledId;
-      const tx = entry.x + entry.vx * age;
-      const tz = entry.z + entry.vz * age;
+      // Vorausgerechnet, aber nie über den Zaun: an der Wand steht der Server
+      // still, die Vorausrechnung lief mit dem letzten Tempo weiter — und die
+      // Figur stand halb im Schneewall.
+      const tx = Math.max(-W / 2 + 0.3, Math.min(W / 2 - 0.3, entry.x + entry.vx * age));
+      const tz = Math.max(-D / 2 + 0.3, Math.min(D / 2 - 0.3, entry.z + entry.vz * age));
       const before = kin.position.clone();
       kin.position.x += (tx - kin.position.x) * frameLerp(0.35, dt);
       kin.position.z += (tz - kin.position.z) * frameLerp(0.35, dt);
@@ -340,6 +344,7 @@ export class SnowSummit extends MinigameScene {
       if (!mesh) {
         mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), lambert("#ffffff"));
         mesh.castShadow = true;
+        mesh.userData.isFx = true;       // rollt über den Boden, ist aber keiner
         const owner = players.find((p) => p.id === ball.owner);
         const band = new THREE.Mesh(new THREE.TorusGeometry(1.01, 0.05, 6, 24), new THREE.MeshLambertMaterial({ color: owner?.color || "#ffffff" }));
         mesh.add(band);

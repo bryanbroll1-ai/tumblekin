@@ -19,6 +19,7 @@ const SPACING = 0.82;        // Abstand im Team
 const ROPE_Y = 0.5;
 const MUD_TOP = 0.012;
 const MUD_SINK = -0.2;
+const BRETT_TOP = 0.12;      // Oberkante der weissen Bretter an der Grube
 
 export class TugOfWar extends MinigameScene {
   constructor(ctx) {
@@ -375,7 +376,11 @@ export class TugOfWar extends MinigameScene {
       // für den Szenenprüfer hält darum anderthalb Sekunden nach.
       if (mud) this.mudUntil.set(player.id, now + 1500);
       kin.userData.sunk = mud || now < (this.mudUntil.get(player.id) || 0);
-      this.setGround(player.id, mud ? MUD_SINK : 0);
+      // Über der weissen Kante steht man AUF dem Brett. Vorher blieb die
+      // Standhöhe bei null, und wer an die Grube gezogen wurde, stand bis zu
+      // den Knöcheln im Brett.
+      const aufBrett = !mud && Math.abs(x) < LINE + 0.24;
+      this.setGround(player.id, mud ? MUD_SINK : aufBrett ? BRETT_TOP : 0);
       kin.position.x = x;
       kin.position.z = z;
 

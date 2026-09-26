@@ -434,7 +434,12 @@ export class BalanceBoat extends MinigameScene {
         this.boat.rotation.z = Math.min(1, u * 2.2) * 1.9 * -this.leaving.side;
         this.boat.position.y = BOAT_Y - Math.max(0, u - 0.4) * 0.8;
       } else {
-        this.boat.position.x = u * u * 9;
+        // Hinaus aufs Meer, weg von der Kamera. Vorher segelte das Boot nach
+        // rechts — mitten durch den Steg, und die Passagiere fuhren durch die
+        // Figuren, die dort warten.
+        this.boat.position.z = -0.9 - u * u * 16;
+        this.boat.position.x = u * u * 1.5;
+        this.boat.rotation.y = -u * 0.35;
         this.riders.forEach((tier, i) => { tier.rotation.y = Math.sin(nowP / 150 + i) * 0.4; });
       }
       if (u >= 1) {
@@ -444,6 +449,7 @@ export class BalanceBoat extends MinigameScene {
         this.boat.userData.mast.visible = false;
         this.boat.userData.segel.visible = false;
         this.boat.rotation.z = 0;
+        this.boat.rotation.y = 0;
         this.boat.position.set(-9, BOAT_Y, -0.9);
         this.arriveAt = nowP;
       }

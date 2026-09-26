@@ -463,8 +463,12 @@ export class HoneyVine extends MinigameScene {
       const active = turn && turn.playerId === player.id && elapsed >= turn.from - 300;
       let target = home;
       if (chasing) {
+        // Eine kleine Runde neben dem eigenen Platz, vom eigenen Korb weg.
+        // Vorher kreiste man weit um den Platz — mitten durch den eigenen Korb
+        // und bis in den des Nachbarn (die Körbe stehen zwischen den Figuren).
         const u = (nowPerf / 1000) * 2.6;
-        target = new THREE.Vector3(home.x + Math.cos(u) * 0.55, 0, home.z + Math.sin(u) * 0.45);
+        const weg = home.x >= 0 ? -1 : 1;
+        target = new THREE.Vector3(home.x + weg * 0.25 + Math.cos(u) * 0.3, 0, home.z - 0.15 + Math.sin(u) * 0.22);
       } else if (active) {
         target = PICK_SPOT.clone().setX(home.x >= 0 ? 0.42 : -0.42);
       }

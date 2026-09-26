@@ -369,8 +369,9 @@ export class PhotoShoot extends MinigameScene {
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
-      const tx = entry.x + (entry.vx || 0) * age;
-      const tz = entry.z + (entry.vz || 0) * age;
+      // Vorausgerechnet, aber nie über den Bühnenrand hinaus.
+      const tx = Math.max(-this.W / 2 + 0.3, Math.min(this.W / 2 - 0.3, entry.x + (entry.vx || 0) * age));
+      const tz = Math.max(-this.D / 2 + 0.3, Math.min(this.D / 2 - 0.3, entry.z + (entry.vz || 0) * age));
       kin.position.x += (tx - kin.position.x) * frameLerp(0.45, dt);
       kin.position.z += (tz - kin.position.z) * frameLerp(0.45, dt);
       const turn = entry.heading - kin.rotation.y;

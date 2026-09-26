@@ -334,8 +334,13 @@ export class AirHockey extends MinigameScene {
       const animator = this.animators.get(player.id);
       const disc = this.discs.get(player.id);
       if (!entry || !kin || !animator || !disc) return;
-      const tx = entry.x + (entry.vx || 0) * age;
-      const tz = entry.z + (entry.vz || 0) * age;
+      // Vorausgerechnet, aber in der eigenen Hälfte: an Bande oder Mittellinie
+      // steht der Server still, die Vorausrechnung liefe darüber hinaus.
+      const r = entry.r || 0.36;
+      const zMin = entry.side === 0 ? 0.12 + r : -this.l / 2 + r;
+      const zMax = entry.side === 0 ? this.l / 2 - r : -0.12 - r;
+      const tx = Math.max(-this.w / 2 + r, Math.min(this.w / 2 - r, entry.x + (entry.vx || 0) * age));
+      const tz = Math.max(zMin, Math.min(zMax, entry.z + (entry.vz || 0) * age));
       disc.disc.position.x += (tx - disc.disc.position.x) * frameLerp(0.5, dt);
       disc.disc.position.z += (tz - disc.disc.position.z) * frameLerp(0.5, dt);
       disc.disc.position.y = TABLE_Y + 0.06 + Math.sin(now / 200 + disc.r * 10) * 0.012;

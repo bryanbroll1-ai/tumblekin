@@ -143,13 +143,15 @@ export class RunnerDerby extends MinigameScene {
     });
     if (felder.tempo.length) {
       const pad = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(LANE_WIDTH - 0.16, 0.05, segLen - 0.2),
+        // Flach wie ein Belag: 0.05 dick standen die Läufer auf dem Tempofeld
+        // knöcheltief darin.
+        new THREE.BoxGeometry(LANE_WIDTH - 0.16, 0.02, segLen - 0.2),
         new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.tempo, emissive: "#0fb88c", emissiveIntensity: 0.28 }),
         felder.tempo.length
       );
       const place = new THREE.Object3D();
       felder.tempo.forEach((entry, i) => {
-        place.position.set(laneX(entry.lane), FLOOR_Y + 0.02, entry.z);
+        place.position.set(laneX(entry.lane), FLOOR_Y + 0.008, entry.z);
         place.updateMatrix();
         pad.setMatrixAt(i, place.matrix);
       });
@@ -170,7 +172,7 @@ export class RunnerDerby extends MinigameScene {
       let k = 0;
       felder.tempo.forEach((entry) => {
         for (let n = 0; n < perPad; n += 1) {
-          place.position.set(laneX(entry.lane), FLOOR_Y + 0.05, entry.z - segLen * 0.36 + n * (segLen * 0.72 / (perPad - 1)));
+          place.position.set(laneX(entry.lane), FLOOR_Y + 0.022, entry.z - segLen * 0.36 + n * (segLen * 0.72 / (perPad - 1)));
           place.updateMatrix();
           this.chevrons.setMatrixAt(k, place.matrix);
           this.chevrons.setColorAt(k, new THREE.Color("#ffffff"));
@@ -192,6 +194,7 @@ export class RunnerDerby extends MinigameScene {
         new THREE.MeshLambertMaterial({ color: "#8a5a34" }),
         felder.sand.length * 4
       );
+      bubbles.userData.isFx = true;      // Blasen im Matsch, man läuft hindurch
       const place = new THREE.Object3D();
       let k = 0;
       let b = 0;
@@ -524,6 +527,7 @@ export class RunnerDerby extends MinigameScene {
     );
     body.scale.set(1, 1.15, 1);
     group.add(body);
+    group.userData.isFx = true;          // fliegt, liegt nie als Boden unter jemandem
     const knot = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.07, 6), new THREE.MeshLambertMaterial({ color }));
     knot.position.y = 0.17;
     group.add(knot);
@@ -546,6 +550,9 @@ export class RunnerDerby extends MinigameScene {
   tipHurdles(now) {
     this.hurdles?.forEach((hurdle) => {
       const t = now - hurdle.hitAt;
+      // Eine Hürde, die gerade umgerissen wird, fällt absichtlich durch den
+      // Läufer — für die Prüfskripte ist sie in der Zeit kein Boden.
+      hurdle.group.userData.isFx = t >= 0 && t <= 1300;
       if (t < 0 || t > 1300) {
         if (hurdle.group.rotation.x !== 0) hurdle.group.rotation.x = 0;
         return;
@@ -815,7 +822,9 @@ export class RunnerDerby extends MinigameScene {
       if (jumping) {
         const phase = Math.max(0, entry.jumpUntil - now) / 650;
         lift = Math.pow(Math.sin(phase * Math.PI), 0.6) * 1.25;
-        const hurdle = this.hurdles?.find((h) => Math.abs(h.x - kin.position.x) < LANE_WIDTH * 0.5
+        // Auch beim Bahnwechsel: wer zwischen zwei Bahnen über eine Hürde
+        // springt, streift sonst ihren Seitenpfosten.
+        const hurdle = this.hurdles?.find((h) => Math.abs(h.x - kin.position.x) < LANE_WIDTH * 0.8
           && Math.abs(h.z - kin.position.z) < HURDLE_CLEAR_REACH && h.group.rotation.x === 0);
         if (hurdle) {
           const near = 1 - Math.abs(hurdle.z - kin.position.z) / HURDLE_CLEAR_REACH;

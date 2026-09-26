@@ -238,6 +238,7 @@ export class TracePainter extends MinigameScene {
     for (let i = 0; i < 6; i += 1) {
       const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.11), new THREE.MeshBasicMaterial({ color: "#ffe36b", toneMapped: false }));
       gem.visible = false;
+      gem.userData.isFx = true;
       this.scene.add(gem);
       const halo = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.19, 18), new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false }));
       halo.rotation.x = -Math.PI / 2;
@@ -414,8 +415,18 @@ export class TracePainter extends MinigameScene {
     if (!own || !kin || !animator) return;
 
     if (own.lap !== this.drawnLap) {
+      const neueRunde = this.drawnLap >= 0;
       this.layoutRibbons(arcade.seed, own.lap);
       this.shownProgress = own.progress || 0;
+      // Neue Runde: der Roller springt vom Ziel zurück an den Start. Das ist
+      // gewollt, sah aber aus wie ein Aussetzer — jetzt ploppt die Figur mit
+      // einem Farbwölkchen unten wieder auf. Die Markierung sagt den
+      // Prüfskripten, dass dieser Sprung Absicht ist.
+      if (neueRunde) {
+        kin.userData.versetzt = performance.now();
+        animator.trigger("spawn");
+        this.burst(new THREE.Vector3(boardX(this.localBrush ?? 0.5), 0.3, boardZ(this.shownProgress)), ["#ffffff", "#ffe36b"], { count: 10, speed: 1.4, up: 1.2, size: 0.06, life: 0.5 });
+      }
     }
     this.paintRibbons(own.cells || "");
 

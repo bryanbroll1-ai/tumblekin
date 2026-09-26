@@ -185,7 +185,7 @@ for (const game of liste) {
           if (!o.isMesh || !o.visible || o.userData?.isShadow || o.userData?.isFx || o.material?.visible === false) return;
           let p = o;
           while (p) {
-            if (p === kin || p.userData?.isKin || p.userData?.isShadow) return;
+            if (p === kin || p.userData?.isKin || p.userData?.isShadow || p.userData?.isFx) return;
             p = p.parent;
           }
           kandidaten.push(o);

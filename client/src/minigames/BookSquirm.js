@@ -19,6 +19,7 @@ import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 const PAGE_Y = 0.02;
 const RETURN_MS = 520;
 const HOLD_MS = 650;
+const PAGE_LIFT = 1.4;         // so hoch hebt die Seite ab, bevor sie zurückklappt
 
 export class BookSquirm extends MinigameScene {
   constructor(ctx) {
@@ -355,14 +356,29 @@ export class BookSquirm extends MinigameScene {
         return;
       }
       let angle;
+      let lift = 0;
       if (elapsed < page.at) angle = 0;
       else if (elapsed < page.slamAt) {
         const u = (elapsed - page.at) / page.flip;
         // Erst langsam aufrichten, dann schneller fallen — wie eine Seite.
         angle = Math.PI * (u < 0.5 ? 0.5 * Math.pow(u * 2, 0.8) : 0.5 + 0.5 * Math.pow((u - 0.5) * 2, 1.8));
       } else if (elapsed < page.slamAt + HOLD_MS) angle = Math.PI;
-      else angle = Math.PI * (1 - Math.min(1, (elapsed - page.slamAt - HOLD_MS) / RETURN_MS));
+      else {
+        // Zurückblättern: erst senkrecht abheben, dann umklappen. Vorher
+        // klappte die Seite direkt am Falz hoch und schnitt dabei durch alle,
+        // die schon wieder losgelaufen waren — die Figuren steckten eine
+        // halbe Sekunde lang in der Seite.
+        const r = Math.min(1, (elapsed - page.slamAt - HOLD_MS) / RETURN_MS);
+        // Am Ende, schon hinter dem Falz, senkt sie sich wieder ab.
+        lift = Math.min(1 - Math.pow(1 - Math.min(1, r / 0.3), 2), Math.max(0, (1 - r) / 0.25));
+        angle = Math.PI * (1 - Math.max(0, (r - 0.2) / 0.8));
+      }
       entry.pivot.rotation.x = angle;
+      entry.pivot.position.y = PAGE_Y + 0.02 + lift * PAGE_LIFT;
+      // Nur die liegende Seite ist Boden. Im Flug schlägt sie absichtlich auf
+      // alle herunter, die in keinem Loch stehen — das ist das Spiel und für
+      // die Prüfskripte kein Versinken.
+      entry.mesh.userData.isFx = angle < Math.PI - 1e-3 || lift > 0;
       const coming = elapsed < page.slamAt ? Math.max(0, (elapsed - page.at) / page.flip) : 0;
       entry.schatten.material.opacity = elapsed < page.slamAt ? 0.1 + coming * 0.45 : 0;
       entry.rahmen.forEach((r) => {
@@ -392,8 +408,10 @@ export class BookSquirm extends MinigameScene {
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
-      const tx = entry.x + (entry.vx || 0) * age;
-      const tz = entry.z + (entry.vz || 0) * age;
+      // Vorausgerechnet, aber nie über den Seitenrand hinaus — dort steht der
+      // Server still, und die Figur schwebte sonst neben dem Buch.
+      const tx = Math.max(-this.W / 2 + 0.3, Math.min(this.W / 2 - 0.3, entry.x + (entry.vx || 0) * age));
+      const tz = Math.max(-this.D / 2 + 0.3, Math.min(this.D / 2 - 0.3, entry.z + (entry.vz || 0) * age));
       const before = kin.position.clone();
       kin.position.x += (tx - kin.position.x) * frameLerp(0.4, dt);
       kin.position.z += (tz - kin.position.z) * frameLerp(0.4, dt);
@@ -417,6 +435,8 @@ export class BookSquirm extends MinigameScene {
         this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), [player.color, "#ffffff"], { count: 8, speed: 1.4, up: 1.6, size: 0.06, life: 0.5 });
       }
       this.flat.set(player.id, Boolean(flat));
+      // Platt unter der Seite zu liegen ist gewollt, kein Versinken.
+      kin.userData.sunk = Boolean(flat) || kin.scale.y < 0.9;
       const squash = flat ? 0.14 : 1;
       kin.scale.y += (squash - kin.scale.y) * frameLerp(flat ? 0.6 : 0.25, dt);
       kin.scale.x = kin.scale.z = 1 + (1 - kin.scale.y) * 0.35;

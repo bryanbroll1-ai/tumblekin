@@ -377,6 +377,27 @@ test("Schneeballhang: ein Treffer wirft um und bringt dem Werfer Punkte", () => 
   g.restore();
 });
 
+// Ein Servertakt dauert 90 ms und mehr. Eine frisch geworfene kleine Kugel
+// rollt in dieser Zeit weiter, als sie und eine Figur zusammen breit sind —
+// in einem Stück gerechnet rollte sie durch jemanden hindurch.
+test("Schneeballhang: eine schnelle Kugel rollt nicht durch eine Figur hindurch", () => {
+  const g = setup("schneeball", 2);
+  const [a, b] = g.players;
+  const ea = g.arcade.players[a.id];
+  const eb = g.arcade.players[b.id];
+  Object.assign(ea, { x: -2, z: 3, heading: Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0, vx: 0, vz: 0 });
+  Object.assign(eb, { x: 0.33, z: 0, heading: 0.5 * Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0, vx: 0, vz: 0 });
+  // Eine kleine Kugel streift b knapp: getroffen wird nur auf einem kurzen
+  // Stück ihrer Bahn, kürzer als der Weg in einem Takt.
+  g.arcade.snow.balls.push({ id: 99, owner: a.id, x: 0, z: 0.45, vx: 0, vz: -6.2, size: 0.4, r: 0.12, value: 1, bornAt: g.now, spin: 0 });
+  g.at(1000);
+  g.arcade.lastUpdateAt = g.now;
+  g.at(1120);
+  g.tick();
+  assert.equal(eb.taken, 1, "die Kugel trifft, statt durchzurollen");
+  g.restore();
+});
+
 test("Schneeballhang: die eigene grosse Kugel ist ein Schild", () => {
   const g = setup("schneeball", 2);
   const [a, b] = g.players;

@@ -107,7 +107,8 @@ export class LightSequence extends MinigameScene {
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
       const x = (index - (players.length - 1) / 2) * 1.0;
-      this.addKin(player, index, { x, ground: 0, z: CHOIR_Z - Math.abs(x) * 0.25, facing: 0 });
+      // Auf dem Moosring, nicht in ihm: seine Oberkante liegt bei 0.06.
+      this.addKin(player, index, { x, ground: 0.06, z: CHOIR_Z - Math.abs(x) * 0.25, facing: 0 });
       this.watch.set(player.id, { progress: 0, failed: false, round: -1 });
     });
   }

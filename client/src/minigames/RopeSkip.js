@@ -82,6 +82,8 @@ export class RopeSkip extends MinigameScene {
       this.rope.add(seg);
       this.ropeSegments.push(seg);
     }
+    // Das Seil schleift über den Boden, ist aber keiner.
+    this.rope.userData.isFx = true;
     scene.add(this.rope);
     // Nachzieh-Schatten: zeigen Bogen und Drehrichtung auf einen Blick.
     this.ghosts = GHOSTS.map((lag, g) => {
@@ -89,6 +91,7 @@ export class RopeSkip extends MinigameScene {
       const segments = [];
       for (let i = 0; i <= 30; i += 1) {
         const seg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.07, 0.07), material);
+        seg.userData.isFx = true;
         scene.add(seg);
         segments.push(seg);
       }
@@ -411,7 +414,10 @@ export class RopeSkip extends MinigameScene {
         // vor der Kamera.
         setKinOpacity(kin, 0.8);
         kin.position.x += (kin.userData.spotX - kin.position.x) * frameLerp(0.2, dt);
-        kin.position.z += (-1.55 - kin.position.z) * frameLerp(0.06, dt);
+        // Zügig: das Seil schwingt weiter, und wer langsam nach hinten
+        // rutschte, lag noch eine Sekunde lang in seiner Bahn — es schlug
+        // sichtbar durch die hingefallene Figur.
+        kin.position.z += (-1.55 - kin.position.z) * frameLerp(0.22, dt);
         animator.groundY = standOn(0);
         if (!finale) animator.set("sit");
         return;

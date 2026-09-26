@@ -15,6 +15,7 @@
     "fuzz": "node scripts/fuzz.mjs",
     "session-sim": "node scripts/session-sim.mjs",
     "scene-check": "node scripts/scene-check.mjs",
+    "boden-check": "node scripts/boden-check.mjs",
     "gallery": "node scripts/gallery.mjs",
     "anzeige-check": "node scripts/anzeige-check.mjs",
     "leerlauf-check": "node scripts/leerlauf-check.mjs"

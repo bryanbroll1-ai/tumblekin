@@ -963,6 +963,7 @@ const SNOW_BODY_R = 0.3;
 const SNOW_STUN_MS = 1200;
 const SNOW_SAFE_MS = 900;              // nach dem Aufstehen kurz sicher
 const SNOW_BUMP = 0.62;                // Figuren schieben sich auseinander
+const SNOW_STEP = 0.12;                // längstes Rollstück zwischen zwei Trefferprüfungen
 
 function snowBallRadius(size) {
   return 0.12 + size * 0.26;
@@ -1099,27 +1100,8 @@ const snow = {
 
     // Rollende Kugeln.
     const gone = new Set();
-    state.balls.forEach((ball) => {
-      const speed = Math.hypot(ball.vx, ball.vz);
-      const slower = Math.max(0, speed - SNOW_BALL_FRICTION * dt);
-      if (speed > 0) {
-        ball.vx *= slower / speed;
-        ball.vz *= slower / speed;
-      }
-      ball.x += ball.vx * dt;
-      ball.z += ball.vz * dt;
-      ball.spin += (slower / Math.max(0.1, ball.r)) * dt;
-      // Am Zaun prallt sie ab und verliert Schwung.
-      const limX = SNOW_W / 2 - ball.r;
-      const limZ = SNOW_D / 2 - ball.r;
-      if (Math.abs(ball.x) > limX) { ball.x = Math.sign(ball.x) * limX; ball.vx *= -0.55; ball.vz *= 0.8; }
-      if (Math.abs(ball.z) > limZ) { ball.z = Math.sign(ball.z) * limZ; ball.vz *= -0.55; ball.vx *= 0.8; }
-      if (slower < SNOW_BALL_STOP) {
-        gone.add(ball.id);
-        state.bursts.push({ x: ball.x, z: ball.z, size: ball.size, at: now, kind: "fizzle" });
-        return;
-      }
-      // Treffer auf Figuren — nicht auf den Werfer, nicht auf Liegende.
+    // Treffer auf Figuren — nicht auf den Werfer, nicht auf Liegende.
+    const snowHits = (ball) => {
       entries.forEach(({ id, entry }) => {
         if (gone.has(ball.id) || id === ball.owner) return;
         if (now < entry.stunUntil || now < entry.safeUntil) return;
@@ -1154,6 +1136,36 @@ const snow = {
           state.bursts.push({ x: entry.x, z: entry.z, size: ball.size, at: now, kind: "hit", victim: id, by: ball.owner, value: ball.value });
         }
       });
+    };
+    state.balls.forEach((ball) => {
+      const speed = Math.hypot(ball.vx, ball.vz);
+      const slower = Math.max(0, speed - SNOW_BALL_FRICTION * dt);
+      if (speed > 0) {
+        ball.vx *= slower / speed;
+        ball.vz *= slower / speed;
+      }
+      ball.spin += (slower / Math.max(0.1, ball.r)) * dt;
+      if (slower < SNOW_BALL_STOP) {
+        gone.add(ball.id);
+        state.bursts.push({ x: ball.x, z: ball.z, size: ball.size, at: now, kind: "fizzle" });
+        return;
+      }
+      // In Teilstücken rollen und nach jedem auf Treffer prüfen. Eine frisch
+      // geworfene Kugel legt in einem Servertakt über einen halben Meter
+      // zurück — mehr, als eine kleine Kugel und eine Figur zusammen breit
+      // sind. In einem Stück gerechnet rollte sie mitten durch jemanden
+      // hindurch, ohne ihn zu treffen.
+      const teile = Math.max(1, Math.ceil((slower * dt) / SNOW_STEP));
+      for (let teil = 0; teil < teile && !gone.has(ball.id); teil += 1) {
+        ball.x += (ball.vx * dt) / teile;
+        ball.z += (ball.vz * dt) / teile;
+        // Am Zaun prallt sie ab und verliert Schwung.
+        const limX = SNOW_W / 2 - ball.r;
+        const limZ = SNOW_D / 2 - ball.r;
+        if (Math.abs(ball.x) > limX) { ball.x = Math.sign(ball.x) * limX; ball.vx *= -0.55; ball.vz *= 0.8; }
+        if (Math.abs(ball.z) > limZ) { ball.z = Math.sign(ball.z) * limZ; ball.vz *= -0.55; ball.vx *= 0.8; }
+        snowHits(ball);
+      }
     });
     // Zwei Kugeln prallen zusammen: beide zerplatzen.
     for (let a = 0; a < state.balls.length; a += 1) {

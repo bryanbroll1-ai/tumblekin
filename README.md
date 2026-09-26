@@ -264,6 +264,7 @@ npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
 npm run scene-check          # Figuren im Bild, auf dem Boden, nicht in Kulissen
+npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnistafel, dazu Sprünge und NaN
 npm run session-sim          # viele Spiele hintereinander: wächst etwas, das nicht wachsen darf?
 npm run gallery              # Bilder aller Minispiele nach galerie/
 ```

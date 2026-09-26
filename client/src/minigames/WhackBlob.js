@@ -28,8 +28,13 @@ const HOME_Z = (ROWS / 2) * CELL + 0.1;
 const MOUND_TOP = 0.3;
 // Nach dem Schlag bleibt die Figur so lange am Loch, dann springt sie zurück.
 const STAY_MS = 650;
-const LAND_GAP = 0.8;          // Landeabstand zur Lochmitte
-const HOLE_CLEAR = 0.85;       // so weit bleibt die Figur von jedem anderen Loch weg
+// Mit 0.85 Abstand zum Nachbarloch landete die Figur zu dicht an ihm: poppte
+// dort ein Stachel-Blob hoch (Körper samt Stacheln gut 0.45 breit), stachen
+// die Stacheln ihr durch die Füsse. Schräg zwischen zwei Löchern ist bei
+// 0.75 Landeabstand immer ein Platz mit 0.95 Luft frei.
+const BLOB_CLEAR = 0.95;       // so hoch geht ein Sprung über ein Loch mindestens
+const LAND_GAP = 0.75;         // Landeabstand zur Lochmitte
+const HOLE_CLEAR = 0.95;       // so weit bleibt die Figur von jedem anderen Loch weg
 
 // Ein Sprung dauert mit der Weite etwas länger — der weiteste landet genau im
 // Schlag der Hammer-Bewegung (dig schlägt nach knapp 300 ms zu).
@@ -604,7 +609,19 @@ export class WhackBlob extends MinigameScene {
       const dist = Math.hypot(to.x - from.x, to.z - from.z);
       kin.position.x = from.x + (to.x - from.x) * t;
       kin.position.z = from.z + (to.z - from.z) * t;
-      const arc = leap ? 4 * t * (1 - t) * Math.min(1.25, 0.3 + dist * 0.3) : 0;
+      let arc = leap ? 4 * t * (1 - t) * Math.min(1.25, 0.3 + dist * 0.3) : 0;
+      // Führt der Sprung über ein Loch, geht er hoch genug über einen Blob,
+      // der gerade dort herausschaut. Ein kurzer Sprung hatte einen flachen
+      // Bogen und streifte mit den Füssen durch den Blob im Nachbarloch.
+      if (leap) {
+        let naechstes = Infinity;
+        for (let cell = 0; cell < COLS * ROWS; cell += 1) {
+          const hole = this.cellPos(cell);
+          naechstes = Math.min(naechstes, Math.hypot(hole.x - kin.position.x, hole.z - kin.position.z));
+        }
+        const ueber = Math.max(0, Math.min(1, (0.62 - naechstes) / 0.25));
+        arc = Math.max(arc, BLOB_CLEAR * ueber);
+      }
       this.setGround(player.id, MOUND_TOP + arc);
       if (finale) return;
       const face = since < STAY_MS ? swing.face : leap ? Math.atan2(to.x - from.x, to.z - from.z) : Math.atan2(-swing.home.x, -swing.home.z * 0.3 - 1.2);
