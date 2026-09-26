@@ -34,7 +34,7 @@ Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung
 
 ## Die Modi
 
-Nach jedem Minispiel gibt es Punkte nach Platz: der Letzte bekommt 0, jeder Platz darüber einen mehr — bei vier Spielern 3/2/1/0. Wer gleichauf liegt, teilt sich den besseren Platz.
+Nach jedem Minispiel gibt es Punkte nach Platz: der Letzte bekommt 0, jeder Platz darüber einen mehr — bei vier Spielern 3/2/1/0. Wer gleichauf liegt, teilt sich den besseren Platz. Wo zwei oft auf dieselbe Zahl kommen (überstandene Runden, Seiten, Wellen), entscheidet darunter eine Feinwertung — wer schneller in Sicherheit war, genauer gesprungen ist oder flinker nachgetippt hat. Sie steht klein hinter der Zahl auf der Ergebnistafel, damit man sieht, warum zwei gleiche Zahlen auf verschiedenen Plätzen landen.
 
 - **🏃 Marathon:** 5, 10 oder 15 Minispiele. Die meisten Punkte gewinnen, bei Gleichstand die meisten Siege.
 - **🎯 Punktejagd:** Wer als Erster allein die Zielpunktzahl erreicht, gewinnt — 4 Punkte je Gegner, bei vier Spielern also 12. Springen zwei gleichzeitig darüber, geht es weiter bis einer vorn liegt.

@@ -7713,8 +7713,11 @@ function arcadeBotStep(room, bot) {
       player.botRingId = signal.index;
       // Wie mutig: der starke Bot geht früher ins Risiko, weil er die
       // Verzögerung früher sieht. Der schwache wartet und bekommt dafür wenig.
+      // Der mittlere schlug früher schon bei 0.46 zu — vor der Grenze der
+      // meisten Fälschungen, aber ohne den Blick, sie dort schon zu erkennen.
+      // Er kassierte so viele Fehlgriffe, dass er hinter dem schwachen lag.
       const band = profile.level === "hard" ? [0.34, 0.52]
-        : profile.level === "normal" ? [0.46, 0.68]
+        : profile.level === "normal" ? [0.54, 0.76]
         : [0.62, 0.94];
       player.botCommitAt = band[0] + Math.random() * (band[1] - band[0]);
       // Ob er den Unterschied überhaupt liest. Das ist das eigentliche Können
