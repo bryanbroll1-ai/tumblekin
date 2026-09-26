@@ -422,3 +422,52 @@ test("Luftpuck: fünf Tore beenden das Spiel", () => {
   assert.ok(arcadeRankingScore(g.arcade, g.arcade.players[a.id]) > arcadeRankingScore(g.arcade, g.arcade.players[b.id]));
   g.restore();
 });
+
+// --- Bücherwurm ------------------------------------------------------------
+
+test("Bücherwurm: Seiten mit Löchern, die weniger werden, und Löcher liegen im Buch", () => {
+  for (const seed of [857001, 857444, 3]) {
+    const pages = party.buildBookPages(seed);
+    assert.ok(pages.length >= 10, `${pages.length} Seiten`);
+    assert.ok(pages[0].holes.length >= 3 && pages[pages.length - 1].holes.length === 1);
+    pages.forEach((page) => {
+      assert.ok(page.holes.length >= 1, "jede Seite hat mindestens ein Loch");
+      page.holes.forEach((h) => {
+        assert.ok(Math.abs(h.x) + h.w / 2 <= C.BOOK_W / 2 && Math.abs(h.z) + h.d / 2 <= C.BOOK_D / 2, "Loch ragt über die Seite");
+        assert.ok(h.w >= 0.62 + 0.2 && h.d >= 0.62 + 0.2, "in jedes Loch passt eine Figur");
+      });
+    });
+  }
+});
+
+test("Bücherwurm: wer im Loch steht, übersteht die Seite — wer nicht, wird platt", () => {
+  const g = setup("buecherwurm", 2);
+  const [a, b] = g.players;
+  const page = g.arcade.book.pages[0];
+  const hole = page.holes[0];
+  Object.assign(g.arcade.players[a.id], { x: hole.x, z: hole.z });
+  // b steht sicher ausserhalb aller Löcher: in einer Ecke, die kein Loch trifft.
+  const corners = [[-2.6, -3.4], [2.6, -3.4], [-2.6, 3.4], [2.6, 3.4]];
+  const free = corners.find(([x, z]) => !party.bookInHole(page, x, z));
+  Object.assign(g.arcade.players[b.id], { x: free[0], z: free[1] });
+  g.run(0, page.slamAt + 60, 30);
+  assert.equal(g.arcade.players[a.id].survived, 1);
+  assert.equal(g.arcade.players[b.id].lives, C.BOOK_LIVES - 1);
+  assert.ok(g.arcade.players[b.id].flatUntil > g.now - 50, "b ist platt und kann kurz nicht laufen");
+  g.restore();
+});
+
+test("Bücherwurm: drei Mal platt, und man ist raus", () => {
+  const g = setup("buecherwurm", 2);
+  const [, b] = g.players;
+  g.run(0, g.minigame.duration, 40, () => {
+    // b rennt immer in die Ecke, die gerade kein Loch hat.
+    const page = g.arcade.book.pages.find((p) => p.index > g.arcade.book.slammed);
+    if (!page) return;
+    const free = [[-2.6, -3.4], [2.6, -3.4], [-2.6, 3.4], [2.6, 3.4]].find(([x, z]) => !party.bookInHole(page, x, z));
+    if (free) Object.assign(g.arcade.players[b.id], { x: free[0], z: free[1] });
+  });
+  assert.ok(g.arcade.players[b.id].outAt, "nach drei Seiten ist b raus");
+  assert.equal(g.arcade.players[b.id].lives, 0);
+  g.restore();
+});

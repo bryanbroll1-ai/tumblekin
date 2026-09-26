@@ -1504,6 +1504,212 @@ const hockey = {
   }
 };
 
+
+// --- Bücherwurm ------------------------------------------------------------
+//
+// Alle stehen auf der aufgeschlagenen Seite eines Riesenbuchs. Hinten richtet
+// sich die nächste Seite auf und klappt nach vorn — in ihr sind Löcher
+// ausgeschnitten. Wer beim Aufschlagen unter keinem Loch steht, wird platt
+// gedrückt und verliert ein Leben. Die Löcher werden weniger und kleiner, die
+// Seiten kommen schneller. Drei Leben; gewertet werden die überstandenen
+// Seiten.
+const BOOK_W = 6;
+const BOOK_D = 7.6;
+const BOOK_DURATION_MS = 42000;
+const BOOK_FIRST_MS = 2200;
+const BOOK_GAP_START = 3700;
+const BOOK_GAP_END = 2500;
+const BOOK_FLIP_START = 1900;          // so lange klappt die Seite heran
+const BOOK_FLIP_END = 1150;
+const BOOK_LIVES = 3;
+const BOOK_FLAT_MS = 1500;
+const BOOK_SPEED = 3.4;
+const BOOK_ACCEL = 14;
+const BOOK_BODY = 0.3;
+const BOOK_BUMP = 0.64;
+const BOOK_INSIDE = 0.1;               // so weit muss die Mitte im Loch liegen
+
+function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
+  const pages = [];
+  let at = BOOK_FIRST_MS;
+  let index = 0;
+  while (true) {
+    const progress = clamp(at / durationMs, 0, 1);
+    const flip = Math.round(BOOK_FLIP_START + (BOOK_FLIP_END - BOOK_FLIP_START) * progress);
+    if (at + flip > durationMs - 700) break;
+    const count = index < 2 ? 4 : index < 5 ? 3 : index < 8 ? 2 : 1;
+    const holes = [];
+    const size = 1 - progress * 0.4;
+    for (let h = 0; h < count; h += 1) {
+      for (let tries = 0; tries < 30; tries += 1) {
+        const k = seed + index * 101 + h * 13 + tries * 7;
+        const w = Math.round((1.15 + noise(k) * 0.55) * size * 100) / 100 + 0.2;
+        const d = Math.round((1.15 + noise(k + 3) * 0.55) * size * 100) / 100 + 0.2;
+        const x = Math.round(((noise(k + 5) - 0.5) * (BOOK_W - w - 0.6)) * 100) / 100;
+        const z = Math.round(((noise(k + 9) - 0.5) * (BOOK_D - d - 0.8)) * 100) / 100;
+        const clash = holes.some((o) => Math.abs(o.x - x) < (o.w + w) / 2 + 0.4 && Math.abs(o.z - z) < (o.d + d) / 2 + 0.4);
+        if (!clash) {
+          holes.push({ x, z, w, d });
+          break;
+        }
+      }
+    }
+    pages.push({ index, at, slamAt: at + flip, flip, holes });
+    const gap = BOOK_GAP_START + (BOOK_GAP_END - BOOK_GAP_START) * progress;
+    at += Math.round(Math.max(flip + 700, gap));
+    index += 1;
+  }
+  return pages;
+}
+
+function bookInHole(page, x, z) {
+  return page.holes.some((h) => Math.abs(x - h.x) <= h.w / 2 - BOOK_INSIDE && Math.abs(z - h.z) <= h.d / 2 - BOOK_INSIDE);
+}
+
+function bookSpawn(index) {
+  return [[-1.4, 1.6], [1.4, 1.6], [-1.4, -1.2], [1.4, -1.2]][index % 4];
+}
+
+const book = {
+  cooldown: 0,
+  fastHand: true,
+  create(arcade, players) {
+    arcade.book = {
+      w: BOOK_W,
+      d: BOOK_D,
+      pages: buildBookPages(arcade.seed),
+      slammed: -1,                     // letzte ausgewertete Seite
+      lives: BOOK_LIVES,
+      flatMs: BOOK_FLAT_MS
+    };
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      const [x, z] = bookSpawn(index);
+      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, lives: BOOK_LIVES, flatUntil: 0, survived: 0, squashed: 0, outAt: null, lastPage: -1, score: 0 });
+    });
+  },
+  input(ctx, player, entry, input) {
+    if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
+    const x = Number(input.x);
+    const y = Number(input.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
+    const len = Math.hypot(x, y);
+    const k = len > 1 ? 1 / len : 1;
+    entry.dirX = x * k;
+    entry.dirZ = y * k;
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, room, now, elapsed } = ctx;
+    const state = arcade.book;
+    const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    arcade.lastUpdateAt = now;
+    const entries = room.players.map((player) => arcade.players[player.id]).filter(Boolean);
+    const halfW = BOOK_W / 2 - BOOK_BODY;
+    const halfD = BOOK_D / 2 - BOOK_BODY;
+    entries.forEach((entry) => {
+      const stuck = entry.outAt || now < entry.flatUntil;
+      const dx = stuck ? 0 : entry.dirX;
+      const dz = stuck ? 0 : entry.dirZ;
+      entry.vx += (dx * BOOK_SPEED - entry.vx) * Math.min(1, BOOK_ACCEL * dt);
+      entry.vz += (dz * BOOK_SPEED - entry.vz) * Math.min(1, BOOK_ACCEL * dt);
+      entry.x = clamp(entry.x + entry.vx * dt, -halfW, halfW);
+      entry.z = clamp(entry.z + entry.vz * dt, -halfD, halfD);
+    });
+    // Rempeln: wer im Loch steht, kann hinausgeschoben werden.
+    for (let a = 0; a < entries.length; a += 1) {
+      for (let b = a + 1; b < entries.length; b += 1) {
+        const one = entries[a];
+        const two = entries[b];
+        if (one.outAt || two.outAt) continue;
+        const dx = two.x - one.x;
+        const dz = two.z - one.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist >= BOOK_BUMP || dist < 1e-6) continue;
+        const push = (BOOK_BUMP - dist) / 2;
+        one.x = clamp(one.x - (dx / dist) * push, -halfW, halfW);
+        one.z = clamp(one.z - (dz / dist) * push, -halfD, halfD);
+        two.x = clamp(two.x + (dx / dist) * push, -halfW, halfW);
+        two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
+      }
+    }
+    // Seiten schlagen auf.
+    state.pages.forEach((page) => {
+      if (page.index <= state.slammed || elapsed < page.slamAt) return;
+      state.slammed = page.index;
+      page.hits = [];
+      entries.forEach((entry) => {
+        if (entry.outAt) return;
+        if (bookInHole(page, entry.x, entry.z)) {
+          entry.survived += 1;
+        } else {
+          entry.lives -= 1;
+          entry.squashed += 1;
+          entry.flatUntil = now + BOOK_FLAT_MS;
+          if (entry.lives <= 0) {
+            entry.outAt = elapsed;
+            entry.outMs = elapsed;
+          }
+        }
+        entry.lastPage = page.index;
+        entry.score = entry.survived;
+      });
+      room.players.forEach((player) => {
+        const entry = arcade.players[player.id];
+        if (entry && entry.lastPage === page.index && entry.flatUntil > now) page.hits.push(player.id);
+      });
+    });
+  },
+  bot(ctx, player, entry) {
+    const { arcade, room, now, elapsed } = ctx;
+    if (entry.outAt || now < entry.flatUntil) return { action: "steer", x: 0, y: 0 };
+    const state = arcade.book;
+    const page = state.pages.find((p) => p.index > state.slammed);
+    if (!page || elapsed < page.at) return { action: "steer", x: 0, y: 0 };
+    const react = byLevel(entry, 750, 420, 180);
+    if (elapsed < page.at + react) return { action: "steer", x: 0, y: 0 };
+    if (entry.botPage !== page.index) {
+      entry.botPage = page.index;
+      // Welches Loch? Der schwache nimmt das nächste, der starke das beste:
+      // nah genug und nicht schon besetzt.
+      const others = room.players.filter((p) => p.id !== player.id).map((p) => arcade.players[p.id]).filter((e) => e && !e.outAt);
+      const scored = page.holes.map((h, i) => {
+        const dist = Math.hypot(h.x - entry.x, h.z - entry.z);
+        const crowd = others.filter((o) => Math.hypot(o.x - h.x, o.z - h.z) < dist).length;
+        const room2 = Math.max(0, Math.floor((h.w - 0.2) / 0.62) * Math.floor((h.d - 0.2) / 0.62));
+        return { i, cost: dist + (level(entry) === "hard" ? Math.max(0, crowd - room2 + 1) * 2.5 : level(entry) === "normal" ? crowd * 0.8 : 0) };
+      }).sort((a, b) => a.cost - b.cost);
+      entry.botHole = scored[0]?.i ?? 0;
+      entry.botJitter = { x: (Math.random() - 0.5) * byLevel(entry, 0.7, 0.35, 0.1), z: (Math.random() - 0.5) * byLevel(entry, 0.7, 0.35, 0.1) };
+    }
+    const hole = page.holes[entry.botHole] || page.holes[0];
+    if (!hole) return { action: "steer", x: 0, y: 0 };
+    const tx = hole.x + entry.botJitter.x * hole.w;
+    const tz = hole.z + entry.botJitter.z * hole.d;
+    const dx = tx - entry.x;
+    const dz = tz - entry.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.08) return { action: "steer", x: 0, y: 0 };
+    const gain = Math.min(1, d * 2.5);
+    return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+  },
+  rank(arcade, entry) {
+    return (entry.survived || 0) * 1000 + (entry.lives || 0) * 100 + (entry.outAt ? Math.min(99, Math.round((entry.outMs || 0) / 1000)) : 99);
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: entry.survived || 0, label: "Seiten" };
+  },
+  done(ctx) {
+    const { room, arcade, elapsed } = ctx;
+    const state = arcade.book;
+    const last = state.pages[state.pages.length - 1];
+    if (last && state.slammed >= last.index && elapsed > last.slamAt + 900) return true;
+    const alive = room.players.filter((p) => arcade.players[p.id] && !arcade.players[p.id].outAt);
+    if (alive.length === 0) return elapsed > (state.pages[state.slammed]?.slamAt || 0) + 1200;
+    return room.players.length > 1 && alive.length === 1 && elapsed > (state.pages[state.slammed]?.slamAt || 0) + 1200;
+  }
+};
+
 // ---------------------------------------------------------------------------
 
 const PARTY_FAMILIES = {
@@ -1512,7 +1718,8 @@ const PARTY_FAMILIES = {
   flags,
   honey,
   snow,
-  hockey
+  hockey,
+  book
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
@@ -1522,7 +1729,8 @@ const PARTY_GAMES = [
   { type: "flaggenhoch", title: "Flaggen hoch", duration: FLAG_DURATION_MS, arcadeFamily: "flags", seed: 827 },
   { type: "honigwabe", title: "Honigwabe", duration: HONEY_DURATION_MS, arcadeFamily: "honey", seed: 829 },
   { type: "schneeball", title: "Schneeballhang", duration: SNOW_DURATION_MS, arcadeFamily: "snow", seed: 839 },
-  { type: "luftpuck", title: "Luftpuck", duration: HOCKEY_DURATION_MS, arcadeFamily: "hockey", seed: 853 }
+  { type: "luftpuck", title: "Luftpuck", duration: HOCKEY_DURATION_MS, arcadeFamily: "hockey", seed: 853 },
+  { type: "buecherwurm", title: "Bücherwurm", duration: BOOK_DURATION_MS, arcadeFamily: "book", seed: 857 }
 ];
 
 module.exports = {
@@ -1535,8 +1743,11 @@ module.exports = {
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS,
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_LOSS,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R,
-    HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS
+    HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS,
+    BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS
   },
+  buildBookPages,
+  bookInHole,
   snowBallRadius,
   snowValue,
   buildHoneyVine,

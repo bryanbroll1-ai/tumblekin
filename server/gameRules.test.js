@@ -200,7 +200,7 @@ test("catalog contains only the 3D challenges", () => {
     MINIGAMES.map((game) => game.type).sort(),
     [
       "angelduell", "augenmass", "ballonPump", "ballonfahrt", "bergsteiger", "blitzreflex",
-      "blobklopfe", "bounceArena", "colorEscape", "eisstock", "falschsignal",
+      "blobklopfe", "bounceArena", "buecherwurm", "colorEscape", "eisstock", "falschsignal",
       "farbenjagd", "fassmut", "fassrolle", "finishRush", "flaggenhoch", "grimassen", "honigwabe", "kanonenflug", "leuchtfolge",
       "lichtwaechter", "luftpuck", "messerwurf", "muenzregen", "nagelbrett", "nervenprobe",
       "schneeball", "seilspringen", "sortierband", "spuersinn", "spurmaler", "tauziehen", "tiefenrausch",
