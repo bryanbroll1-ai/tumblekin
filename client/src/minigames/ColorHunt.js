@@ -6,8 +6,8 @@ import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 
 // Farbenjagd: jeder schiebt eine Farbwalze über eine grosse Leinwand. Was die
-// Walze überrollt, hat sofort seine Farbe — und schliesst die eigene Farbe ein
-// Stück Leinwand ein, läuft die Farbe als Welle über die ganze Tasche.
+// Walze überrollt, hat sofort seine Farbe, auch fremde. Auf der eigenen Farbe
+// fährt man schneller, auf fremder langsamer — Einkreisen gibt es nicht mehr.
 //
 // Die Walze sitzt genau dort, wo der Server malt: vor der Figur, so breit wie
 // der Pinsel, und die Figur hält den Stiel mit beiden Händen. In der alten
@@ -307,7 +307,9 @@ export class ColorHunt extends MinigameScene {
     const d = this.rows * TILE;
     return {
       look: [0, 0, 0.25],
-      frame: { w: w + 0.4, h: d * Math.sin(0.8) + 0.8 },
+      // Etwas Luft an den Seiten: wer am Leinwandrand fährt, ragte samt
+      // Walze sonst aus dem Bild.
+      frame: { w: w + 1.0, h: d * Math.sin(0.8) + 0.8 },
       fill: 0.96,
       pitch: 0.8,
       fov: 36,

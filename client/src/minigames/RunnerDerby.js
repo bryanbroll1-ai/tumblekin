@@ -31,6 +31,8 @@ const SEGMENT = 0.62; // world units per track meter
 // nicht im Sand und nicht im normalen Belag.
 const SURFACE_COLOUR = { sand: "#6b4424", normal: "#d4553f", tempo: "#1fe0b0" };
 const FLOOR_Y = 0;                  // Oberkante der Laufbahn
+const HURDLE_CLEAR = 0.78;           // so hoch sind die Füsse über einer Hürde mindestens
+const HURDLE_CLEAR_REACH = 0.9;      // ab diesem Abstand zur Hürde gilt das
 const KIN_Y = standOn(FLOOR_Y);
 // Die Zuschauer sind kleiner — und weil der Sohlenabstand mitskaliert,
 // muss auch er mit dem Massstab multipliziert werden.
@@ -803,7 +805,24 @@ export class RunnerDerby extends MinigameScene {
       if (entry.item) kin.userData.carried.position.y = 0.95 + Math.sin(now / 180 + index) * 0.05;
       kin.userData.dizzy.visible = stumbling;
       kin.userData.dizzy.rotation.y = now / 200;
-      animator.groundY = standOn(FLOOR_Y) + (jumping ? Math.sin((Math.max(0, entry.jumpUntil - now) / 650) * Math.PI) * 1.4 : 0);
+      // Sprungbogen: schnell hoch, oben kurz schweben, schnell wieder runter.
+      // Mit reinem Sinus war der Bogen an beiden Enden flach — wer knapp vor
+      // oder nach der Hürde absprang, dem ging die Stange sichtbar durch die
+      // Beine, obwohl der Server den Sprung als geschafft wertete. Dazu gilt:
+      // wer springt und gerade über einer stehenden Hürde ist, ist mindestens
+      // so hoch, dass die Füsse über der Stange bleiben.
+      let lift = 0;
+      if (jumping) {
+        const phase = Math.max(0, entry.jumpUntil - now) / 650;
+        lift = Math.pow(Math.sin(phase * Math.PI), 0.6) * 1.25;
+        const hurdle = this.hurdles?.find((h) => Math.abs(h.x - kin.position.x) < LANE_WIDTH * 0.5
+          && Math.abs(h.z - kin.position.z) < HURDLE_CLEAR_REACH && h.group.rotation.x === 0);
+        if (hurdle) {
+          const near = 1 - Math.abs(hurdle.z - kin.position.z) / HURDLE_CLEAR_REACH;
+          lift = Math.max(lift, HURDLE_CLEAR * Math.min(1, near * 1.8));
+        }
+      }
+      animator.groundY = standOn(FLOOR_Y) + lift;
 
       if (finished && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);

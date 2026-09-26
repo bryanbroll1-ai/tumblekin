@@ -27,6 +27,8 @@ const HOME_Z = (ROWS / 2) * CELL + 0.1;
 const MOUND_TOP = 0.3;
 // Nach dem Schlag bleibt die Figur so lange am Loch, dann springt sie zurück.
 const STAY_MS = 650;
+const LAND_GAP = 0.8;          // Landeabstand zur Lochmitte
+const HOLE_CLEAR = 0.85;       // so weit bleibt die Figur von jedem anderen Loch weg
 
 // Ein Sprung dauert mit der Weite etwas länger — der weiteste landet genau im
 // Schlag der Hammer-Bewegung (dig schlägt nach knapp 300 ms zu).
@@ -47,6 +49,25 @@ export class WhackBlob extends MinigameScene {
 
   stage() {
     return { label: "3D Blob-Klopfe", background: "#a8e2f4", fog: ["#a8e2f4", 16, 40], lights: { shadow: { left: -6, right: 6, top: 6, bottom: -6 } } };
+  }
+
+  // Wo die Figur neben dem Loch landet: in Richtung ihrer Ecke, aber nie auf
+  // dem Erdwall eines ANDEREN Lochs. Stur in Richtung Ecke landete sie bei
+  // Löchern in einer Reihe genau auf dem Rand des Nachbarlochs — poppte dort
+  // ein Blob hoch, steckte er ihr in den Füssen.
+  landingSpot(pos, home) {
+    const base = Math.atan2(home.x - pos.x, home.z - pos.z);
+    const holes = Array.from({ length: COLS * ROWS }, (_, cell) => this.cellPos(cell));
+    // Sechzehn Richtungen, die zur eigenen Ecke zuerst.
+    const turns = Array.from({ length: 16 }, (_, i) => ((i + 1) >> 1) * (i % 2 ? 1 : -1) * (Math.PI / 8));
+    for (const turn of turns) {
+      const angle = base + turn;
+      const spot = new THREE.Vector3(pos.x + Math.sin(angle) * LAND_GAP, 0, pos.z + Math.cos(angle) * LAND_GAP);
+      const clear = holes.every((hole) => (hole.x === pos.x && hole.z === pos.z)
+        || Math.hypot(hole.x - spot.x, hole.z - spot.z) >= HOLE_CLEAR);
+      if (clear) return spot;
+    }
+    return new THREE.Vector3(pos.x + Math.sin(base) * LAND_GAP, 0, pos.z + Math.cos(base) * LAND_GAP);
   }
 
   cellPos(cell) {
@@ -278,7 +299,9 @@ export class WhackBlob extends MinigameScene {
   shot() {
     return {
       look: [0, 0.35, 0.3],
-      frame: { w: HOME * 2 + 1.2, h: HOME_Z * 2 * Math.sin(0.82) + 1.6 },
+      // Die Klopfer stehen an den Ecken; mit 1.2 Zugabe lag der äussere
+      // Hammerarm knapp am Bildrand.
+      frame: { w: HOME * 2 + 1.5, h: HOME_Z * 2 * Math.sin(0.82) + 1.6 },
       finale: { pull: 0.6, zoom: 0.85, lift: 0.4, orbit: 0.1 },
       pitch: 0.82,
       fov: 38,
@@ -400,8 +423,7 @@ export class WhackBlob extends MinigameScene {
         if (!pop) return;
         const pos = this.cellPos(pop.cell);
         const bad = pop.kind === "bad";
-        const away = new THREE.Vector3(swing.home.x - pos.x, 0, swing.home.z - pos.z).normalize().multiplyScalar(0.8);
-        swing.target = new THREE.Vector3(pos.x + away.x, 0, pos.z + away.z);
+        swing.target = this.landingSpot(pos, swing.home);
         swing.from = new THREE.Vector3(kin.position.x, 0, kin.position.z);
         swing.leap = leapMs(swing.from, swing.target);
         swing.at = now;

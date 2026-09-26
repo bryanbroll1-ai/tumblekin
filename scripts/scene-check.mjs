@@ -174,7 +174,10 @@ for (const game of liste) {
         const kandidaten = [];
         host.scene.traverse((o) => {
           // Unsichtbare Trefferflächen (zum Antippen) sind kein Boden.
-          if (!o.isMesh || !o.visible || o.userData?.isShadow || o.material?.visible === false) return;
+          // Funken, Staub und Stossringe (userData.isFx) sind auch kein Boden:
+          // bei Farbenjagd staubt es beim Fahren dauernd um die Füsse, und
+          // der Strahl landete auf einem Staubkorn statt auf der Leinwand.
+          if (!o.isMesh || !o.visible || o.userData?.isShadow || o.userData?.isFx || o.material?.visible === false) return;
           let p = o;
           while (p) {
             if (p === kin || p.userData?.isKin || p.userData?.isShadow) return;

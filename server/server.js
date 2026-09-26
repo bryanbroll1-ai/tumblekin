@@ -8388,8 +8388,6 @@ module.exports = {
     traceCombo,
     traceScore,
     BELT_COLOURS,
-    makeBeltParcel,
-    beltSpeed,
     BELT_CHUTES,
     BELT_QUEUE,
     BELT_SPEED_START,

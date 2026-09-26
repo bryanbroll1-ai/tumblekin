@@ -133,6 +133,8 @@ export class CubeBurst {
         new THREE.MeshBasicMaterial({ color: palette[index % palette.length], transparent: true })
       );
       mesh.position.copy(position);
+      // Effekt, keine Kulisse: Prüfskripte (Boden, Kollision) übergehen ihn.
+      mesh.userData.isFx = true;
       const angle = Math.random() * Math.PI * 2;
       const radial = speed * (0.4 + Math.random() * 0.6);
       this.scene.add(mesh);
@@ -163,6 +165,7 @@ export class CubeBurst {
     if (tilt !== null) mesh.rotation.x = tilt;
     mesh.scale.setScalar(0.12);
     mesh.renderOrder = 2;
+    mesh.userData.isFx = true;
     this.scene.add(mesh);
     this.rings.push({ mesh, age: 0, life, radius, opacity });
   }
