@@ -713,7 +713,11 @@ const STATES = {
       p.yaw = easeOut(u) * TAU * 2;
       p.tilt = sin(u * Math.PI * 4) * 0.35 * (1 - u);
       p.lean = sin(u * Math.PI * 3) * 0.3 * (1 - u);
-      p.y = bump(u, 0, 0.5) * 0.3;
+      // Gekippt wird um die Körpermitte: der tiefere Fuss wandert dabei unter
+      // den Boden (gemessen bis 0.18 bei der Zielgerade). Die Anhebung gleicht
+      // das aus — um so viel, wie der Fuss bei diesem Winkel absinkt.
+      const winkel = Math.hypot(p.tilt, p.lean);
+      p.y = bump(u, 0, 0.5) * 0.3 + 0.6 * (1 - Math.cos(winkel)) + 0.16 * Math.abs(sin(winkel));
       p.aLr = 1.8;
       p.aRr = 1.8;
       face(p, "dizzy");

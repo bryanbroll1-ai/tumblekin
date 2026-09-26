@@ -4,6 +4,7 @@ import { addStageLights } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Farbenjagd: jeder schiebt eine Farbwalze über eine grosse Leinwand. Was die
 // Walze überrollt, hat sofort seine Farbe, auch fremde. Auf der eigenen Farbe
@@ -102,15 +103,17 @@ export class ColorHunt extends MinigameScene {
     if (arcade) this.syncCells(arcade, 0, true);
   }
 
-  // Ein Farbfest-Platz: heller Steinboden voller Farbkleckse, ein Regenbogen
-  // hinter der Leinwand und an jeder Startecke ein Farbeimer in der Farbe
-  // dessen, der dort beginnt.
+  // Ein Graffiti-Hinterhof: Asphalt voller Farbkleckse, hinten eine
+  // besprühte Backsteinmauer mit Feuerleiter, vorn Sprühdosen, ein
+  // Gullydeckel, ein Müllcontainer und Paletten — und an jeder Startecke ein
+  // Farbeimer in der Farbe dessen, der dort beginnt. (Das Farbfest mit
+  // Pulverwolken gehört der Farbflucht.)
   buildPlaza(order, players) {
     const scene = this.scene;
     const w = this.cols * TILE;
     const d = this.rows * TILE;
 
-    const ground = new THREE.Mesh(new THREE.BoxGeometry(80, 0.4, 80), new THREE.MeshLambertMaterial({ color: "#f1e2c2" }));
+    const ground = new THREE.Mesh(new THREE.BoxGeometry(80, 0.4, 80), new THREE.MeshLambertMaterial({ color: "#62666e" }));
     ground.position.set(0, -0.45, -8);
     ground.receiveShadow = true;
     scene.add(ground);
@@ -138,15 +141,7 @@ export class ColorHunt extends MinigameScene {
     splats.instanceColor.needsUpdate = true;
     scene.add(splats);
 
-    // Regenbogen hinter dem Feld, auf dem Boden aufgesetzt.
-    ["#ff5d73", "#ff9f43", "#ffd15c", "#71d97b", "#28c7d9", "#b57bff"].forEach((color, band) => {
-      const arc = new THREE.Mesh(
-        new THREE.TorusGeometry(6.4 - band * 0.36, 0.19, 6, 42, Math.PI),
-        new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.18 })
-      );
-      arc.position.set(0, -0.3, -d / 2 - 7.5);
-      scene.add(arc);
-    });
+    this.buildBackyard(w, d);
 
     // Farbeimer an den Startecken, ausserhalb des Rahmens.
     const corners = [[-1, -1], [1, 1], [1, -1], [-1, 1]];
@@ -159,11 +154,58 @@ export class ColorHunt extends MinigameScene {
       scene.add(bucket);
     });
 
-    [[-3.6, 4.6, -7, 6], [3.4, 5.2, -9, 1]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
+  }
+
+  buildBackyard(w, d) {
+    const scene = this.scene;
+    const zufall = streuer(43);
+    const mauerZ = -d / 2 - 1.25;
+    const mauer = new THREE.Mesh(new THREE.BoxGeometry(16, 3.6, 0.4), [lambert("#9a4a3a"), lambert("#9a4a3a"), lambert("#8a4234"), lambert("#8a4234"), new THREE.MeshLambertMaterial({ map: graffitiTextur() }), lambert("#8a4234")]);
+    mauer.position.set(0, 1.4, mauerZ);
+    mauer.receiveShadow = true;
+    scene.add(mauer);
+    kiste(scene, 16.2, 0.2, 0.5, "#b8b2a8", [0, 3.3, mauerZ]);
+    // Feuerleiter rechts an der Mauer.
+    const leiter = [];
+    for (let y = 0.4; y < 3.2; y += 0.35) leiter.push({ p: [4.2, y, mauerZ + 0.4] });
+    viele(scene, new THREE.BoxGeometry(0.6, 0.04, 0.04), lambert("#2c2f38"), leiter);
+    [3.9, 4.5].forEach((x) => kiste(scene, 0.05, 3.1, 0.05, "#2c2f38", [x, 1.6, mauerZ + 0.4], { schatten: false }));
+    kiste(scene, 1.6, 0.06, 0.8, "#2c2f38", [4.2, 2.4, mauerZ + 0.6], { schatten: false });
+
+    // Müllcontainer links hinten, Paletten rechts vorn.
+    const tonne = new THREE.Group();
+    tonne.position.set(-w / 2 - 1.3, 0, -d / 2 + 0.2);
+    tonne.rotation.y = 0.3;
+    scene.add(tonne);
+    kiste(tonne, 1.5, 0.9, 0.9, "#2f7a4a", [0, 0.2, 0]);
+    kiste(tonne, 1.55, 0.08, 0.95, "#255e3a", [0, 0.68, 0]).rotation.x = -0.15;
+    kiste(tonne, 0.5, 0.2, 0.02, "#ffd15c", [0.2, 0.3, 0.46], { schatten: false });
+    [0, 0.14, 0.28].forEach((y, i) => kiste(scene, 1.2, 0.1, 0.8, "#b8874f", [w / 2 + 1.1, -0.2 + y, d / 2 + 0.3 + i * 0.03]));
+
+    // Sprühdosen und Gullydeckel vorn.
+    const dosen = [[-1.1, d / 2 + 0.7, "#ff5d73"], [-0.5, d / 2 + 1.1, "#28c7d9"], [0.7, d / 2 + 0.8, "#ffd15c"], [1.3, d / 2 + 1.3, "#71d97b"], [-1.9, d / 2 + 1.3, "#b57bff"]];
+    dosen.forEach(([x, z, farbe], i) => {
+      const dose = new THREE.Group();
+      dose.position.set(x, -0.25, z);
+      if (i % 2) dose.rotation.set(0, zufall() * 3, Math.PI / 2);
+      scene.add(dose);
+      const koerper = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.26, 10), lambert(farbe));
+      koerper.position.y = i % 2 ? 0.07 : 0.13;
+      dose.add(koerper);
+      const kappe = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.06, 10), lambert("#f6f3ec"));
+      kappe.position.y = (i % 2 ? 0.07 : 0.13) + 0.16;
+      dose.add(kappe);
     });
+    const gully = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.03, 18), lambert("#3a3d44"));
+    gully.position.set(1.9, -0.24, d / 2 + 1.6);
+    scene.add(gully);
+    const rillen = [];
+    for (let i = -2; i <= 2; i += 1) rillen.push({ p: [1.9 + i * 0.13, -0.22, d / 2 + 1.6], s: [0.04, 0.01, 0.6 - Math.abs(i) * 0.1] });
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#2a2c31"), rillen);
+    // Aufgesprühte Pfeile auf dem Asphalt.
+    const pfeile = [];
+    for (let i = 0; i < 6; i += 1) pfeile.push({ p: [(zufall() - 0.5) * (w + 4), -0.24, d / 2 + 0.6 + zufall() * 2.4], r: [-Math.PI / 2, 0, zufall() * 6], s: [0.5, 0.1, 1] });
+    viele(scene, new THREE.PlaneGeometry(1, 1), lambert("#f6f3ec"), pfeile);
   }
 
   makeBucket(color) {
@@ -636,4 +678,52 @@ export class ColorHunt extends MinigameScene {
       banner.hidden = true;
     }
   }
+}
+
+// Graffiti auf Backstein: Fugen, bunte Blasenbuchstaben und Tags.
+function graffitiTextur() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#9a4a3a";
+  ctx.fillRect(0, 0, 1024, 256);
+  ctx.strokeStyle = "#7d3a2c";
+  ctx.lineWidth = 3;
+  for (let row = 0; row < 16; row += 1) {
+    const y = row * 16;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(1024, y);
+    ctx.stroke();
+    for (let x = (row % 2) * 24; x < 1024; x += 48) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + 16);
+      ctx.stroke();
+    }
+  }
+  const farben = ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b57bff", "#ff9f43"];
+  ctx.lineJoin = "round";
+  ctx.font = "900 150px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  [["PAINT", 60, 140, 0], ["WOW", 620, 120, 2], ["ZAP", 860, 170, 4]].forEach(([text, x, y, f]) => {
+    ctx.lineWidth = 22;
+    ctx.strokeStyle = "#1c1c24";
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = farben[f];
+    ctx.fillText(text, x, y);
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#ffffff";
+    ctx.strokeText(text, x, y);
+  });
+  for (let i = 0; i < 24; i += 1) {
+    ctx.fillStyle = farben[i % farben.length];
+    ctx.beginPath();
+    ctx.arc((i * 211) % 1024, 20 + ((i * 97) % 220), 6 + (i % 4) * 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }

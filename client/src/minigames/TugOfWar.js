@@ -30,6 +30,7 @@ export class TugOfWar extends MinigameScene {
     this.seenSlips = new Map();
     this.seenSync = new Map();
     this.inMud = new Map();
+    this.mudUntil = new Map();
     this.seenResults = 0;
     this.labelY = 0.8;
     this.bubbles = [];
@@ -365,7 +366,11 @@ export class TugOfWar extends MinigameScene {
         }
       }
       this.inMud.set(player.id, mud);
-      kin.userData.sunk = mud;
+      // Der Sturz beim Hineinrutschen läuft noch, wenn die Figur schon wieder
+      // draussen ist — so lange liegt sie tiefer als der Boden. Das Merkmal
+      // für den Szenenprüfer hält darum anderthalb Sekunden nach.
+      if (mud) this.mudUntil.set(player.id, now + 1500);
+      kin.userData.sunk = mud || now < (this.mudUntil.get(player.id) || 0);
       this.setGround(player.id, mud ? MUD_SINK : 0);
       kin.position.x = x;
       kin.position.z = z;

@@ -153,7 +153,7 @@ export class BombPass extends MinigameScene {
 
   // Ein Zeltlager am Abend: zwei Zelte hinter dem Platz, dunkle Tannen als
   // Silhouetten, vorn ein Rucksack, eine Laterne, eine Gitarre, Stöcke mit
-  // Marshmallows und ein Schlafsack — und Glühwürmchen, die herumschwirren.
+  // Marshmallows und ein Schlafsack — und Funken, die aus dem Feuer steigen.
   buildCamp(scene) {
     const zufall = streuer(29);
     // Zwei Zelte: dreieckige Prismen, die Öffnung zum Feuer.
@@ -235,14 +235,15 @@ export class BombPass extends MinigameScene {
     scene.add(schlafsack);
     viele(scene, new THREE.CylinderGeometry(0.185, 0.185, 0.05, 12), lambert("#3a2a7a"), [-0.2, 0, 0.2].map((dx) => ({ p: [-0.5 + dx, 0.48, 5.0], r: [0, 0, Math.PI / 2] })));
 
-    // Glühwürmchen.
-    this.fireflies = [];
-    const leucht = new THREE.MeshBasicMaterial({ color: "#e8ff8a" });
-    for (let i = 0; i < 14; i += 1) {
-      const f = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 4), leucht);
-      f.userData = { isFx: true, cx: (zufall() - 0.5) * 9, cz: -3 - zufall() * 5, cy: 0.8 + zufall() * 1.6, phase: zufall() * 10 };
-      scene.add(f);
-      this.fireflies.push(f);
+    // Funken, die aus dem Feuer aufsteigen. (Glühwürmchen gehören dem
+    // Augenmaß — dort sind sie das, was gezählt wird.)
+    this.embers = [];
+    const glut = new THREE.MeshBasicMaterial({ color: "#ffb04a" });
+    for (let i = 0; i < 12; i += 1) {
+      const funke = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.04), glut);
+      funke.userData = { isFx: true, phase: zufall(), dx: (zufall() - 0.5) * 0.5, dz: (zufall() - 0.5) * 0.5, speed: 0.35 + zufall() * 0.3 };
+      scene.add(funke);
+      this.embers.push(funke);
     }
   }
 
@@ -358,10 +359,11 @@ export class BombPass extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale } = f;
-    this.fireflies?.forEach((ff) => {
-      const d = ff.userData;
-      ff.position.set(d.cx + Math.sin(now / 1700 + d.phase) * 0.8, d.cy + Math.sin(now / 900 + d.phase * 2) * 0.3, d.cz + Math.cos(now / 2100 + d.phase) * 0.6);
-      ff.visible = Math.sin(now / 400 + d.phase * 3) > -0.4;
+    this.embers?.forEach((funke) => {
+      const d = funke.userData;
+      const t = (now / 1000 * d.speed + d.phase) % 1;
+      funke.position.set(d.dx * (1 + t * 2) + Math.sin(now / 300 + d.phase * 9) * 0.08, 0.7 + t * 2.4, 0.6 + d.dz * (1 + t));
+      funke.scale.setScalar(1 - t * 0.8);
     });
     if (this.campLantern) this.campLantern.scale.setScalar(1 + Math.sin(now / 120) * 0.03);
     if (!arcade) return;

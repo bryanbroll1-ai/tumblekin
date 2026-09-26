@@ -13,6 +13,7 @@ import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin
 // dahinter Paparazzi, deren Kameras blitzen, Scheinwerfer auf Stativen und
 // Suchscheinwerfer, die über den Nachthimmel wandern.
 const STAGE_Y = 0.25;
+const TEPPICH_Y = STAGE_Y + 0.015;
 
 export class PhotoShoot extends MinigameScene {
   constructor(ctx) {
@@ -94,7 +95,7 @@ export class PhotoShoot extends MinigameScene {
     // geworfen.
     this.fotograf = createKin("#3b3f4a", 1);
     this.fotograf.scale.setScalar(1.15);
-    const fY = KIN_SOLE * 1.15;
+    const fY = TEPPICH_Y + KIN_SOLE * 1.15;
     this.fotograf.position.set(0, fY, this.D / 2 + 0.9);
     this.fotograf.rotation.y = Math.PI;
     scene.add(this.fotograf);
@@ -133,7 +134,10 @@ export class PhotoShoot extends MinigameScene {
     kiste(scene, W + 0.34, 0.05, 0.08, "#e9b949", [0, STAGE_Y, -D / 2 - 0.15], { schatten: false });
     kiste(scene, 0.08, 0.05, D + 0.34, "#e9b949", [W / 2 + 0.15, STAGE_Y, 0], { schatten: false });
     kiste(scene, 0.08, 0.05, D + 0.34, "#e9b949", [-W / 2 - 0.15, STAGE_Y, 0], { schatten: false });
-    const teppich = kiste(scene, 2.4, 0.02, D + 8, "#b8142e", [0, STAGE_Y + 0.005, 3.8], { schatten: false });
+    // Der Teppich ist vor der Bühne ein Laufsteg bis zum Boden — als dünne
+    // Platte auf Bühnenhöhe schwebte er dort, und der Fotograf stand mit den
+    // Füssen darin.
+    const teppich = kiste(scene, 2.4, TEPPICH_Y, D + 8, "#b8142e", [0, TEPPICH_Y / 2, 3.8], { schatten: false });
     teppich.receiveShadow = true;
     // Sterne im Bühnenboden.
     const zufall = streuer(41);
