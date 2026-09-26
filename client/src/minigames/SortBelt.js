@@ -1,7 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createShadowBlob } from "./VoxelKit.js?v=tumblekin200";
+import { createShadowBlob } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
 // wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt
@@ -75,8 +76,8 @@ export class SortBelt extends MinigameScene {
   stage() {
     return {
       label: "3D Sortierband",
-      background: "#8fd3ef",
-      fog: ["#aee0f4", 22, 56],
+      background: "#c9b48d",
+      fog: ["#d9c8a8", 22, 56],
       lights: { sunPosition: [-5, 13, 7], shadow: { left: -7, right: 7, top: 10, bottom: -6 } }
     };
   }
@@ -102,11 +103,7 @@ export class SortBelt extends MinigameScene {
     this.buildBelt();
     this.buildChutes();
 
-    [[-6.2, 7.4, -14, 3], [6.0, 8.1, -16, 8]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
-    });
+    this.buildHall(scene);
 
     const wandMat = new THREE.MeshLambertMaterial({ color: "#c9b48d" });
     // 13 hoch statt 7: mit dem höheren Blickpunkt blieb über der Wand ein
@@ -290,6 +287,99 @@ export class SortBelt extends MinigameScene {
 
       this.parcels.push({ group, box, item, shadow, wobble: Math.random() * 6.28, shownId: null });
     }
+  }
+
+  // Die Halle: Hochregale mit Kisten links und rechts, Paletten, ein Stapler,
+  // Warnstreifen am Band, Hallenfenster, eine Uhr und ein Schild an der
+  // Rückwand, Rohre und Lampen unter der Decke. Vorher stand das Band in einer
+  // leeren Halle unter freiem Himmel.
+  buildHall(scene) {
+    const zufall = streuer(57);
+    // Hochregale.
+    [-1, 1].forEach((seite) => {
+      const x = seite * 4.1;
+      for (let z = -9; z <= -1.5; z += 2.6) {
+        [[-1.1, 0], [1.1, 0]].forEach(([dz]) => kiste(scene, 0.12, 4.2, 0.12, "#2f6fb0", [x - seite * 0.55, GROUND_Y + 2.1, z + dz]));
+        [[-1.1, 0], [1.1, 0]].forEach(([dz]) => kiste(scene, 0.12, 4.2, 0.12, "#2f6fb0", [x + seite * 0.55, GROUND_Y + 2.1, z + dz]));
+        [0.9, 2.1, 3.3].forEach((y) => {
+          kiste(scene, 1.3, 0.08, 2.4, "#ff8f2e", [x, GROUND_Y + y, z], { schatten: false });
+          const kisten = [];
+          for (let k = 0; k < 3; k += 1) if (zufall() < 0.8) kisten.push({ p: [x + (zufall() - 0.5) * 0.3, GROUND_Y + y + 0.3, z - 0.75 + k * 0.75], s: [0.9, 0.5 + zufall() * 0.2, 0.62], r: [0, (zufall() - 0.5) * 0.2, 0] });
+          viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert(zufall() < 0.5 ? "#c9a26f" : "#b88e5a"), kisten, { schatten: true });
+        });
+      }
+    });
+    // Paletten mit Kistenstapeln vorn an den Seiten.
+    [[-3.5, 3.6], [3.4, 3.4]].forEach(([x, z]) => {
+      kiste(scene, 1.2, 0.16, 1.0, "#a07a4a", [x, GROUND_Y + 0.08, z]);
+      viele(scene, new THREE.BoxGeometry(0.55, 0.45, 0.45), lambert("#c9a26f"), [[-0.28, 0, -0.22], [0.28, 0, -0.22], [-0.28, 0, 0.24], [0.28, 0, 0.24], [0, 0.45, 0]].map(([dx, dy, dz]) => ({ p: [x + dx, GROUND_Y + 0.4 + dy, z + dz], r: [0, zufall() * 0.2, 0] })), { schatten: true });
+    });
+    // Gabelstapler.
+    const stapler = new THREE.Group();
+    kiste(stapler, 0.9, 0.6, 1.3, "#ffc400", [0, 0.5, 0]);
+    kiste(stapler, 0.8, 0.08, 0.8, "#2c2f38", [0, 1.25, -0.1]);
+    [[-0.38, -0.35], [0.38, -0.35], [-0.38, 0.35], [0.38, 0.35]].forEach(([x, z]) => kiste(stapler, 0.06, 0.8, 0.06, "#2c2f38", [x, 0.85, z * 0.6 - 0.1], { schatten: false }));
+    kiste(stapler, 0.1, 1.6, 0.1, "#3b3f4a", [-0.3, 0.8, 0.7]);
+    kiste(stapler, 0.1, 1.6, 0.1, "#3b3f4a", [0.3, 0.8, 0.7]);
+    kiste(stapler, 0.12, 0.06, 0.7, "#3b3f4a", [-0.25, 0.1, 1.05]);
+    kiste(stapler, 0.12, 0.06, 0.7, "#3b3f4a", [0.25, 0.1, 1.05]);
+    [[-0.5, -0.4], [0.5, -0.4], [-0.5, 0.45], [0.5, 0.45]].forEach(([x, z]) => {
+      const rad = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.16, 12), lambert("#1c1c22"));
+      rad.rotation.z = Math.PI / 2;
+      rad.position.set(x, 0.22, z);
+      stapler.add(rad);
+    });
+    stapler.position.set(3.0, GROUND_Y, 0.6);
+    stapler.rotation.y = -0.9;
+    scene.add(stapler);
+    // Warnstreifen links und rechts am Band.
+    const streifen = [];
+    for (let z = BELT_FAR_Z; z < BELT_NEAR_Z; z += 0.6) {
+      [-1, 1].forEach((seite) => streifen.push({ p: [seite * (BELT_WIDTH / 2 + 0.55), GROUND_Y + 0.012, z], r: [-Math.PI / 2, 0, 0.7] }));
+    }
+    viele(scene, new THREE.PlaneGeometry(0.14, 0.4), lambert("#ffd15c"), streifen);
+    // Fenster, Uhr und Schild an der Rückwand.
+    const wandZ = BELT_FAR_Z - 2.05;
+    for (let i = -4; i <= 4; i += 1) {
+      if (Math.abs(i) < 1) continue;
+      const fenster = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.4), new THREE.MeshBasicMaterial({ color: "#bfe6ff" }));
+      fenster.position.set(i * 2.5, GROUND_Y + 6.8, wandZ);
+      scene.add(fenster);
+      kiste(scene, 1.9, 0.08, 0.1, "#6b7280", [i * 2.5, GROUND_Y + 6.8, wandZ + 0.02], { schatten: false });
+      kiste(scene, 0.08, 1.5, 0.1, "#6b7280", [i * 2.5, GROUND_Y + 6.8, wandZ + 0.02], { schatten: false });
+    }
+    const uhr = new THREE.Group();
+    const blatt = new THREE.Mesh(new THREE.CircleGeometry(0.7, 24), lambert("#ffffff"));
+    uhr.add(blatt);
+    const rand = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.07, 6, 24), lambert("#2c2f38"));
+    uhr.add(rand);
+    this.clockHands = [0.5, 0.35].map((l, i) => {
+      const zeiger = kiste(uhr, 0.05, l, 0.02, "#1c1c22", [0, 0, 0.03], { schatten: false });
+      zeiger.geometry.translate(0, l / 2, 0);
+      zeiger.userData.speed = i ? 0.02 : 0.25;
+      return zeiger;
+    });
+    uhr.position.set(-4.2, GROUND_Y + 4.6, wandZ + 0.05);
+    scene.add(uhr);
+    const schild = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.7), new THREE.MeshBasicMaterial({ map: schildTextur("SORTIERBAND 3") }));
+    schild.position.set(3.6, GROUND_Y + 4.6, wandZ + 0.05);
+    scene.add(schild);
+    // Rohre und Lampen unter der Decke.
+    [-2.8, 2.8].forEach((x) => {
+      const rohr = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 16, 10), lambert("#9aa2b0"));
+      rohr.rotation.x = Math.PI / 2;
+      rohr.position.set(x, GROUND_Y + 6.2, -4);
+      scene.add(rohr);
+    });
+    [[-1.6, -2], [1.6, -5], [-1.6, -8]].forEach(([x, z]) => {
+      kiste(scene, 0.04, 1.2, 0.04, "#2c2f38", [x, GROUND_Y + 5.8, z], { schatten: false });
+      const schirm = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.35, 12, 1, true), lambert("#2f6b4a", { side: THREE.DoubleSide }));
+      schirm.position.set(x, GROUND_Y + 5.1, z);
+      scene.add(schirm);
+      const birne = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), new THREE.MeshBasicMaterial({ color: "#fff2c0" }));
+      birne.position.set(x, GROUND_Y + 4.95, z);
+      scene.add(birne);
+    });
   }
 
   shot() {
@@ -592,6 +682,7 @@ export class SortBelt extends MinigameScene {
   }
 
   tick(f) {
+    this.clockHands?.forEach((zeiger) => { zeiger.rotation.z = -(f.now / 1000) * zeiger.userData.speed; });
     const { now, dt, arcade, controlledId, finale } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
@@ -734,4 +825,24 @@ function paintSign(sprite, category, background, color) {
   ctx.fillStyle = color;
   ctx.fillText(category.name, 78, h / 2 + 2);
   sprite.material.map.needsUpdate = true;
+}
+
+function schildTextur(text) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#2f6fb0";
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 8;
+  ctx.strokeRect(6, 6, 500, 116);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 58px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 256, 68);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }

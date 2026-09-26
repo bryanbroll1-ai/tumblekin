@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
 // fliegt die Figur. Ziel ist die FLAGGE, deren Abstand jede Runde wechselt;
@@ -110,6 +111,7 @@ export class CannonFly extends MinigameScene {
 
     this.buildTarget();
     this.buildWindsock();
+    this.buildCastle(scene);
 
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.addStation(player, index, players.length));
@@ -122,6 +124,91 @@ export class CannonFly extends MinigameScene {
     this.preview.rotation.x = -Math.PI / 2;
     this.preview.visible = false;
     this.scene.add(this.preview);
+  }
+
+  // Ein Burghof: am Ende der Flugbahn die Burgmauer mit Zinnen, zwei Türmen,
+  // Tor und wehenden Fahnen; an den Seiten gestreifte Zelte, bei den Kanonen
+  // Kugelpyramiden und Pulverfässer, entlang der Bahn Wimpelmasten.
+  buildCastle(scene) {
+    const zufall = streuer(33);
+    const stein = lambert("#a8a39a");
+    const mauerZ = -21;
+    kiste(scene, 22, 3.6, 1.4, "#a8a39a", [0, 1.8, mauerZ]);
+    const zinnen = [];
+    for (let x = -10.6; x <= 10.6; x += 0.9) zinnen.push({ p: [x, 3.85, mauerZ + 0.3] });
+    viele(scene, new THREE.BoxGeometry(0.5, 0.5, 0.6), stein, zinnen, { schatten: true });
+    const steine = [];
+    for (let i = 0; i < 40; i += 1) steine.push({ p: [(zufall() - 0.5) * 21, 0.4 + zufall() * 3, mauerZ + 0.71], s: [0.5 + zufall() * 0.5, 0.25, 0.02] });
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#938e84"), steine);
+    // Tor.
+    kiste(scene, 2.4, 2.6, 0.2, "#5a3e2a", [0, 1.3, mauerZ + 0.72]);
+    const gitter = [];
+    for (let x = -1; x <= 1.01; x += 0.33) gitter.push({ p: [x, 1.3, mauerZ + 0.84] });
+    viele(scene, new THREE.BoxGeometry(0.06, 2.5, 0.06), lambert("#2c2f38"), gitter);
+    // Türme.
+    this.castleFlags = [];
+    [[-5.5, "#c8413b"], [5.5, "#2f6fb0"]].forEach(([x, farbe]) => {
+      const turm = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.4, 6, 14), stein);
+      turm.position.set(x, 3, mauerZ + 0.2);
+      turm.castShadow = true;
+      scene.add(turm);
+      const dach = new THREE.Mesh(new THREE.ConeGeometry(1.6, 2.2, 14), lambert(farbe));
+      dach.position.set(x, 7.1, mauerZ + 0.2);
+      scene.add(dach);
+      const fenster = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.8), lambert("#2c2f38"));
+      fenster.position.set(x, 4.2, mauerZ + 1.51);
+      scene.add(fenster);
+      kiste(scene, 0.07, 1.4, 0.07, "#5a3e2a", [x, 8.9, mauerZ + 0.2]);
+      const fahne = kiste(scene, 0.9, 0.5, 0.03, farbe, [x + 0.47, 9.3, mauerZ + 0.2], { schatten: false });
+      fahne.geometry.translate(0, 0, 0);
+      this.castleFlags.push(fahne);
+    });
+    // Zelte an den Seiten.
+    [[-7.2, -3.5, "#ff5d73"], [7.4, -6.5, "#28c7d9"], [-7.8, -11, "#ffd15c"]].forEach(([x, z, farbe]) => {
+      const zelt = new THREE.Group();
+      const wand = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 1.1, 12), lambert("#fff4e0"));
+      wand.position.y = 0.55;
+      zelt.add(wand);
+      const streifen = [];
+      for (let i = 0; i < 6; i += 1) streifen.push({ p: [Math.cos((i / 6) * Math.PI * 2) * 1.11, 0.55, Math.sin((i / 6) * Math.PI * 2) * 1.11], r: [0, -(i / 6) * Math.PI * 2 + Math.PI / 2, 0] });
+      viele(zelt, new THREE.BoxGeometry(0.3, 1.1, 0.02), lambert(farbe), streifen);
+      const dach = new THREE.Mesh(new THREE.ConeGeometry(1.35, 1.2, 12), lambert(farbe));
+      dach.position.y = 1.7;
+      zelt.add(dach);
+      kiste(zelt, 0.05, 0.6, 0.05, "#5a3e2a", [0, 2.5, 0]);
+      kiste(zelt, 0.3, 0.2, 0.02, "#ffffff", [0.16, 2.7, 0], { schatten: false });
+      zelt.position.set(x, 0, z);
+      scene.add(zelt);
+    });
+    // Kugelpyramiden und Pulverfässer neben den Kanonen.
+    const count = Math.max(1, this.getState()?.players?.length || 4);
+    const aussen = (count * LANE_GAP) / 2 + 0.7;
+    const kugeln = [];
+    [-1, 1].forEach((seite) => {
+      const x0 = seite * aussen;
+      [[0, 0, 0], [0.26, 0, 0], [0.13, 0, 0.22], [0.13, 0.2, 0.08]].forEach(([dx, dy, dz]) => kugeln.push({ p: [x0 + dx, 0.13 + dy, CANNON_Z + 0.4 + dz] }));
+    });
+    viele(scene, new THREE.SphereGeometry(0.14, 10, 8), lambert("#2c2f38"), kugeln, { schatten: true });
+    [[-aussen - 0.2, CANNON_Z - 0.6], [aussen + 0.3, CANNON_Z - 0.3]].forEach(([x, z]) => {
+      const fass = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.55, 10), lambert("#8a5a3a"));
+      fass.position.set(x, 0.28, z);
+      fass.castShadow = true;
+      scene.add(fass);
+      kiste(scene, 0.54, 0.05, 0.54, "#2c2f38", [x, 0.4, z], { schatten: false });
+    });
+    // Wimpelmasten entlang der Bahn.
+    const masten = [];
+    const wimpel = [[], []];
+    for (let m = 10; m <= 90; m += 20) {
+      const z = CANNON_Z - 0.9 - m * 0.15;
+      [-1, 1].forEach((seite, i) => {
+        masten.push({ p: [seite * 4.4, 1.1, z] });
+        wimpel[i].push({ p: [seite * 4.4 + 0.24, 2.0, z] });
+      });
+    }
+    viele(scene, new THREE.BoxGeometry(0.06, 2.2, 0.06), lambert("#5a3e2a"), masten, { schatten: true });
+    viele(scene, new THREE.BoxGeometry(0.44, 0.28, 0.02), lambert("#c8413b"), wimpel[0]);
+    viele(scene, new THREE.BoxGeometry(0.44, 0.28, 0.02), lambert("#2f6fb0"), wimpel[1]);
   }
 
   // Die Zielzone quer über alle Bahnen: gold um die Flagge, heller aussen,
@@ -321,6 +408,7 @@ export class CannonFly extends MinigameScene {
   }
 
   tick(f) {
+    this.castleFlags?.forEach((fahne, i) => { fahne.rotation.y = Math.sin(f.now / 280 + i) * 0.35; });
     const { now, dt, arcade, players, controlledId, finale } = f;
     if (!arcade) return;
     const elapsed = now - f.minigame.startedAt;

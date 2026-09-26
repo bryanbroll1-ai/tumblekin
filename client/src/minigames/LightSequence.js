@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
+import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin200";
 
 // Leuchtfolge: die Pilze leuchten in einer Folge auf, danach tippt man sie in
 // derselben Reihenfolge nach. Jede Runde wird die Folge länger.
@@ -37,9 +37,9 @@ export class LightSequence extends MinigameScene {
   stage() {
     return {
       label: "3D Leuchtfolge",
-      background: "#8fd3ef",
-      fog: ["#b3e4f6", 20, 50],
-      lights: { sunPosition: [-4, 12, 8], shadow: { left: -5, right: 5, top: 8, bottom: -3 } }
+      background: "#6a5ab0",
+      fog: ["#8a6ab0", 20, 50],
+      lights: { sunPosition: [-4, 12, 8], sunColor: 0xffd8e8, sunIntensity: 2.2, hemiIntensity: 1.8, skyColor: 0xd8c8ff, groundColor: 0x3a5a3a, shadow: { left: -5, right: 5, top: 8, bottom: -3 } }
     };
   }
 
@@ -102,11 +102,7 @@ export class LightSequence extends MinigameScene {
 
     SPOTS.forEach((spot, index) => this.buildPad(spot, index));
 
-    [[-5.4, 6.2, -8, 5], [5.2, 6.9, -9, 2]].forEach(([x, y, z, seed]) => {
-      const cloud = createCloud(seed);
-      cloud.position.set(x, y, z);
-      scene.add(cloud);
-    });
+    this.buildEnchanted(scene);
 
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
@@ -114,6 +110,93 @@ export class LightSequence extends MinigameScene {
       this.addKin(player, index, { x, ground: 0, z: CHOIR_Z - Math.abs(x) * 0.25, facing: 0 });
       this.watch.set(player.id, { progress: 0, failed: false, round: -1 });
     });
+  }
+
+  // Die Lichtung liegt in einem Zauberwald in der Dämmerung: kleine
+  // Leuchtpilze im Kreis um die Spielpilze, Farnwedel, ein Baumstumpf mit
+  // Tür und erleuchtetem Fenster, eine Lichterkette zwischen den Bäumen und
+  // Glühwürmchen, die über allem schweben.
+  buildEnchanted(scene) {
+    himmel(scene, { oben: "#4a3f8f", unten: "#f2a6c4" });
+    const zufall = streuer(71);
+    // Leuchtpilze im Kreis.
+    const huete = [[], [], []];
+    const stiele = [];
+    for (let i = 0; i < 30; i += 1) {
+      const a = (i / 30) * Math.PI * 2 + zufall() * 0.15;
+      const r = 3.55 + zufall() * 0.5;
+      const x = Math.cos(a) * r;
+      const z = 0.5 + Math.sin(a) * r;
+      const h = 0.12 + zufall() * 0.14;
+      stiele.push({ p: [x, h / 2, z], s: [1, h / 0.2, 1] });
+      huete[i % 3].push({ p: [x, h, z], s: 0.7 + zufall() * 0.6 });
+    }
+    viele(scene, new THREE.CylinderGeometry(0.03, 0.04, 0.2, 6), lambert("#efe6d6"), stiele);
+    ["#7fffe0", "#c9a0ff", "#ffe07f"].forEach((farbe, i) => viele(scene, new THREE.SphereGeometry(0.1, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: farbe }), huete[i]));
+    // Farne.
+    const farn = [];
+    for (let i = 0; i < 18; i += 1) {
+      const a = zufall() * Math.PI * 2;
+      const r = 4.4 + zufall() * 2;
+      const x = Math.cos(a) * r;
+      const z = 0.5 + Math.sin(a) * r;
+      if (z > 3) continue;
+      for (let k = 0; k < 5; k += 1) farn.push({ p: [x, 0.05, z], r: [-0.6, (k / 5) * Math.PI * 2 + a, 0], s: [0.12, 1, 0.45] });
+    }
+    const wedel = new THREE.BoxGeometry(1, 0.03, 1);
+    wedel.translate(0, 0, 0.5);
+    viele(scene, wedel, lambert("#3f8f45"), farn);
+    // Baumstumpf-Haus hinten links.
+    const stumpf = new THREE.Group();
+    const koerper = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 1.8, 12), lambert("#7a5330"));
+    koerper.position.y = 0.9;
+    koerper.castShadow = true;
+    stumpf.add(koerper);
+    const dach = new THREE.Mesh(new THREE.ConeGeometry(1.2, 1.1, 12), lambert("#c8413b"));
+    dach.position.y = 2.3;
+    stumpf.add(dach);
+    viele(stumpf, new THREE.SphereGeometry(0.1, 8, 6), lambert("#ffffff"), [[0.5, 2.1, 0.6], [-0.4, 2.3, 0.5], [0.1, 2.6, 0.4], [-0.6, 2.0, -0.1]].map((p) => ({ p })));
+    const tuer = new THREE.Mesh(new THREE.CircleGeometry(0.32, 16, 0, Math.PI), lambert("#4a3020"));
+    tuer.position.set(0, 0.4, 1.0);
+    stumpf.add(tuer);
+    kiste(stumpf, 0.64, 0.4, 0.02, "#4a3020", [0, 0.2, 1.0], { schatten: false });
+    const fenster = new THREE.Mesh(new THREE.CircleGeometry(0.18, 12), new THREE.MeshBasicMaterial({ color: "#ffd98a" }));
+    fenster.position.set(0.45, 1.2, 0.86);
+    fenster.rotation.y = 0.4;
+    stumpf.add(fenster);
+    stumpf.position.set(-3.6, 0, -3.6);
+    stumpf.rotation.y = 0.5;
+    scene.add(stumpf);
+    // Lichterkette zwischen zwei Stangen hinten.
+    const a = new THREE.Vector3(-3.2, 2.4, -4.4);
+    const b = new THREE.Vector3(3.6, 2.2, -4.0);
+    [a, b].forEach((p) => kiste(scene, 0.08, p.y, 0.08, "#6b4a2e", [p.x, p.y / 2, p.z]));
+    const lichter = [];
+    const kurve = [];
+    for (let i = 0; i <= 20; i += 1) {
+      const t = i / 20;
+      const p = a.clone().lerp(b, t);
+      p.y -= Math.sin(t * Math.PI) * 0.5;
+      kurve.push(p);
+      if (i % 2 === 1) lichter.push({ p: [p.x, p.y - 0.08, p.z] });
+    }
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(kurve), new THREE.LineBasicMaterial({ color: "#3b2a20" })));
+    this.fairyLights = viele(scene, new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffffff" }), lichter);
+    this.fairyCount = lichter.length;
+    this.fairyColor = new THREE.Color();
+    // Glühwürmchen.
+    const n = 60;
+    const pos = new Float32Array(n * 3);
+    this.fireflySeeds = [];
+    for (let i = 0; i < n; i += 1) {
+      this.fireflySeeds.push({ x: (zufall() - 0.5) * 12, y: 0.4 + zufall() * 2.4, z: -5 + zufall() * 8, p: zufall() * 6 });
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    this.fireflies = new THREE.Points(geo, new THREE.PointsMaterial({ color: "#fff27a", size: 0.09, transparent: true, opacity: 0.9, depthWrite: false }));
+    this.fireflies.userData.isFx = true;
+    this.fireflies.frustumCulled = false;
+    scene.add(this.fireflies);
   }
 
   buildPad(spot, index) {
@@ -281,6 +364,20 @@ export class LightSequence extends MinigameScene {
   }
 
   tick(f) {
+    const zeit = f.now / 1000;
+    if (this.fireflies) {
+      const p = this.fireflies.geometry.attributes.position;
+      this.fireflySeeds.forEach((ff, i) => {
+        p.setXYZ(i, ff.x + Math.sin(zeit * 0.6 + ff.p) * 0.6, ff.y + Math.sin(zeit * 1.3 + ff.p * 2) * 0.25, ff.z + Math.cos(zeit * 0.5 + ff.p) * 0.6);
+      });
+      p.needsUpdate = true;
+      this.fireflies.material.opacity = 0.6 + Math.sin(zeit * 3) * 0.3;
+    }
+    if (this.fairyLights) {
+      const farben = ["#ff8fb1", "#ffe27a", "#7fffe0", "#c9a0ff"];
+      for (let i = 0; i < this.fairyCount; i += 1) this.fairyLights.setColorAt(i, this.fairyColor.set(farben[(i + Math.floor(zeit * 2)) % farben.length]));
+      this.fairyLights.instanceColor.needsUpdate = true;
+    }
     const { now, dt, arcade, players, controlledId, finale } = f;
     if (!arcade) return;
     const active = this.activeRound();
