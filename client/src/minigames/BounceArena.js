@@ -16,12 +16,14 @@ import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 // treibt dort weiter und paddelt zurück, bis er wieder auf die Insel darf.
 //
 // Die Masse folgen der Physik des Servers: Insel 1.0, Figur 0.11 — hier mal
-// SCALE. Der Ring ist etwas grösser als der Stossradius, damit er sich beim
-// Aufprall sichtbar eindrückt statt kurz vorher abzuprallen.
+// SCALE. Der Schwimmring ist etwas breiter als der Stossradius; damit sich
+// zwei Ringe trotzdem nie durchdringen, schiebt ringeTrennen sie fürs Bild
+// auseinander.
 const SCALE = 2.6;
 const PLATE_R = 2.72;
 const DECK_Y = 0.3;
 const BLOOM_R = 0.11 * SCALE * 1.12;
+const RING_AUSSEN = BLOOM_R - 0.05 + 0.1; // Bogenradius plus Schlauch
 const WATER_Y = -0.12;
 const FLOAT_R = 3.75;
 const FLY_MS = 900;
@@ -110,7 +112,7 @@ export class BounceArena extends MinigameScene {
     const segments = 8;
     for (let i = 0; i < segments; i += 1) {
       const arc = new THREE.Mesh(
-        new THREE.TorusGeometry(BLOOM_R - 0.05, 0.1, 8, 5, (Math.PI * 2) / segments + 0.01),
+        new THREE.TorusGeometry(BLOOM_R - 0.05, 0.1, 8, 5, (Math.PI * 2) / segments),
         i % 2 ? whiteMat : colorMat
       );
       arc.rotation.x = Math.PI / 2;
@@ -278,7 +280,7 @@ export class BounceArena extends MinigameScene {
     this.rim.material = red;
     const segments = 16;
     for (let i = 0; i < segments; i += 1) {
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(PLATE_R + 0.04, 0.16, 8, 6, (Math.PI * 2) / segments + 0.01), i % 2 ? white : red);
+      const arc = new THREE.Mesh(new THREE.TorusGeometry(PLATE_R + 0.04, 0.16, 8, 6, (Math.PI * 2) / segments), i % 2 ? white : red);
       arc.rotation.x = Math.PI / 2;
       arc.rotation.z = (i / segments) * Math.PI * 2;
       arc.castShadow = true;
@@ -377,6 +379,64 @@ export class BounceArena extends MinigameScene {
     this.lastServerAt = nowP;
   }
 
+  // Zwei Schwimmringe stecken nie ineinander. Der Server stösst zwei Figuren
+  // erst ab, wenn sich ihre Stosskreise berühren, und die liegen etwas
+  // innerhalb der Ringe; dazu schiebt der kleine Vorlauf aus der
+  // Geschwindigkeit zwei, die aufeinander zufahren, bis zum nächsten Takt
+  // noch weiter zusammen. Fürs Bild werden die Ringe darum auseinander-
+  // gedrückt, bis sie sich gerade berühren. Die Spielposition bleibt die des
+  // Servers; das Nachziehen holt die Ringe im nächsten Bild weich heran.
+  // Das gilt auch für den, der gerade zurückgesprungen ist: auf dem Server
+  // fährt er noch durch alle hindurch, im Bild gleitet er an ihnen vorbei.
+  ringeTrennen(ringe, arena) {
+    if (ringe.length < 2) return;
+    // Nicht über die Kante hinaus drücken, an der der Server einen hält.
+    const kante = ((arena.radius ?? 1) - (arena.ballRadius ?? 0.11)) * SCALE;
+    const schiebe = (ring, x, z) => {
+      const p = ring.bloom.position;
+      const vorher = Math.hypot(p.x, p.z);
+      let nx = p.x + x;
+      let nz = p.z + z;
+      const nachher = Math.hypot(nx, nz);
+      const grenze = Math.max(kante, vorher);
+      if (nachher > grenze) {
+        nx *= grenze / nachher;
+        nz *= grenze / nachher;
+      }
+      const dx = nx - p.x;
+      const dz = nz - p.z;
+      p.x = nx;
+      p.z = nz;
+      ring.kin.position.x += dx;
+      ring.kin.position.z += dz;
+      if (ring.shadow) {
+        ring.shadow.position.x += dx;
+        ring.shadow.position.z += dz;
+      }
+    };
+    for (let runde = 0; runde < 4; runde += 1) {
+      let eng = false;
+      for (let i = 0; i < ringe.length; i += 1) {
+        for (let j = i + 1; j < ringe.length; j += 1) {
+          const a = ringe[i].bloom.position;
+          const b = ringe[j].bloom.position;
+          const noetig = RING_AUSSEN * (ringe[i].bloom.scale.x + ringe[j].bloom.scale.x);
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          const d = Math.hypot(dx, dz);
+          if (d >= noetig - 1e-4) continue;
+          eng = true;
+          const nx = d > 1e-4 ? dx / d : 1;
+          const nz = d > 1e-4 ? dz / d : 0;
+          const halb = (noetig - d) / 2;
+          schiebe(ringe[i], -nx * halb, -nz * halb);
+          schiebe(ringe[j], nx * halb, nz * halb);
+        }
+      }
+      if (!eng) break;
+    }
+  }
+
   tick(f) {
     const { now, dt, minigame, players, controlledId, finale } = f;
     const arena = minigame.arena;
@@ -384,6 +444,7 @@ export class BounceArena extends MinigameScene {
     const frameNow = performance.now();
     const snapshotAge = Math.min(0.22, (frameNow - this.lastServerAt) / 1000);
     let danger = 0;
+    const aufInsel = [];
 
     players.forEach((player) => {
       const entry = arena.players[player.id];
@@ -552,6 +613,7 @@ export class BounceArena extends MinigameScene {
         shadow.position.set(bloom.position.x, DECK_Y + 0.012, bloom.position.z);
         shadow.material.opacity = 0.24;
       }
+      aufInsel.push({ bloom, kin, shadow });
 
       // Spur legen, solange Fahrt drin ist.
       if (speed > 1.1) {
@@ -568,6 +630,8 @@ export class BounceArena extends MinigameScene {
         }
       }
     });
+
+    this.ringeTrennen(aufInsel, arena);
 
     this.pulse *= frameDecay(0.85, dt);
     const radius = arena.radius ?? 1;

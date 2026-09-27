@@ -164,30 +164,30 @@ const BAU = {
   TorusGeometry({ radius = 1, tube = 0.4, arc = TAU }) {
     // Ein Schlauch aus Voxeln: das Rohr hat einen gestuften, runden
     // Querschnitt (eine kleine Pixelscheibe) und läuft in kurzen, geraden
-    // Stücken um den Ring — wie ein Schwimmring aus Klötzchen. Teilbögen
-    // (die Streifen eines Rings) bekommen ihre eigenen Stücke und setzen sich
-    // lückenlos zusammen.
+    // Stücken um den Ring — wie ein Schwimmring aus Klötzchen. Die Stücke sind
+    // Keile, keine Quader: benachbarte Stücke teilen sich genau eine Fläche und
+    // überlappen nirgends. Überlappende Blöcke zweier Farben durchdringen sich
+    // und flimmern, sobald sich die Kamera bewegt.
     const tubeZellen = tube < 0.12 ? 3 : tube < 0.3 ? 5 : 7;
     const zelle = (tube * 2) / tubeZellen;
     const querschnitt = scheibe(zelle, tube, (x, y) => Math.hypot(x, y) <= tube * 0.93 || (x === 0 && y === 0));
-    const bogen = Math.min(TAU, Math.max(1e-3, arc));
+    let bogen = Math.min(TAU, Math.max(1e-3, arc));
+    // Gestreifte Ringe werden aus Bögen gebaut, die ein Stück länger sind als
+    // ihr Anteil (2π/n + 0.01), damit glatte Nähte nicht aufklaffen. Als Blöcke
+    // lägen dort zwei Farben übereinander. Die Keile schliessen ohnehin
+    // lückenlos, also zurück auf genau 2π/n.
+    const teile = Math.round(TAU / bogen);
+    if (teile >= 2 && bogen > TAU / teile && bogen - TAU / teile < 0.05) bogen = TAU / teile;
     const rundum = Math.max(8, Math.min(48, Math.round((TAU * radius) / (zelle * 1.6))));
     const stuecke = Math.max(1, Math.round(rundum * bogen / TAU));
     const schritt = bogen / stuecke;
+    const offen = bogen < TAU - 1e-6;
     const bau = new Bau();
     for (let i = 0; i < stuecke; i += 1) {
-      const a = (i + 0.5) * schritt;
-      const radial = [Math.cos(a), Math.sin(a), 0];
-      const tangente = [-Math.sin(a), Math.cos(a), 0];
+      const a0 = i * schritt;
+      const a1 = i === stuecke - 1 ? bogen : (i + 1) * schritt;
       querschnitt.forEach(({ x0, x1, y0, y1 }) => {
-        // Aussen länger als innen, damit sich die Stücke aussen nicht öffnen.
-        const halb = (radius + Math.max(Math.abs(x0), Math.abs(x1))) * Math.tan(schritt / 2) + 0.002;
-        const mitte = radius + (x0 + x1) / 2;
-        bau.quader(
-          [radial[0] * mitte, radial[1] * mitte, (y0 + y1) / 2],
-          radial, tangente, [0, 0, 1],
-          (x1 - x0) / 2, halb, (y1 - y0) / 2
-        );
+        bau.keil(radius + x0, radius + x1, a0, a1, y0, y1, { anfang: offen && i === 0, ende: offen && i === stuecke - 1 });
       });
     }
     return bau.geometrie(planarUV(radius + tube));
@@ -358,32 +358,38 @@ class Bau {
     });
   }
 
-  // Ein gedrehter Quader: Mitte, drei Achsen (Einheitsvektoren) und die
-  // halben Kantenlängen entlang dieser Achsen.
-  quader(mitte, ax, ay, az, hx, hy, hz) {
-    const ecke = (sx, sy, sz) => [
-      mitte[0] + ax[0] * hx * sx + ay[0] * hy * sy + az[0] * hz * sz,
-      mitte[1] + ax[1] * hx * sx + ay[1] * hy * sy + az[1] * hz * sz,
-      mitte[2] + ax[2] * hx * sx + ay[2] * hy * sy + az[2] * hz * sz
-    ];
-    const neg = (v) => [-v[0], -v[1], -v[2]];
+  // Ein Keil aus einem Ring in der xy-Ebene: Radius r0 bis r1, Winkel a0
+  // bis a1, Höhe (z) z0 bis z1. Die Stirnflächen an a0 und a1 entstehen nur,
+  // wo der Ring aufhört — zwischen zwei Keilen lägen sie im Inneren.
+  keil(r0, r1, a0, a1, z0, z1, { anfang = true, ende = true } = {}) {
+    const p = (r, a, z) => [r * Math.cos(a), r * Math.sin(a), z];
+    const am = (a0 + a1) / 2;
     const flaechen = [
-      [ax, [ecke(1, -1, 1), ecke(1, -1, -1), ecke(1, 1, -1), ecke(1, 1, 1)]],
-      [neg(ax), [ecke(-1, -1, -1), ecke(-1, -1, 1), ecke(-1, 1, 1), ecke(-1, 1, -1)]],
-      [ay, [ecke(-1, 1, 1), ecke(1, 1, 1), ecke(1, 1, -1), ecke(-1, 1, -1)]],
-      [neg(ay), [ecke(-1, -1, -1), ecke(1, -1, -1), ecke(1, -1, 1), ecke(-1, -1, 1)]],
-      [az, [ecke(-1, -1, 1), ecke(1, -1, 1), ecke(1, 1, 1), ecke(-1, 1, 1)]],
-      [neg(az), [ecke(1, -1, -1), ecke(-1, -1, -1), ecke(-1, 1, -1), ecke(1, 1, -1)]]
+      [[Math.cos(am), Math.sin(am), 0], [p(r1, a0, z0), p(r1, a1, z0), p(r1, a1, z1), p(r1, a0, z1)]],
+      [[-Math.cos(am), -Math.sin(am), 0], [p(r0, a0, z0), p(r0, a1, z0), p(r0, a1, z1), p(r0, a0, z1)]],
+      [[0, 0, 1], [p(r0, a0, z1), p(r1, a0, z1), p(r1, a1, z1), p(r0, a1, z1)]],
+      [[0, 0, -1], [p(r0, a0, z0), p(r1, a0, z0), p(r1, a1, z0), p(r0, a1, z0)]]
     ];
-    flaechen.forEach(([n, ecken]) => {
-      const i = this.pos.length / 3;
-      ecken.forEach(([x, y, z]) => {
-        this.pos.push(x, y, z);
-        this.norm.push(n[0], n[1], n[2]);
-        this.punkte.push(x, y, z);
-      });
-      this.idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+    if (anfang) flaechen.push([[Math.sin(a0), -Math.cos(a0), 0], [p(r0, a0, z0), p(r1, a0, z0), p(r1, a0, z1), p(r0, a0, z1)]]);
+    if (ende) flaechen.push([[-Math.sin(a1), Math.cos(a1), 0], [p(r0, a1, z0), p(r1, a1, z0), p(r1, a1, z1), p(r0, a1, z1)]]);
+    flaechen.forEach(([n, ecken]) => this.flaeche(n, ecken));
+  }
+
+  // Ein Viereck mit gegebener Normale; die Reihenfolge der Ecken wird so
+  // gedreht, dass die Vorderseite nach aussen zeigt.
+  flaeche(n, ecken) {
+    const [a, b, c] = ecken;
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const kreuz = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const reihe = kreuz[0] * n[0] + kreuz[1] * n[1] + kreuz[2] * n[2] < 0 ? [...ecken].reverse() : ecken;
+    const i = this.pos.length / 3;
+    reihe.forEach(([x, y, z]) => {
+      this.pos.push(x, y, z);
+      this.norm.push(n[0], n[1], n[2]);
+      this.punkte.push(x, y, z);
     });
+    this.idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
   }
 
   geometrie(uvVon) {
