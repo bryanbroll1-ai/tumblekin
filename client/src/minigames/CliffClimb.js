@@ -293,11 +293,17 @@ export class CliffClimb extends MinigameScene {
     // hin. Meist wechseln sie die Seite, alle paar Sprossen kommen zwei auf
     // derselben — wer nur trommelt, rutscht dort ab.
     this.sides = this.readSides();
+    // Die Griffe tragen die Farbe dessen, der an ihnen klettert. Vorher kam
+    // die Farbe aus einer festen Liste je Bahn — Nova (türkis) kletterte an
+    // gelben Griffen, und man suchte seine Bahn an der falschen Farbe.
     const holdColors = ["#ff5c8a", "#ffc400", "#43e38c", "#4bb8ff"];
-    const count = this.getState()?.players?.length || 4;
+    const lanePlayers = this.getState()?.players || [];
+    const count = lanePlayers.length || 4;
+    const ownIndex = lanePlayers.findIndex((player) => player.id === this.getControlledPlayerId());
     for (let lane = 0; lane < count; lane += 1) {
       const lx = this.laneX(lane, count);
-      const laneMat = new THREE.MeshLambertMaterial({ color: holdColors[lane % holdColors.length] });
+      const laneColor = lanePlayers[lane]?.color || holdColors[lane % holdColors.length];
+      const laneMat = new THREE.MeshLambertMaterial({ color: laneColor });
       const laneHolds = [];
       // Genau so viele Griffe, wie ins Bild passen — sie werden beim Steigen
       // oben wieder angesetzt (siehe scrollWall). Ein endloser Vorrat wäre
@@ -305,7 +311,11 @@ export class CliffClimb extends MinigameScene {
       // sieht. Weil das Band genau so lang ist wie die Griffolge, steht nach
       // einem Umlauf wieder derselbe Griff da.
       for (let step = 0; step < HOLDS_PER_LANE; step += 1) {
-        const hold = new THREE.Mesh(new THREE.BoxGeometry(HOLD_W, 0.2, 0.24), laneMat);
+        // Die eigene Bahn bekommt je Griff ein eigenes Material: die nächsten
+        // Griffe leuchten, die schon genommenen treten zurück.
+        const mat = lane === ownIndex ? new THREE.MeshLambertMaterial({ color: laneColor, emissive: laneColor, emissiveIntensity: 0 }) : laneMat;
+        const hold = new THREE.Mesh(new THREE.BoxGeometry(HOLD_W, 0.2, 0.24), mat);
+        hold.userData.baseColor = laneColor;
         hold.position.set(
           lx + this.sideAt(step) * HOLD_REACH,
           KIN_BASE_Y + step * WORLD_PER_RUNG + HOLD_LIFT,
@@ -720,10 +730,26 @@ export class CliffClimb extends MinigameScene {
       ? lane?.[((own.rung || 0) % HOLDS_PER_LANE)]
       : null;
     if (!this.nextMark) return;
+    // Die nächsten drei Griffe leuchten abgestuft, damit man die Folge schon
+    // vorausliest — gerade die Doppelsprossen. Was man hinter sich hat, wird
+    // dunkler.
+    const rung = own?.rung || 0;
+    lane?.forEach((grip, index) => {
+      if (!grip.material?.emissive || grip.material === lane[(index + 1) % HOLDS_PER_LANE]?.material) return;
+      const ahead = ((index - rung) % HOLDS_PER_LANE + HOLDS_PER_LANE) % HOLDS_PER_LANE;
+      const behind = ahead >= HOLDS_PER_LANE - 14;
+      const glow = !hold ? 0 : ahead === 0 ? 0.55 : ahead <= 3 ? 0.42 - ahead * 0.1 : 0;
+      grip.material.emissiveIntensity = glow;
+      grip.material.color.set(grip.userData.baseColor).multiplyScalar(behind && hold ? 0.55 : 1);
+    });
     this.nextMark.visible = Boolean(hold);
     if (!hold) return;
     this.nextMark.position.set(hold.position.x, hold.position.y, hold.position.z + 0.16);
-    const pulse = 1 + Math.sin(now / 150) * 0.12;
+    // Liegt der nächste Griff auf DERSELBEN Seite wie der letzte, wird der
+    // Ring orange: hier nicht aus Gewohnheit die andere Hand nehmen.
+    const same = rung >= 1 && this.sideAt(rung) === this.sideAt(rung - 1);
+    this.nextMark.material.color.set(same ? "#ffb04a" : "#ffffff");
+    const pulse = 1 + Math.sin(now / (same ? 90 : 150)) * (same ? 0.2 : 0.12);
     this.nextMark.scale.setScalar(pulse);
     this.nextMark.material.opacity = 0.55 + Math.sin(now / 150) * 0.25;
   }
