@@ -154,13 +154,19 @@ export class BarrelRoll extends MinigameScene {
     // sich nach dem Abstand zum Scheitelpunkt, und der dreht nicht mit.
     const limit = this.minigame?.arcade?.limit || 1.7;
     const zoneAngle = (limit * 0.4) / BARREL_R;
+    // Geschlossen und kräftig grün: mit Lücken und blassem Mint ging das Band
+    // im Holz unter, und man sah nicht, wo es Punkte gibt.
+    this.zoneBands = [];
+    const zoneStep = zoneAngle / 3;
     for (let i = -3; i <= 3; i += 1) {
       const angle = (i / 3) * zoneAngle;
       const near = 1 - Math.abs(i) / 3;
       const band = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 0.02, 3.3),
-        new THREE.MeshBasicMaterial({ color: near > 0.6 ? "#c9ffdc" : "#5fe08a", transparent: true, opacity: 0.35 + near * 0.55, depthWrite: false, toneMapped: false })
+        new THREE.BoxGeometry(zoneStep * (BARREL_R + 0.08) + 0.01, 0.02, 3.3),
+        new THREE.MeshBasicMaterial({ color: near > 0.6 ? "#b6ffcf" : near > 0.3 ? "#5ff09a" : "#2fd070", transparent: true, opacity: 0.62 + near * 0.3, depthWrite: false, toneMapped: false })
       );
+      band.userData.near = near;
+      this.zoneBands.push(band);
       // Flach auf den Dauben, nicht darüber schwebend: die Figuren liefen
       // sonst durch die Bänder hindurch.
       band.position.set(Math.sin(angle) * (BARREL_R + 0.08), BARREL_CENTER_Y + Math.cos(angle) * (BARREL_R + 0.08), 0);
@@ -313,11 +319,15 @@ export class BarrelRoll extends MinigameScene {
     // hintereinander auf der Oberseite, nach hinten gestaffelt. Vorher schaute
     // die Kamera fast senkrecht von oben — der Stamm sah aus wie ein stehender
     // Turm, und dass er rollt, las man nur an der Anzeige.
+    // Steiler als früher (0.62): flach von vorn verdeckte die vordere Figur
+    // die hinteren, alle vier klebten als Knäuel auf dem Stamm, und die
+    // Stirnscheibe füllte das halbe Bild. Von weiter oben stehen die vier
+    // sichtbar hintereinander, und die Stirn zeigt trotzdem noch, wie er rollt.
     return {
-      look: [0, TOP_Y - 0.15, 0.2],
-      frame: { w: 4.6, h: 3.3 },
-      yaw: 0.12,
-      pitch: 0.62,
+      look: [0, TOP_Y - 0.25, 0.05],
+      frame: { w: 4.6, h: 3.6 },
+      yaw: 0.1,
+      pitch: 0.92,
       fov: 38,
       intro: { yaw: -0.9, pitch: -0.25, zoom: 1.8 }
     };
@@ -573,6 +583,15 @@ export class BarrelRoll extends MinigameScene {
     const { now, dt, arcade, players, controlledId, finale } = f;
     this.animateRiver(now);
     if (!arcade) return;
+
+    // Steht man selbst im grünen Band, pulsiert es — man sieht, dass gerade
+    // Zeit gutgeschrieben wird.
+    const ich = arcade.players?.[controlledId];
+    const imBand = Boolean(ich && !ich.fallenAt && Math.abs(ich.offset || 0) <= (this.limit || 1.7) * 0.4);
+    this.zoneBands?.forEach((band) => {
+      const grund = 0.62 + band.userData.near * 0.3;
+      band.material.opacity = imBand ? Math.min(1, grund + 0.08 + Math.sin(now / 120) * 0.08) : grund * 0.85;
+    });
 
     // Die Serverdrehung mit dem aktuellen Tempo fortschreiben, damit das Fass
     // zwischen den Ticks gleichmässig rollt.
