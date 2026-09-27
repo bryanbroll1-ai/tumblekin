@@ -375,7 +375,25 @@ export class Trampoline extends MinigameScene {
     const minigame = this.update || this.minigame;
     if (!minigame || minigame.finaleAt) return;
     this.feedback?.sound("tap");
-    this.sendInput({ action: "jump" }).catch(() => {});
+    const sentAt = performance.now();
+    this.sendInput({ action: "jump" }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+  }
+
+  // Wie lange ein Tipp zum Server und zurück braucht, geglättet.
+  //
+  // Der Takt (Klick und Hüpfen) lief auf der Uhr des Geräts, die einen Hinweg
+  // hinter der des Servers hängt, und der Tipp kommt noch einen Hinweg später
+  // an. Wer genau auf den Klick tippte, lag beim Server also um eine Rundreise
+  // zu spät — bei ±110 ms für einen Volltreffer spürbar, und auf dem Handy
+  // mit schwachem WLAN kaum noch zu schaffen. Der Takt läuft darum um die
+  // Rundreise vor. Der Server glaubt dem Gerät dabei nichts, er wertet wie
+  // immer bei Ankunft.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    // Weich einschwingen: ein Sprung im Takt um die ganze Rundreise wäre
+    // hörbar, ein paar Millisekunden je Tipp nicht.
+    this.roundTrip = (this.roundTrip ?? 0) * 0.7 + clamped * 0.3;
   }
 
   heightTier(height) {
@@ -399,7 +417,7 @@ export class Trampoline extends MinigameScene {
     });
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    const elapsed = Math.max(0, now + (this.roundTrip || 0) - minigame.startedAt);
     const beat = beatWindow(elapsed, arcade);
     this.lastWindow = beat;
     const phase = Math.min(1, Math.max(0, (elapsed - beat.start) / beat.interval));
