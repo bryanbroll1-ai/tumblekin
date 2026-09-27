@@ -89,7 +89,8 @@ export const REWORKED = new Set([
   "kanonenflug",
   "messerwurf",
   "turmbau",
-  "bergsteiger"
+  "bergsteiger",
+  "ballonfahrt"
 ]);
 
 export const ARCADE_TYPES = new Set(

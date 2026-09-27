@@ -426,7 +426,20 @@ export class BalloonGlide extends MinigameScene {
   setHolding(value) {
     if (this.holding === value) return;
     this.holding = value;
-    this.sendInput({ action: "lift", down: value }).catch(() => {});
+    const sentAt = performance.now();
+    this.sendInput({ action: "lift", down: value }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+  }
+
+  // Wie lange eine Eingabe zum Server und zurück braucht, geglättet. Der
+  // Landeschatten zeigt, wo ein Sack landen würde, der JETZT fällt — der
+  // Server wertet den Abwurf aber erst bei Ankunft, und die eigene Uhr hängt
+  // ohnehin einen Hinweg hinter seiner. Zusammen ist der Ballon bis dahin um
+  // eine Rundreise weitergefahren: bei 60 ms gut die Hälfte des
+  // Volltreffer-Rings. Der Schatten rechnet sie darum mit ein.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip == null ? clamped : this.roundTrip * 0.7 + clamped * 0.3;
   }
 
   pressDrop() {
@@ -438,7 +451,8 @@ export class BalloonGlide extends MinigameScene {
     this.feedback?.sound("whoosh");
     this.feedback?.vibrate(10);
     this.animators.get(this.getControlledPlayerId())?.trigger("throw");
-    this.sendInput({ action: "drop" }).catch(() => {});
+    const sentAt = performance.now();
+    this.sendInput({ action: "drop" }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
   }
 
   tick(f) {
@@ -579,7 +593,8 @@ export class BalloonGlide extends MinigameScene {
     // grösser und blasser.
     const own = arcade.players[controlledId];
     if (own && this.aim) {
-      const land = x + SPEED * (fallMs(own.y) / 1000);
+      const lead = (this.roundTrip || 0) / 1000;
+      const land = x + SPEED * (lead + fallMs(Math.max(0, Math.min(1, own.y + (own.vy || 0) * lead))) / 1000);
       this.aim.position.x = land;
       const r = 0.35 + own.y * 1.3;
       this.aim.scale.setScalar(r);
