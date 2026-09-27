@@ -13,6 +13,7 @@ import {
 } from "../minigames/VoxelKit.js?v=tumblekin200";
 import { qualityTier, prefersReducedMotion, frameLerp } from "../minigames/Quality.js?v=tumblekin200";
 import { entflechteSchilder } from "../minigames/SceneKit.js?v=tumblekin200";
+import { verblocke } from "../minigames/Blockform.js?v=tumblekin200";
 
 // Die Bühne hinter den Menüs.
 //
@@ -669,6 +670,7 @@ export class MenuStage {
     const labels = [];
     this.members.forEach((entry) => { if (entry.label.visible && entry.kin.visible) labels.push(entry.label); });
     entflechteSchilder(labels, this.camera, { grundY: 0.74, stufe: 0.26, naehe: 0.16 });
+    verblocke(this.scene);
     this.renderer.render(this.scene, this.camera);
   }
 

@@ -71,7 +71,6 @@ export class PegBoard extends MinigameScene {
     this.boardPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -0.12);
     // Schild über der hochgehaltenen Kugel.
     this.labelY = 1.12;
-    this.markerOffset = 1.0;
   }
 
   worldX(x) { return (x - 0.5) * BOARD_W; }

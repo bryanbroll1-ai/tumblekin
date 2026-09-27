@@ -83,11 +83,10 @@ export class BarrelDare extends MinigameScene {
     this.lastHitAt = new Map();
     this.lastBrake = new Map();
     this.localBrake = null;
-    // Namensschild unter die Füsse und keine Markierung über dem Kopf: genau
+    // Namensschild unter die Füsse, nichts über dem Kopf: genau
     // dort, eine Handbreit über dem Kopf, soll das Fass stehen bleiben — und
-    // Schild und Pfeil lagen mitten in der grünen Zielzone.
+    // das Schild lag mitten in der grünen Zielzone.
     this.labelY = -0.5;
-    this.ownMarker = false;
     this.showSeenAt = null;
     this.reveal = new Map();
   }

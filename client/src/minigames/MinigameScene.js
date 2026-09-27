@@ -3,6 +3,7 @@ import {
   createKin,
   KinAnimator,
   createNameLabel,
+  setNameLabelOwn,
   createShadowBlob,
   CubeBurst,
   FloatingText,
@@ -10,9 +11,10 @@ import {
   applyFinaleMood,
   setKinOpacity
 } from "./VoxelKit.js?v=tumblekin200";
-import { mountStage, mountHud, addStageLights, syncOwnMarker, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin200";
+import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin200";
 import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin200";
 import { frameChance } from "./Quality.js?v=tumblekin200";
+import { verblocke } from "./Blockform.js?v=tumblekin200";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
@@ -180,8 +182,16 @@ export class MinigameScene {
       winner,
       ...(this.rigOptions?.(f) || {})
     });
-    if (this.ownMarker !== false) syncOwnMarker(this, own, now, this.markerOffset ?? 0.62, this.markerLift ?? 0.55);
+    // Die eigene Figur trägt das gelbe Schild — auch wenn die Steuerung
+    // wechselt (Dev-Modus: ein Gerät steuert nacheinander mehrere Figuren).
+    if (this.ownLabelFor !== f.controlledId) {
+      this.ownLabelFor = f.controlledId;
+      this.labels.forEach((sprite, id) => setNameLabelOwn(sprite, id === f.controlledId));
+    }
     if (this.labels.size > 1) entflechteSchilder([...this.labels.values()], this.camera, { grundY: this.labelY ?? 0.74, stufe: 0.26, naehe: 0.14 });
+    // Runde Formen als Blöcke (siehe Blockform.js) — auch solche, die ein
+    // Spiel erst während der Runde anlegt.
+    verblocke(this.scene);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -202,7 +212,7 @@ export class MinigameScene {
     kin.position.set(x, standOn(ground), z);
     kin.rotation.y = facing;
     if (label) {
-      const sprite = createNameLabel(String(player.name || "?").slice(0, 8), player.color);
+      const sprite = createNameLabel(String(player.name || "?").slice(0, 8), player.color, { own: player.id === this.getControlledPlayerId() });
       sprite.position.y = this.labelY ?? 0.74;
       kin.add(sprite);
       this.labels.set(player.id, sprite);

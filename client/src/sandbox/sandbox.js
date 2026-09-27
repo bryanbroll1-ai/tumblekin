@@ -6,6 +6,7 @@ import {
   createShadowBlob,
   createVoxelKin
 } from "../minigames/VoxelKit.js?v=tumblekin200";
+import { verblocke } from "../minigames/Blockform.js?v=tumblekin200";
 import { ENVIRONMENT_SETS, OBSTACLE_TYPES, createEnvironment, createObstacle } from "./EnvironmentKit.js?v=tumblekin200";
 
 const PLAYER_COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
@@ -405,6 +406,7 @@ function tick() {
 
   bursts.update(dt);
   camera.position.x = Math.sin(now / 5200) * 0.18;
+  verblocke(scene);
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }

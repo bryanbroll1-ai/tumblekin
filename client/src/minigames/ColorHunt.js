@@ -44,7 +44,6 @@ export class ColorHunt extends MinigameScene {
     this.slotColors = [];
     this.flash = null;
     this.labelY = 0.95;
-    this.markerOffset = 0.75;
   }
 
   stage() {
@@ -233,6 +232,8 @@ export class ColorHunt extends MinigameScene {
     const puddle = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.015, 12), new THREE.MeshLambertMaterial({ color }));
     puddle.position.set(0.08, 0.01, 0.34);
     puddle.scale.z = 0.6;
+    // Ein Fleck am Boden, keine Stufe: wer darauf tritt, steht auf der Wiese.
+    puddle.userData.isFx = true;
     bucket.add(puddle);
     return bucket;
   }

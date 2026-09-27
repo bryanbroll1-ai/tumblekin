@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createOwnMarker, updateOwnMarker, disposeScene } from "./VoxelKit.js?v=tumblekin200";
+import { disposeScene } from "./VoxelKit.js?v=tumblekin200";
 import { qualityTier } from "./Quality.js?v=tumblekin200";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
@@ -8,7 +8,7 @@ import { qualityTier } from "./Quality.js?v=tumblekin200";
 //
 // Each helper takes the minigame instance as `host` and reads/writes the same
 // fields the games already used (canvas, webglCanvas, renderer, scene, camera,
-// hud, ownMarker), so they stay drop-in and the games keep their own structure.
+// hud), so they stay drop-in and the games keep their own structure.
 
 const MAX_PIXEL_RATIO = 2;
 const TONE_EXPOSURE = 0.9;
@@ -175,23 +175,6 @@ export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.
   }
 }
 
-// Keeps the downward "you" arrow pinned over the controlled player's kin so you
-// never lose yourself in the crowd. Pass the kin (or null to hide it).
-export function syncOwnMarker(host, target, now, offset = 0.35, lift = 0.9) {
-  if (!host.scene) return;
-  if (!target) {
-    if (host.ownMarker) host.ownMarker.visible = false;
-    return;
-  }
-  if (!host.ownMarker) {
-    host.ownMarker = createOwnMarker();
-    host.scene.add(host.ownMarker);
-  }
-  host.ownMarker.visible = target.visible !== false;
-  host.ownMarker.position.set(target.position.x, 0, target.position.z);
-  updateOwnMarker(host.ownMarker, now, target.position.y + offset, lift);
-}
-
 // Frees GPU resources and removes the DOM the stage owns. Safe to call twice.
 export function teardownStage(host) {
   if (window.__tumblekinScene === host) window.__tumblekinScene = null;
@@ -206,7 +189,6 @@ export function teardownStage(host) {
   host.hud = null;
   host.scene = null;
   host.renderer = null;
-  host.ownMarker = null;
   if (host.canvas) host.canvas.hidden = false;
 }
 

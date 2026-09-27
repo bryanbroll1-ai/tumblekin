@@ -93,9 +93,6 @@ export class TracePainter extends MinigameScene {
     this.sentAt = 0;
     this.shownCombo = 1;
     this.labelY = 0.74;
-    // Nur die eigene Figur steht auf dem Brett — der „das bist du"-Pfeil wäre
-    // hier nur ein Quadrat, das von oben gesehen über der Spur schwebt.
-    this.ownMarker = false;
   }
 
   stage() {

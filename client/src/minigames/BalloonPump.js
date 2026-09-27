@@ -43,8 +43,11 @@ const NOZZLE_Y = DECK_Y + 1.28 * S;
 const R0 = 0.2;
 const R_MAX = 1.0;
 const R_GROW = 80;
-// Tropfenform: die Hülle ist um diesen Faktor höher als breit.
-const TALL = 1.12;
+// Der Ballon aus Blöcken (buildBalloon) ist in seiner Grundgrösse 0,94 breit;
+// er wird so skaliert, dass seine halbe Breite dem Radius entspricht. Knoten
+// und Kappe liegen dann gut einen Radius unter bzw. über der Mitte.
+const BALLOON_HALF = 0.47;
+const TALL = 1.15;
 // Endspurt: die letzten Sekunden bekommen ein eigenes Bild und eigenen Ton.
 const RUSH_MS = 3000;
 // Finale des Siegers (Sekunden ab Finalbeginn, das Finale dauert 2,6 s): bis
@@ -139,7 +142,6 @@ export class BalloonPump extends MinigameScene {
     this.crown.visible = false;
     scene.add(this.crown);
 
-    this.balloonGeometry = balloonGeometry();
     this.puffGeometry = new THREE.SphereGeometry(0.045 * S, 8, 6);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureStation(player, index, players.length));
@@ -316,9 +318,20 @@ export class BalloonPump extends MinigameScene {
       new THREE.Vector3(postX + 0.04 * S * side, NOZZLE_Y - 0.25, postZ + 0.03),
       new THREE.Vector3(postX + 0.01 * side, NOZZLE_Y, postZ + 0.01)
     ], false, "catmullrom", 0.3);
-    const hose = new THREE.Mesh(new THREE.TubeGeometry(hosePath, 48, 0.017 * S, 6, false), lambert("#4d5b72"));
-    hose.castShadow = true;
-    group.add(hose);
+    // Der Schlauch als Kette kleiner Blöcke entlang der Kurve.
+    const hoseMat = lambert("#4d5b72");
+    const hoseBit = new THREE.BoxGeometry(0.034 * S, 0.034 * S, 1);
+    const HOSE_BITS = 22;
+    for (let i = 0; i < HOSE_BITS; i += 1) {
+      const a = hosePath.getPointAt(i / HOSE_BITS);
+      const b = hosePath.getPointAt((i + 1) / HOSE_BITS);
+      const bit = new THREE.Mesh(hoseBit, hoseMat);
+      bit.position.copy(a).lerp(b, 0.5);
+      bit.scale.z = a.distanceTo(b) + 0.012;
+      bit.lookAt(b);
+      bit.castShadow = true;
+      group.add(bit);
+    }
     // Luftstösse im Schlauch: ein kleiner Vorrat, der wiederverwendet wird.
     const puffMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(player.color).lerp(WHITE, 0.55) });
     const puffs = Array.from({ length: 5 }, () => {
@@ -329,19 +342,11 @@ export class BalloonPump extends MinigameScene {
       return { mesh, t: -1 };
     });
 
-    // Der Ballon: glänzende Latexhülle, ein Glanzlicht, der Knoten.
+    // Der Ballon aus Blöcken — Kern, vier Wölbungen, Kappe, Glanzfleck, Knoten.
     const baseColor = new THREE.Color(player.color);
-    const skin = new THREE.MeshPhongMaterial({ color: baseColor.clone(), shininess: 70, specular: "#666666", emissive: "#000000" });
+    const { body: hull, skin, knot } = buildBalloon(player.color);
     const balloon = new THREE.Group();
-    const hull = new THREE.Mesh(this.balloonGeometry, skin);
-    hull.castShadow = true;
     balloon.add(hull);
-    const shine = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55, depthWrite: false }));
-    shine.userData.isFx = true;
-    balloon.add(shine);
-    const knot = new THREE.Mesh(new THREE.ConeGeometry(0.05 * S, 0.07 * S, 8), skin);
-    knot.rotation.x = Math.PI;
-    balloon.add(knot);
     this.scene.add(balloon);
     const string = new THREE.Mesh(new THREE.CylinderGeometry(0.01 * S, 0.01 * S, 1, 5), lambert("#fff7ea"));
     this.scene.add(string);
@@ -368,7 +373,6 @@ export class BalloonPump extends MinigameScene {
       puffs,
       balloon,
       hull,
-      shine,
       knot,
       skin,
       baseColor,
@@ -884,15 +888,9 @@ export class BalloonPump extends MinigameScene {
     const tall = r * (1 + pulse * 0.04);
     const shake = rush && !this.reduced ? Math.sin(now / 23 + station.index * 2) * 0.012 * r : 0;
     balloon.position.set(station.pos.x + shake, station.pos.y, station.pos.z);
-    station.hull.scale.set(wide, tall, wide);
-    // Latex wird beim Dehnen heller; ein Stoss leuchtet kurz auf.
-    const fill = (r - R0) / (R_MAX - R0);
-    station.skin.color.copy(station.baseColor).lerp(WHITE, Math.max(0, Math.min(0.2, fill * 0.12)));
+    station.hull.scale.set(wide / BALLOON_HALF, tall / BALLOON_HALF, wide / BALLOON_HALF);
+    // Ein Luftstoss lässt den Ballon kurz aufleuchten.
     station.skin.emissive.copy(station.baseColor).multiplyScalar(pulse * 0.35);
-    station.shine.scale.set(r * 0.2, r * 0.3, r * 0.08);
-    station.shine.position.set(-r * 0.38, r * 0.42, r * 0.82);
-    station.shine.rotation.z = 0.5;
-    station.knot.position.y = -r * TALL - 0.02 * S;
 
     // Neigung entlang der Schnur.
     const kin = this.kins.get(station.id);
@@ -1081,20 +1079,32 @@ function placeLine(mesh, a, b) {
   if (length > 1e-5) mesh.quaternion.setFromUnitVectors(UP, _dir.divideScalar(length));
 }
 
-// Ein Ballon: oben voll und rund, unten zum Knoten hin spitz. Radius 1, die
-// Szene skaliert ihn auf die aktuelle Grösse.
-function balloonGeometry() {
-  const geometry = new THREE.SphereGeometry(1, 24, 18);
-  const pos = geometry.attributes.position;
-  for (let i = 0; i < pos.count; i += 1) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    const k = y < 0 ? 1 - 0.3 * Math.pow(-y, 1.8) : 1 + 0.03 * (1 - y * y);
-    pos.setXYZ(i, x * k, y * TALL, z * k);
-  }
-  geometry.computeVertexNormals();
-  return geometry;
+// Ein Ballon aus Klötzen: dicker Kern, Wölbungen, Kappe, Glanzfleck, Knoten —
+// die runde Form in Blöcken, wie alles in Tumblekin.
+function buildBalloon(color) {
+  const body = new THREE.Group();
+  const skin = new THREE.MeshLambertMaterial({ color, emissive: "#000000" });
+  const core = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.62), skin);
+  core.castShadow = true;
+  body.add(core);
+  [[0.3, 0, 0], [-0.3, 0, 0], [0, 0, 0.3], [0, 0, -0.3]].forEach(([x, y, z]) => {
+    const bulge = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, 0.34), skin);
+    bulge.position.set(x, y + 0.03, z);
+    bulge.castShadow = true;
+    body.add(bulge);
+  });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.4), skin);
+  top.position.y = 0.42;
+  top.castShadow = true;
+  body.add(top);
+  const shine = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.05), new THREE.MeshLambertMaterial({ color: "#ffffff", transparent: true, opacity: 0.6 }));
+  shine.position.set(-0.16, 0.22, 0.32);
+  shine.userData.isFx = true;
+  body.add(shine);
+  const knot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), skin);
+  knot.position.y = -0.44;
+  body.add(knot);
+  return { body, skin, knot };
 }
 
 function buildCrown() {

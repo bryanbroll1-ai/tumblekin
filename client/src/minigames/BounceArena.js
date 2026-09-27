@@ -39,7 +39,6 @@ export class BounceArena extends MinigameScene {
     this.lastServerAt = performance.now();
     this.ownFxAt = 0;
     this.labelY = 0.78;
-    this.markerOffset = 0.7;
     this.pulse = 0;
   }
 

@@ -106,7 +106,6 @@ export class KnifeThrow extends MinigameScene {
     // und Stamm — dort, wo man beim Zielen hinschaut. Die eigene Figur ist
     // ohnehin die einzige grosse im Bild.
     this.labelY = -0.5;
-    this.ownMarker = false;
   }
 
   stage() {

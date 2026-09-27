@@ -43,7 +43,6 @@ export class FaceLift extends MinigameScene {
     this.localRound = -1;
     this.lastSentAt = 0;
     this.seenScored = -1;
-    this.ownMarker = false;
     this.labelY = 0.74;
     this.bulbs = null;
   }

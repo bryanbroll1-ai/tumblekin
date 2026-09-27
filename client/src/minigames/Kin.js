@@ -1763,7 +1763,8 @@ export class KinAnimator {
     this.state = name;
     this.stateStart = null;
     this.blendT = 0;
-    this.blendDur = this.reduced ? 0.08 : (STATES[name]?.blend ?? 0.15);
+    const blend = STATES[name]?.blend ?? 0.15;
+    this.blendDur = blend <= 0.02 ? blend : this.reduced ? 0.08 : blend;
   }
 
   gestureStart(name) {
@@ -1790,7 +1791,11 @@ export class KinAnimator {
 
     // Überblenden.
     this.blendT += dt;
-    const w = this.blendDur > 0 ? smooth(this.blendT / this.blendDur) : 1;
+    // Sehr kurze Überblendungen (der Auftritt von oben) gelten ab dem ersten
+    // Bild. Vorher lief im ersten Bild noch keine Zeit (dt = 0), und die Figur
+    // zeigte ein Bild lang die alte Haltung am Boden, bevor sie oben erschien —
+    // im Hub tauchte ein neuer Bot so erst kurz aus dem Boden auf.
+    const w = this.blendDur > 0.02 ? smooth(this.blendT / this.blendDur) : 1;
     const out = this.out;
     for (let i = 0; i < CHANNELS.length; i += 1) {
       const ch = CHANNELS[i];

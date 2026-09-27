@@ -33,7 +33,6 @@ export class PipeMaze extends MinigameScene {
     this.labelY = 0.74;
     this.gauges = [];
     this.steam = [];
-    this.ownMarker = false;
   }
 
   stage() {

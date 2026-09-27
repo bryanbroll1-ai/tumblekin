@@ -533,6 +533,9 @@ function makeFlag(color, size = 1) {
   tuch.castShadow = true;
   g.add(tuch);
   g.scale.setScalar(size);
+  // Ein Requisit in der Hand, kein Boden: beim Jubeln zeigt der Stock nach
+  // unten, und die Bodenprüfung hielt ihn für eine Stufe unter dem Fuss.
+  g.userData.isFx = true;
   g.userData.cloth = tuch;
   g.userData.size = 1;
   return g;

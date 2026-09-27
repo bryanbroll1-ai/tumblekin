@@ -83,71 +83,65 @@ export function createCloud(seed = 0) {
   return group;
 }
 
-// A downward-pointing "you" arrow that bobs above the controlled player's
-// kin so you can always find yourself among the crowd. Attach it to a kin and
-// call updateOwnMarker() each frame.
-export function createOwnMarker(color = "#ffe25c") {
-  const group = new THREE.Group();
-  const shaft = new THREE.Mesh(
-    new THREE.BoxGeometry(0.12, 0.26, 0.12),
-    new THREE.MeshBasicMaterial({ color })
-  );
-  shaft.position.y = 0.2;
-  group.add(shaft);
-  const tip = new THREE.Mesh(
-    new THREE.ConeGeometry(0.2, 0.26, 4),
-    new THREE.MeshBasicMaterial({ color })
-  );
-  tip.rotation.x = Math.PI;
-  tip.rotation.y = Math.PI / 4;
-  group.add(tip);
-  // A white outline cone just behind for contrast against any background.
-  const outline = new THREE.Mesh(
-    new THREE.ConeGeometry(0.26, 0.32, 4),
-    new THREE.MeshBasicMaterial({ color: "#ffffff" })
-  );
-  outline.rotation.x = Math.PI;
-  outline.rotation.y = Math.PI / 4;
-  outline.position.z = -0.02;
-  outline.scale.setScalar(1);
-  group.add(outline);
-  group.renderOrder = 999;
-  group.userData = { phase: Math.random() * Math.PI * 2 };
-  return group;
-}
-
-// `lift` ist der Abstand zwischen Figurenkopf und Pfeil. Die 0.9 stammen aus
-// Szenen mit fast waagerechter Kamera; schaut die Kamera steil von oben, wird
-// aus demselben Höhenversatz ein grosser Sprung im Bild — bei Farbenjagd
-// schwebte der Pfeil rund 150 Pixel über seiner Figur, oben in der Anzeige.
-// Solche Szenen geben einen kleineren Wert mit.
-export function updateOwnMarker(marker, now, baseY, lift = 0.9) {
-  if (!marker) return;
-  marker.position.y = baseY + lift + Math.sin(now / 260 + marker.userData.phase) * 0.1;
-  marker.rotation.y = Math.sin(now / 500) * 0.3;
-}
-
-export function createNameLabel(text, accent) {
+// Namensschild über einer Figur. Das Schild der eigenen Figur ist gelb
+// umrandet, dicker und etwas grösser — so findet man sich in jedem Spiel,
+// ohne dass ein Pfeil über dem Kopf wippt (der verdeckte oft das Geschehen
+// darüber und lag in steilen Kameras weit neben der Figur).
+export function createNameLabel(text, accent, { own = false } = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 88;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "rgba(21, 33, 38, 0.88)";
-  roundRect(ctx, 10, 12, 236, 64, 30);
-  ctx.fill();
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = accent;
-  ctx.stroke();
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "800 40px ui-rounded, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, 128, 46);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
   sprite.scale.set(0.62, 0.21, 1);
+  sprite.userData.nameLabel = { text: String(text), accent, canvas, own: null };
+  setNameLabelOwn(sprite, own);
   return sprite;
+}
+
+const OWN_LABEL_SCALE = 1.14;
+
+// Ein Schild zum eigenen machen oder zurück. Zeichnet nur neu, wenn sich
+// etwas ändert.
+export function setNameLabelOwn(sprite, own) {
+  const data = sprite?.userData?.nameLabel;
+  if (!data || data.own === Boolean(own)) return;
+  const first = data.own === null;
+  data.own = Boolean(own);
+  const ctx = data.canvas.getContext("2d");
+  ctx.clearRect(0, 0, 256, 88);
+  if (own) {
+    ctx.fillStyle = "rgba(21, 33, 38, 0.94)";
+    roundRect(ctx, 8, 9, 240, 70, 33);
+    ctx.fill();
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = "#ffd21f";
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = "rgba(21, 33, 38, 0.88)";
+    roundRect(ctx, 10, 12, 236, 64, 30);
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = data.accent;
+    ctx.stroke();
+  }
+  // Lange Namen werden schmaler gesetzt, statt über den Rand zu laufen.
+  let size = own ? 44 : 40;
+  const weight = own ? 900 : 800;
+  ctx.font = `${weight} ${size}px ui-rounded, system-ui, sans-serif`;
+  const room = own ? 196 : 206;
+  const width = ctx.measureText(data.text).width;
+  if (width > room) {
+    size = Math.max(24, Math.floor(size * room / width));
+    ctx.font = `${weight} ${size}px ui-rounded, system-ui, sans-serif`;
+  }
+  ctx.fillStyle = own ? "#ffe45c" : "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(data.text, 128, 46);
+  sprite.material.map.needsUpdate = true;
+  if (!first || own) sprite.scale.multiplyScalar(own ? OWN_LABEL_SCALE : 1 / OWN_LABEL_SCALE);
 }
 
 export class CubeBurst {
