@@ -136,7 +136,6 @@ const {
   paintIndex,
   paintSweep,
   paintOwnedCount,
-  RUNNER_ATTACK_RANGE,
   arcadeBotStep,
   PUMP_RATE,
   PUMP_BURST
@@ -403,7 +402,19 @@ test("bumper: a bot too far out heads back to the middle instead of chasing", ()
 test("runner course: jede Bahnlage ist fahrbar, Hürden stehen nie im Sand", () => {
   const segments = createRunnerCourse(367);
   assert.ok(segments.length > 8);
+  assert.ok(segments.filter((segment) => segment.wall !== null).length >= 3, "es gibt Heuballen");
+  // Zwei Hürden direkt hintereinander in derselben Bahn wären mit Boost
+  // nicht zu überspringen: Sprung und Landung dauern eine Sekunde.
+  for (let i = 1; i < segments.length; i += 1) {
+    if (segments[i].hurdle !== null) assert.notEqual(segments[i].hurdle, segments[i - 1].hurdle, `Abschnitt ${i}: zwei Hürden hintereinander`);
+  }
   segments.forEach((segment) => {
+    // Heuballen: nie im Sand, nie in der Bahn der Hürde — der Sand bleibt
+    // immer frei, es gibt also immer einen Weg.
+    if (segment.wall !== null) {
+      assert.notEqual(segment.lanes[segment.wall], "sand", "kein Heuballen im Sand");
+      assert.notEqual(segment.wall, segment.hurdle, "Heuballen und Hürde nicht in derselben Bahn");
+    }
     // Genau eine Hürde je Abschnitt, und höchstens eine.
     assert.ok(segment.hurdle === null || [0, 1, 2].includes(segment.hurdle));
     // Es gibt IMMER eine Bahn ohne Hürde — sonst wäre der Abschnitt eine
@@ -766,117 +777,74 @@ test("seilspringen: a jump that already landed does not save the player", () => 
   assert.equal(entry.eliminated, true, "landing before the wave means elimination");
 });
 
-function runnerDuel() {
+function runnerSolo() {
   const runner = player({ id: "rn", name: "RN", color: "#fff" });
-  const rival = player({ id: "rv", name: "RV", color: "#000" });
   const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner, rival], startedAt);
+  const arcade = createArcadeState("finishRush", [runner], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner, rival] };
-  const laeufer = arcade.players[runner.id];
-  const gegner = arcade.players[rival.id];
-  // Kein Kurs-Zufall im Test: keine Hürden, keine Kisten, alles normal.
-  arcade.segments.forEach((segment) => { segment.hurdle = null; segment.box = null; segment.lanes = ["normal", "normal", "normal"]; });
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  // Kein Kurs-Zufall im Test: keine Hindernisse, alles normal.
+  arcade.segments.forEach((segment) => { segment.hurdle = null; segment.wall = null; segment.lanes = ["normal", "normal", "normal"]; });
   const tick = (ms = 16) => {
     arcade.lastUpdateAt = Date.now() - ms;
     testRules.updateArcade(room);
   };
-  // Der Wurf fliegt erst: getroffen wird bei der Landung, im Tick.
-  const landen = () => {
-    if (laeufer.lastThrow) laeufer.lastThrow.hitAt = Date.now() - 1;
-    tick();
-  };
-  const werfen = () => { laeufer.lastInputAt = 0; return handleArcadeInput(room, runner, { action: "attack" }); };
-  return { runner, rival, arcade, room, laeufer, gegner, tick, landen, werfen };
+  return { runner, arcade, room, entry, tick };
 }
 
-test("zielgerade: ohne Wasserbombe wird nicht geworfen", () => {
-  const { laeufer, gegner, werfen } = runnerDuel();
-  laeufer.progress = 10;
-  gegner.progress = 14;
-  assert.equal(werfen().ok, false, "erst eine Kiste holen");
-  assert.ok(!(gegner.incomingAt > Date.now()));
+test("zielgerade: es gibt nichts mehr zu werfen", () => {
+  const { runner, room, entry } = runnerSolo();
+  const result = handleArcadeInput(room, runner, { action: "attack" });
+  assert.equal(result.ok, false);
+  assert.equal(entry.item, undefined, "keine Wasserbomben mehr");
 });
 
-test("zielgerade: durch eine Kiste laufen gibt genau eine Wasserbombe", () => {
-  const { arcade, laeufer, tick } = runnerDuel();
-  const segment = arcade.segments[4];
-  segment.box = 2;
-  laeufer.lane = 2;
-  laeufer.progress = segment.boxAt - 0.1;
-  laeufer.nextBox = segment.index;
+test("zielgerade: über einen Heuballen hilft kein Sprung, nur ausweichen", () => {
+  const { arcade, entry, tick } = runnerSolo();
+  const segment = arcade.segments[6];
+  segment.wall = 1;
+  entry.lane = 1;
+  entry.nextWall = segment.index;
+  entry.nextHurdle = segment.index;
+  entry.progress = segment.wallAt - 0.05;
+  entry.jumpUntil = Date.now() + 500;
   tick(100);
-  assert.equal(laeufer.item, true);
-  // Eine zweite Kiste bringt nichts, solange man eine trägt.
-  const next = arcade.segments[6];
-  next.box = 2;
-  laeufer.progress = next.boxAt - 0.1;
-  laeufer.nextBox = next.index;
+  assert.ok(entry.stumbleUntil > Date.now(), "auch im Sprung läuft man hinein");
+  assert.equal(entry.crashes, 1);
+
+  // In der Nachbarbahn läuft man vorbei.
+  const next = arcade.segments[8];
+  next.wall = 1;
+  entry.lane = 2;
+  entry.stumbleUntil = 0;
+  entry.nextWall = next.index;
+  entry.progress = next.wallAt - 0.05;
   tick(100);
-  assert.equal(laeufer.boxes, 1, "man trägt höchstens eine");
+  assert.ok(!(entry.stumbleUntil > Date.now()), "ausgewichen");
+  assert.equal(entry.crashes, 1);
 });
 
-test("zielgerade: mit Wasserbombe wird der Nächste voraus anvisiert, in jeder Bahn", () => {
-  const { laeufer, gegner, tick } = runnerDuel();
-  laeufer.item = true;
-  laeufer.progress = 10;
-  laeufer.lane = 0;
-  gegner.lane = 2;
-  gegner.progress = 10 + RUNNER_ATTACK_RANGE - 2;
-  tick();
-  assert.equal(laeufer.lockId, "rv", "auch in einer anderen Bahn");
-  assert.equal(gegner.lockedBy, "rn", "das Ziel weiss, dass es anvisiert wird");
-  gegner.progress = laeufer.progress + RUNNER_ATTACK_RANGE + 3;
-  tick();
-  assert.equal(laeufer.lockId, null, "zu weit weg");
-});
-
-test("zielgerade: der Wurf trifft erst bei der Landung und nur, wer dann noch da ist", () => {
-  const duel = runnerDuel();
-  const { laeufer, gegner, landen, werfen } = duel;
-  const vorbereiten = () => {
-    laeufer.item = true;
-    laeufer.progress = 10;
-    laeufer.lane = 1;
-    gegner.progress = 15;
-    gegner.lane = 0;
-    gegner.jumpUntil = 0;
-    gegner.stumbleUntil = 0;
-  };
-
-  vorbereiten();
-  assert.deepEqual(werfen(), { ok: true });
-  assert.equal(laeufer.item, false, "die Bombe ist weg");
-  assert.equal(laeufer.lastThrow.lane, 0, "sie fliegt auf die Bahn des Ziels");
-  assert.ok(gegner.incomingAt > Date.now(), "das Ziel sieht sie kommen");
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "im Flug trifft noch nichts");
-  landen();
-  assert.ok(gegner.stumbleUntil > Date.now(), "wer stehen bleibt, wird nass");
-  assert.equal(gegner.splashes, 1);
-
-  // Abspringen in der Flugzeit rettet.
-  vorbereiten();
-  werfen();
-  gegner.jumpUntil = Date.now() + 500;
-  landen();
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Sprung weicht aus");
-
-  // Die Bahn wechseln ebenso.
-  vorbereiten();
-  werfen();
-  gegner.lane = 1;
-  landen();
-  assert.ok(!(gegner.stumbleUntil > Date.now()), "ein Bahnwechsel weicht aus");
-  assert.equal(gegner.dodges, 2);
-});
-
-test("zielgerade: ohne Ziel in Reichweite bleibt die Wasserbombe in der Hand", () => {
-  const { laeufer, gegner, werfen } = runnerDuel();
-  laeufer.item = true;
-  laeufer.progress = 10;
-  gegner.progress = 10 + RUNNER_ATTACK_RANGE + 5;
-  assert.equal(werfen().ok, false);
-  assert.equal(laeufer.item, true, "nichts verschenkt");
+test("zielgerade: wer auf ein Boostfeld wechselt, bekommt einen Anschub", () => {
+  const { arcade, entry, tick } = runnerSolo();
+  const segment = arcade.segments[5];
+  segment.lanes = ["normal", "tempo", "normal"];
+  entry.progress = segment.at + 1;
+  entry.nextHurdle = segment.index;
+  entry.nextWall = segment.index;
+  entry.lane = 0;
+  tick(50);
+  const normal = entry.speed;
+  entry.lane = 1;
+  tick(50);
+  const angeschoben = entry.speed;
+  assert.equal(entry.kicks, 1, "der Wechsel zählt als Anschub");
+  assert.ok(angeschoben > normal * 1.34 * 1.15, `mehr als der Belag allein (${normal} → ${angeschoben})`);
+  // Der Anschub klingt ab; danach bleibt der Belag.
+  entry.kickAt = Date.now() - 5000;
+  tick(50);
+  assert.ok(Math.abs(entry.speed - normal * 1.34) < 0.01, "nach dem Anschub nur noch der Belag");
+  assert.equal(entry.kicks, 1, "Weiterlaufen auf dem Boostfeld schiebt nicht erneut an");
 });
 
 test("zielgerade: Springen hat einen Preis", () => {

@@ -223,30 +223,6 @@
   backdrop-filter: blur(14px);
 }
 
-/* Zielgerade: Warnung, wenn jemand auf einen zielt oder eine Wasserbombe
-   fliegt. Würfe kamen vorher ohne jede Vorwarnung — ausweichen oder abspringen konnte man nur
-   zufällig. Die Zeile steht direkt über dem Hinweis, wo der Blick ohnehin ist. */
-.runner-threat {
-  margin: 0 0 6px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: #ff5d73;
-  color: #fff;
-  font-weight: 900;
-  font-size: 0.85rem;
-  text-align: center;
-  animation: runner-threat-pulse 0.6s ease-in-out infinite alternate;
-}
-
-.runner-threat[hidden] {
-  display: none;
-}
-
-@keyframes runner-threat-pulse {
-  from { transform: scale(0.97); }
-  to { transform: scale(1.03); }
-}
-
 /* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
    dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
    Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
@@ -1587,63 +1563,29 @@
   color: rgba(255, 255, 255, 0.78);
 }
 
-/* Zielgerade: Hinweis links, Wurfknopf rechts. Der Knopf sagt, was gerade
-   geht — Kiste holen (grau), kein Ziel (gedämpft), werfen (blau, pulsierend). */
-.runner-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* Zielgerade: Fahrtwindlinien am Bildrand, solange man auf dem Boost läuft.
+   Strahlen aus der Bildmitte, in der Mitte ausgeblendet, damit Figur und
+   Bahn frei bleiben; sie zittern leicht, damit sie nach Tempo aussehen. */
+.runner-speed {
+  position: absolute;
+  inset: -6%;
+  pointer-events: none;
+  opacity: 0;
+  background: repeating-conic-gradient(from 0deg at 50% 58%, rgba(255, 255, 255, 0) 0deg 4deg, rgba(214, 255, 243, 0.75) 4deg 5deg, rgba(255, 255, 255, 0) 5deg 9deg);
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 58%, transparent 52%, #000 100%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 58%, transparent 52%, #000 100%);
+  transition: opacity 120ms linear;
 }
 
-.runner-lane-controls .runner-throw {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 142px;
-  min-height: 58px;
-  padding: 6px 12px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-radius: var(--radius);
-  background: #2a3a41;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.92rem;
-  font-weight: 900;
-  line-height: 1.1;
-  box-shadow: 0 5px 0 #071014;
-  touch-action: none;
+.runner-speed.is-on {
+  animation: runner-speed-flicker 0.14s steps(2) infinite;
 }
 
-.runner-lane-controls .runner-throw .runner-throw-icon {
-  font-size: 1.5rem;
-  filter: grayscale(1) opacity(0.6);
+@keyframes runner-speed-flicker {
+  from { transform: rotate(0deg) scale(1); }
+  to { transform: rotate(2.5deg) scale(1.03); }
 }
 
-.runner-lane-controls .runner-throw[data-mode="nolock"] .runner-throw-icon,
-.runner-lane-controls .runner-throw[data-mode="ready"] .runner-throw-icon {
-  filter: none;
-}
-
-.runner-lane-controls .runner-throw[data-mode="ready"] {
-  border-color: #ffffff;
-  background: #1f8fe0;
-  color: #ffffff;
-  animation: runner-throw-ready 0.5s ease-in-out infinite alternate;
-}
-
-.runner-lane-controls .runner-throw:disabled {
-  cursor: default;
-}
-
-@keyframes runner-throw-ready {
-  from { transform: scale(0.97); box-shadow: 0 5px 0 #0b3a5c; }
-  to { transform: scale(1.04); box-shadow: 0 5px 0 #0b3a5c, 0 0 18px rgba(57, 184, 255, 0.7); }
-}
-
-.runner-threat[data-urgent="1"] {
-  background: #ff2e4d;
-  animation-duration: 0.18s;
-}
 
 /* Augenmaß: der Schieberegler ist hier das ganze Spielgerät, also darf er auch
    so aussehen. Gross genug für den Daumen, mit einer Zahl darüber, die man

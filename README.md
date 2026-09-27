@@ -120,7 +120,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆✳️ In jede Richtung wischen
 
-- **Zielgerade:** Wisch nach links oder rechts in die schnelle Bahn: grüne Felder mit Pfeilen sind Boost, Matsch bremst. Tippen springt über Hürden — in der Luft bist du etwas langsamer, also nur, wenn es nötig ist. Lauf durch eine gelbe Kiste, dann hast du eine Wasserbombe: sie zielt von selbst auf den Nächsten vor dir, der Knopf wirft sie. Zielt jemand auf dich, warnt dich die Anzeige — abspringen oder die Bahn wechseln, dann platzt sie neben dir.
+- **Zielgerade:** Wisch nach links oder rechts auf die Boostplatten: grüne Platten mit Pfeilen schieben dich an, Matsch bremst. Tippen springt über Hürden — in der Luft bist du etwas langsamer, also nur, wenn es nötig ist. Heuballen sind zu hoch zum Springen, da hilft nur ausweichen.
 - **Farbflucht:** Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
 
 ### 👆 Tippen
