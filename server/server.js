@@ -70,7 +70,7 @@ const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_LEAD_SPREAD_MS + DARE_ROUNDS * (
 const MINIGAMES = [
   { type: "bounceArena", title: "Bumper Pool", duration: 45000 },
   { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
-  { type: "colorEscape", title: "Farbflucht", duration: 31000, arcadeFamily: "colorgrid" },
+  { type: "colorEscape", title: "Farbflucht", duration: 40000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
   { type: "ballonPump", title: "Pump-Panik", duration: 12000, arcadeFamily: "pump" },
@@ -659,6 +659,11 @@ const COLORGRID_ANNOUNCE_MS = [3400, 3000, 2700, 2450, 2200, 2000, 1800, 1650];
 const COLORGRID_SAFE = [9, 7, 6, 5, 4, 3, 3, 2];
 const COLORGRID_ROUNDS = COLORGRID_ANNOUNCE_MS.length;
 const COLORGRID_DROP_MS = 1300;           // Felder weg, wer falsch steht, fällt
+// Entscheidung: stehen nach der achten Runde noch mehrere, geht es weiter —
+// mit EINEM sicheren Feld, gleich weit von allen. Vorher überstanden oft zwei
+// oder drei alle Runden, und den Sieg entschied eine Durchschnittszeit, die
+// niemand gesehen hatte.
+const COLORGRID_SUDDEN_MS = [1700, 1600, 1500];
 
 // Lichtwächter — red light, green light: hold to run, freeze on red.
 // Lichtwächter — "Ochs am Berg". Vorher sprang das Licht ohne Vorwarnung auf
@@ -3955,7 +3960,7 @@ function runnerLaneFactor(arcade, position, lane) {
 function buildColorSchedule() {
   const rounds = [];
   let at = 0;
-  COLORGRID_ANNOUNCE_MS.forEach((announceMs) => {
+  COLORGRID_ANNOUNCE_MS.concat(COLORGRID_SUDDEN_MS).forEach((announceMs) => {
     rounds.push({ start: at, dropAt: at + announceMs, end: at + announceMs + COLORGRID_DROP_MS });
     at += announceMs + COLORGRID_DROP_MS;
   });
@@ -3992,6 +3997,26 @@ function advanceColorRound(arcade, round, now) {
     const roll = Math.floor(arcadeNoise(arcade.seed + round * 61 + index * 7) * 3);
     return (arcade.targetColor + 1 + roll) % 4;
   });
+  if (round >= COLORGRID_ROUNDS) {
+    // Entscheidung: das eine Feld, das für alle Übriggebliebenen am
+    // gleichmässigsten erreichbar ist — und auf dem niemand schon steht.
+    const alive = Object.values(arcade.players || {}).filter((entry) => !entry.eliminated);
+    const besetzt = new Set(alive.map((entry) => entry.gy * COLORGRID_COLS + entry.gx));
+    let best = [];
+    let bestScore = Infinity;
+    arcade.grid.forEach((_color, index) => {
+      if (besetzt.has(index)) return;
+      const gx = index % COLORGRID_COLS;
+      const gy = Math.floor(index / COLORGRID_COLS);
+      const wege = alive.map((entry) => Math.abs(entry.gx - gx) + Math.abs(entry.gy - gy));
+      const score = wege.length ? (Math.max(...wege) - Math.min(...wege)) * 10 + Math.max(...wege) : 0;
+      if (score < bestScore) { bestScore = score; best = [index]; } else if (score === bestScore) best.push(index);
+    });
+    const pick = best[Math.floor(arcadeNoise(arcade.seed + round * 71) * best.length)] ?? 0;
+    arcade.grid[pick] = arcade.targetColor;
+    arcade.sudden = true;
+    return;
+  }
   const safe = COLORGRID_SAFE[Math.min(round, COLORGRID_SAFE.length - 1)];
   let placed = 0;
   for (let probe = 0; placed < safe && probe < arcade.grid.length * 6; probe += 1) {
@@ -5632,7 +5657,16 @@ function updateColorGrid(room, minigame, arcade, now) {
   if (now < minigame.startedAt) return;
   const elapsed = now - minigame.startedAt;
   const phase = colorGridPhaseAt(arcade, elapsed);
-  if (phase.round !== arcade.round) advanceColorRound(arcade, phase.round, now);
+  const stehen = room.players.filter((player) => arcade.players[player.id] && !arcade.players[player.id].eliminated).length;
+  // In die Entscheidung geht es nur mit mindestens zwei, die noch stehen.
+  const entscheidung = phase.round >= COLORGRID_ROUNDS;
+  if (phase.round !== arcade.round && (!entscheidung || (room.players.length > 1 && stehen > 1))) advanceColorRound(arcade, phase.round, now);
+  if (entscheidung && arcade.round < COLORGRID_ROUNDS) {
+    // Keine Entscheidung nötig: nach der achten Runde ist Schluss, und es
+    // wird auch nichts mehr gewertet.
+    beginMinigameFinale(room, minigame);
+    return;
+  }
 
   if (phase.name !== "announce" && arcade.phase === "announce") {
     // Der Boden fällt: wer auf einer falschen Farbe steht, fällt und ist raus.

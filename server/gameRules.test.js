@@ -627,6 +627,44 @@ test("color escape: spätere Runden warnen kürzer und haben weniger sichere Fel
   assert.ok(end <= 31000, `alle Runden passen in die Spielzeit (${end} ms)`);
 });
 
+test("color escape: stehen nach acht Runden noch mehrere, entscheidet ein einziges Feld", () => {
+  const one = player({ id: "e1", name: "E1", color: "#f00" });
+  const two = player({ id: "e2", name: "E2", color: "#00f" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("colorEscape", [one, two], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 40000, finishing: false };
+  const room = { currentMinigame: minigame, players: [one, two] };
+  const a = arcade.players[one.id];
+  const b = arcade.players[two.id];
+  a.gx = 0; a.gy = 0;
+  b.gx = 4; b.gy = 7;
+  // Beide haben alle acht Runden überstanden; jetzt beginnt die Entscheidung.
+  arcade.round = arcade.roundCount - 1;
+  arcade.phase = "drop";
+  const start = arcade.schedule[arcade.roundCount].start;
+  minigame.startedAt = Date.now() - (start + 20);
+  updateArcade(room);
+  assert.equal(arcade.round, arcade.roundCount, "es geht in die Entscheidung");
+  assert.ok(!minigame.finaleAt, "noch kein Finale");
+  const sichere = arcade.grid.map((color, index) => (color === arcade.targetColor ? index : -1)).filter((index) => index >= 0);
+  assert.equal(sichere.length, 1, "genau ein sicheres Feld");
+  const gx = sichere[0] % 5;
+  const gy = Math.floor(sichere[0] / 5);
+  const wegA = Math.abs(gx - a.gx) + Math.abs(gy - a.gy);
+  const wegB = Math.abs(gx - b.gx) + Math.abs(gy - b.gy);
+  assert.ok(Math.abs(wegA - wegB) <= 1, `gleich weit für beide (${wegA} / ${wegB})`);
+
+  // Allein gibt es keine Entscheidung: nach acht Runden ist Schluss.
+  const solo = player({ id: "s1", name: "S1", color: "#0f0" });
+  const soloArcade = createArcadeState("colorEscape", [solo], startedAt);
+  const soloGame = { arcade: soloArcade, scores: {}, startedAt, duration: 40000, finishing: false };
+  soloArcade.round = soloArcade.roundCount - 1;
+  soloGame.startedAt = Date.now() - (soloArcade.schedule[soloArcade.roundCount].start + 20);
+  updateArcade({ currentMinigame: soloGame, players: [solo] });
+  assert.equal(soloArcade.round, soloArcade.roundCount - 1, "allein keine Entscheidung");
+  assert.ok(soloGame.finaleAt, "sondern das Finale");
+});
+
 test("Platzierung: Gleichstand teilt sich den Platz", () => {
   // Jede Szene reagiert auf den Platz — 1. jubelt, 4. ist geknickt. Zwei exakt
   // gleich gute Läufe dürfen darum nicht künstlich getrennt werden.
