@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, noise } from "./VoxelKit.js?v=tumblekin200";
+import { ringband } from "./Blockform.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameDecay, frameLerp } from "./Quality.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
@@ -23,6 +24,8 @@ const SCALE = 2.6;
 const PLATE_R = 2.72;
 const DECK_Y = 0.3;
 const BLOOM_R = 0.11 * SCALE * 1.12;
+const RIM_IN = 1 * SCALE;       // Innenkante des Randes = Inselkante auf dem Server
+const RIM_OUT = PLATE_R + 0.2;
 const RING_AUSSEN = BLOOM_R - 0.05 + 0.1; // Bogenradius plus Schlauch
 const WATER_Y = -0.12;
 const FLOAT_R = 3.75;
@@ -241,18 +244,22 @@ export class BounceArena extends MinigameScene {
     scene.add(chute);
   }
 
-  // Die Badeinsel: weiche Matte, rundherum ein dicker rot-weisser Wulst — der
-  // Rand, über den man fliegt, wenn man zu hart gerammt wird.
+  // Die Badeinsel: eine Matte, rundherum ein rot-weisses Band — der Rand, über
+  // den man fliegt, wenn man zu hart gerammt wird. Das Band liegt bündig mit
+  // der Matte und reicht bis ins Wasser; die Matte läuft darunter bis in die
+  // Mitte des Bandes, damit zwischen beiden nirgends Wasser durchscheint.
   buildIsland() {
     // Alles, was zur Insel gehört, hängt an einer Gruppe: so schrumpft sie zum
-    // Schluss als Ganzes, Stern und Wulst eingeschlossen.
+    // Schluss als Ganzes, Stern und Rand eingeschlossen.
     const scene = new THREE.Group();
     this.island = scene;
     this.scene.add(scene);
-    const mat = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R + 0.06, 0.44, 40), new THREE.MeshLambertMaterial({ color: "#d6c6ff" }));
+    const mat = new THREE.Mesh(new THREE.CylinderGeometry(RIM_IN / 2 + RIM_OUT / 2, RIM_IN / 2 + RIM_OUT / 2, 0.44, 48), new THREE.MeshLambertMaterial({ color: "#d6c6ff" }));
+    // Die Kante der Matte liegt unter dem Band; eine gestufte Kante würde dort
+    // nur Lücken reissen.
+    mat.userData.rund = true;
     mat.position.y = DECK_Y - 0.22;
     mat.receiveShadow = true;
-    mat.castShadow = true;
     scene.add(mat);
     // Ein grosser Stern aufgedruckt, damit die Mitte lesbar ist.
     const star = new THREE.Shape();
@@ -273,20 +280,22 @@ export class BounceArena extends MinigameScene {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = DECK_Y + 0.004;
     scene.add(ring);
-    // Der Wulst: rot-weiss gestreift; er glüht, wenn jemand nah dran ist.
+    // Der Rand: rot-weiss gestreift; er glüht, wenn jemand nah dran ist. Die
+    // Innenkante liegt genau dort, wo man auf dem Server über die Kante geht.
     this.rim = new THREE.Group();
     const red = new THREE.MeshLambertMaterial({ color: "#ff4668", emissive: "#ff4668", emissiveIntensity: 0.6 });
     const white = new THREE.MeshLambertMaterial({ color: "#ffffff" });
     this.rim.material = red;
     const segments = 16;
+    const band = { innen: RIM_IN, aussen: RIM_OUT, unten: WATER_Y - 0.08, oben: DECK_Y + 0.012, bogen: (Math.PI * 2) / segments, stuecke: 3 };
+    const bandGeo = ringband(band);
     for (let i = 0; i < segments; i += 1) {
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(PLATE_R + 0.04, 0.16, 8, 6, (Math.PI * 2) / segments), i % 2 ? white : red);
-      arc.rotation.x = Math.PI / 2;
-      arc.rotation.z = (i / segments) * Math.PI * 2;
+      const arc = new THREE.Mesh(bandGeo, i % 2 ? white : red);
+      arc.rotation.y = (i / segments) * Math.PI * 2;
       arc.castShadow = true;
+      arc.receiveShadow = true;
       this.rim.add(arc);
     }
-    this.rim.position.y = DECK_Y - 0.02;
     scene.add(this.rim);
   }
 

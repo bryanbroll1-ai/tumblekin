@@ -211,6 +211,26 @@ const BAU = {
   }
 };
 
+// Ein flaches Band um einen Kreis, etwa der Rand einer Spielfläche: gerade
+// Stücke wie beim Schlauch, aber mit rechteckigem Querschnitt, damit die
+// Oberkante bündig mit einer Fläche abschliessen kann. y zeigt nach oben;
+// ein Teilbogen läuft von der +x-Achse aus. Die Geometrie ist schon eine
+// Blockform und wird nicht noch einmal umgebaut.
+export function ringband({ innen, aussen, unten, oben, bogen = TAU, stuecke }) {
+  const anzahl = stuecke ?? Math.max(3, Math.round((Math.min(64, Math.max(16, (TAU * aussen) / 0.35)) * bogen) / TAU));
+  const schritt = bogen / anzahl;
+  const offen = bogen < TAU - 1e-6;
+  const bau = new Bau();
+  for (let i = 0; i < anzahl; i += 1) {
+    const a1 = i === anzahl - 1 ? bogen : (i + 1) * schritt;
+    bau.keil(innen, aussen, i * schritt, a1, unten, oben, { anfang: offen && i === 0, ende: offen && i === anzahl - 1 });
+  }
+  const g = bau.geometrie(planarUV(aussen));
+  g.rotateX(-Math.PI / 2);
+  g.userData.block = true;
+  return g;
+}
+
 // Zellgrösse für flache Ringe: fein genug, dass die Ringbreite mindestens
 // eine Zelle ist — aber nie mehr als 31 Zellen über den Durchmesser.
 function rasterFuerRing(aussen, breite) {
