@@ -45,6 +45,8 @@ export class TowerStack extends MinigameScene {
     // Reihe weiter vorn, und stand der Sieger dahinter, füllte der eigene
     // Turm das ganze Bild. Gezeigt werden stattdessen alle Türme.
     this.finaleFocus = false;
+    // Die eigene Figur steht unten am Turm — die Kamera fährt mit der Spitze.
+    this.ownInView = false;
   }
 
   stage() {
@@ -340,7 +342,7 @@ export class TowerStack extends MinigameScene {
         if (u >= 1) tower.dropping = null;
       }
       const height = tower.blocks.length;
-      topHeight = Math.max(topHeight, height);
+      if (isOwn) topHeight = height;
       if (height > (this.lastHeight.get(player.id) || 0)) {
         this.lastHeight.set(player.id, height);
         const top = tower.blocks[height - 1];
@@ -352,7 +354,9 @@ export class TowerStack extends MinigameScene {
           animator.trigger("fistpump");
           animator.expression("joy", 700);
           this.bursts.ring(topPos, "#fff2b0", { radius: 1.2, life: 0.5, opacity: 0.6, tilt: null });
-          this.pop(topPos.clone().add(new THREE.Vector3(0, 1.1, 0)), "PERFEKT!", { color: "#ffe36b", size: 0.4 });
+          // Gross nur am eigenen Turm; die der anderen flackerten sonst in
+          // gleicher Grösse hinten durchs Bild.
+          this.pop(topPos.clone().add(new THREE.Vector3(0, 1.1, 0)), "PERFEKT!", { color: "#ffe36b", size: isOwn ? 0.42 : 0.24, life: isOwn ? 0.9 : 0.6 });
         } else {
           animator.expression("effort", 500);
         }
@@ -404,6 +408,9 @@ export class TowerStack extends MinigameScene {
       animator.lookAt(active ? tower.group.localToWorld(tower.hook.position.clone()) : null);
       animator.set(capped ? "happy" : "ready");
     });
+    // Die Kamera folgt dem EIGENEN Turm. Vorher stand hier die höchste
+    // Spitze aller Türme: baute ein Bot schneller, fuhr die Kamera an der
+    // eigenen Spitze vorbei nach oben.
     this.smoothTop += (topHeight - this.smoothTop) * frameLerp(0.08, dt);
   }
 
@@ -430,10 +437,13 @@ export class TowerStack extends MinigameScene {
     };
   }
 
+  // Während des Bauens muss nur die Spitze ins Bild, nicht der Baumeister
+  // unten am Boden. Die Sicherung hielt ihn trotzdem im Bild und schob die
+  // Kamera dafür zurück — ab gut zehn Etagen sah man wieder den ganzen Turm
+  // vom Boden an, und der gleitende Block oben war nur noch ein Strich.
   keepInView(f) {
     if (f.finale) return [...this.kins.values()];
-    const own = this.kins.get(f.controlledId);
-    return own ? [own] : [];
+    return [];
   }
 
   drawHud(f) {
