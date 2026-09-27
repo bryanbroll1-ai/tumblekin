@@ -1535,15 +1535,48 @@ test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () =>
   assert.notEqual(arcade.holderId, first, "after the lock the bomb moves on");
   assert.equal(holderEntry.passes, 1);
 
-  // Boom: whoever holds the bomb when the fuse runs out is eliminated.
+  // Zu zweit kostet der erste Knall ein Leben; die neue Bombe bekommt der
+  // Getroffene, aber erst nach der Pause.
   const victimId = arcade.holderId;
-  arcade.fuseAt = Date.now() - 1;
-  testRules.updateBomb(room, minigame, arcade, Date.now());
+  assert.equal(arcade.players[victimId].lives, testRules.BOMB_DUEL_LIVES);
+  let now = Date.now();
+  arcade.fuseAt = now - 1;
+  testRules.updateBomb(room, minigame, arcade, now);
+  assert.equal(arcade.players[victimId].outAt, null, "zu zweit ist man nach einem Treffer noch drin");
+  assert.equal(arcade.players[victimId].lives, testRules.BOMB_DUEL_LIVES - 1);
+  assert.equal(arcade.lastBoomId, victimId);
+  assert.equal(arcade.holderId, victimId, "der Getroffene bekommt die nächste Bombe");
+  assert.equal(arcade.holderSince, now + testRules.BOMB_BREAK_MS, "sie kommt erst nach der Pause");
+  assert.ok(arcade.fuseAt >= arcade.holderSince + 4000, "die Zündschnur brennt erst ab der Ankunft");
+  const victim = room.players.find((p) => p.id === victimId);
+  arcade.players[victimId].lastInputAt = 0;
+  handleArcadeInput(room, victim, { action: "pass" });
+  assert.equal(arcade.holderId, victimId, "in der Pause lässt sich nichts weitergeben");
+
+  // Der zweite Treffer wirft ihn raus.
+  now = arcade.fuseAt;
+  testRules.updateBomb(room, minigame, arcade, now);
   assert.ok(arcade.players[victimId].outAt, "fuse eliminates the holder");
-  assert.notEqual(arcade.holderId, victimId, "a survivor gets the next bomb");
-  const survivorScore = arcadeRankingScore(arcade, arcade.players[arcade.holderId]);
+  const survivorId = room.players.find((p) => p.id !== victimId).id;
+  const survivorScore = arcadeRankingScore(arcade, arcade.players[survivorId]);
   const victimScore = arcadeRankingScore(arcade, arcade.players[victimId]);
   assert.ok(survivorScore > victimScore, "survivors outrank the exploded");
+});
+
+test("zuendstoff: zu dritt ist nach einem Knall raus, die Bombe geht weiter", () => {
+  const trio = ["zc", "zd", "ze"].map((id, i) => player({ id, name: id.toUpperCase(), color: ["#fff", "#0ff", "#f0f"][i] }));
+  const startedAt = Date.now();
+  const arcade = createArcadeState("zuendstoff", trio, startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 45000, finishing: false };
+  const room = { currentMinigame: minigame, players: trio };
+  assert.equal(arcade.players.zc.lives, 1);
+  const victimId = arcade.holderId;
+  const now = Date.now();
+  arcade.fuseAt = now - 1;
+  testRules.updateBomb(room, minigame, arcade, now);
+  assert.ok(arcade.players[victimId].outAt, "zu dritt reicht ein Knall");
+  assert.notEqual(arcade.holderId, victimId, "ein Überlebender bekommt die nächste Bombe");
+  assert.ok(arcade.canPassAt > now + testRules.BOMB_BREAK_MS, "Weitergeben erst nach Pause und Sperre");
 });
 
 test("muenzregen: eine Serie hebt den Wert, eine Bombe setzt ihn zurück", () => {

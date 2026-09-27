@@ -833,6 +833,15 @@ const BOMB_PASS_LOCK_MS = 380;        // minimum hold time before passing on
 const BOMB_MIN_FUSE_MS = 4000;
 const BOMB_MAX_FUSE_MS = 8000;
 const BOMB_REVEAL_MS = 2000;          // fuse time is visible this long after a pass
+// Nach einem Knall kurz durchatmen: die Explosion, der Weggeschleuderte, erst
+// dann fliegt die nächste Bombe aus dem Feuer. Vorher hatte der nächste Träger
+// sie im selben Augenblick in der Hand, in dem es knallte, und keiner sah, wer
+// eigentlich hochgegangen war.
+const BOMB_BREAK_MS = 1600;
+// Zu zweit entschied ein einziger Knall nach vier bis acht Sekunden — und wer
+// die Bombe zuerst hatte, konnte sie bis kurz vorher halten und abgeben. Zu
+// zweit spielt man deshalb auf zwei Treffer.
+const BOMB_DUEL_LIVES = 2;
 
 // Münzregen — Münzen, Edelsteine und Bomben regnen in drei Spuren.
 //
@@ -2314,9 +2323,10 @@ function arcadeRankingScore(arcade, arcadePlayer) {
   }
   if (arcade.family === "bomb") {
     // Survivors on top; among the blown-up, a later boom ranks higher.
+    // Läuft die Zeit im Zweikampf ab, liegt vorn, wer noch mehr Leben hat.
     return arcadePlayer.outAt
       ? Math.max(1, Math.round(arcadePlayer.outAt))
-      : 100000000000000 + (arcadePlayer.passes || 0);
+      : 100000000000000 + (arcadePlayer.lives || 0) * 1000000 + (arcadePlayer.passes || 0);
   }
   if (arcade.family === "catchfall") {
     // Der Bombenabzug steckt seit updateCatchfall schon in `catches` — genau der
@@ -3205,10 +3215,14 @@ function createArcadeState(type, players, startedAt, options = {}) {
     // The fuse length is shown for a moment after each pass, then hidden.
     arcade.revealUntil = startedAt + BOMB_REVEAL_MS;
     arcade.explosions = 0;
+    arcade.lastBoomId = null;
+    arcade.lastBoomAt = 0;
+    arcade.lives = players.length === 2 ? BOMB_DUEL_LIVES : 1;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
       entry.outAt = null;
       entry.passes = 0;
+      entry.lives = arcade.lives;
     });
   }
   if (config.family === "knife") {
@@ -5410,26 +5424,43 @@ function updateBarrel(room, minigame, arcade, dt, now) {
 }
 
 function updateBomb(room, minigame, arcade, now) {
-  if (now < arcade.fuseAt) return;
-  const holder = arcade.players[arcade.holderId];
+  if (!arcade.holderId || now < arcade.fuseAt) return;
+  const boomId = arcade.holderId;
+  const holder = arcade.players[boomId];
   if (holder && !holder.outAt) {
-    holder.outAt = now;
+    holder.lives = Math.max(0, (holder.lives ?? 1) - 1);
+    if (holder.lives <= 0) holder.outAt = now;
     holder.flash = "bad";
     holder.lastHitAt = now;
-    const holderPlayer = room.players.find((player) => player.id === arcade.holderId);
+    const holderPlayer = room.players.find((player) => player.id === boomId);
     if (holderPlayer) syncArcadeScore(minigame, holderPlayer, holder);
   }
   arcade.explosions += 1;
+  arcade.lastBoomId = boomId;
+  arcade.lastBoomAt = now;
   const alive = arcade.order.filter((id) => !arcade.players[id]?.outAt);
-  if (alive.length === 0) return;
-  // Hand the next bomb to a random survivor and light a fresh fuse — its time
-  // is shown for a moment so a sharp player can plan the next pass.
-  arcade.holderId = alive[Math.floor(arcadeNoise(arcade.seed + arcade.explosions * 41) * alive.length)] || alive[0];
-  arcade.holderSince = now;
-  arcade.canPassAt = now + BOMB_PASS_LOCK_MS;
+  // Nur noch einer (oder keiner) übrig: es gibt keine nächste Bombe mehr.
+  // Vorher blieb die abgelaufene Zündschnur liegen, und allein gespielt
+  // knallte es danach in jedem Takt erneut.
+  if (alive.length <= 1) {
+    arcade.holderId = null;
+    return;
+  }
+  // Die nächste Bombe geht an einen zufälligen Überlebenden — im Zweikampf an
+  // den, den es eben erwischt hat: sonst hätte, wer schon führt, auch noch die
+  // Bombe und damit den Vorteil, sie bis kurz vor dem Knall zu halten.
+  const hitSurvived = holder && !holder.outAt;
+  arcade.holderId = hitSurvived
+    ? boomId
+    : alive[Math.floor(arcadeNoise(arcade.seed + arcade.explosions * 41) * alive.length)] || alive[0];
+  // Sie kommt erst nach der Pause an. Bis dahin kann keiner weitergeben, und
+  // die Zündschnur brennt noch nicht.
+  const lit = now + BOMB_BREAK_MS;
+  arcade.holderSince = lit;
+  arcade.canPassAt = lit + BOMB_PASS_LOCK_MS;
   arcade.fuseMs = bombFuseMs(arcade.seed, arcade.explosions);
-  arcade.fuseAt = now + arcade.fuseMs;
-  arcade.revealUntil = now + BOMB_REVEAL_MS;
+  arcade.fuseAt = lit + arcade.fuseMs;
+  arcade.revealUntil = lit + BOMB_REVEAL_MS;
 }
 
 function updateRedlight(room, minigame, arcade, dt, now) {
@@ -5720,7 +5751,7 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     done = alive.length <= 1 && now > minigame.startedAt + WAVE_FIRST_AT;
   } else if (arcade.family === "bomb") {
     const alive = room.players.filter((player) => !arcade.players[player.id]?.outAt);
-    done = room.players.length > 1 && alive.length <= 1;
+    done = (room.players.length > 1 && alive.length <= 1) || alive.length === 0;
   } else if (arcade.family === "cannon") {
     done = room.players.every((player) => arcade.players[player.id]?.launchedAt);
   } else if (arcade.family === "react") {
@@ -7432,16 +7463,26 @@ function arcadeBotStep(room, bot) {
       player.botHoldSince = arcade.holderSince;
       player.botPassAt = arcade.holderSince + BOMB_PASS_LOCK_MS
         + profile.reactionMs * 0.8 + Math.random() * 500;
+      // Auch ein Bot zählt die Sekunden nur im Kopf: sein Gefühl für die
+      // Restzeit liegt mal ein paar Zehntel daneben. Vorher las er die
+      // Zündschnur auf die Millisekunde und gewann zu zweit als starker Bot
+      // 95 von 100 Partien gegen den mittleren.
+      const streuung = profile.level === "hard" ? 100 : 240;
+      player.botFuseErr = ((Math.random() + Math.random() + Math.random() - 1.5) / 0.5) * streuung;
     }
     // Nach jedem Weitergeben ist die Zündschnur kurz zu sehen. Wer hinschaut,
     // gibt sofort ab, wenn sie knapp wird — vorher las kein Bot sie überhaupt,
     // und das eigentliche Können des Spiels blieb ungenutzt.
-    const fuseLeft = (arcade.fuseAt || 0) - now;
+    const fuseLeft = (arcade.fuseAt || 0) - now + (player.botFuseErr || 0);
     // Der beste Wert liegt KNAPP UNTER der Mindesthaltezeit des Empfängers (380 ms):
     // dann kann er sie nicht mehr loswerden. Zu früh abgegeben kreist die Bombe
     // einmal herum und kommt zurück — mit 900 ms verlor der starke Bot gemessen
     // gegen den mittleren.
-    const watch = profile.level === "hard" ? 370 : profile.level === "normal" ? 700 : 0;
+    // Mit der Streuung von oben zielt der starke Bot etwas tiefer, damit sein
+    // Wurf meist noch im Fenster landet. Gemessen zu zweit (Sieger von 600):
+    // stark gegen mittel 78 %, ein Mensch, der sofort weitergibt, gegen stark
+    // 30 %, einer, der mitzählt und spät abgibt, 56 %.
+    const watch = profile.level === "hard" ? 280 : profile.level === "normal" ? 600 : 0;
     if ((fuseLeft <= watch && now >= arcade.canPassAt) || now >= player.botPassAt) {
       handleArcadeInput(room, bot, { action: "pass" });
     }
@@ -8549,6 +8590,8 @@ module.exports = {
     BARREL_LIMIT,
     BARREL_WILD_MS,
     BOMB_PASS_LOCK_MS,
+    BOMB_BREAK_MS,
+    BOMB_DUEL_LIVES,
     KNIFE_MIN_GAP_DEG,
     knifeLogAngle,
     knifeImpactAngle,

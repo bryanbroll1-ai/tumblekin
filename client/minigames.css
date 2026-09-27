@@ -2179,6 +2179,21 @@ canvas.is-stunned {
   border-color: #ffe36b;
 }
 
+/* Wer die Bombe hält, hat einen roten, glühenden Knopf — die übrige Zeit
+   bleibt er grau. Vorher sah er in beiden Fällen fast gleich aus. */
+.bomb-button.is-hot {
+  background: linear-gradient(180deg, #ff5a3c, #d11f2c);
+  box-shadow: 0 8px 0 #6e0f18, 0 0 0 4px rgba(255, 120, 60, 0.35), 0 18px 30px rgba(209, 31, 44, 0.5);
+}
+
+.bomb-button.is-hot:active {
+  box-shadow: 0 2px 0 #6e0f18;
+}
+
+.bomb-button.is-hot.is-arming {
+  background: linear-gradient(180deg, #b0503e, #7a2a2c);
+}
+
 /* --- Partyklassiker ------------------------------------------------------- */
 
 /* Tauziehen: der Knopf trägt die Griffkraft als Balken. Grün heisst: ziehen,

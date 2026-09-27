@@ -3,6 +3,7 @@ import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { ringband } from "./Blockform.js?v=tumblekin200";
 
 // Zündstoff — heisse Kartoffel mit einer Bombe. Die Zündzeit blinkt kurz auf,
 // dann heisst es: merken und rechtzeitig weitergeben. Wer sie beim Knall hält,
@@ -14,6 +15,11 @@ import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 // jeder Sekunde panischer. Weitergeben ist ein Wurf im Bogen.
 const ARC_R = 2.15;
 const PASS_MS = 380;
+// Pause nach dem Knall (Server: BOMB_BREAK_MS): erst die Explosion, dann
+// steigt die neue Bombe aus dem Feuer und fliegt im Bogen zum Träger.
+const RISE_MS = 580;
+const FLY_MS = 520;
+const FIRE_AT = new THREE.Vector3(0, 0.55, 0.6);
 
 export class BombPass extends MinigameScene {
   constructor(ctx) {
@@ -23,6 +29,9 @@ export class BombPass extends MinigameScene {
     this.lastHolderId = null;
     this.lastExplosions = 0;
     this.flight = null;
+    this.hits = new Map();
+    this.caughtSince = null;
+    this.inBreak = false;
   }
 
   stage() {
@@ -278,11 +287,41 @@ export class BombPass extends MinigameScene {
     this.timerTex.colorSpace = THREE.SRGBColorSpace;
     this.timerSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.timerTex, transparent: true, depthTest: false }));
     this.timerSprite.scale.set(0.72, 0.72, 0.72);
-    this.timerSprite.position.y = 0.95;
     this.timerSprite.renderOrder = 998;
-    this.bomb.add(this.timerSprite);
+    // Nicht an der Bombe: im Flug überschlägt sie sich, und das Schild wäre
+    // mitgekreist — zeitweise hing die Zahl UNTER der Bombe.
+    this.scene.add(this.timerSprite);
     this.timerLast = null;
+
+    // Die Bombe ist dunkel, die Nacht auch: ein warmer Schein hinter ihr hebt
+    // sie vom Wald ab, und ein roter Ring am Boden zeigt auf einen Blick, wer
+    // sie hält — auch wenn Schild oder Funken sie gerade verdecken.
+    const glow = document.createElement("canvas");
+    glow.width = 64;
+    glow.height = 64;
+    const g = glow.getContext("2d");
+    const verlauf = g.createRadialGradient(32, 32, 4, 32, 32, 32);
+    verlauf.addColorStop(0, "rgba(255,190,110,0.95)");
+    verlauf.addColorStop(0.45, "rgba(255,110,50,0.45)");
+    verlauf.addColorStop(1, "rgba(255,60,30,0)");
+    g.fillStyle = verlauf;
+    g.fillRect(0, 0, 64, 64);
+    const glowTex = new THREE.CanvasTexture(glow);
+    glowTex.colorSpace = THREE.SRGBColorSpace;
+    this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.halo.scale.setScalar(1.5);
+    this.halo.userData.isFx = true;
+    this.bomb.add(this.halo);
     this.scene.add(this.bomb);
+
+    // Als Band aus Keilen wie der Rand im Bumper Pool — gerastert wurde der
+    // kleine Ring zu einem Quadrat.
+    this.holderRing = new THREE.Mesh(
+      ringband({ innen: 0.5, aussen: 0.66, unten: 0, oben: 0.02 }),
+      new THREE.MeshBasicMaterial({ color: "#ff3b30", transparent: true, opacity: 0.7, depthWrite: false })
+    );
+    this.holderRing.visible = false;
+    this.scene.add(this.holderRing);
   }
 
   // Halbkreis hinter dem Feuer, alle zur Kamera gedreht, leicht zur Mitte.
@@ -352,6 +391,32 @@ export class BombPass extends MinigameScene {
     this.sendInput({ action: "pass" }).catch(() => {});
   }
 
+  // Der Knall beim Träger. Raus ist er, wenn er keine Leben mehr hat; zu
+  // zweit verliert er erst eines und spielt weiter.
+  boom(arcade, now, controlledId) {
+    const id = arcade.lastBoomId;
+    const kin = this.kins.get(id);
+    this.rig.shake(1);
+    this.feedback?.sound("burst");
+    this.feedback?.vibrate([34, 24, 40]);
+    this.flight = null;
+    const at = kin ? kin.position.clone().add(new THREE.Vector3(0, 0.9, 0)) : this.bomb.position.clone();
+    this.burst(at, ["#ff8b2e", "#ffd15c", "#1b2530", "#ffffff"], { count: 30, speed: 3.4, up: 2.8, size: 0.1, life: 0.9, drag: 1.3 });
+    this.burst(at, ["#3a3530", "#57504a"], { count: 10, speed: 0.9, up: 1.6, size: 0.16, life: 1.3, gravity: -0.6, drag: 2 });
+    if (kin) this.bursts.ring(kin.position.clone().setY(0.34), "#ff8b2e", { radius: 2.4, life: 0.6, opacity: 0.6, y: 0.34 });
+    const entry = arcade.players[id];
+    const out = Boolean(entry?.outAt);
+    this.pop(at.clone().add(new THREE.Vector3(0, 0.6, 0)), out ? "BUMM! 💥" : "−1 ❤", { color: out ? "#ff8b2e" : "#ff5d73", size: 0.5, life: 1 });
+    if (!out && kin) {
+      this.hits.set(id, now);
+      this.animators.get(id)?.trigger("knockback");
+    }
+    if (id === controlledId) {
+      this.feedback?.sound("error");
+      this.feedback?.vibrate([30, 24, 40]);
+    }
+  }
+
   bombRest(kin) {
     // Über dem Kopf des Trägers.
     return new THREE.Vector3(kin.position.x, kin.position.y + 0.95, kin.position.z + 0.05);
@@ -368,21 +433,31 @@ export class BombPass extends MinigameScene {
     if (this.campLantern) this.campLantern.scale.setScalar(1 + Math.sin(now / 120) * 0.03);
     if (!arcade) return;
 
+    // Knall: beim Träger, egal ob er raus ist oder (zu zweit) nur ein Leben
+    // verliert. Die Bombe ist danach weg, bis die neue aus dem Feuer kommt.
     if ((arcade.explosions || 0) > this.lastExplosions) {
       this.lastExplosions = arcade.explosions;
-      this.rig.shake(1);
-      this.feedback?.sound("impact");
-      this.feedback?.vibrate([34, 24, 40]);
+      this.boom(arcade, now, controlledId);
     }
 
-    // Wechsel des Trägers: der alte wirft, die Bombe fliegt im Bogen.
-    if (this.lastHolderId !== arcade.holderId) {
-      const fromKin = this.kins.get(this.lastHolderId);
+    // Nach dem Knall bis zur Ankunft der neuen Bombe: keiner hält sie.
+    const breakLeft = (arcade.holderSince || 0) - now;
+    const inBreak = breakLeft > 0 && !finale;
+    if (inBreak) this.inBreak = true;
+
+    // Wechsel des Trägers: der alte wirft, die Bombe fliegt im Bogen. Kommt
+    // sie aus dem Feuer, ist sie schon da und wird nur gefangen.
+    if (!inBreak && this.caughtSince !== arcade.holderSince) {
+      const first = this.caughtSince === null;
+      const fromFire = this.inBreak;
+      this.caughtSince = arcade.holderSince;
+      this.inBreak = false;
+      const fromKin = !fromFire && this.lastHolderId !== arcade.holderId ? this.kins.get(this.lastHolderId) : null;
       if (fromKin && arcade.holderId) {
         this.flight = { from: this.bomb.position.clone(), to: arcade.holderId, start: now };
         if (this.lastHolderId !== controlledId) this.animators.get(this.lastHolderId)?.trigger("throw");
       }
-      if (this.lastHolderId !== null && arcade.holderId === controlledId) {
+      if ((fromFire || !first) && arcade.holderId === controlledId) {
         this.feedback?.sound("impact");
         this.feedback?.vibrate([16, 12, 20]);
       }
@@ -395,11 +470,28 @@ export class BombPass extends MinigameScene {
     // nervöser, und alle anderen sehen es: die Bombe zittert und glüht, der
     // Träger schwitzt und tritt von einem Fuss auf den anderen, die Nachbarn
     // gehen in Deckung. Nach drei Sekunden ist man ganz oben.
-    const holderKin = this.kins.get(arcade.holderId);
+    const holderKin = inBreak ? null : this.kins.get(arcade.holderId);
     const heldFor = Math.max(0, now - (arcade.holderSince || now)) / 1000;
     const tension = holderKin ? Math.min(1, Math.max(0, (heldFor - 0.4) / 2.6)) : 0;
     this.bombBody.emissiveIntensity = tension * tension * (0.55 + Math.abs(Math.sin(now / (260 - tension * 190))) * 0.45);
-    if (holderKin && !finale) {
+    const nextKin = this.kins.get(arcade.holderId);
+    if (inBreak && nextKin && breakLeft <= RISE_MS + FLY_MS) {
+      // Die neue Bombe steigt aus der Glut, dann fliegt sie zum Träger.
+      this.bomb.visible = true;
+      this.flight = null;
+      this.bomb.rotation.set(0, now / 700, 0);
+      if (breakLeft > FLY_MS) {
+        const u = 1 - (breakLeft - FLY_MS) / RISE_MS;
+        this.bomb.position.copy(FIRE_AT).setY(FIRE_AT.y + u * 0.45);
+        this.bomb.scale.setScalar(0.35 + u * 0.65);
+      } else {
+        const u = 1 - breakLeft / FLY_MS;
+        this.bomb.position.lerpVectors(FIRE_AT.clone().setY(FIRE_AT.y + 0.45), this.bombRest(nextKin), u);
+        this.bomb.position.y += Math.sin(u * Math.PI) * 1.3;
+        this.bomb.rotation.x = u * Math.PI * 2;
+        this.bomb.scale.setScalar(1);
+      }
+    } else if (holderKin && !finale) {
       this.bomb.visible = true;
       const rest = this.bombRest(holderKin);
       rest.x += Math.sin(now / (70 - tension * 42)) * (0.012 + tension * 0.085);
@@ -419,10 +511,24 @@ export class BombPass extends MinigameScene {
     } else {
       this.bomb.visible = false;
     }
+    this.halo.material.opacity = 0.7 + tension * 0.3 + Math.sin(now / (200 - tension * 120)) * 0.1;
+    this.halo.scale.setScalar(1.5 + tension * 0.5);
+    // Der Ring am Boden: wer hält, steht im Roten.
+    const ringOn = Boolean(holderKin) && !finale;
+    this.holderRing.visible = ringOn;
+    if (ringOn) {
+      this.holderRing.position.set(holderKin.position.x, 0.305, holderKin.position.z);
+      this.holderRing.scale.setScalar(1 + Math.sin(now / (180 - tension * 110)) * (0.05 + tension * 0.08));
+      this.holderRing.material.opacity = 0.55 + tension * 0.4;
+    }
 
     // Zündzeit: kurz die Sekunden, dann "?".
-    const revealing = arcade.revealUntil && now < arcade.revealUntil;
-    const secs = Math.max(0, Math.ceil((arcade.fuseAt - now) / 1000));
+    // Die Zahl erscheint mit der Ankunft (im Anflug schon ein Stück vorher)
+    // und zählt von der vollen Zündzeit herunter.
+    const revealing = arcade.revealUntil && now < arcade.revealUntil && breakLeft < 260;
+    const secs = Math.max(0, Math.min(Math.round((arcade.fuseMs || 0) / 1000), Math.ceil((arcade.fuseAt - now) / 1000)));
+    this.timerSprite.visible = this.bomb.visible && (!inBreak || breakLeft < 260);
+    this.timerSprite.position.copy(this.bomb.position).y += 0.95 * this.bomb.scale.y;
     const text = revealing ? `${secs}s` : "?";
     if (text !== this.timerLast) {
       this.timerLast = text;
@@ -452,11 +558,14 @@ export class BombPass extends MinigameScene {
       const brow = holderKin.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.72, 0.18));
       this.burst(brow, ["#bfe9ff", "#8fd4ff"], { count: 1, speed: 0.35, up: 0.5, size: 0.045, life: 0.45, gravity: 5 });
     }
-    if (arcade.holderId === controlledId && tension > 0.2 && !finale) {
+    // Dazu ein leises Ticken, das mit der Haltezeit schneller und höher wird
+    // — es verrät nichts über die Zündschnur, nur wie lange man schon zögert.
+    if (arcade.holderId === controlledId && holderKin && tension > 0.2 && !finale) {
       const beatMs = 820 - tension * 470;
       if (!this.nextPulse || now >= this.nextPulse) {
         this.nextPulse = now + beatMs;
         this.feedback?.vibrate(tension > 0.7 ? [10, 60, 14] : 8);
+        this.feedback?.sound("clack", { pitch: 1.6 + tension * 1.2 });
       }
     } else {
       this.nextPulse = 0;
@@ -469,19 +578,11 @@ export class BombPass extends MinigameScene {
       const spot = this.spots.get(player.id);
       if (!entry || !kin || !animator || !spot) return;
       const out = Boolean(entry.outAt);
-      const isHolder = arcade.holderId === player.id;
+      const isHolder = arcade.holderId === player.id && !inBreak;
 
       if (out && !this.out.has(player.id)) {
         this.out.set(player.id, now);
         animator.trigger("knockback");
-        const at = kin.position.clone().add(new THREE.Vector3(0, 0.6, 0));
-        this.burst(at, ["#ff8b2e", "#ffd15c", "#1b2530", "#ffffff"], { count: 30, speed: 3.4, up: 2.8, size: 0.1, life: 0.9, drag: 1.3 });
-        this.bursts.ring(kin.position.clone().setY(0.34), "#ff8b2e", { radius: 2.4, life: 0.6, opacity: 0.6, y: 0.34 });
-        this.pop(at.clone().add(new THREE.Vector3(0, 0.8, 0)), "BUMM! 💥", { color: "#ff8b2e", size: 0.5, life: 1 });
-        if (player.id === controlledId) {
-          this.feedback?.sound("error");
-          this.feedback?.vibrate([30, 24, 40]);
-        }
       }
 
       if (out) {
@@ -502,6 +603,19 @@ export class BombPass extends MinigameScene {
         return;
       }
 
+      // Zu zweit: getroffen, aber noch im Spiel. Kurz verrußt und benommen,
+      // dann schüttelt man es ab — rechtzeitig, bevor die neue Bombe kommt.
+      const hitAt = this.hits.get(player.id);
+      const sinceHit = hitAt ? (now - hitAt) / 1000 : Infinity;
+      if (sinceHit < 1.5) {
+        flashKin(kin, "#000000", 0);
+        kin.userData.material.color.setScalar(0.45 + 0.55 * Math.min(1, sinceHit / 1.5));
+        if (!finale && !isHolder) animator.set("dizzy");
+      } else if (hitAt) {
+        this.hits.delete(player.id);
+        kin.userData.material.color.setScalar(1);
+      }
+
       kin.position.x += (spot.x - kin.position.x) * frameLerp(0.15, dt);
       kin.rotation.y = spot.facing;
       // Alle schauen der Bombe hinterher.
@@ -519,7 +633,7 @@ export class BombPass extends MinigameScene {
         const trip = tension > 0.45 ? Math.abs(Math.sin(now / (170 - tension * 70))) * 0.07 * tension : 0;
         this.setGround(player.id, 0.3 + trip);
         kin.rotation.y = spot.facing + Math.sin(now / 130) * 0.12 * tension;
-      } else {
+      } else if (sinceHit >= 1.5) {
         this.setGround(player.id, 0.3);
         // Je länger der Nachbar festhält, desto mehr geht man in Deckung.
         animator.set(tension > 0.65 ? "cower" : tension > 0.3 ? "brace" : "focus");
@@ -537,31 +651,51 @@ export class BombPass extends MinigameScene {
   }
 
   drawHud(f) {
-    const { arcade, minigame, controlledId } = f;
+    const { arcade, minigame, controlledId, players, now } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = String(own?.passes || 0);
-    const banner = this.hud.querySelector("[data-bomb-banner]");
-    const isHolder = arcade.holderId === controlledId && !own?.outAt;
-    if (own?.outAt) {
-      banner.hidden = false;
-      banner.textContent = "BOOM – raus!";
-      banner.style.background = "#40506a";
-      banner.style.color = "#ffffff";
-    } else if (isHolder) {
-      banner.hidden = false;
-      banner.textContent = "DU hast die Bombe!";
-      banner.style.background = "#ff2038";
-      banner.style.color = "#ffffff";
-    } else {
-      banner.hidden = true;
+    // Oben links steht, was zählt: zu zweit der Spielstand in Treffern
+    // (eigene zuerst), sonst wie viele noch im Spiel sind. Die Zahl der
+    // Weitergaben stand dort früher — und lud zum hektischen Weiterreichen
+    // ein, das gemessen schlechter abschneidet als rechtzeitiges.
+    const lives = arcade.lives || 1;
+    const alive = players.filter((player) => !arcade.players[player.id]?.outAt).length;
+    let score = `${alive}/${players.length}`;
+    if (lives > 1 && players.length === 2) {
+      const other = players.find((player) => player.id !== controlledId);
+      const theirs = arcade.players[other?.id];
+      if (own && theirs) score = `${lives - (theirs.lives ?? lives)}:${lives - (own.lives ?? lives)}`;
     }
+    if (this.scoreNode.textContent !== score) this.scoreNode.textContent = score;
+    const banner = this.hud.querySelector("[data-bomb-banner]");
+    const inBreak = now < (arcade.holderSince || 0) && !minigame.finaleAt;
+    const isHolder = arcade.holderId === controlledId && !own?.outAt && !inBreak;
+    let text = null;
+    let tone = "#40506a";
+    const finale = Boolean(minigame.finaleAt);
+    if (own?.outAt) {
+      text = "BOOM – raus!";
+    } else if ((inBreak || finale) && arcade.lastBoomId) {
+      const hit = arcade.players[arcade.lastBoomId];
+      const name = players.find((player) => player.id === arcade.lastBoomId)?.name || "?";
+      if (arcade.lastBoomId === controlledId) text = `Getroffen! Noch ${hit?.lives ?? 0} ❤`;
+      else text = hit?.outAt ? `💥 ${name} ist raus!` : `💥 Treffer bei ${name}!`;
+      tone = "#8a3b1c";
+    } else if (isHolder && !finale) {
+      text = "DU hast die Bombe!";
+      tone = "#ff2038";
+    }
+    banner.hidden = !text;
+    if (text && banner.textContent !== text) banner.textContent = text;
+    banner.style.background = tone;
+    banner.style.color = "#ffffff";
     this.passButton.disabled = !isHolder || Boolean(minigame.finaleAt);
+    this.passButton.classList.toggle("is-hot", isHolder && !minigame.finaleAt);
 
     // Sperre nach dem Fangen: der Balken läuft voll, dann ist der Knopf scharf.
     const lockMs = Math.max(1, (arcade.canPassAt || 0) - (arcade.holderSince || 0));
-    const left = (arcade.canPassAt || 0) + 30 - f.now;
+    const left = (arcade.canPassAt || 0) + 30 - now;
     const locked = isHolder && left > 0;
     const arm = locked ? 1 - Math.min(1, left / (lockMs + 30)) : 1;
     if (this.armNode) this.armNode.style.transform = `scaleX(${arm.toFixed(3)})`;
