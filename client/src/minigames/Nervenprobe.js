@@ -162,6 +162,34 @@ function paintDisplay(panel, text, accent = "#7df0a0", sub = "") {
   texture.needsUpdate = true;
 }
 
+// Das Zielschild über der Uhr: gross, golden, damit die gesuchte Zahl dort
+// steht, wo man ohnehin hinschaut — nicht nur klein oben links in der Ecke.
+function paintSign(panel, targetMs, accent) {
+  const text = `ZIEL  ${(targetMs / 1000).toFixed(1).replace(".", ",")} s`;
+  const { ctx, canvas, texture } = panel.userData;
+  if (panel.userData.lastText === text + accent) return;
+  panel.userData.lastText = text + accent;
+  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  bg.addColorStop(0, "#241838");
+  bg.addColorStop(1, "#0d0818");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 8;
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 16;
+  roundedRect(ctx, 10, 10, canvas.width - 20, canvas.height - 20, 22);
+  ctx.stroke();
+  ctx.fillStyle = accent;
+  ctx.font = "900 78px ui-rounded, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 4);
+  ctx.restore();
+  texture.needsUpdate = true;
+}
+
 export class Nervenprobe extends MinigameScene {
   constructor(ctx) {
     super(ctx);
@@ -280,20 +308,6 @@ export class Nervenprobe extends MinigameScene {
       scene.add(flag);
     }
 
-    // Two soft spotlight cones sweeping over the stage.
-    this.spotCones = [];
-    [[-2.6, "#fff3c4"], [2.6, "#ffe1f0"]].forEach(([x, color], index) => {
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(1.5, 5.2, 8, 1, true),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide })
-      );
-      cone.position.set(x, 3.2, -1);
-      cone.rotation.x = 0.3;
-      cone.userData = { phase: index * Math.PI };
-      scene.add(cone);
-      this.spotCones.push(cone);
-    });
-
     // Gold star sparkles on the curtain.
     this.stars = [];
     [[-3.4, 3.3], [-1.2, 2.6], [1.6, 3.5], [3.6, 2.8], [0.2, 1.7], [-2.4, 1.4], [2.6, 1.6]].forEach(([x, y], index) => {
@@ -341,6 +355,7 @@ export class Nervenprobe extends MinigameScene {
     }
 
     this.buildStopwatch();
+    this.buildTargetSign();
 
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.addStation(player, index, players.length));
@@ -468,6 +483,30 @@ export class Nervenprobe extends MinigameScene {
     this.dialMarks = new Map();
     this.scene.add(group);
     this.dial = group;
+  }
+
+  // Das Schild hängt an zwei Seilen von der Traverse, direkt über der Uhr.
+  buildTargetSign() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 128;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const dark = new THREE.MeshLambertMaterial({ color: "#1a1228" });
+    const sign = new THREE.Mesh(
+      new THREE.BoxGeometry(3.4, 0.85, 0.1),
+      [dark, dark, dark, dark, new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }), dark]
+    );
+    sign.userData = { canvas, ctx: canvas.getContext("2d"), texture, lastText: null };
+    sign.position.set(DIAL_POS[0], DIAL_POS[1] + 1.78, DIAL_POS[2] - 0.05);
+    this.scene.add(sign);
+    [-1, 1].forEach((side) => {
+      const seil = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.2, 0.03), new THREE.MeshLambertMaterial({ color: "#8a90a0" }));
+      seil.position.set(side * 1.4, sign.position.y + 1, sign.position.z);
+      this.scene.add(seil);
+    });
+    paintSign(sign, this.minigame?.arcade?.targetMs || 5000, "#ffd76a");
+    this.targetSign = sign;
   }
 
   // Bei der Auflösung steckt für jeden eine Marke in seiner Farbe am Rand —
@@ -645,14 +684,14 @@ export class Nervenprobe extends MinigameScene {
       } else if (!hidden) {
         paintDisplay(station.display, formatSeconds(elapsed), "#7df0a0");
       } else {
-        paintDisplay(station.display, "? ? ?", Math.floor(now / 400) % 2 === 0 ? "#ff5c8a" : "#c86a92");
+        paintDisplay(station.display, "? ? ?", "#ff5c8a");
       }
       station.buzzer.position.y += ((stopped ? STAGE_Y + 0.45 : STAGE_Y + 0.49) - station.buzzer.position.y) * frameLerp(0.25, dt);
       station.buzzer.material.emissiveIntensity = stopped ? 1 : 0.25;
       const bulbColor = offen ? accentFor(stoppedReally ? deviation : null) : revealAll ? "#ffd76a" : stopped ? "#12aaff" : hidden ? "#ff2038" : "#2ee86a";
       station.bulb.material.color.set(bulbColor);
       station.bulb.material.emissive.set(bulbColor);
-      station.bulb.material.emissiveIntensity = hidden && !stopped && !revealAll ? (Math.floor(now / 320) % 2 === 0 ? 1.1 : 0.15) : 0.8;
+      station.bulb.material.emissiveIntensity = 0.8;
 
       if (isOwn && stoppedReally && !this.lastStopped.get(player.id)) {
         this.lastStopped.set(player.id, true);
@@ -721,13 +760,17 @@ export class Nervenprobe extends MinigameScene {
       this.feedback?.vibrate([30, 30, 60]);
     }
 
-    this.spotCones?.forEach((cone) => {
-      cone.rotation.z = Math.sin(now / 1600 + cone.userData.phase) * 0.35;
-      cone.material.opacity = 0.1 + Math.abs(Math.sin(now / 900 + cone.userData.phase)) * 0.08;
-    });
+    // Die Sterne am Vorhang glimmen nur noch leise. Vorher blinkten sie
+    // hektisch, und zwei Lichtkegel schwenkten über die Bühne — beides zog
+    // den Blick genau von dem weg, worauf es ankommt: die eigene Zählung.
     this.stars?.forEach((star) => {
-      star.material.emissiveIntensity = 0.35 + Math.abs(Math.sin(now / 500 + star.userData.phase)) * 0.65;
+      star.material.emissiveIntensity = 0.45 + Math.sin(now / 1800 + star.userData.phase) * 0.1;
     });
+    // Das Zielschild leuchtet in der Auflösung auf.
+    if (this.targetSign) {
+      const glow = this.jubelt ? "#fff3c4" : "#ffd76a";
+      paintSign(this.targetSign, arcade.targetMs, revealAll && Math.floor(now / 200) % 2 === 0 ? "#fff3c4" : glow);
+    }
   }
 
   drawHud(f) {

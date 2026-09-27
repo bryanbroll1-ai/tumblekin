@@ -2985,7 +2985,9 @@ function createArcadeState(type, players, startedAt, options = {}) {
   if (config.family === "stopclock") {
     // Jedes Mal eine neue Zielzeit zwischen 4 und 8 Sekunden. Bis 12 war zu
     // lang: nach acht Sekunden im Kopf zählen ist es Glück, nicht Gefühl.
-    arcade.targetMs = Math.round(4000 + arcadeNoise(arcade.seed + Date.now() % 997) * 4000);
+    // Auf Zehntel gerundet: angezeigt wird "6,1 s", und genau das soll auch
+    // gewertet werden — nicht 6,134 s hinter einer gerundeten Anzeige.
+    arcade.targetMs = Math.round((4000 + arcadeNoise(arcade.seed + Date.now() % 997) * 4000) / 100) * 100;
     arcade.hideAfterMs = 2000;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
