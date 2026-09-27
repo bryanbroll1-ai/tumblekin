@@ -275,9 +275,17 @@ export class CoinRain extends MinigameScene {
       gem.add(bottom);
       return gem;
     }
+    // Die Bombe fällt vor dem schwarzen Stolleneingang — schwarz auf schwarz
+    // war sie kaum zu sehen. Ein roter Schein hinter ihr und ein glühender
+    // Kern machen sie auf einen Blick zur Gefahr.
     const bomb = new THREE.Group();
-    const core = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshLambertMaterial({ color: "#1b2530" }));
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshLambertMaterial({ color: "#1b2530", emissive: "#ff2a1a", emissiveIntensity: 0.3 }));
     bomb.add(core);
+    bomb.userData.core = core;
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTexture(), color: "#ff4a2a", transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    halo.scale.setScalar(1.25);
+    bomb.add(halo);
+    bomb.userData.halo = halo;
     const fuse = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.06), new THREE.MeshLambertMaterial({ color: "#c9a86a" }));
     fuse.position.y = 0.28;
     bomb.add(fuse);
@@ -285,6 +293,64 @@ export class CoinRain extends MinigameScene {
     spark.position.y = 0.4;
     bomb.add(spark);
     return bomb;
+  }
+
+  // Ein weicher runder Schein, einmal gezeichnet und von allen Bomben geteilt.
+  glowTexture() {
+    if (this.glowTex) return this.glowTex;
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const pen = canvas.getContext("2d");
+    const verlauf = pen.createRadialGradient(32, 32, 6, 32, 32, 32);
+    verlauf.addColorStop(0, "rgba(255,255,255,0.9)");
+    verlauf.addColorStop(0.5, "rgba(255,255,255,0.35)");
+    verlauf.addColorStop(1, "rgba(255,255,255,0)");
+    pen.fillStyle = verlauf;
+    pen.fillRect(0, 0, 64, 64);
+    this.glowTex = new THREE.CanvasTexture(canvas);
+    this.glowTex.colorSpace = THREE.SRGBColorSpace;
+    return this.glowTex;
+  }
+
+  // Die eigene Münze fliegt in den Zähler oben links, und der hüpft kurz.
+  // Nur für die eigene Figur — sonst flöge bei vier Spielern ein Schwarm.
+  flyToScore(world, count = 1) {
+    if (!this.hud || !this.camera || !this.webglCanvas) return;
+    this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
+    if (!this.scoreNode) return;
+    const hudBox = this.hud.getBoundingClientRect();
+    const canvasBox = this.webglCanvas.getBoundingClientRect();
+    const target = this.scoreNode.getBoundingClientRect();
+    const ndc = world.clone().project(this.camera);
+    const x = canvasBox.left - hudBox.left + (ndc.x + 1) / 2 * canvasBox.width;
+    const y = canvasBox.top - hudBox.top + (1 - ndc.y) / 2 * canvasBox.height;
+    const tx = target.left - hudBox.left + target.width / 2;
+    const ty = target.top - hudBox.top + target.height / 2;
+    for (let i = 0; i < Math.min(count, 6); i += 1) {
+      if ((this.flying || 0) >= 8) return;
+      this.flying = (this.flying || 0) + 1;
+      const coin = document.createElement("i");
+      coin.className = "coin-fly";
+      coin.style.left = `${x + (i ? (Math.random() - 0.5) * 40 : 0)}px`;
+      coin.style.top = `${y + (i ? (Math.random() - 0.5) * 30 : 0)}px`;
+      this.hud.appendChild(coin);
+      const done = () => {
+        if (!coin.isConnected) return;
+        coin.remove();
+        this.flying = Math.max(0, (this.flying || 1) - 1);
+        this.scoreNode.classList.remove("is-bump");
+        void this.scoreNode.offsetWidth;
+        this.scoreNode.classList.add("is-bump");
+      };
+      coin.addEventListener("transitionend", done, { once: true });
+      setTimeout(done, 900 + i * 70);
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        coin.style.transitionDelay = `${i * 70}ms`;
+        coin.style.transform = `translate(${tx - parseFloat(coin.style.left)}px, ${ty - parseFloat(coin.style.top)}px) scale(0.6)`;
+        coin.style.opacity = "0";
+      }));
+    }
   }
 
   shot() {
@@ -301,16 +367,23 @@ export class CoinRain extends MinigameScene {
   bind() {
     this.controls.innerHTML = `<p class="trace-hint">◀ Wischen zum Spurwechsel ▶</p>`;
     this.controls.style.pointerEvents = "none";
+    // Der Wechsel kommt, sobald der Finger weit genug gezogen hat, nicht erst
+    // beim Loslassen — bei 300 ms zwischen zwei Münzen im Goldrausch zählt
+    // jeder Augenblick. Wer weiterzieht, wechselt noch eine Spur weiter.
     this.on(this.webglCanvas, "pointerdown", (event) => {
-      this.swipe = { x: event.clientX, y: event.clientY };
+      this.swipe = { x: event.clientX, steps: 0 };
     });
-    this.on(this.webglCanvas, "pointerup", (event) => {
-      if (!this.swipe) return;
-      const dx = event.clientX - this.swipe.x;
-      this.swipe = null;
-      if (Math.abs(dx) < 24) return;
+    this.on(window, "pointermove", (event) => {
+      const swipe = this.swipe;
+      if (!swipe) return;
+      const dx = event.clientX - swipe.x;
+      if (Math.abs(dx) < (swipe.steps === 0 ? 24 : 48)) return;
+      swipe.x = event.clientX;
+      swipe.steps += 1;
       this.sendLane(dx > 0 ? 1 : -1);
     });
+    this.on(window, "pointerup", () => { this.swipe = null; });
+    this.on(window, "pointercancel", () => { this.swipe = null; });
   }
 
   unbind() {
@@ -318,10 +391,23 @@ export class CoinRain extends MinigameScene {
     this.dropMeshes.clear();
   }
 
+  // Der Server nimmt höchstens alle 110 ms einen Wechsel an. Kommt der
+  // zweite aus einem durchgezogenen Wisch schneller, wird er kurz gehalten
+  // statt verschluckt.
   sendLane(dir) {
     this.feedback?.sound("move");
     this.feedback?.vibrate(8);
-    this.sendInput({ action: "lane", dir }).catch(() => {});
+    const wait = (this.lastLaneAt || 0) + 125 - performance.now();
+    const send = () => {
+      this.lastLaneAt = performance.now();
+      this.sendInput({ action: "lane", dir }).catch(() => {});
+    };
+    if (wait > 0) {
+      this.lastLaneAt = performance.now() + wait;
+      setTimeout(() => { if (this.frame) send(); }, wait);
+    } else {
+      send();
+    }
   }
 
   tick(f) {
@@ -358,33 +444,71 @@ export class CoinRain extends MinigameScene {
     const nextInLane = [null, null, null];
     (arcade.drops || []).forEach((drop) => {
       const fallFrom = drop.catchAt - fallMs;
-      if (elapsed < fallFrom || elapsed > drop.catchAt + 120) return;
+      if (elapsed < fallFrom || elapsed > drop.catchAt + 700) return;
       active.add(drop.id);
       let mesh = this.dropMeshes.get(drop.id);
       if (!mesh) {
         mesh = this.buildDropMesh(drop.kind);
+        // Fallende und liegende Münzen sind kein Boden, auf dem man steht.
+        mesh.userData.isFx = true;
         this.scene.add(mesh);
         this.dropMeshes.set(drop.id, mesh);
         const lamp = this.lamps[drop.lane];
         if (lamp) lamp.flash = 1;
       }
       const t = Math.min(1, (elapsed - fallFrom) / fallMs);
+      const past = elapsed - drop.catchAt;
       mesh.position.set(this.laneX(drop.lane) + this.machine.position.x * (1 - t), DROP_TOP_Y - t * t * (DROP_TOP_Y - CATCH_Y), KIN_Z - 0.1);
       mesh.rotation.y = drop.kind === "jackpot" ? Math.sin(now / 300) * 0.4 : now / 260 + drop.id;
-      // Gefangen: die Münze blitzt kurz auf und dreht sich weg, statt einfach
-      // zu verschwinden. Steht niemand in der Spur, fällt sie einfach durch.
-      const caughtBy = drop.kind !== "bomb" && elapsed >= drop.catchAt
-        && players.some((player) => arcade.players[player.id]?.lane === drop.lane);
-      if (caughtBy) {
-        const u = Math.min(1, (elapsed - drop.catchAt) / 120);
+      // Ob jemand in der Spur stand, entscheidet sich einmal, beim Fang.
+      if (past >= 0 && mesh.userData.caught === undefined) {
+        mesh.userData.caught = players.some((player) => arcade.players[player.id]?.lane === drop.lane);
+      }
+      const caught = past >= 0 && mesh.userData.caught;
+      if (caught && drop.kind !== "bomb") {
+        // Gefangen: die Münze blitzt auf und dreht sich weg.
+        const u = Math.min(1, past / 120);
+        mesh.visible = past < 120;
         mesh.scale.setScalar(1 + Math.sin(u * Math.PI) * 0.45);
         mesh.rotation.y += u * 6;
         if (!mesh.userData.flashed) {
           mesh.userData.flashed = true;
           this.bursts.ring(mesh.position.clone(), "#ffe36b", { radius: drop.kind === "coin" ? 0.45 : 0.7, life: 0.3, y: mesh.position.y });
         }
+      } else if (caught) {
+        // Die Bombe geht an der Figur hoch (siehe unten) und ist weg.
+        mesh.visible = false;
+      } else if (past > 0) {
+        // Keiner da: sie fällt weiter bis auf den Boden. Münzen hüpfen einmal
+        // und vergehen, eine Bombe verpufft — man sieht, was man verpasst
+        // oder wem man ausgewichen ist. Vorher blieb alles in Kopfhöhe stehen
+        // und verschwand.
+        const fall = Math.min(1, past / 230);
+        const groundY = drop.kind === "jackpot" ? 0.3 : 0.16;
+        mesh.position.y = CATCH_Y - fall * fall * (CATCH_Y - groundY);
+        if (fall >= 1) {
+          if (drop.kind === "bomb") {
+            if (!mesh.userData.puffed) {
+              mesh.userData.puffed = true;
+              const at = mesh.position.clone();
+              this.burst(at, ["#3a3530", "#ff8b2e", "#ffd15c"], { count: 10, speed: 1.6, up: 1.4, size: 0.08, life: 0.5, drag: 1.8 });
+              this.bursts.ring(at.clone().setY(0.06), "#ff8b2e", { radius: 0.8, life: 0.35, opacity: 0.45, y: 0.06 });
+            }
+            mesh.visible = false;
+          } else {
+            const rest = (past - 230) / 470;
+            mesh.position.y = groundY + Math.max(0, Math.sin(Math.min(1, rest * 2.2) * Math.PI)) * 0.18;
+            mesh.scale.setScalar(Math.max(0.01, 1 - Math.max(0, rest - 0.45) * 1.8));
+          }
+        }
       }
-      if (drop.kind === "bomb") mesh.rotation.z = Math.sin(now / 120) * 0.25;
+      if (drop.kind === "bomb") {
+        mesh.rotation.z = Math.sin(now / 120) * 0.25;
+        const pulse = Math.abs(Math.sin(now / 140 + drop.id));
+        mesh.userData.core.material.emissiveIntensity = 0.06 + pulse * 0.16;
+        mesh.userData.halo.material.opacity = 0.6 + pulse * 0.35;
+      }
+      if (past > 0) return;
       const current = nextInLane[drop.lane];
       if (!current || drop.catchAt < current.catchAt) nextInLane[drop.lane] = { catchAt: drop.catchAt, mesh, kind: drop.kind };
     });
@@ -419,10 +543,20 @@ export class CoinRain extends MinigameScene {
         animator.expression(gained > 1 ? "joy" : "happy", 500);
         const at = kin.position.clone().add(new THREE.Vector3(0, 0.75, 0));
         const big = gained >= 10;
-        this.burst(at, ["#ffc400", "#ffd15c", "#ffffff"], { count: big ? 40 : 9, speed: big ? 3.4 : 1.9, up: big ? 3 : 2, size: 0.08, life: big ? 1.1 : 0.6, drag: 1.8, fadePow: 1.4 });
-        // Zahlen nur über der eigenen Figur (und der Schatz für alle): vier
-        // Figuren in einer Spur stapelten sonst "+2 +2 +2 +2" übereinander.
-        if (player.id === controlledId || big) this.pop(at, big ? `SCHATZ! +${gained}` : `+${gained}`, { color: "#ffe36b", size: big ? 0.5 : 0.36, life: big ? 1.3 : 0.7, rise: 0.75 });
+        const own = player.id === controlledId;
+        this.burst(at, ["#ffc400", "#ffd15c", "#ffffff"], { count: big ? 40 : own ? 7 : 4, speed: big ? 3.4 : 1.9, up: big ? 3 : 2, size: 0.08, life: big ? 1.1 : 0.6, drag: 1.8, fadePow: 1.4 });
+        // Zahlen nur über der eigenen Figur, und nur, wenn es mehr als eine
+        // Münze ist — die einzelne fliegt sichtbar in den Zähler. Der Schatz
+        // steht einmal da, nicht je Figur in der Spur übereinander.
+        // Steht man selbst in der Spur, erscheint die Zahl über der eigenen Figur.
+        const ownThere = arcade.players[controlledId]?.lane === entry.lane;
+        if (big && !this.jackpotPopped && (own || !ownThere)) {
+          this.jackpotPopped = true;
+          this.pop(at, `SCHATZ! +${gained}`, { color: "#ffe36b", size: 0.5, life: 1.3, rise: 0.75 });
+        } else if (own && gained > 1) {
+          this.pop(at, `+${gained}`, { color: "#ffe36b", size: 0.36, life: 0.7, rise: 0.75 });
+        }
+        if (own) this.flyToScore(at, big ? 6 : gained > 1 ? 2 : 1);
         if (big) animator.trigger("celebrate");
         // Neuer Faktor erreicht.
         const mult = entry.multiplier || 1;
@@ -432,7 +566,10 @@ export class CoinRain extends MinigameScene {
         }
         this.lastMult.set(player.id, mult);
         if (player.id === controlledId) {
-          this.feedback?.sound(gained > 1 ? "sparkle" : "coin", { pan: kin.position.x * 0.2 });
+          // Das Klingeln steigt mit der Serie — wer nichts verpasst, hört
+          // die Tonleiter hinauf. Eine Bombe setzt es zurück.
+          const pitch = 1 + Math.min(12, entry.streak || 0) * 0.035;
+          this.feedback?.sound(gained > 1 ? "sparkle" : "coin", { pan: kin.position.x * 0.2, pitch });
           this.feedback?.vibrate(gained > 1 ? [8, 12, 10] : 10);
         }
       }
