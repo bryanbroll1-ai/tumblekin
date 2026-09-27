@@ -215,23 +215,52 @@ test("catalog contains only the 3D challenges", () => {
   );
 });
 
-test("bumper: you cannot drive yourself off the plate", () => {
+test("bumper: the rim holds nobody — whoever drives over the edge falls", () => {
   const solo = player({ id: "solo", name: "Solo", color: "#fff" });
+  const buddy = player({ id: "buddy", name: "Buddy", color: "#0ff" });
   const startedAt = Date.now() - 2000;
-  const arena = createArenaState([solo], startedAt);
+  const arena = createArenaState([solo, buddy], startedAt);
   const minigame = { type: "bounceArena", arena, scores: {}, startedAt, duration: 18000, lastInputAt: {} };
-  const room = { currentMinigame: minigame, players: [solo] };
+  const room = { currentMinigame: minigame, players: [solo, buddy] };
   const entry = arena.players[solo.id];
-  entry.invulnUntil = 0; // past the spawn grace
+  // Auch in der Schutzzeit nach dem Einstieg: die schützt nur vor Remplern.
+  entry.invulnUntil = Date.now() + 5000;
 
-  // Slam the stick outward for a couple of seconds of ticks.
-  for (let tick = 0; tick < 60; tick += 1) {
+  let fell = false;
+  for (let tick = 0; tick < 60 && !fell; tick += 1) {
     handleArenaInput(room, solo, { action: "thrust", x: 1, y: 0 });
     arena.lastUpdateAt = Date.now() - 90;
     updateBounceArena(room);
+    // Nie zurückgeworfen: solange man oben ist, geht es nur nach aussen.
+    if (entry.inPlay) assert.ok(entry.vx >= 0, "der Rand wirft niemanden zurück");
+    fell = !entry.inPlay;
   }
-  assert.ok(entry.inPlay, "self-thrust never launches you over the rim");
-  assert.ok(Math.hypot(entry.x, entry.y) <= ARENA_RADIUS, "stays on the plate");
+  assert.ok(fell, "wer selbst über die Kante fährt, fällt ins Becken");
+  assert.equal(entry.lives, 2, "und das kostet ein Leben");
+  assert.equal(arena.players[buddy.id].knockouts, 0, "niemand bekommt dafür einen Abschuss");
+});
+
+test("bumper: hanging over the edge you can still steer back", () => {
+  const solo = player({ id: "solo", name: "Solo", color: "#fff" });
+  const buddy = player({ id: "buddy", name: "Buddy", color: "#0ff" });
+  const startedAt = Date.now() - 2000;
+  const arena = createArenaState([solo, buddy], startedAt);
+  const minigame = { type: "bounceArena", arena, scores: {}, startedAt, duration: 18000, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players: [solo, buddy] };
+  const entry = arena.players[solo.id];
+  entry.invulnUntil = 0;
+  // Die Mitte noch knapp auf der Insel, der Ring hängt schon über.
+  entry.x = ARENA_RADIUS - ARENA_BALL_RADIUS * 0.3;
+  entry.y = 0;
+  entry.vx = 0;
+  entry.vy = 0;
+  for (let tick = 0; tick < 12; tick += 1) {
+    handleArenaInput(room, solo, { action: "thrust", x: -1, y: 0 });
+    arena.lastUpdateAt = Date.now() - 90;
+    updateBounceArena(room);
+  }
+  assert.ok(entry.inPlay, "wer rechtzeitig gegenlenkt, bleibt oben");
+  assert.ok(Math.hypot(entry.x, entry.y) < ARENA_RADIUS - ARENA_BALL_RADIUS, "und ist wieder ganz auf der Insel");
 });
 
 test("bumper: a hard ram costs a life, the rival springs back — the last life is final", () => {

@@ -1259,9 +1259,10 @@ const ARENA_BALL_RADIUS = 0.11;       // kin collision radius
 const ARENA_ACCEL = 3.8;              // stick thrust acceleration (snappy, responsive)
 const ARENA_DRAG = 1.75;              // velocity damping (quick stops, still carries momentum)
 const ARENA_RESTITUTION = 2.4;        // >1: bouncy bumpers, so rams carry punch
-const ARENA_RIM_RESTITUTION = 0.62;   // bounce back onto the plate when not launched
-const ARENA_LAUNCH_IMPULSE = 0.95;    // min hit strength (normal Δv) that launches a rival
-const ARENA_LAUNCH_MS = 1150;         // launched window during which the rim lets you fly off
+const ARENA_BOT_LOOKAHEAD = 0.45;     // so weit (s) schauen Bots voraus, ob sie der Rand erwischt
+const ARENA_TIP_SPEED = 0.8;          // wer über der Kante hängt, rutscht mindestens so schnell hinunter
+const ARENA_LAUNCH_IMPULSE = 0.95;    // ab dieser Stosskraft (Δv) gilt ein Treffer als harter Rammstoss
+const ARENA_LAUNCH_MS = 1150;         // so lange zeigt die Figur danach ihr erschrockenes Gesicht
 const ARENA_SUBSTEPS = 4;             // sub-stepped integration prevents tunneling
 const ARENA_RESPAWN_MS = 2200;        // time out of play after a knock-off
 const ARENA_INVULN_MS = 1300;         // spawn grace: no collisions, can't be launched
@@ -1998,7 +1999,6 @@ function updateBounceArena(room) {
 
   const sub = ARENA_SUBSTEPS;
   const dt = frameDt / sub;
-  const limit = arena.radius - ARENA_BALL_RADIUS;
 
   for (let step = 0; step < sub; step += 1) {
     // Integrate: thrust while the stick intent is fresh, then damping, then move.
@@ -2026,26 +2026,26 @@ function updateBounceArena(room) {
       }
     }
 
-    // Rim: reflect gentle contact, let a hard outward push fly over and fall.
+    // Der Rand hält niemanden. Wer mit der Mitte über die Kante rutscht —
+    // gestossen oder selbst gefahren —, kippt hinunter; vorher hängt man nur
+    // über und kann sich noch zurückretten. Früher prallte jeder, der nicht
+    // gerade hart gerammt worden war, vom Rand zurück auf die Insel: eine
+    // unsichtbare Bande, die dem Spiel die Spannung am Rand nahm.
     players.forEach((ap) => {
       if (!ap.inPlay) return;
       const dist = Math.hypot(ap.x, ap.y);
-      if (dist <= limit) return;
+      if (!ap.ejecting && dist <= arena.radius) return;
+      ap.ejecting = true;
+      // Einmal über der Kante gibt es kein Zurück: man rutscht weiter nach
+      // aussen, auch wenn man gerade kaum Fahrt hat.
       const nx = ap.x / (dist || 1);
       const ny = ap.y / (dist || 1);
-      const launched = now < ap.launchedUntil;
-      const invulnerable = now < ap.invulnUntil;
-      if (!ap.ejecting && (!launched || invulnerable)) {
-        // Not launched (or protected): bounce back onto the plate.
-        ap.x = nx * limit;
-        ap.y = ny * limit;
-        const vn = ap.vx * nx + ap.vy * ny;
-        ap.vx -= (1 + ARENA_RIM_RESTITUTION) * vn * nx;
-        ap.vy -= (1 + ARENA_RIM_RESTITUTION) * vn * ny;
-      } else {
-        ap.ejecting = true;
+      const vn = ap.vx * nx + ap.vy * ny;
+      if (vn < ARENA_TIP_SPEED) {
+        ap.vx += (ARENA_TIP_SPEED - vn) * nx;
+        ap.vy += (ARENA_TIP_SPEED - vn) * ny;
       }
-      if (ap.ejecting && dist > arena.radius + ARENA_BALL_RADIUS) {
+      if (dist > arena.radius + ARENA_BALL_RADIUS) {
         knockArenaPlayerOff(arena, ap, now);
       }
     });
@@ -2693,8 +2693,8 @@ function createArenaState(players, startedAt, duration = 45000) {
       lastThrustAt: 0,
       inPlay: true,          // on the plate and collidable
       lives: ARENA_LIVES,    // bei null ist man raus
-      ejecting: false,       // cleared the rim, tumbling off
-      launchedUntil: 0,      // recently rammed hard -> rim lets you fly off
+      ejecting: false,       // über die Kante gerutscht, kippt ins Becken
+      launchedUntil: 0,      // gerade hart gerammt (für das Gesicht der Figur)
       outUntil: 0,           // respawns when now passes this
       invulnUntil: startedAt + ARENA_INVULN_MS,
       score: 0,
@@ -2786,8 +2786,7 @@ function resolveArenaCollision(entryA, entryB, now = Date.now()) {
     a.vy -= jn * ny;
     b.vx += jn * nx;
     b.vy += jn * ny;
-    // A solid hit "launches" both balls: for a short window the rim will let
-    // them fly off. Gentle nudges stay below the threshold and just bounce.
+    // Ein harter Treffer wird vermerkt: die Figuren schauen kurz erschrocken.
     if (jn >= ARENA_LAUNCH_IMPULSE) {
       a.launchedUntil = now + ARENA_LAUNCH_MS;
       b.launchedUntil = now + ARENA_LAUNCH_MS;
@@ -2809,7 +2808,12 @@ function arenaBotStep(arena, playerId) {
   if (!bot?.inPlay) return;
 
   const now = Date.now();
-  const distanceFromCenter = Math.hypot(bot.x, bot.y) / (arena.radius || ARENA_RADIUS);
+  // Der Rand hält niemanden: gezählt wird nicht nur, wo man steht, sondern wo
+  // man mit der jetzigen Fahrt gleich wäre. Wer schnell nach aussen rutscht,
+  // bremst früh genug.
+  const aheadX = bot.x + (bot.vx || 0) * ARENA_BOT_LOOKAHEAD;
+  const aheadY = bot.y + (bot.vy || 0) * ARENA_BOT_LOOKAHEAD;
+  const distanceFromCenter = Math.max(Math.hypot(bot.x, bot.y), Math.hypot(aheadX, aheadY)) / (arena.radius || ARENA_RADIUS);
   // Im Ergebnis zählt Überleben (+100000) weit mehr als Abschüsse. Wer bis kurz
   // vor den Rand jagt, verliert damit — gemessen gewann die „aggressivste"
   // Einstellung nur 9 % der Partien, die vorsichtigste 49 %. Die Rollen standen
@@ -2822,9 +2826,10 @@ function arenaBotStep(arena, playerId) {
         : { edge: 0.68, aggro: 1, picks: true };
   })());
 
-  // Too close to the rim yourself: retreat toward the middle.
-  let targetX = -bot.x;
-  let targetY = -bot.y;
+  // Too close to the rim yourself: retreat toward the middle — gemessen von
+  // dort, wo die Fahrt einen gleich hinträgt, damit man gegen sie anlenkt.
+  let targetX = -aheadX;
+  let targetY = -aheadY;
 
   if (distanceFromCenter < profile.edge) {
     const opponents = Object.entries(arena.players)

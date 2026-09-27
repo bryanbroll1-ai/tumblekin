@@ -8,8 +8,9 @@ import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 // Bumper Pool: jede Figur sitzt in einem gestreiften Schwimmring auf einer
 // Badeinsel mitten im Freibad und rempelt die anderen ins Becken. Drei Leben:
 // wer hineinfliegt, treibt kurz neben der Insel und springt dann zurück; erst
-// mit dem letzten Sturz paddelt man nach vorn und schaut zu. In den letzten
-// fünfzehn Sekunden schrumpft die Insel.
+// mit dem letzten Sturz paddelt man nach vorn und schaut zu. Der Rand hält
+// niemanden: wer mit der Mitte darüber rutscht, fällt — gestossen oder selbst
+// gefahren. In den letzten fünfzehn Sekunden schrumpft die Insel.
 //
 // Vorher war es eine Blütenscheibe über einem See, und die Figuren standen in
 // Blütenringen. Die Physik ist dieselbe geblieben — nur passt das Bild jetzt
@@ -648,7 +649,7 @@ export class BounceArena extends MinigameScene {
     this.pulse *= frameDecay(0.85, dt);
     const radius = arena.radius ?? 1;
     this.island.scale.set(radius, 1, radius);
-    // Schrumpft die Insel, glüht der Wulst rhythmisch — man soll es merken.
+    // Schrumpft die Insel, glüht der Rand rhythmisch — man soll es merken.
     const shrinkGlow = arena.shrinking ? 0.5 + Math.sin(now / 110) * 0.35 : 0;
     this.rim.material.emissiveIntensity = 0.35 + Math.sin(now / 190) * 0.15 + danger * 0.9 + this.pulse + shrinkGlow;
     this.shimmer?.forEach((patch) => {
