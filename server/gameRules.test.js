@@ -89,6 +89,7 @@ const {
   traceScore,
   traceSpeed,
   traceCombo,
+  SIMON_GRACE_MS,
   BELT_COLOURS,
   BELT_CHUTES,
   BELT_QUEUE,
@@ -3207,6 +3208,66 @@ test("trace: wrong action is refused", () => {
   assert.equal(handleArcadeInput(room, me, { action: "trace", x: 0.5, y: 0.2 }).ok, false);
   entry.lastInputAt = 0;
   assert.equal(handleArcadeInput(room, me, { action: "steer", x: "nope" }).ok, false);
+});
+
+// Leuchtfolge: eine Runde mit echter Uhr. `at(ms)` stellt die Spielzeit auf
+// `ms` nach Rundenbeginn, `tap(i)` tippt Pilz i.
+function simonRoom() {
+  const players = [{ id: "s1", name: "Merker", isBot: false }];
+  const arcade = createArcadeState("leuchtfolge", players, Date.now());
+  const minigame = { id: 1, type: "leuchtfolge", startedAt: Date.now(), duration: 36000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  const at = (ms) => { minigame.startedAt = Date.now() - ms; };
+  const tap = (index) => handleArcadeInput(room, me, { action: "color", index });
+  return { arcade, entry, at, tap, round: arcade.rounds[2] };
+}
+
+test("simon: quick taps are all counted — none is swallowed", () => {
+  // Mit 160 ms Cooldown verschluckte der Server den zweiten von zwei schnellen
+  // Tipps und prüfte den dritten an seiner Stelle: FALSCH, obwohl alles
+  // richtig war.
+  const { entry, at, tap, round } = simonRoom();
+  at(round.inputFrom + 200);
+  round.sequence.forEach((index) => tap(index));   // ohne jede Pause
+  assert.equal(entry.roundFailed, false);
+  assert.equal(entry.roundProgress, round.sequence.length);
+  assert.equal(entry.survived, 1);
+});
+
+test("simon: a tap a moment too early or too late still counts", () => {
+  const early = simonRoom();
+  early.at(early.round.inputFrom - SIMON_GRACE_MS / 2);
+  early.tap(early.round.sequence[0]);
+  assert.equal(early.entry.roundProgress, 1, "knapp vor dem Fenster zählt");
+
+  const late = simonRoom();
+  late.at(late.round.inputFrom + 100);
+  late.round.sequence.slice(0, -1).forEach((index) => late.tap(index));
+  late.at(late.round.until + SIMON_GRACE_MS / 2);
+  late.tap(late.round.sequence[late.round.sequence.length - 1]);
+  assert.equal(late.entry.survived, 1, "knapp nach dem Fenster auch");
+
+  const blind = simonRoom();
+  blind.at(blind.round.showFrom + 100);
+  blind.tap(blind.round.sequence[0]);
+  assert.equal(blind.entry.roundProgress, 0, "während die Folge läuft, zählt nichts");
+});
+
+test("simon: the tapping time runs from the first tap, not from the window", () => {
+  // Ab Fensterbeginn gemessen steckte die Netzlaufzeit in jeder Runde — bei
+  // Gleichstand gewann die bessere Leitung.
+  const { entry, at, tap, round } = simonRoom();
+  at(round.inputFrom + 900);                      // spät angefangen …
+  tap(round.sequence[0]);
+  round.sequence.slice(1).forEach((index, i) => {
+    at(round.inputFrom + 900 + (i + 1) * 200);    // … dann zügig
+    tap(index);
+  });
+  assert.equal(entry.survived, 1);
+  const expected = (round.sequence.length - 1) * 200;
+  assert.ok(Math.abs(entry.solveMs - expected) < 30, `Tippzeit ${entry.solveMs} statt ${expected}`);
 });
 
 function beltRoom(players = [{ id: "p1", name: "Sortierer", isBot: false }]) {

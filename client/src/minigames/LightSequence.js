@@ -32,6 +32,10 @@ export class LightSequence extends MinigameScene {
     this.shownRound = -1;
     this.watch = new Map();
     this.labelY = 0.74;
+    this.roundTrip = 0;
+    // Eigener Stand der laufenden Runde, sofort beim Tipp gezählt — der Server
+    // bestätigt eine Rundreise später. { round, count, failed }
+    this.local = { round: -1, count: 0, failed: false };
   }
 
   stage() {
@@ -263,10 +267,14 @@ export class LightSequence extends MinigameScene {
   }
 
   shot() {
+    // Steiler und ein Stück weiter hinten: die Pilze sind die Tippziele und
+    // sassen vorher mitten im Hochformat, darunter ein Drittel leere Wiese.
+    // Jetzt liegen sie tiefer, wo der Daumen ist, und von oben sind die vier
+    // Hüte klarer voneinander getrennt.
     return {
-      look: [0, 0.45, 0.05],
-      frame: { w: 4.3, h: 3.9 },
-      pitch: 0.7,
+      look: [0, 0.4, -0.9],
+      frame: { w: 4.3, h: 4.4 },
+      pitch: 0.85,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }
     };
@@ -307,14 +315,66 @@ export class LightSequence extends MinigameScene {
     const index = hits[0].object.userData.padIndex;
     this.pads[index].press = 1;
     this.feedback?.sound("tap");
-    this.sendInput({ action: "color", index }).catch(() => {});
+    const sentAt = performance.now();
+    this.sendInput({ action: "color", index }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+    this.countTap(index);
+  }
+
+  // Der eigene Tipp wird sofort gewertet — mit derselben Folge, die der Server
+  // prüft. Hüpfer, FALSCH und GESCHAFFT kommen so im selben Moment wie der
+  // Tipp, nicht eine Rundreise später.
+  countTap(index) {
+    const active = this.activeRound();
+    if (!active) return;
+    const { round } = active;
+    if (this.local.round !== round.index) this.local = { round: round.index, count: 0, failed: false };
+    const local = this.local;
+    if (local.failed || local.count >= round.sequence.length) return;
+    const kin = this.kins.get(this.getControlledPlayerId());
+    const animator = this.animators.get(this.getControlledPlayerId());
+    if (index === round.sequence[local.count]) {
+      local.count += 1;
+      animator?.trigger("hop", { height: 0.16 });
+      animator?.trigger("tap");
+      this.feedback?.vibrate(8);
+      if (local.count >= round.sequence.length) {
+        animator?.trigger("fistpump");
+        animator?.expression("joy", 900);
+        const colour = this.getState()?.players?.find((player) => player.id === this.getControlledPlayerId())?.color || "#ffffff";
+        if (kin) this.burst(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), ["#ffe36b", "#ffffff", colour], { count: 12 * fxScale(), speed: 2.0, up: 1.6, size: 0.07, life: 0.6, drag: 1.8 });
+        this.pop(new THREE.Vector3(0, 1.6, 0.4), "FOLGE GESCHAFFT!", { color: "#ffe36b", size: 0.4, life: 0.9 });
+        this.feedback?.sound("perfect");
+      }
+    } else {
+      local.failed = true;
+      animator?.trigger("facepalm");
+      animator?.expression("sad", 1400);
+      this.pop(new THREE.Vector3(0, 1.6, 0.4), "FALSCH!", { color: "#ff9aa8", size: 0.38, life: 0.9 });
+      this.feedback?.sound("error");
+      this.feedback?.vibrate(24);
+      this.rig.shake(0.45);
+    }
+  }
+
+  // Wie lange ein Tipp zum Server und zurück braucht, geglättet.
+  //
+  // Der Server wertet einen Tipp bei ANKUNFT. Das Bild auf dem Gerät ist aber
+  // um die einfache Laufzeit alt, und der Tipp braucht noch einmal so lange
+  // hin: wer beim Aufleuchten von „Nachtippen“ loslegte, kam eine Rundreise zu
+  // spät an, und wer kurz vor Schluss den letzten Pilz traf, kam womöglich erst
+  // nach dem Ende an. Darum läuft die ganze Zeitleiste — Vorführen, Fenster,
+  // Ende — auf dem Gerät genau um diese Rundreise voraus.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip * 0.7 + clamped * 0.3;
   }
 
   activeRound() {
     const minigame = this.update || this.minigame;
     const arcade = minigame?.arcade;
     if (!arcade?.rounds) return null;
-    const elapsed = Math.max(0, this.now() - minigame.startedAt);
+    const elapsed = Math.max(0, this.now() + this.roundTrip - minigame.startedAt);
     for (const round of arcade.rounds) {
       if (elapsed >= round.showFrom && elapsed <= round.until) return { round, elapsed };
       if (round.showFrom > elapsed) break;
@@ -397,7 +457,9 @@ export class LightSequence extends MinigameScene {
       const isOwn = player.id === controlledId;
       const inRound = active && entry.currentRound === active.round.index;
       const progress = inRound ? entry.roundProgress || 0 : 0;
-      if (inRound && progress > w.progress) {
+      // Die eigene Figur reagiert schon beim Tipp (countTap); hier nur die
+      // anderen, sobald der Server ihren Tipp meldet.
+      if (!isOwn && inRound && progress > w.progress) {
         animator.trigger("hop", { height: 0.16 });
         animator.trigger("tap");
         if (isOwn) this.feedback?.vibrate(8);
@@ -412,8 +474,11 @@ export class LightSequence extends MinigameScene {
           }
         }
       }
-      const failed = Boolean(inRound && entry.roundFailed);
-      if (failed && !w.failed) {
+      const ownLocal = isOwn && active && this.local.round === active.round.index ? this.local : null;
+      // Meldet der Server für die eigene Runde FALSCH, obwohl das Gerät richtig
+      // gezählt hat (etwa ein Tipp, der zu spät ankam), zählt der Server.
+      const failed = Boolean(inRound && entry.roundFailed) || Boolean(ownLocal?.failed);
+      if (failed && !w.failed && !(isOwn && ownLocal?.failed)) {
         animator.trigger("facepalm");
         animator.expression("sad", 1400);
         if (isOwn) {
@@ -429,7 +494,7 @@ export class LightSequence extends MinigameScene {
       animator.lookAt(lit ? lit.group.position.clone().setY(0.6) : null);
       if (failed) animator.set("sad");
       else if (watching) animator.set("focus");
-      else if (inRound && progress >= (active?.round.sequence.length || 99)) animator.set("happy");
+      else if (Math.max(progress, ownLocal?.count || 0) >= (active?.round.sequence.length || 99)) animator.set("happy");
       else animator.set("think");
     });
   }
@@ -441,6 +506,9 @@ export class LightSequence extends MinigameScene {
   drawHud(f) {
     const { arcade, state } = f;
     if (!arcade) return;
+    // Im Finale gibt es nichts mehr zu tippen.
+    this.hintNode ||= this.controls.querySelector(".trace-hint");
+    if (this.hintNode) this.hintNode.hidden = Boolean(f.finale);
     const own = arcade.players[f.controlledId];
     const active = this.activeRound();
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
@@ -448,7 +516,18 @@ export class LightSequence extends MinigameScene {
     const roundLabel = this.hud.querySelector("[data-simon-round]");
     if (roundLabel) {
       const total = arcade.rounds?.length || 0;
-      roundLabel.textContent = active ? `Runde ${active.round.index + 1}/${total} · ${active.round.sequence.length} Farben` : "Gleich geht's los";
+      // Ohne laufende Runde: vor der ersten, zwischen zwei oder nach der letzten.
+      // Vorher stand hier immer „Gleich geht's los“ — auch mitten im Spiel und
+      // nach der letzten Folge.
+      let idle = "Gleich geht's los";
+      if (!active) {
+        const minigame = f.minigame || {};
+        const elapsed = f.now + this.roundTrip - (minigame.startedAt || 0);
+        const rounds = arcade.rounds || [];
+        if (rounds.length && elapsed >= rounds[rounds.length - 1].until) idle = "Alle Folgen gespielt";
+        else if (rounds.length && elapsed >= rounds[0].showFrom) idle = "Nächste Folge …";
+      }
+      roundLabel.textContent = active ? `Runde ${active.round.index + 1}/${total} · ${active.round.sequence.length} Farben` : idle;
     }
 
     const chips = this.hud.querySelector("[data-simon-chips]");
@@ -467,7 +546,10 @@ export class LightSequence extends MinigameScene {
       return;
     }
     const watching = active.elapsed < active.round.inputFrom;
-    if (own?.roundFailed && own.currentRound === active.round.index) {
+    const local = this.local.round === active.round.index ? this.local : null;
+    if (f.finale) {
+      banner.hidden = true;
+    } else if ((own?.roundFailed && own.currentRound === active.round.index) || local?.failed) {
       banner.hidden = false;
       banner.textContent = "Daneben — warte auf die nächste Folge";
       banner.style.background = "#ff6b7f";
@@ -479,7 +561,7 @@ export class LightSequence extends MinigameScene {
       banner.style.color = "#4a3405";
     } else {
       banner.hidden = false;
-      const done = own?.currentRound === active.round.index ? (own.roundProgress || 0) : 0;
+      const done = Math.max(own?.currentRound === active.round.index ? (own.roundProgress || 0) : 0, local?.count || 0);
       banner.textContent = `Nachtippen: ${done}/${active.round.sequence.length}`;
       banner.style.background = "#7fe06f";
       banner.style.color = "#14361a";

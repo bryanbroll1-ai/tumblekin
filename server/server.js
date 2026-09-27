@@ -1221,6 +1221,14 @@ const DIVE_JELLIES = 7;
 
 const SIMON_ROUNDS = 5;
 const SIMON_SETTLE_MS = 450;          // Nachklang, bevor die naechste Folge laeuft
+// Schonfrist an beiden Enden des Eingabefensters. Das Gerät zeigt das Fenster
+// so, wie es bei Ankunft eines Tipps steht, aber seine Laufzeitmessung
+// schwankt. Ein Tipp, der ein paar Millisekunden zu früh ankam, verschwand
+// stumm — und der NÄCHSTE wurde dann an seiner Stelle geprüft: FALSCH, obwohl
+// alles richtig getippt war. Vor dem Fenster ist die Folge längst gezeigt
+// (danach kommt noch eine halbe Sekunde Nachklang), es gibt also nichts zu
+// erschleichen.
+const SIMON_GRACE_MS = 150;
 const REACT_ROUNDS = 3;
 const REACT_WINDOW_MS = 2200;
 const REACT_PENALTY_MS = 900;
@@ -3895,6 +3903,13 @@ function simonRoundAt(arcade, elapsed) {
   return arcade.rounds.find((round) => elapsed >= round.showFrom && elapsed < round.until) || null;
 }
 
+// Die Runde, in die ein Tipp gehört — mit der Schonfrist an beiden Enden des
+// Eingabefensters (SIMON_GRACE_MS).
+function simonInputRound(arcade, elapsed) {
+  return arcade.rounds.find((round) => elapsed >= round.inputFrom - SIMON_GRACE_MS
+    && elapsed < round.until + SIMON_GRACE_MS) || null;
+}
+
 // Blitzfang rounds: the lamp turns green at a secret moment.
 function buildReactRounds(seed) {
   return Array.from({ length: REACT_ROUNDS }, (_v, i) => ({
@@ -4143,10 +4158,15 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 55 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
+  // simon ohne: jeder Tipp ist ein Teil der Folge. Mit 160 ms verschluckte
+  // der Server den zweiten von zwei schnellen Tipps, prüfte den dritten an
+  // seiner Stelle und meldete FALSCH — gemessen schaffte ein schneller,
+  // fehlerfreier Spieler so im Schnitt keine einzige der fünf Runden. Spam
+  // bringt hier nichts: der erste falsche Tipp beendet die Runde.
   // trace ebenfalls ohne: Lenken meldet nur ein Ziel, und das jeweils letzte
   // gilt. Das Gerät schickt höchstens alle 45 ms — aber im Netz rücken zwei
   // Pakete auch mal enger zusammen, und mit 45 ms Cooldown fiel dann das
@@ -4359,20 +4379,27 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "simon") {
     if (input.action !== "color") return { ok: false, error: "Tippe die Farben in der gezeigten Reihenfolge." };
     const elapsed = now - room.currentMinigame.startedAt;
-    const round = simonRoundAt(arcade, elapsed);
-    if (!round || elapsed < round.inputFrom) return { ok: true };
+    const round = simonInputRound(arcade, elapsed);
+    if (!round) return { ok: true };
     if (arcadePlayer.currentRound !== round.index) {
       arcadePlayer.currentRound = round.index;
       arcadePlayer.roundProgress = 0;
       arcadePlayer.roundFailed = false;
+      arcadePlayer.roundFirstAt = null;
     }
     if (arcadePlayer.roundFailed || arcadePlayer.roundProgress >= round.sequence.length) return { ok: true };
+    // Die Tippzeit zählt vom ERSTEN bis zum letzten Tipp, beide gemessen bei
+    // Ankunft. Vorher zählte sie ab Beginn des Eingabefensters — damit steckte
+    // die ganze Netzlaufzeit darin, fünfmal je Spiel, und bei Gleichstand
+    // gewann die bessere Leitung. Zwischen erstem und letztem Tipp hebt sie
+    // sich auf.
+    if (arcadePlayer.roundFirstAt == null) arcadePlayer.roundFirstAt = elapsed;
     const picked = clamp(Math.round(inputNumber(input.index) || 0), 0, 3);
     if (picked === round.sequence[arcadePlayer.roundProgress]) {
       arcadePlayer.roundProgress += 1;
       arcadePlayer.hasMoved = true;
       if (arcadePlayer.roundProgress >= round.sequence.length) {
-        arcadePlayer.solveMs = (arcadePlayer.solveMs || 0) + Math.max(0, elapsed - round.inputFrom);
+        arcadePlayer.solveMs = (arcadePlayer.solveMs || 0) + Math.max(0, elapsed - arcadePlayer.roundFirstAt);
         arcadePlayer.survived += 1;
         arcadePlayer.flash = "good";
         arcadePlayer.lastHitAt = now;
@@ -8824,6 +8851,7 @@ module.exports = {
     BELT_DURATION_MS,
     SIMON_ROUNDS,
     SIMON_DURATION_MS,
+    SIMON_GRACE_MS,
     REACT_ROUNDS,
     reactBest,
     buildSimonRounds,
