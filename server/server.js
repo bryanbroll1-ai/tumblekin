@@ -80,7 +80,7 @@ const MINIGAMES = [
   { type: "muenzregen", title: "Münzregen", duration: 30500, arcadeFamily: "catchfall" },
   { type: "blobklopfe", title: "Blob-Klopfe", duration: 25000, arcadeFamily: "whack" },
   { type: "seilspringen", title: "Seilspringen", duration: 35000, arcadeFamily: "wave" },
-  { type: "kanonenflug", title: "Kanonenflug", duration: 16000, arcadeFamily: "cannon" },
+  { type: "kanonenflug", title: "Kanonenflug", duration: 40000, arcadeFamily: "cannon" },
   { type: "messerwurf", title: "Messerwurf", duration: 40000, arcadeFamily: "knife" },
   { type: "turmbau", title: "Turmbau", duration: 30000, arcadeFamily: "stack" },
   { type: "bergsteiger", title: "Bergsteiger", duration: 26000, arcadeFamily: "climb" },
@@ -1084,6 +1084,14 @@ const CANNON_ANGLE_MAX = 80;
 const CANNON_TARGET_MIN = 42;
 const CANNON_TARGET_MAX = 90;
 const CANNON_WIND_M = 11;             // so viele Meter bringt voller Wind höchstens
+// Drei Schuss statt einem. Mit einem einzigen Schuss war das Spiel nach
+// wenigen Sekunden vorbei, und ein zittriger Daumen entschied allein —
+// gerechnet gewann der genauere von zwei Spielern nur in 61 bis 64 von 100
+// Partien, mit drei Schuss in 68 bis 72. Jede Runde steht die Flagge woanders
+// (nah, mittel, weit in zufälliger Reihenfolge), und der Wind dreht.
+const CANNON_ROUNDS = 3;
+const CANNON_ROUND_MS = 9000;         // so lange hat man je Schuss höchstens
+const CANNON_SHOW_MS = 1700;          // nach der letzten Landung, bevor es weitergeht
 
 // Dreieck statt Sinus: 0 → 1 → 0 mit gleichem Tempo überall.
 function cannonTri(x) {
@@ -1096,6 +1104,66 @@ function cannonTri(x) {
 function cannonDistance(power, angleDeg, wind = 0) {
   const rad = (angleDeg * Math.PI) / 180;
   return 6 + power * power * Math.sin(2 * rad) * 94 + wind * CANNON_WIND_M * power * Math.sin(rad);
+}
+
+// So lange fliegt eine Figur auf den Geräten (CannonFly.flightMs) — die
+// nächste Runde beginnt erst, wenn alle gelandet sind.
+function cannonFlightMs(distance) {
+  return 1000 + Math.min(110, distance || 0) * 8;
+}
+
+// Die drei Flaggen: je eine nahe, mittlere und weite, in zufälliger Folge.
+function cannonRounds(salt) {
+  const span = (CANNON_TARGET_MAX - CANNON_TARGET_MIN) / CANNON_ROUNDS;
+  const order = [0, 1, 2]
+    .map((band) => ({ band, key: arcadeNoise(salt + band * 13) }))
+    .sort((a, b) => a.key - b.key)
+    .map((entry) => entry.band);
+  return order.map((band, index) => ({
+    target: Math.round(CANNON_TARGET_MIN + (band + 0.15 + arcadeNoise(salt + 31 + index * 7) * 0.7) * span),
+    // Wind in Zehnteln: positiv schiebt Richtung Flagge, negativ bremst.
+    wind: Math.round((arcadeNoise(salt + 17 + index * 11) * 2 - 1) * 10) / 10
+  }));
+}
+
+// Eine Runde beginnen: Flagge und Wind setzen, alle wieder an die Kanone.
+function startCannonRound(arcade, index, now) {
+  const round = arcade.rounds[index];
+  arcade.round = index;
+  arcade.roundStartAt = now;
+  arcade.roundEndAt = null;
+  arcade.target = round.target;
+  arcade.wind = round.wind;
+  Object.values(arcade.players).forEach((entry) => {
+    entry.launchedAt = null;
+    entry.power = 0;
+    entry.powerAt = null;
+    entry.angle = null;
+    entry.distance = 0;
+    entry.roundPoints = 0;
+    entry.missed = false;
+  });
+}
+
+function updateCannon(room, minigame, arcade, now) {
+  const players = room.players.map((player) => arcade.players[player.id]).filter(Boolean);
+  if (!players.length || arcade.roundEndAt === undefined) return;
+  // Wer die Zeit verstreichen lässt, hat diesen Schuss verpasst.
+  if (now >= arcade.roundStartAt + CANNON_ROUND_MS) {
+    players.forEach((entry) => {
+      if (entry.launchedAt) return;
+      entry.launchedAt = now;
+      entry.missed = true;
+      entry.roundPoints = 0;
+      entry.shots.push({ distance: 0, points: 0, target: arcade.target, missed: true });
+    });
+  }
+  if (!players.every((entry) => entry.launchedAt)) return;
+  if (arcade.roundEndAt === null) {
+    const landed = Math.max(...players.map((entry) => entry.missed ? entry.launchedAt : entry.launchedAt + cannonFlightMs(entry.distance)));
+    arcade.roundEndAt = landed + CANNON_SHOW_MS;
+  }
+  if (now >= arcade.roundEndAt && arcade.round < CANNON_ROUNDS - 1) startCannonRound(arcade, arcade.round + 1, now);
 }
 
 // Punkte nach Abstand zur Flagge; ein Volltreffer (bis 2 m) gibt Zugabe.
@@ -2339,9 +2407,11 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.max(0, 50000 + (arcadePlayer.points || 0) * 1000 + (arcadePlayer.hits || 0));
   }
   if (arcade.family === "cannon") {
-    if (!arcadePlayer.launchedAt) return 0;
-    const off = Math.abs((arcadePlayer.distance || 0) - (arcade.target || 0));
-    return (arcadePlayer.points || 0) * 10000 + Math.max(1, Math.round(5000 - off * 50));
+    // Punkte über alle Schüsse; bei Gleichstand, wer insgesamt näher lag.
+    const shots = arcadePlayer.shots || [];
+    if (!shots.length) return 0;
+    const off = shots.reduce((sum, shot) => sum + (shot.missed ? 60 : Math.abs(shot.distance - shot.target)), 0);
+    return (arcadePlayer.points || 0) * 10000 + Math.max(1, Math.round(5000 - off * 20));
   }
   if (arcade.family === "simon") {
     // Richtige Runden zuerst, dann weniger Fehler, dann das Tempo: wer eine
@@ -2517,7 +2587,8 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte" };
   }
   if (arcade.family === "cannon") {
-    return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte" };
+    const best = Math.max(0, ...(arcadePlayer.shots || []).map((shot) => shot.points || 0));
+    return { kind: "points", value: arcadePlayer.points || 0, label: "Punkte", extra: best ? `bester Schuss ${best}` : null };
   }
   if (arcade.family === "simon") {
     const survived = arcadePlayer.survived || 0;
@@ -3169,20 +3240,16 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.anglePeriodMs = CANNON_ANGLE_PERIOD_MS;
     arcade.angleMin = CANNON_ANGLE_MIN;
     arcade.angleMax = CANNON_ANGLE_MAX;
-    const salt = arcade.seed + (Date.now() % 7907);
-    arcade.target = Math.round(CANNON_TARGET_MIN + arcadeNoise(salt) * (CANNON_TARGET_MAX - CANNON_TARGET_MIN));
-    // Wind in Zehnteln: positiv schiebt Richtung Flagge, negativ bremst.
-    arcade.wind = Math.round((arcadeNoise(salt + 17) * 2 - 1) * 10) / 10;
     arcade.windM = CANNON_WIND_M;
+    arcade.roundCount = CANNON_ROUNDS;
+    arcade.roundMs = CANNON_ROUND_MS;
+    arcade.rounds = cannonRounds(arcade.seed + (Date.now() % 7907));
     players.forEach((player) => {
       const entry = arcade.players[player.id];
-      entry.launchedAt = null;
-      entry.power = 0;
-      entry.powerAt = null;
-      entry.angle = null;
-      entry.distance = 0;
-      entry.points = 0;
+      entry.points = 0;                  // Summe aller Schüsse
+      entry.shots = [];
     });
+    startCannonRound(arcade, 0, startedAt);
   }
   if (config.family === "simon") {
     arcade.rounds = buildSimonRounds(arcade.seed);
@@ -4236,11 +4303,11 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "cannon") {
     if (input.action !== "launch") return { ok: false, error: "Tippe im richtigen Moment zum Abschuss." };
     if (arcadePlayer.launchedAt) return { ok: true };
-    const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
-
-    // Erster Tipp legt die Kraft fest, dann läuft der Winkel.
+    // Erster Tipp legt die Kraft fest, dann läuft der Winkel. Die Kraft
+    // läuft je Runde von vorn.
+    if (now < arcade.roundStartAt) return { ok: true };
     if (!arcadePlayer.powerAt) {
-      const power = cannonTri(elapsed / arcade.periodMs);
+      const power = cannonTri(Math.max(0, now - arcade.roundStartAt) / arcade.periodMs);
       arcadePlayer.power = Number(power.toFixed(3));
       arcadePlayer.powerAt = now;
       arcadePlayer.flash = "good";
@@ -4256,9 +4323,11 @@ function handleArcadeInput(room, player, rawInput) {
     arcadePlayer.launchedAt = now;
     const distance = cannonDistance(arcadePlayer.power, angleDeg, arcade.wind || 0);
     arcadePlayer.distance = Math.round(distance * 10) / 10;
-    arcadePlayer.points = cannonPoints(arcadePlayer.distance, arcade.target);
+    arcadePlayer.roundPoints = cannonPoints(arcadePlayer.distance, arcade.target);
+    arcadePlayer.points = (arcadePlayer.points || 0) + arcadePlayer.roundPoints;
+    arcadePlayer.shots.push({ distance: arcadePlayer.distance, points: arcadePlayer.roundPoints, target: arcade.target });
     arcadePlayer.score = arcadePlayer.points;
-    arcadePlayer.flash = arcadePlayer.points >= 70 ? "good" : "bad";
+    arcadePlayer.flash = arcadePlayer.roundPoints >= 70 ? "good" : "bad";
     arcadePlayer.lastHitAt = now;
     syncArcadeScore(room.currentMinigame, player, arcadePlayer);
     return { ok: true };
@@ -5273,6 +5342,10 @@ function updateArcade(room) {
     updateCatchfall(room, minigame, arcade, now);
   }
 
+  if (arcade.family === "cannon") {
+    updateCannon(room, minigame, arcade, now);
+  }
+
   if (arcade.family === "knife") {
     const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
@@ -5756,7 +5829,8 @@ function maybeFinishArcadeEarly(room, minigame, arcade, now) {
     const alive = room.players.filter((player) => !arcade.players[player.id]?.outAt);
     done = (room.players.length > 1 && alive.length <= 1) || alive.length === 0;
   } else if (arcade.family === "cannon") {
-    done = room.players.every((player) => arcade.players[player.id]?.launchedAt);
+    // Nach dem letzten Schuss, wenn alle gelandet sind.
+    done = arcade.round >= CANNON_ROUNDS - 1 && arcade.roundEndAt !== null && now >= arcade.roundEndAt - CANNON_SHOW_MS + 600;
   } else if (arcade.family === "react") {
     done = room.players.every((player) => (arcade.players[player.id]?.times?.length || 0) >= REACT_ROUNDS);
   } else if (arcade.family === "curling") {
@@ -7539,16 +7613,22 @@ function arcadeBotStep(room, bot) {
     const now = Date.now();
     const profile = botProfile(player);
     const accuracy = profile.level === "hard" ? 1 : profile.level === "normal" ? 0.6 : 0.2;
+    // Jede Runde neu zielen.
+    if (player.botRound !== arcade.round) {
+      player.botRound = arcade.round;
+      player.botLaunchAt = undefined;
+      player.botAngleAt = undefined;
+    }
     if (!player.powerAt) {
       if (player.botLaunchAt === undefined) {
         // Eine Kraft wählen und den Moment treffen, in dem die Anzeige dort
         // steht (steigend), mit Streuung nach Können.
         player.botPower = 0.78 + Math.random() * 0.2;
         const at = (player.botPower / 2) * arcade.periodMs + (Math.random() - 0.5) * profile.spreadMs * byBotLevel(profile, 0.7, 0.45, 0.25);
-        const cycle = 1 + Math.floor(Math.random() * 3);
+        const cycle = 1 + Math.floor(Math.random() * 2);
         player.botLaunchAt = cycle * arcade.periodMs + Math.max(60, at) - BOT_TICK_LEAD_MS;
       }
-      if (now - minigame.startedAt >= player.botLaunchAt) {
+      if (now - arcade.roundStartAt >= player.botLaunchAt) {
         handleArcadeInput(room, bot, { action: "launch" });
       }
       return;

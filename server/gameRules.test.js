@@ -1775,7 +1775,8 @@ test("kanonenflug: erster Tipp Kraft, zweiter Winkel, Punkte für die Nähe zur 
   const arcade = createArcadeState("kanonenflug", [gunner], Date.now());
   // Eine halbe Kraftperiode zurück: die Anzeige steht gerade ganz oben.
   const startedAt = Date.now() - Math.round(arcade.periodMs / 2);
-  const minigame = { arcade, scores: {}, startedAt, duration: 16000, finishing: false };
+  arcade.roundStartAt = startedAt;
+  const minigame = { arcade, scores: {}, startedAt, duration: 40000, finishing: false };
   const room = { currentMinigame: minigame, players: [gunner] };
   const entry = arcade.players[gunner.id];
   assert.ok(arcade.target >= 42 && arcade.target <= 90, "die Flagge steht im Feld");
@@ -1797,7 +1798,51 @@ test("kanonenflug: erster Tipp Kraft, zweiter Winkel, Punkte für die Nähe zur 
   const first = entry.distance;
   entry.lastInputAt = 0;
   handleArcadeInput(room, gunner, { action: "launch" });
-  assert.equal(entry.distance, first, "ein Schuss je Spiel");
+  assert.equal(entry.distance, first, "ein Schuss je Runde");
+});
+
+test("kanonenflug: drei Schuss, jede Runde eine andere Flagge, Punkte zählen zusammen", () => {
+  const one = player({ id: "kb", name: "KB", color: "#fff" });
+  const two = player({ id: "kc", name: "KC", color: "#0ff" });
+  const startedAt = Date.now() - 100;
+  const arcade = createArcadeState("kanonenflug", [one, two], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 40000, finishing: false };
+  const room = { currentMinigame: minigame, players: [one, two] };
+  assert.equal(arcade.rounds.length, 3);
+  const targets = arcade.rounds.map((round) => round.target).sort((a, b) => a - b);
+  assert.ok(targets[0] < 58 && targets[2] > 74, `nah, mittel, weit (${targets.join("/")})`);
+  arcade.rounds.forEach((round) => assert.ok(round.target >= 42 && round.target <= 90));
+
+  const fire = (who) => {
+    const entry = arcade.players[who.id];
+    entry.lastInputAt = 0;
+    handleArcadeInput(room, who, { action: "launch" });
+    entry.lastInputAt = 0;
+    entry.powerAt -= 300;
+    handleArcadeInput(room, who, { action: "launch" });
+  };
+  fire(one);
+  fire(two);
+  const afterFirst = arcade.players.kb.points;
+  assert.equal(arcade.players.kb.shots.length, 1);
+  assert.equal(arcade.round, 0, "erst wenn alle gelandet sind, geht es weiter");
+  testRules.updateArcade(room);
+  assert.ok(arcade.roundEndAt > Date.now(), "Landung und Blick auf die Weiten abwarten");
+
+  // Zeit vorspulen: die nächste Runde beginnt mit neuer Flagge.
+  arcade.roundEndAt = Date.now() - 1;
+  testRules.updateArcade(room);
+  assert.equal(arcade.round, 1);
+  assert.equal(arcade.target, arcade.rounds[1].target);
+  assert.equal(arcade.players.kb.launchedAt, null, "wieder an der Kanone");
+
+  // Wer die Runde verstreichen lässt, hat den Schuss verpasst.
+  fire(one);
+  arcade.roundStartAt = Date.now() - 9500;
+  testRules.updateArcade(room);
+  assert.ok(arcade.players.kc.missed, "verpasst");
+  assert.equal(arcade.players.kc.shots.at(-1).points, 0);
+  assert.ok(arcade.players.kb.points >= afterFirst, "Punkte zählen zusammen");
 });
 
 test("kanonenflug: nicht mehr immer 45° und volle Kraft", () => {

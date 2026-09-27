@@ -6,8 +6,8 @@ import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
-// fliegt die Figur. Ziel ist die FLAGGE, deren Abstand jede Runde wechselt;
-// Wind schiebt oder bremst. Beim Winkel zeigt ein Ring am Boden, wo man ohne
+// fliegt die Figur. Drei Schuss; Ziel ist die FLAGGE, die jede Runde woanders
+// steht; Wind schiebt oder bremst und dreht von Runde zu Runde. Beim Winkel zeigt ein Ring am Boden, wo man ohne
 // Wind landen würde — den Wind muss man selbst einrechnen.
 //
 // Vorher sass die Figur von Anfang an im Rohr, die Kamera stand dahinter, und
@@ -63,7 +63,8 @@ export class CannonFly extends MinigameScene {
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>—</strong></div>
-      <div class="simon-round" data-cannon-info></div>
+      <div class="simon-round cannon-info" data-cannon-info></div>
+      <div class="color-banner" data-cannon-banner hidden></div>
       <div class="cannon-phase-label" data-cannon-label>KRAFT</div>
       <div class="cannon-gauge" data-cannon-gauge><div class="cannon-gauge-fill" data-cannon-fill></div></div>`;
   }
@@ -213,26 +214,32 @@ export class CannonFly extends MinigameScene {
 
   // Die Zielzone quer über alle Bahnen: gold um die Flagge, heller aussen,
   // dazu eine grosse Flagge mit Schild am Rand.
-  buildTarget() {
-    const arcade = this.minigame?.arcade;
-    const target = arcade?.target || 70;
+  // Zielzone, Flaggenmast und Schild als eine Gruppe — jede Runde steht die
+  // Flagge woanders, dann wird sie neu gesteckt.
+  buildTarget(target = this.minigame?.arcade?.target || 70) {
+    if (this.targetGroup) this.scene.remove(this.targetGroup);
+    const group = new THREE.Group();
+    this.targetGroup = group;
+    this.targetShown = target;
     const z = landZ(target);
     [[8, "#fff3c4", 0.03], [2, "#ffc93c", 0.035]].forEach(([meters, color, y]) => {
       const zone = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.02, meters * 2 * METER), new THREE.MeshLambertMaterial({ color }));
       zone.position.set(0, y + 0.03, z);
       zone.receiveShadow = true;
-      this.scene.add(zone);
+      group.add(zone);
     });
     const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.4, 0.1), new THREE.MeshLambertMaterial({ color: "#f2f2f2" }));
     pole.position.set(4.1, 1.2, z);
     pole.castShadow = true;
-    this.scene.add(pole);
+    group.add(pole);
     this.targetFlag = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.04), new THREE.MeshLambertMaterial({ color: "#ff3b55" }));
     this.targetFlag.position.set(4.55, 2.1, z);
-    this.scene.add(this.targetFlag);
+    group.add(this.targetFlag);
     const sign = this.sign(`ZIEL ${target}`, 4.1, z + 0.2, true);
     sign.scale.setScalar(1.25);
-    this.scene.add(sign);
+    group.add(sign);
+    this.scene.add(group);
+    return group;
   }
 
   // Windsack neben den Kanonen: zeigt, wohin der Wind weht und wie stark.
@@ -411,8 +418,9 @@ export class CannonFly extends MinigameScene {
     this.castleFlags?.forEach((fahne, i) => { fahne.rotation.y = Math.sin(f.now / 280 + i) * 0.35; });
     const { now, dt, arcade, players, controlledId, finale } = f;
     if (!arcade) return;
-    const elapsed = now - f.minigame.startedAt;
-    const gauge = tri(Math.max(0, elapsed) / (arcade.periodMs || 1150));
+    // Die Kraft läuft je Runde von vorn.
+    const gauge = tri(Math.max(0, now - (arcade.roundStartAt ?? f.minigame.startedAt)) / (arcade.periodMs || 1150));
+    if (this.round !== (arcade.round || 0)) this.newRound(f);
     // Windsack: zeigt mit der Spitze dorthin, wohin der Wind weht.
     const wind = arcade.wind || 0;
     if (this.sock) {
@@ -444,6 +452,22 @@ export class CannonFly extends MinigameScene {
         st.hopAt = now;
         animator.trigger("jump");
         if (player.id === controlledId) this.feedback?.vibrate(10);
+      }
+      // Die Runde verstreichen lassen: kein Schuss, man bleibt stehen.
+      if (entry.missed) {
+        if (!st.launched) {
+          st.launched = true;
+          st.phase = "missed";
+          if (player.id === controlledId) {
+            this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "verpasst!", { color: "#ff9a8a", size: 0.4, life: 1.2 });
+            this.feedback?.sound("error");
+          }
+        }
+        kin.position.set(st.stand.x, kin.position.y, st.stand.z);
+        kin.rotation.set(0, FACING, 0);
+        animator.groundY = 0.3;
+        if (!finale) animator.set("shrug");
+        return;
       }
       // Zweiter Tipp: Schuss.
       if (entry.launchedAt && !st.launched) {
@@ -527,8 +551,11 @@ export class CannonFly extends MinigameScene {
         animator.trigger("tumble");
         this.burst(landing.clone().setY(0.2), ["#7fb06c", "#e6f2da", player.color], { count: 16, speed: 2.2, up: 1.8, size: 0.09, life: 0.7, drag: 1.7 });
         this.bursts.ring(landing.clone().setY(0.07), "#e6f2da", { radius: 1.4, life: 0.5 });
-        const pts = entry.points || 0;
-        this.pop(landing.clone().add(new THREE.Vector3(0, 1.3, 0)), `${Math.round(distance)} m · ${pts}`, { color: pts >= 100 ? "#7fe0a8" : pts >= 50 ? "#ffe36b" : "#ffffff", size: 0.44, life: 1.6, rise: 0.8 });
+        const pts = entry.roundPoints ?? entry.points ?? 0;
+        // Die eigene Weite gross, fremde kleiner — nebeneinander gelandet
+        // schoben sich vier gleich grosse Zahlen übereinander.
+        const own = player.id === controlledId;
+        this.pop(landing.clone().add(new THREE.Vector3(0, own ? 1.4 : 1.1, 0)), `${Math.round(distance)} m · +${pts}`, { color: pts >= 100 ? "#7fe0a8" : pts >= 50 ? "#ffe36b" : "#ffffff", size: own ? 0.5 : 0.3, life: own ? 1.8 : 1.3, rise: 0.8 });
         st.pin.position.set(st.x - 0.42, 0, landing.z);
         st.pin.visible = true;
         if (player.id === controlledId) {
@@ -545,7 +572,7 @@ export class CannonFly extends MinigameScene {
       kin.rotation.set(0, Math.PI + (FACING - Math.PI) * turn, 0);
       if (!finale && since > 1300 && !st.reacted) {
         st.reacted = true;
-        const pts = entry.points || 0;
+        const pts = entry.roundPoints ?? entry.points ?? 0;
         animator.set(pts >= 100 ? "celebrate" : pts >= 50 ? "happy" : "shrug");
       }
     });
@@ -566,6 +593,39 @@ export class CannonFly extends MinigameScene {
     }
 
     this.chooseFocus(f);
+  }
+
+  // Neue Runde: die Flagge wird neu gesteckt, alle stehen mit einem Plopp
+  // wieder neben ihrer Kanone, die Fähnchen vom letzten Schuss verschwinden.
+  newRound(f) {
+    const { arcade, now } = f;
+    const first = this.round === undefined;
+    this.round = arcade.round || 0;
+    if (!first) {
+      this.stations.forEach((st, id) => {
+        const kin = this.kins.get(id);
+        st.phase = "wait";
+        st.launched = false;
+        st.landed = false;
+        st.reacted = false;
+        st.pin.visible = false;
+        if (kin) {
+          if (kin.visible) this.burst(kin.position.clone().setY(0.6), ["#ffffff", "#e6f2da"], { count: 8, speed: 1.4, up: 1.2, size: 0.1, life: 0.45 });
+          kin.position.set(st.stand.x, kin.position.y, st.stand.z);
+          kin.userData.versetzt = performance.now();
+          this.burst(st.stand.clone().setY(0.6), ["#ffffff", "#e6f2da"], { count: 8, speed: 1.4, up: 1.2, size: 0.1, life: 0.45 });
+        }
+      });
+      this.focusId = null;
+      this.focusUntil = 0;
+      this.feedback?.sound("select");
+    }
+    if (this.targetShown !== arcade.target) {
+      const group = this.buildTarget(arcade.target);
+      if (!first) this.burst(new THREE.Vector3(4.1, 1.6, landZ(arcade.target)), ["#ff3b55", "#ffffff", "#ffc93c"], { count: 18, speed: 2.4, up: 2.2, size: 0.1, life: 0.8 });
+      group.userData.bornAt = now;
+    }
+    this.roundBannerUntil = first ? 0 : now + 1600;
   }
 
   // Wohin die Kamera schaut: der eigenen (oder zuletzt abgeschossenen) Figur
@@ -623,17 +683,37 @@ export class CannonFly extends MinigameScene {
     if (!arcade) return;
     const own = arcade.players[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = own?.launchedAt ? `${own.points || 0}` : "—";
+    const shots = own?.shots?.length || 0;
+    this.scoreNode.textContent = shots ? `${own.points || 0}` : "—";
     const info = this.hud.querySelector("[data-cannon-info]");
+    const count = arcade.roundCount || 1;
+    const round = (arcade.round || 0) + 1;
     if (info) {
       const wind = arcade.wind || 0;
       const windText = Math.abs(wind) < 0.15 ? "windstill" : `${wind > 0 ? "Rückenwind" : "Gegenwind"} ${Math.round(Math.abs(wind) * 10)}`;
-      info.textContent = `Ziel ${arcade.target || "?"} m · ${windText}`;
+      // Zwei Zeilen: in einer war die Zeile im Hochformat breiter als der
+      // Platz bis zum Menüknopf, und der Wind wurde abgeschnitten.
+      const html = `${count > 1 ? `Schuss ${round}/${count} · ` : ""}Ziel ${Number(arcade.target) || "?"} m<br>${windText}`;
+      if (this.infoHtml !== html) {
+        this.infoHtml = html;
+        info.innerHTML = html;
+      }
+    }
+    const banner = this.hud.querySelector("[data-cannon-banner]");
+    if (banner) {
+      const show = now < (this.roundBannerUntil || 0) && !minigame.finaleAt;
+      banner.hidden = !show;
+      if (show) {
+        const text = round === count ? `Letzter Schuss · Ziel ${arcade.target} m` : `Schuss ${round} von ${count} · Ziel ${arcade.target} m`;
+        if (banner.textContent !== text) banner.textContent = text;
+        banner.style.background = round === count ? "#ff6a3d" : "#2f6fb0";
+        banner.style.color = "#ffffff";
+      }
     }
     const fill = this.hud.querySelector("[data-cannon-fill]");
     const gauge = this.hud.querySelector("[data-cannon-gauge]");
     const label = this.hud.querySelector("[data-cannon-label]");
-    const elapsed = now - minigame.startedAt;
+    const elapsed = now - (arcade.roundStartAt ?? minigame.startedAt);
     if (fill && gauge) {
       if (own?.launchedAt || minigame.finaleAt || elapsed < 0) {
         gauge.classList.add("done");

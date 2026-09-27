@@ -982,6 +982,13 @@
   text-transform: uppercase;
 }
 
+/* Kanonenflug: Schuss, Ziel und Wind in zwei Zeilen — eine Zeile war im
+   Hochformat breiter als der Platz bis zum Menüknopf. */
+.simon-round.cannon-info {
+  max-width: calc(100% - 132px - 64px);
+  line-height: 1.35;
+}
+
 .simon-chips,
 .react-rounds {
   position: absolute;
