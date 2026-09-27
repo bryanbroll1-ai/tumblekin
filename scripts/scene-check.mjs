@@ -32,7 +32,7 @@ const FLIEGT = {
   trampolin: "springt",
   kanonenflug: "fliegt aus der Kanone",
   seilspringen: "springt über das Seil",
-  bounceArena: "steht im Blütenring, nicht auf der Platte",
+  bounceArena: "sitzt im Schwimmring, nicht auf der Platte",
   colorEscape: "hüpft von Feld zu Feld, und die Felder fallen weg",
   augenmass: "sitzt auf dem Baumstamm, die Füsse hängen",
   // Nicht fliegend, aber für diese Messung dasselbe: die Figur steht schräg

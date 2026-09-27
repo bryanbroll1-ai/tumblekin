@@ -3,17 +3,21 @@ import { createCloud, noise } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameDecay, frameLerp } from "./Quality.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
 
 // Bumper Pool: jede Figur sitzt in einem gestreiften Schwimmring auf einer
-// Badeinsel mitten im Freibad und rempelt die anderen ins Becken. Drei Leben:
-// wer hineinfliegt, treibt kurz neben der Insel und springt dann zurück; erst
-// mit dem letzten Sturz paddelt man nach vorn und schaut zu. In den letzten
-// fünfzehn Sekunden schrumpft die Insel.
+// Badeinsel mitten im Freibad. Mit dem Stick lenkt man, Rempeln schiebt nur
+// weg — hinaus fliegt, wen ein RAMMEN-Schub am Rand erwischt. Drei Leben: wer
+// hineinfliegt, treibt kurz neben der Insel und springt dann zurück; erst mit
+// dem letzten Sturz paddelt man nach vorn und schaut zu. In den letzten
+// zwanzig Sekunden schrumpft die Insel.
 //
-// Vorher war es eine Blütenscheibe über einem See, und die Figuren standen in
-// Blütenringen. Die Physik ist dieselbe geblieben — nur passt das Bild jetzt
-// zu dem, was passiert: wer hinausfliegt, landet mit seinem Ring im Wasser,
-// treibt dort weiter und paddelt zurück, bis er wieder auf die Insel darf.
+// Die Ringe laufen auf weichen Bahnen zwischen den Serverbildern (Nachlauf):
+// vorher wurden sie über ihr Tempo vorausgerechnet und schossen an jedem
+// Abpraller über den Kontaktpunkt hinaus. Stösse, Schübe und Stürze werden
+// genau dann gezeigt, wenn sie im gezeichneten Bild passieren — nicht schon,
+// wenn das Serverbild ankommt, eine Zehntelsekunde bevor sich die Ringe
+// sichtbar berühren.
 //
 // Die Masse folgen der Physik des Servers: Insel 1.0, Figur 0.11 — hier mal
 // SCALE. Der Ring ist etwas grösser als der Stossradius, damit er sich beim
@@ -29,17 +33,20 @@ const CLIMB_MS = 520;           // Sprung aus dem Wasser zurück auf die Insel
 const LIVES = 3;
 const POOL_W = 13;
 const POOL_D = 10.5;
+const RIM_BLOCKS = 30;
+const DASH_MS = 280;            // so lange ist ein Schub sichtbar (wie am Server)
+const STRONG_HIT = 1.1;         // ab dieser Stossstärke gibt es das grosse Programm
 
 export class BounceArena extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.blooms = new Map();
     this.state = new Map();
-    this.lastCollisions = new Map();
-    this.lastServerAt = performance.now();
-    this.ownFxAt = 0;
     this.labelY = 0.78;
     this.pulse = 0;
+    this.nachlauf = new Nachlauf({ verzug: 110 });
+    this.localDashAt = -1e9;
+    this.tipShown = false;
   }
 
   stage() {
@@ -74,13 +81,13 @@ export class BounceArena extends MinigameScene {
     });
     this.buildToys();
 
-    // Fahrspuren: flache Scheiben, die schnelle Figuren hinter sich lassen.
+    // Fahrspuren: flache Flecken, die schnelle Figuren hinter sich lassen.
     this.trails = [];
-    const trailGeo = new THREE.CircleGeometry(0.26, 10);
+    const trailGeo = new THREE.BoxGeometry(0.34, 0.004, 0.34);
     for (let i = 0; i < 28; i += 1) {
       const mesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, depthWrite: false }));
-      mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
+      mesh.userData.isFx = true;
       scene.add(mesh);
       this.trails.push({ mesh, age: 0, life: 0.45 });
     }
@@ -95,33 +102,35 @@ export class BounceArena extends MinigameScene {
       const z = (entry?.y || 0) * SCALE;
       this.addKin(player, index, { x, ground: DECK_Y + 0.06, z, facing: 0, scale: 0.92 });
       this.addBloom(player);
-      this.state.set(player.id, { inPlay: true, facing: 0, squash: 0, fly: null, float: null, climb: null, final: false, index });
+      this.blooms.get(player.id).position.set(x, DECK_Y, z);
+      this.state.set(player.id, {
+        inPlay: true, facing: Math.atan2(-x, -z), squash: 0, stretch: 0, fly: null, float: null, climb: null,
+        final: false, index, seenImpactAt: entry?.lastImpactAt || 0, seenDashAt: entry?.dashAt || 0, dashFxUntil: 0
+      });
       this.animators.get(player.id).set("ready");
     });
   }
 
-  // Der Schwimmring: ein dicker Schlauch, abwechselnd in der Spielerfarbe und
-  // Weiss gestreift, auf Hüfthöhe. Die Hände liegen darauf.
+  // Der Schwimmring aus Blöcken: acht Stücke im Achteck, abwechselnd in der
+  // Spielerfarbe und Weiss, auf Hüfthöhe; dazu das Ventil.
   addBloom(player) {
     const bloom = new THREE.Group();
-    const color = new THREE.Color(player.color);
-    const colorMat = new THREE.MeshLambertMaterial({ color });
+    const colorMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(player.color) });
     const whiteMat = new THREE.MeshLambertMaterial({ color: "#fdfdfd" });
     const segments = 8;
+    const r = BLOOM_R - 0.05;
+    const length = 2 * r * Math.tan(Math.PI / segments) + 0.2;
+    const piece = new THREE.BoxGeometry(0.2, 0.2, length);
     for (let i = 0; i < segments; i += 1) {
-      const arc = new THREE.Mesh(
-        new THREE.TorusGeometry(BLOOM_R - 0.05, 0.1, 8, 5, (Math.PI * 2) / segments + 0.01),
-        i % 2 ? whiteMat : colorMat
-      );
-      arc.rotation.x = Math.PI / 2;
-      arc.rotation.z = (i / segments) * Math.PI * 2;
-      arc.position.y = 0.2;
-      arc.castShadow = true;
-      bloom.add(arc);
+      const a = (i / segments) * Math.PI * 2;
+      const block = new THREE.Mesh(piece, i % 2 ? whiteMat : colorMat);
+      block.position.set(Math.cos(a) * r, 0.2, Math.sin(a) * r);
+      block.rotation.y = -a;
+      block.castShadow = true;
+      bloom.add(block);
     }
-    // Das Ventil — ein kleines Detail, an dem man einen Schwimmring erkennt.
-    const valve = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.05), whiteMat);
-    valve.position.set(BLOOM_R - 0.05, 0.3, 0);
+    const valve = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.07, 0.06), whiteMat);
+    valve.position.set(r, 0.32, 0);
     bloom.add(valve);
     bloom.position.y = DECK_Y;
     this.scene.add(bloom);
@@ -239,15 +248,19 @@ export class BounceArena extends MinigameScene {
     scene.add(chute);
   }
 
-  // Die Badeinsel: weiche Matte, rundherum ein dicker rot-weisser Wulst — der
-  // Rand, über den man fliegt, wenn man zu hart gerammt wird.
+  // Die Badeinsel: weiche Matte, rundherum ein Wulst aus rot-weissen
+  // Blöcken — der Rand, über den man fliegt, wenn einen ein Schub erwischt.
   buildIsland() {
     // Alles, was zur Insel gehört, hängt an einer Gruppe: so schrumpft sie zum
     // Schluss als Ganzes, Stern und Wulst eingeschlossen.
     const scene = new THREE.Group();
     this.island = scene;
     this.scene.add(scene);
-    const mat = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R + 0.06, 0.44, 40), new THREE.MeshLambertMaterial({ color: "#d6c6ff" }));
+    // Feine Stufen: an diesem Rand fällt man hinunter, der sichtbare Rand
+    // muss zur Kante passen, die der Server rechnet.
+    const plateGeo = new THREE.CylinderGeometry(PLATE_R, PLATE_R + 0.06, 0.44, 40);
+    plateGeo.userData.zellen = 25;
+    const mat = new THREE.Mesh(plateGeo, new THREE.MeshLambertMaterial({ color: "#d6c6ff" }));
     mat.position.y = DECK_Y - 0.22;
     mat.receiveShadow = true;
     mat.castShadow = true;
@@ -263,26 +276,35 @@ export class BounceArena extends MinigameScene {
     const print = new THREE.Mesh(new THREE.ShapeGeometry(star), new THREE.MeshLambertMaterial({ color: "#fbf7ff" }));
     print.rotation.x = -Math.PI / 2;
     print.position.y = DECK_Y + 0.003;
+    print.userData.isFx = true;
     scene.add(print);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(PLATE_R * 0.66 - 0.04, PLATE_R * 0.66 + 0.04, 48),
-      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.75, depthWrite: false })
-    );
+    // Die Warnlinie: ausserhalb davon wird es gefährlich.
+    const ringGeo = new THREE.RingGeometry(PLATE_R * 0.66 - 0.06, PLATE_R * 0.66 + 0.06, 48);
+    ringGeo.userData.zellen = 25;
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.75, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = DECK_Y + 0.004;
+    ring.userData.isFx = true;
     scene.add(ring);
-    // Der Wulst: rot-weiss gestreift; er glüht, wenn jemand nah dran ist.
+    // Der Wulst: rot-weisse Blöcke. Die roten glühen, wenn jemand vor ihnen
+    // am Rand steht — man sieht, wo es gleich jemanden erwischt.
     this.rim = new THREE.Group();
-    const red = new THREE.MeshLambertMaterial({ color: "#ff4668", emissive: "#ff4668", emissiveIntensity: 0.6 });
+    this.rimBlocks = [];
     const white = new THREE.MeshLambertMaterial({ color: "#ffffff" });
-    this.rim.material = red;
-    const segments = 16;
-    for (let i = 0; i < segments; i += 1) {
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(PLATE_R + 0.04, 0.16, 8, 6, (Math.PI * 2) / segments + 0.01), i % 2 ? white : red);
-      arc.rotation.x = Math.PI / 2;
-      arc.rotation.z = (i / segments) * Math.PI * 2;
-      arc.castShadow = true;
-      this.rim.add(arc);
+    const r = PLATE_R + 0.06;
+    const length = 2 * r * Math.tan(Math.PI / RIM_BLOCKS) + 0.04;
+    const piece = new THREE.BoxGeometry(0.34, 0.3, length);
+    for (let i = 0; i < RIM_BLOCKS; i += 1) {
+      const a = (i / RIM_BLOCKS) * Math.PI * 2;
+      const red = i % 2 === 0;
+      const material = red ? new THREE.MeshLambertMaterial({ color: "#ff4668", emissive: "#ff4668", emissiveIntensity: 0.4 }) : white;
+      const block = new THREE.Mesh(piece, material);
+      block.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+      block.rotation.y = -a;
+      block.castShadow = true;
+      block.receiveShadow = true;
+      this.rim.add(block);
+      this.rimBlocks.push({ block, angle: a, red, glow: 0 });
     }
     this.rim.position.y = DECK_Y - 0.02;
     scene.add(this.rim);
@@ -330,23 +352,27 @@ export class BounceArena extends MinigameScene {
   shot() {
     return {
       look: [0, 0.2, 0.25],
-      frame: { w: PLATE_R * 2 + 0.5, h: 4.4 },
+      frame: { w: PLATE_R * 2 + 0.75, h: 4.4 },
       pitch: 0.72,
       fov: 36,
       ease: 0.06,
       intro: { yaw: 0.6, pitch: 0.25, zoom: 1.45 },
-      finale: { pull: 0.7, zoom: 0.5, lift: 0.35, orbit: 0.2 }
+      finale: { pull: 0.6, zoom: 0.72, lift: 0.35, orbit: 0.16 }
     };
   }
 
   bind() {
     this.controls.innerHTML = `
-      <div class="mobile-stick-controls joystick-only">
+      <div class="mobile-stick-controls arena-controls">
         <div class="joystick-slot"></div>
+        <button type="button" class="snow-throw arena-dash" data-arena-dash>
+          <span class="snow-meter"><i data-arena-meter></i></span>
+          <b>RAMMEN!</b>
+        </button>
       </div>`;
     this.joystick = new VirtualJoystick({
       root: this.controls.querySelector(".joystick-slot"),
-      label: "Schwimmring lenken und rammen",
+      label: "Schwimmring lenken",
       intervalMs: 70,
       feedback: this.feedback,
       onVector: (x, y) => this.sendInput({ action: "thrust", x, y }).catch(() => {}),
@@ -355,6 +381,21 @@ export class BounceArena extends MinigameScene {
         this.feedback?.vibrate(10);
       }
     });
+    this.dashButton = this.controls.querySelector("[data-arena-dash]");
+    this.dashMeter = this.controls.querySelector("[data-arena-meter]");
+    this.on(this.dashButton, "pointerdown", (event) => {
+      event.preventDefault();
+      this.pressDash();
+    });
+    // Am Rechner: Leertaste rammt.
+    this.on(window, "keydown", (event) => {
+      if (event.repeat || event.code !== "Space") return;
+      if (event.target?.closest?.("input, textarea, select, [contenteditable], dialog, .overlay")) return;
+      const menu = document.getElementById("game-menu");
+      if (menu && !menu.hidden) return;
+      event.preventDefault();
+      this.pressDash();
+    });
   }
 
   unbind() {
@@ -362,19 +403,73 @@ export class BounceArena extends MinigameScene {
     this.joystick = null;
   }
 
-  onUpdate(update) {
+  // RAMMEN: sofort spürbar auf dem eigenen Gerät — Ton, Ruck, Wasserfahne —,
+  // die Bewegung selbst rechnet der Server.
+  pressDash() {
+    const minigame = this.update || this.minigame;
+    const now = this.now();
+    if (!minigame || minigame.finaleAt || now < minigame.startedAt) return;
     const id = this.getControlledPlayerId();
-    const own = update.arena?.players?.[id];
-    const nowP = performance.now();
-    // Viele Stösse hintereinander geben einen kräftigen Ruck, kein Flackern.
-    if ((own?.collisionCount || 0) > (this.lastCollisions.get(`own:${id}`) || 0) && nowP - this.ownFxAt > 200) {
-      this.ownFxAt = nowP;
-      this.rig?.shake(0.5);
-      this.feedback?.sound("collision");
-      this.feedback?.vibrate(18);
+    const entry = minigame.arena?.players?.[id];
+    if (!entry?.inPlay) return;
+    if (now < (entry.dashReadyAt || 0) - 80) {
+      // Noch nicht bereit: der Knopf zuckt, statt dass nichts passiert.
+      this.dashButton?.animate?.([{ transform: "translateX(-5px)" }, { transform: "translateX(5px)" }, { transform: "none" }], { duration: 160 });
+      this.feedback?.sound("tap", { pitch: 0.6 });
+      return;
     }
-    this.lastCollisions.set(`own:${id}`, own?.collisionCount || 0);
-    this.lastServerAt = nowP;
+    const x = this.joystick?.vecX || 0;
+    const y = this.joystick?.vecY || 0;
+    this.sendInput({ action: "dash", x, y }).catch(() => {});
+    this.localDashAt = now;
+    this.feedback?.sound("whoosh");
+    this.feedback?.vibrate(16);
+    this.dashButton?.animate?.([{ transform: "translateY(6px) scale(0.97)" }, { transform: "none" }], { duration: 140, easing: "ease-out" });
+    const s = this.state.get(id);
+    if (s) this.dashFx(id, s, true);
+  }
+
+  onUpdate(update) {
+    const players = update.arena?.players;
+    if (!players) return;
+    this.nachlauf.merke(update.sentAt, this.now(), Object.entries(players).filter(([, ap]) => ap.inPlay), ([id, ap]) => ({ id, x: ap.x, y: ap.y, vx: ap.vx, vy: ap.vy }));
+  }
+
+  // Ein Schub: der Ring streckt sich, hinter ihm spritzt eine Wasserfahne.
+  dashFx(id, s, mine) {
+    const bloom = this.blooms.get(id);
+    const player = this.getState()?.players?.find((p) => p.id === id);
+    if (!bloom) return;
+    s.stretch = 1;
+    s.dashFxUntil = this.now() + DASH_MS + 120;
+    const back = new THREE.Vector3(-Math.sin(s.facing), 0, -Math.cos(s.facing));
+    const at = bloom.position.clone().addScaledVector(back, 0.35);
+    at.y = DECK_Y + 0.15;
+    this.burst(at, ["#ffffff", "#bff1ff", player?.color || "#ffffff"], { count: mine ? 12 : 8, speed: 1.6, up: 1.1, size: 0.07, life: 0.4, gravity: 3 });
+    this.animators.get(id)?.expression("effort", 450);
+  }
+
+  // Ein Zusammenstoss, so stark wie er am Server war.
+  impactFx(player, s, strength, involvesMe, bloom) {
+    const animator = this.animators.get(player.id);
+    s.squash = Math.min(1, 0.45 + strength * 0.35);
+    animator?.trigger("flinch");
+    const strong = strength >= STRONG_HIT;
+    const at = bloom.position.clone();
+    at.y = DECK_Y + 0.3;
+    this.burst(at, ["#ffffff", player.color], { count: strong ? 12 : 5, speed: strong ? 2.6 : 1.6, up: strong ? 2 : 1.3, size: strong ? 0.08 : 0.06, life: 0.45 });
+    if (strong) {
+      this.bursts.ring(at.clone().setY(DECK_Y + 0.03), "#ffffff", { radius: 1.4, life: 0.45, opacity: 0.85, y: DECK_Y + 0.03 });
+      this.pulse = Math.max(this.pulse, 0.9);
+      animator?.expression("surprised", 600);
+    }
+    if (involvesMe) {
+      this.rig?.shake(strong ? 0.6 : 0.25);
+      this.feedback?.sound(strong ? "impact" : "collision", { pitch: strong ? 1 : 1.25 - Math.min(0.4, strength * 0.2) });
+      this.feedback?.vibrate(strong ? [26, 20, 30] : 14);
+    } else if (strong) {
+      this.feedback?.sound("clack", { pan: Math.max(-1, Math.min(1, bloom.position.x / 3)) });
+    }
   }
 
   tick(f) {
@@ -382,8 +477,9 @@ export class BounceArena extends MinigameScene {
     const arena = minigame.arena;
     if (!arena?.players) return;
     const frameNow = performance.now();
-    const snapshotAge = Math.min(0.22, (frameNow - this.lastServerAt) / 1000);
+    const zeit = this.nachlauf.zeichenzeit(now);
     let danger = 0;
+    const edgeAt = [];
 
     players.forEach((player) => {
       const entry = arena.players[player.id];
@@ -393,44 +489,13 @@ export class BounceArena extends MinigameScene {
       const s = this.state.get(player.id);
       const shadow = this.shadows.get(player.id);
       if (!entry || !kin || !bloom || !animator || !s) return;
+      const mine = player.id === controlledId;
+      const drawn = this.nachlauf.wo(player.id, now);
 
-      // Hinausgeflogen: Bogen nach aussen, Überschlag, Platsch.
-      if (s.inPlay && !entry.inPlay) {
-        s.inPlay = false;
-        s.climb = null;
-        s.final = (entry.lives ?? 0) <= 0;
-        // Für die Prüfwerkzeuge: diese Figur ist gerade nicht im Spiel — sie
-        // muss weder auf dem Boden stehen noch im Bild sein.
-        kin.userData.outOfPlay = true;
-        const from = bloom.position.clone();
-        const dir = new THREE.Vector3(from.x, 0, from.z);
-        if (dir.lengthSq() < 0.01) dir.set(0, 0, 1);
-        dir.normalize();
-        // Mit Leben übrig landet man gleich neben der Insel und springt von
-        // dort zurück; wer raus ist, fliegt weiter hinaus und paddelt nach vorn.
-        const reach = s.final ? FLOAT_R + noise(player.id.length) * 0.4 : this.plateR() + 0.75;
-        const to = dir.clone().multiplyScalar(reach);
-        to.y = WATER_Y + 0.02;
-        s.fly = { from, to, start: now, spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 3) };
-        const count = Math.max(1, players.length);
-        const angle = Math.atan2(to.z, to.x);
-        const home = s.final ? Math.PI / 2 + (s.index - (count - 1) / 2) * 0.32 : angle;
-        s.float = { angle, home, reach, x: to.x, z: to.z, phase: Math.random() * 6 };
-        animator.trigger("tumble");
-        animator.expression("scared", 900);
-        this.burst(from.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#ffffff", player.color], { count: 12, speed: 2.2, up: 2.2, size: 0.08, life: 0.6 });
-        this.pop(from.clone().add(new THREE.Vector3(0, 1.1, 0)), s.final ? "RAUS!" : "−1 ♥", { color: player.color, size: 0.36, life: 0.9 });
-        if (player.id === controlledId) {
-          this.feedback?.sound("fall");
-          this.feedback?.vibrate([35, 35, 48]);
-          if (s.final) {
-            this.ownInView = false;
-            this.flash = { text: "Raus! Schau zu, wer übrig bleibt.", until: now + 2600, tone: "out" };
-          } else {
-            const left = entry.lives ?? 0;
-            this.flash = { text: left === 1 ? "Letztes Leben!" : `Noch ${left} Leben`, until: now + 1600, tone: left === 1 ? "out" : "warn" };
-          }
-        }
+      // Hinausgeflogen: erst, wenn der Ring im Bild auch am Rand ist — dann
+      // Bogen nach aussen, Überschlag, Platsch.
+      if (s.inPlay && !entry.inPlay && (!drawn || zeit >= (entry.knockedAt || 0))) {
+        this.knockOff(player, entry, s, kin, bloom, animator, f);
       }
 
       // Zurück aus dem Wasser: ein Sprung auf die Stelle, die der Server
@@ -440,12 +505,16 @@ export class BounceArena extends MinigameScene {
         s.fly = null;
         s.float = null;
         s.climb = { from: bloom.position.clone(), start: now };
+        s.seenImpactAt = entry.lastImpactAt || 0;
+        s.seenDashAt = entry.dashAt || 0;
         kin.userData.outOfPlay = false;
+        kin.userData.versetzt = performance.now() + CLIMB_MS;
+        s.facing = Math.atan2(-entry.x, -entry.y);
         kin.rotation.set(0, s.facing, 0);
         animator.trigger("jump");
         animator.expression("effort", 500);
         if (kin.userData.label) kin.userData.label.material.opacity = 1;
-        if (player.id === controlledId) {
+        if (mine) {
           this.ownInView = true;
           this.feedback?.sound("whoosh");
         }
@@ -478,48 +547,49 @@ export class BounceArena extends MinigameScene {
         return;
       }
 
-      // Zusammenstoss: der Ring drückt sich ein, die Figur zuckt.
-      const collisions = entry.collisionCount || 0;
-      if (collisions > (this.lastCollisions.get(player.id) || 0)) {
-        s.squash = 1;
-        animator.trigger("flinch");
-        animator.expression(entry.launchedUntil > now ? "surprised" : "effort", 450);
-        const stamp = this.trailStamp.get(`hit:${player.id}`) || 0;
-        if (frameNow - stamp > 240) {
-          this.trailStamp.set(`hit:${player.id}`, frameNow);
-          this.burst(bloom.position.clone().add(new THREE.Vector3(0, 0.3, 0)), ["#ffffff", player.color], { count: 6, speed: 1.8, up: 1.6, size: 0.06, life: 0.45 });
-          this.bursts.ring(bloom.position.clone().setY(DECK_Y + 0.03), "#ffffff", { radius: 1.1, life: 0.45, opacity: 0.8, y: DECK_Y + 0.03 });
-          this.pulse = Math.max(this.pulse, 0.6);
-        }
+      // Stösse und Schübe genau dann, wenn sie im Bild passieren.
+      if ((entry.lastImpactAt || 0) > s.seenImpactAt && zeit >= entry.lastImpactAt) {
+        s.seenImpactAt = entry.lastImpactAt;
+        const partner = players.find((other) => other.id !== player.id && arena.players[other.id]?.lastImpactAt === entry.lastImpactAt);
+        this.impactFx(player, s, entry.lastImpact || 0, mine || partner?.id === controlledId, bloom);
       }
-      this.lastCollisions.set(player.id, collisions);
+      if ((entry.dashAt || 0) > s.seenDashAt && zeit >= entry.dashAt) {
+        s.seenDashAt = entry.dashAt;
+        // Den eigenen Schub hat das Gerät schon beim Drücken gezeigt.
+        if (!(mine && now - this.localDashAt < 600)) this.dashFx(player.id, s, false);
+      }
 
-      // Position: Servertakt plus kleiner Vorlauf aus der Geschwindigkeit.
-      const lead = snapshotAge + 0.05;
-      const tx = (entry.x + (entry.vx || 0) * lead) * SCALE;
-      const tz = (entry.y + (entry.vy || 0) * lead) * SCALE;
-      const k = 1 - Math.pow(0.0004, dt);
-      bloom.position.x += (tx - bloom.position.x) * k;
-      bloom.position.z += (tz - bloom.position.z) * k;
+      // Position: die weiche Bahn zwischen den Serverbildern.
+      const px = drawn ? drawn.x : entry.x;
+      const pz = drawn ? drawn.y : entry.y;
+      const vx = drawn ? drawn.vx : (entry.vx || 0);
+      const vz = drawn ? drawn.vy : (entry.vy || 0);
+      bloom.position.x = px * SCALE;
+      bloom.position.z = pz * SCALE;
       bloom.position.y = DECK_Y;
 
-      // In Fahrtrichtung drehen und hineinlehnen.
-      const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
+      // In Fahrtrichtung drehen und hineinlehnen. Die eigene Figur dreht sich
+      // sofort mit dem Stick — das Gerät weiss es vor dem Server.
+      const speed = Math.hypot(vx, vz);
+      const stick = mine && this.joystick?.engaged ? Math.hypot(this.joystick.vecX, this.joystick.vecY) : 0;
       if (finale) {
-        // Der Sieger dreht sich zur Kamera.
         s.facing += Math.atan2(Math.sin(-s.facing), Math.cos(-s.facing)) * frameLerp(0.08, dt);
+      } else if (stick > 0.3) {
+        const want = Math.atan2(this.joystick.vecX, this.joystick.vecY);
+        s.facing += Math.atan2(Math.sin(want - s.facing), Math.cos(want - s.facing)) * frameLerp(0.3, dt);
       } else if (speed > 0.12) {
-        const want = Math.atan2(entry.vx, entry.vy);
-        let diff = want - s.facing;
-        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-        s.facing += diff * frameLerp(0.18, dt);
+        const want = Math.atan2(vx, vz);
+        s.facing += Math.atan2(Math.sin(want - s.facing), Math.cos(want - s.facing)) * frameLerp(0.18, dt);
       }
-      const lean = Math.min(0.22, speed * 0.1);
+      const dashing = now < s.dashFxUntil;
+      const lean = Math.min(0.26, speed * 0.1 + (dashing ? 0.12 : 0));
       bloom.rotation.set(Math.cos(s.facing) * lean, 0, -Math.sin(s.facing) * lean);
       bloom.rotation.y += dt * speed * 0.8;
       s.squash *= frameDecay(0.8, dt);
+      s.stretch *= frameDecay(0.86, dt);
       const sq = s.squash * 0.28;
-      bloom.scale.set(1 + sq, 1 - sq * 0.8, 1 + sq);
+      const st = s.stretch * 0.22;
+      bloom.scale.set(1 + sq - st * 0.4, 1 - sq * 0.8, 1 + sq + st);
 
       kin.position.x = bloom.position.x;
       kin.position.z = bloom.position.z;
@@ -528,15 +598,18 @@ export class BounceArena extends MinigameScene {
       kin.rotation.z = -Math.sin(s.facing) * lean * 0.6;
 
       // Wie nah am Rand, und rutscht man darauf zu?
-      const dist = Math.hypot(entry.x, entry.y);
-      const outward = dist > 0.01 ? ((entry.vx || 0) * entry.x + (entry.vy || 0) * entry.y) / dist : 0;
+      const dist = Math.hypot(px, pz);
+      const outward = dist > 0.01 ? (vx * px + vz * pz) / dist : 0;
       const edge = Math.max(0, (dist / (arena.radius || 1) - 0.62) / 0.3);
-      danger = Math.max(danger, Math.min(1, edge));
+      if (mine) danger = Math.max(danger, Math.min(1, edge));
+      if (edge > 0.2) edgeAt.push({ angle: Math.atan2(pz, px), edge: Math.min(1, edge) });
       const invulnerable = now < (entry.invulnUntil || 0);
       this.fade(player.id, invulnerable ? 0.5 + Math.abs(Math.sin(now / 120)) * 0.4 : 1);
 
       if (!finale) {
-        if (edge > 0.6 && outward > 0.15) {
+        if (dashing) {
+          animator.set("charge", { params: { power: 1 } });
+        } else if (edge > 0.6 && outward > 0.15) {
           animator.set("balance", { params: { wobble: Math.sin(now / 90) } });
           animator.expression("scared", 200);
         } else if (speed > 0.35) {
@@ -554,7 +627,7 @@ export class BounceArena extends MinigameScene {
       }
 
       // Spur legen, solange Fahrt drin ist.
-      if (speed > 1.1) {
+      if (speed > 1.0) {
         const last = this.trailStamp.get(player.id) || 0;
         if (frameNow - last > 60) {
           this.trailStamp.set(player.id, frameNow);
@@ -562,7 +635,8 @@ export class BounceArena extends MinigameScene {
           this.trailCursor = (this.trailCursor + 1) % this.trails.length;
           spur.mesh.position.set(bloom.position.x, DECK_Y + 0.012, bloom.position.z);
           spur.mesh.material.color.set(player.color);
-          spur.mesh.scale.setScalar(0.8 + Math.min(1, speed / 4) * 0.6);
+          spur.mesh.rotation.y = s.facing;
+          spur.mesh.scale.setScalar(0.8 + Math.min(1, speed / 3) * 0.6);
           spur.mesh.visible = true;
           spur.age = 0;
         }
@@ -572,9 +646,20 @@ export class BounceArena extends MinigameScene {
     this.pulse *= frameDecay(0.85, dt);
     const radius = arena.radius ?? 1;
     this.island.scale.set(radius, 1, radius);
-    // Schrumpft die Insel, glüht der Wulst rhythmisch — man soll es merken.
-    const shrinkGlow = arena.shrinking ? 0.5 + Math.sin(now / 110) * 0.35 : 0;
-    this.rim.material.emissiveIntensity = 0.35 + Math.sin(now / 190) * 0.15 + danger * 0.9 + this.pulse + shrinkGlow;
+    // Der Wulst glüht dort, wo jemand am Rand steht; schrumpft die Insel,
+    // pulsiert er ringsum.
+    const shrinkGlow = arena.shrinking ? 0.45 + Math.sin(now / 110) * 0.3 : 0;
+    this.rimBlocks.forEach((rb) => {
+      if (!rb.red) return;
+      let near = 0;
+      edgeAt.forEach(({ angle, edge }) => {
+        const d = Math.abs(Math.atan2(Math.sin(angle - rb.angle), Math.cos(angle - rb.angle)));
+        if (d < 0.5) near = Math.max(near, edge * (1 - d / 0.5));
+      });
+      rb.glow += (near - rb.glow) * frameLerp(0.25, dt);
+      rb.block.material.emissiveIntensity = 0.3 + Math.sin(now / 190 + rb.angle) * 0.08 + rb.glow * 1.3 + this.pulse * 0.5 + shrinkGlow;
+    });
+    this.dangerOwn = danger;
     this.shimmer?.forEach((patch) => {
       const d = patch.userData;
       patch.position.x = d.x + Math.sin(now / 1700 + d.phase) * 0.4;
@@ -605,6 +690,56 @@ export class BounceArena extends MinigameScene {
     });
   }
 
+  knockOff(player, entry, s, kin, bloom, animator, f) {
+    const { now, players, controlledId } = f;
+    s.inPlay = false;
+    s.climb = null;
+    s.final = (entry.lives ?? 0) <= 0;
+    // Für die Prüfwerkzeuge: diese Figur ist gerade nicht im Spiel — sie
+    // muss weder auf dem Boden stehen noch im Bild sein.
+    kin.userData.outOfPlay = true;
+    this.nachlauf.bahnen.delete(player.id);
+    const from = bloom.position.clone();
+    const dir = new THREE.Vector3(from.x, 0, from.z);
+    if (dir.lengthSq() < 0.01) dir.set(0, 0, 1);
+    dir.normalize();
+    // Mit Leben übrig landet man gleich neben der Insel und springt von dort
+    // zurück; wer raus ist, fliegt weiter hinaus und paddelt nach vorn.
+    const reach = s.final ? FLOAT_R + noise(player.id.length) * 0.4 : this.plateR() + 0.75;
+    const to = dir.clone().multiplyScalar(reach);
+    to.y = WATER_Y + 0.02;
+    s.fly = { from, to, start: now, spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 3) };
+    const count = Math.max(1, players.length);
+    const angle = Math.atan2(to.z, to.x);
+    const home = s.final ? Math.PI / 2 + (s.index - (count - 1) / 2) * 0.32 : angle;
+    s.float = { angle, home, reach, x: to.x, z: to.z, phase: Math.random() * 6 };
+    animator.trigger("tumble");
+    animator.expression("scared", 900);
+    this.burst(from.clone().add(new THREE.Vector3(0, 0.4, 0)), ["#ffffff", player.color], { count: 12, speed: 2.2, up: 2.2, size: 0.08, life: 0.6 });
+    this.pop(from.clone().add(new THREE.Vector3(0, 1.1, 0)), s.final ? "RAUS!" : "−1 ♥", { color: player.color, size: 0.36, life: 0.9 });
+    // Wer hat geschoben? Der bekommt seinen Moment.
+    const hitter = entry.knockedBy && this.kins.get(entry.knockedBy);
+    if (hitter && entry.knockedBy !== player.id) {
+      this.animators.get(entry.knockedBy)?.trigger("fistpump");
+      if (entry.knockedBy === controlledId) {
+        this.pop(hitter.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "Rauswurf!", { color: "#ffe36b", size: 0.34, life: 0.9 });
+        this.feedback?.sound("success");
+        this.feedback?.vibrate([20, 30, 20]);
+      }
+    }
+    if (player.id === controlledId) {
+      this.feedback?.sound("fall");
+      this.feedback?.vibrate([35, 35, 48]);
+      if (s.final) {
+        this.ownInView = false;
+        this.flash = { text: "Raus! Schau zu, wer übrig bleibt.", until: now + 2600, tone: "out" };
+      } else {
+        const left = entry.lives ?? 0;
+        this.flash = { text: left === 1 ? "Letztes Leben!" : `Noch ${left} Leben`, until: now + 1600, tone: left === 1 ? "out" : "warn" };
+      }
+    }
+  }
+
   tickOut(player, entry, s, kin, bloom, animator, shadow, f) {
     const { now, dt, controlledId } = f;
     if (s.fly) {
@@ -629,7 +764,7 @@ export class BounceArena extends MinigameScene {
       if (shadow) shadow.visible = false;
       return;
     }
-    // Im Wasser: im eigenen Ring nach vorn paddeln, dann zur Scheibe schauen.
+    // Im Wasser: im eigenen Ring nach vorn paddeln, dann zur Insel schauen.
     let diff = s.float.home - s.float.angle;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     const paddling = Math.abs(diff) > 0.04;
@@ -642,6 +777,7 @@ export class BounceArena extends MinigameScene {
     s.float.z = Math.sin(s.float.angle) * (s.float.reach ?? FLOAT_R);
     const bob = Math.sin(now / 520 + s.float.phase) * 0.05;
     bloom.position.set(s.float.x, WATER_Y - 0.2 + bob, s.float.z);
+    bloom.scale.set(1, 1, 1);
     bloom.rotation.set(Math.sin(now / 700 + s.float.phase) * 0.06, bloom.rotation.y + dt * 0.2, Math.cos(now / 800 + s.float.phase) * 0.06);
     kin.position.x = s.float.x;
     kin.position.z = s.float.z;
@@ -674,52 +810,65 @@ export class BounceArena extends MinigameScene {
     }).map((player) => this.kins.get(player.id)).filter(Boolean);
   }
 
-  // Die Kamera rückt näher, wenn das Gedränge eng wird, und zeigt die ganze
-  // Scheibe, wenn sich alle verteilen.
-  rigOptions() {
-    const inPlay = [...this.state.entries()].filter(([, s]) => s.inPlay || !s.final).map(([id]) => this.blooms.get(id)).filter(Boolean);
-    if (!inPlay.length) return {};
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    inPlay.forEach((bloom) => {
-      minX = Math.min(minX, bloom.position.x);
-      maxX = Math.max(maxX, bloom.position.x);
-      minZ = Math.min(minZ, bloom.position.z);
-      maxZ = Math.max(maxZ, bloom.position.z);
-    });
-    const cx = (minX + maxX) / 2;
-    const cz = (minZ + maxZ) / 2;
-    const w = Math.min(this.plateR() * 2 + 0.9, Math.max(4.6, maxX - minX + 3));
-    const h = Math.min(4.4, Math.max(3.2, (maxZ - minZ) * 0.7 + 2.2));
-    const finale = Boolean((this.update || this.minigame)?.finaleAt);
-    return { look: [cx * 0.75, 0.25, cz * 0.75 + 0.2], frame: { w, h }, pitch: finale ? 0.42 : undefined };
+  // Die Kamera zeigt immer die ganze Insel — man muss sehen, wie nah der Rand
+  // ist. Sie rückt nur ein wenig zur eigenen Figur, und wenn die Insel
+  // schrumpft, rückt sie mit heran: das Finale wird enger, auch im Bild.
+  rigOptions(f) {
+    if (f.finale) return {};
+    const own = this.blooms.get(f.controlledId);
+    const s = this.state.get(f.controlledId);
+    const bias = own && s?.inPlay ? 0.1 : 0;
+    const w = this.plateR() * 2 + 0.75;
+    return {
+      look: [(own?.position.x || 0) * bias, 0.2, (own?.position.z || 0) * bias + 0.25],
+      frame: { w, h: Math.max(3.4, w * 0.7) }
+    };
   }
 
   drawHud(f) {
     const arena = f.minigame.arena;
     const entry = arena?.players?.[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    // Oben die eigenen Leben — danach wird gewertet, nicht nach einer
-    // Punktzahl, die nirgends sonst auftaucht.
-    if (this.scoreNode) this.scoreNode.textContent = `${entry?.lives ?? 0}♥`;
-    const lives = this.hud.querySelector("[data-arena-lives]");
+    // Oben die eigenen Leben — danach wird gewertet.
+    const livesText = `${entry?.lives ?? 0}♥`;
+    if (this.scoreNode && this.scoreNode.textContent !== livesText) this.scoreNode.textContent = livesText;
+    const lives = this.livesNode ||= this.hud.querySelector("[data-arena-lives]");
     if (lives && arena?.players) {
       const html = f.players.map((player) => {
         const ap = arena.players[player.id];
         const left = ap?.lives ?? 0;
         const dots = Array.from({ length: LIVES }, (_, i) => `<i class="${i < left ? "on" : ""}"></i>`).join("");
         const cls = `arena-life${left <= 0 ? " is-out" : ""}${player.id === f.controlledId ? " is-own" : ""}`;
-        return `<span class="${cls}" style="--chip:${player.color}">${dots}</span>`;
+        return `<span class="${cls}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${dots}</span>`;
       }).join("");
       if (html !== this.livesHtml) {
         this.livesHtml = html;
         lives.innerHTML = html;
       }
     }
-    const banner = this.hud.querySelector("[data-arena-banner]");
+
+    // Der RAMMEN-Knopf füllt sich wieder auf; voll leuchtet er.
+    if (this.dashButton && entry) {
+      const cooldown = arena.dashCooldownMs || 2200;
+      const wait = Math.max(0, (entry.dashReadyAt || 0) - f.now);
+      const share = f.started ? Math.max(0, Math.min(1, 1 - wait / cooldown)) : 0;
+      const usable = entry.inPlay && !f.finale && f.started;
+      const ready = usable && wait <= 0;
+      if (this.dashMeter) this.dashMeter.style.width = `${Math.round(share * 100)}%`;
+      this.dashButton.classList.toggle("is-ready", ready);
+      this.dashButton.classList.toggle("is-off", !usable);
+      if (ready && !this.wasReady && f.started && this.everDashed) this.feedback?.vibrate(6);
+      if (!ready && this.wasReady) this.everDashed = true;
+      this.wasReady = ready;
+    }
+
+    const banner = this.bannerNode ||= this.hud.querySelector("[data-arena-banner]");
     if (!banner) return;
+    // Einmal kurz erklären, wenn RAMMEN frei wird — das ist der Kern.
+    if (!this.tipShown && entry && f.started && f.now >= (entry.dashReadyAt || 0)) {
+      this.tipShown = true;
+      this.flash = { text: "RAMMEN am Rand wirft raus!", until: f.now + 2600, tone: "warn" };
+    }
     if (arena?.shrinking && !this.shrinkAnnounced && !f.finale) {
       this.shrinkAnnounced = true;
       this.flash = { text: "Die Insel schrumpft!", until: f.now + 2400, tone: "warn" };
@@ -727,10 +876,14 @@ export class BounceArena extends MinigameScene {
     }
     if (this.flash && f.now < this.flash.until && !f.finale) {
       banner.hidden = false;
-      banner.textContent = this.flash.text;
+      if (banner.textContent !== this.flash.text) banner.textContent = this.flash.text;
       banner.dataset.tone = this.flash.tone;
     } else {
       banner.hidden = true;
     }
   }
+}
+
+function escapeName(name) {
+  return String(name || "?").slice(0, 6).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

@@ -24,7 +24,7 @@ const OHNE_BODEN = {
   tiefenrausch: "taucht frei im Wasser",
   ballonfahrt: "steht im Korb eines fliegenden Ballons",
   kanonenflug: "fliegt aus der Kanone",
-  bounceArena: "steht im Blütenring, nicht auf der Platte",
+  bounceArena: "sitzt im Schwimmring, nicht auf der Platte",
   augenmass: "sitzt auf dem Baumstamm, die Füsse hängen",
   fassrolle: "steht schräg auf einem runden Stamm"
 };

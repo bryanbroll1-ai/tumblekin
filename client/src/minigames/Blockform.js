@@ -56,13 +56,20 @@ export function verblocke(root) {
 export function blockform(geometry) {
   const type = geometry.type;
   if (!BAU[type]) return null;
-  const key = `${type}|${JSON.stringify(geometry.parameters)}`;
+  // Eine Form darf feinere (oder gröbere) Stufen verlangen: userData.zellen
+  // ist die Zahl der Zellen über den Durchmesser (Spielflächen, deren Rand
+  // genau zur Kante passen muss, an der man hinunterfällt).
+  const wunsch = Number(geometry.userData?.zellen) || 0;
+  const key = `${type}|${JSON.stringify(geometry.parameters)}|${wunsch}`;
   if (cache.has(key)) return cache.get(key);
   let block = null;
   try {
+    wunschZellen = wunsch;
     block = BAU[type](geometry.parameters || {});
   } catch {
     block = null;
+  } finally {
+    wunschZellen = 0;
   }
   if (block) {
     block.userData.block = true;
@@ -75,7 +82,10 @@ export function blockform(geometry) {
 
 // Zellen über den Durchmesser: klein und mittel wie der Ballon (3), grössere
 // Dinge 5 und 7, Spielflächen feiner, damit der Rand stimmt.
+let wunschZellen = 0;
+
 function zellenFuer(radius) {
+  if (wunschZellen >= 3) return wunschZellen % 2 ? wunschZellen : wunschZellen + 1;
   if (radius < 0.9) return 3;
   if (radius < 1.8) return 5;
   if (radius < 3) return 7;
