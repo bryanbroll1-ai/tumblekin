@@ -70,6 +70,22 @@ export const MINIGAME_CATALOG = [
   { type: "rohrsalat", title: "Rohrsalat", family: "pipes", gesture: "follow", help: "Im Kesselhaus hängt ein Gewirr aus Kupferrohren: oben Ventile, unten Ausgänge, nur einer führt in die Schatztruhe. Folge einem Rohr mit den Augen nach unten und bieg an jedem Querrohr ab — dann tipp das richtige Ventil an. Richtig bringt 100 Punkte plus bis zu 60 fürs Tempo, falsch eine Ladung Russ. Vier Runden, jedes Mal mehr Rohre." }
 ];
 
+// Spiele, die den vollständigen Qualitäts- und Polish-Durchgang hinter sich
+// haben. Die Spielauswahl zeigt sie oben unter „Überarbeitet“, den Rest
+// darunter. Jedes neu überarbeitete Spiel kommt hier dazu.
+export const REWORKED = new Set([
+  "ballonPump",
+  "bounceArena",
+  "finishRush",
+  "colorEscape",
+  "nervenprobe",
+  "lichtwaechter",
+  "fassmut",
+  "fassrolle",
+  "zuendstoff",
+  "muenzregen"
+]);
+
 export const ARCADE_TYPES = new Set(
   MINIGAME_CATALOG.filter((game) => game.family).map((game) => game.type)
 );

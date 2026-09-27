@@ -11,7 +11,7 @@ import {
   minigameTitle
 } from "../game/GameState.js?v=tumblekin200";
 import { playerStatus } from "../game/Player.js?v=tumblekin200";
-import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin200";
+import { MINIGAME_CATALOG, GESTURES, REWORKED, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin200";
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
@@ -223,6 +223,11 @@ export class UIManager {
     el.pickerTools.querySelector("[data-picker-all]").addEventListener("click", () => {
       if (!this.picker) return;
       this.picker.selected = new Set(MINIGAME_CATALOG.map((game) => game.type));
+      this.renderPicker();
+    });
+    el.pickerTools.querySelector("[data-picker-reworked]").addEventListener("click", () => {
+      if (!this.picker) return;
+      this.picker.selected = new Set(MINIGAME_CATALOG.filter((game) => REWORKED.has(game.type)).map((game) => game.type));
       this.renderPicker();
     });
     el.pickerTools.querySelector("[data-picker-none]").addEventListener("click", () => {
@@ -556,7 +561,7 @@ export class UIManager {
           <span class="pick-icon">🎲</span><strong>Zufall</strong><small>Lasst euch überraschen</small>
         </button>`
       : "";
-    this.el.pickerGrid.innerHTML = random + MINIGAME_CATALOG.map((game) => {
+    const card = (game) => {
       const gesture = GESTURES[game.gesture] || GESTURES.tap;
       const picked = picker.selected.has(game.type);
       return `
@@ -565,7 +570,16 @@ export class UIManager {
           <strong>${escapeHtml(game.title)}</strong>
           <small>${escapeHtml(gesture.label)}</small>
         </button>`;
-    }).join("");
+    };
+    // Überarbeitete Spiele oben, der Rest darunter — je in Katalogreihenfolge.
+    const done = MINIGAME_CATALOG.filter((game) => REWORKED.has(game.type));
+    const open = MINIGAME_CATALOG.filter((game) => !REWORKED.has(game.type));
+    const section = (title, games, note) => games.length
+      ? `<h4 class="pick-section">${title} <span>${games.length}</span>${note ? `<small>${note}</small>` : ""}</h4>${games.map(card).join("")}`
+      : "";
+    this.el.pickerGrid.innerHTML = random
+      + section("✨ Überarbeitet", done, "vollständig poliert")
+      + section("Noch nicht überarbeitet", open, "");
     const count = picker.selected.size;
     this.el.pickerCount.textContent = picker.kind === "single" ? "" : `${count} von ${MINIGAME_CATALOG.length}`;
     this.el.pickerDone.disabled = picker.kind !== "single" && count < 2;

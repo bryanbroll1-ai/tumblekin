@@ -3940,10 +3940,14 @@ test("paint: wrong action and a broken direction are refused", () => {
 // Text oder Geste ausgeliefert wird und kein Text ohne Minispiel übrig bleibt.
 // Ob der Text auch STIMMT, muss beim Regeländern von Hand nachgezogen werden.
 test("Katalog: jedes Minispiel hat Titel, Geste und Hilfetext", async () => {
-  const { MINIGAME_CATALOG, GESTURES } = await import("../client/src/minigames/catalog.js");
+  const { MINIGAME_CATALOG, GESTURES, REWORKED } = await import("../client/src/minigames/catalog.js");
 
   const serverTypes = MINIGAMES.map((game) => game.type);
   const catalogTypes = MINIGAME_CATALOG.map((game) => game.type);
+  // Die Liste der überarbeiteten Spiele darf nur echte Spiele nennen — ein
+  // Tippfehler dort liesse ein Spiel stumm in der falschen Gruppe stehen.
+  assert.deepEqual([...REWORKED].filter((type) => !catalogTypes.includes(type)), [],
+    "„Überarbeitet“ nennt ein Spiel, das es nicht gibt");
 
   assert.deepEqual(
     serverTypes.filter((type) => !catalogTypes.includes(type)), [],
