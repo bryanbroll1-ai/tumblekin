@@ -545,6 +545,9 @@ export class BounceArena extends MinigameScene {
           animator.groundY = DECK_Y + 0.36;
           this.bursts.ring(new THREE.Vector3(tx, DECK_Y + 0.03, tz), player.color, { radius: 1, life: 0.45, y: DECK_Y + 0.03 });
         }
+        // Beim Aufsetzen schon mit den anderen Ringen verrechnen, sonst landet
+        // man für ein Bild mitten in einem Nachbarn.
+        if (u >= 0.7) aufInsel.push({ bloom, kin, shadow: null });
         return;
       }
 
