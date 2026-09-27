@@ -3369,6 +3369,10 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.lapsDone = 0;
       entry.cleanLaps = 0;
       entry.gems = buildTraceGems(arcade.seed, 0);
+      // Die Kristalle der NÄCHSTEN Runde: das Gerät zeigt den Roller um die
+      // Netzverzögerung voraus und ist deshalb kurz vor dem Server in der
+      // neuen Runde — dort sollen die Kristalle schon liegen.
+      entry.nextGems = buildTraceGems(arcade.seed, 1);
       entry.gemsTaken = {};            // Index -> true, EINMAL je Kristall
       entry.gemsTotal = 0;
       entry.lastGemAt = 0;
@@ -4125,10 +4129,15 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 45, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 160, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 55 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
+  // trace ebenfalls ohne: Lenken meldet nur ein Ziel, und das jeweils letzte
+  // gilt. Das Gerät schickt höchstens alle 45 ms — aber im Netz rücken zwei
+  // Pakete auch mal enger zusammen, und mit 45 ms Cooldown fiel dann das
+  // zweite weg. War es das letzte vor dem Anhalten des Fingers, stand der
+  // Pinsel auf dem Server daneben, während er auf dem Gerät sauber lag.
   // whack mit 80 ms: das Gerät hält zwei schnelle Tipps 120 ms auseinander,
   // damit ein Doppeltipp auf zwei Blobs nicht verschluckt wird — bei 110 ms
   // hier fraß schon ein wenig Netzschwankung den zweiten.
@@ -6573,7 +6582,8 @@ function updateTraceEntry(arcade, entry, dt, now) {
     entry.cells = "";
     entry.cellIndex = 0;
     entry.cellQ = -1;
-    entry.gems = buildTraceGems(arcade.seed, entry.lap);
+    entry.gems = entry.nextGems || buildTraceGems(arcade.seed, entry.lap);
+    entry.nextGems = buildTraceGems(arcade.seed, entry.lap + 1);
     entry.gemsTaken = {};
     entry.lastLapAt = now;
     entry.flash = "good";

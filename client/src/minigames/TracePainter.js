@@ -22,6 +22,16 @@ const SEGMENTS = 80;          // Auflösung von Band und Spur (Vielfaches von CE
 const CELLS = 40;             // gewertete Abschnitte je Runde — wie auf dem Server
 const STEER_SPEED = 2.2;      // wie auf dem Server: so schnell folgt der Pinsel
 const PERFECT = 0.4;
+// Tempo in Runden je Sekunde, wie auf dem Server — gebraucht, um den eigenen
+// Roller vorauszurechnen.
+const SPEED_BASE = 0.2;
+const SPEED_STEP = 0.025;
+const SPEED_MAX = 0.34;
+// Wie auf dem Server: verglichen wird auch mit der Spur ein kleines Stück
+// hinter dem Pinsel. Der Leuchtring muss dieselbe Nachsicht zeigen, die der
+// Server gewährt, sonst meldet er „daneben", wo es noch zählt.
+const LAG_WINDOW = 0.03;
+const GEM_REACH = 0.035;
 
 function noise(seed) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
@@ -67,6 +77,19 @@ function widthAt(seed, lap, t) {
   return narrow + (1 - narrow) * (1 - edge);
 }
 
+function speedFor(lap) {
+  return Math.min(SPEED_MAX, SPEED_BASE + SPEED_STEP * lap);
+}
+
+function lagOffset(seed, lap, x, t) {
+  let best = Infinity;
+  for (let i = 0; i <= 4; i += 1) {
+    const at = clamp(t - LAG_WINDOW * (i / 4), 0, 1);
+    best = Math.min(best, Math.abs(x - pathX(seed, lap, at)));
+  }
+  return best;
+}
+
 const boardX = (nx) => (nx - 0.5) * BOARD_W;
 // Das Brett liegt flach: t = 0 vorn bei der Kamera, t = 1 hinten.
 const boardZ = (t) => BOARD_H / 2 - t * BOARD_H;
@@ -80,7 +103,9 @@ export class TracePainter extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.drawnLap = -1;
-    this.paintedKey = "";
+    // null, nicht "": sonst hielt paintRibbons die leere Wertung zu Beginn
+    // für schon gemalt, und die Spur blieb bis zum ersten Abschnitt schwarz.
+    this.paintedKey = null;
     this.lastMissAt = 0;
     this.lastLapAt = 0;
     this.lastGemAt = 0;
@@ -89,6 +114,11 @@ export class TracePainter extends MinigameScene {
     this.localTarget = null;   // wohin der eigene Finger gerade lenkt
     this.localBrush = null;    // vorhergesagte Querposition des eigenen Pinsels
     this.shownProgress = 0;
+    this.shownTotal = null;    // gezeigte Runde + Fortschritt, vorausgerechnet
+    this.shownLap = 0;
+    this.localCells = [];      // vorläufige Wertung der Abschnitte, bis der Server sie bestätigt
+    this.localGems = new Map();  // Kristalle, die der eigene Roller schon eingesammelt haben dürfte
+    this.roundTrip = 0;
     this.sentTarget = null;
     this.sentAt = 0;
     this.shownCombo = 1;
@@ -203,7 +233,7 @@ export class TracePainter extends MinigameScene {
       ribbon.geometry.computeBoundingSphere();
     });
     this.drawnLap = lap;
-    this.paintedKey = "";
+    this.paintedKey = null;
   }
 
   // Die Spur färbt sich Abschnitt für Abschnitt nach der Wertung des Servers.
@@ -221,10 +251,11 @@ export class TracePainter extends MinigameScene {
     for (let i = 0; i <= SEGMENTS; i += 1) {
       const cell = Math.min(CELLS - 1, Math.floor((i / SEGMENTS) * CELLS));
       const mark = cells[cell];
+      const done = mark === "P" || mark === "G" || mark === "-";
       const trailC = mark === "P" ? perfect : mark === "G" ? good : mark === "-" ? _miss : _open;
       set(this.trail, i, trailC);
-      set(this.band, i, mark ? bandDone : _bandOpen);
-      set(this.core, i, mark ? bandDone : _white);
+      set(this.band, i, done ? bandDone : _bandOpen);
+      set(this.core, i, done ? bandDone : _white);
     }
     [this.band, this.core, this.trail].forEach((ribbon) => { ribbon.geometry.attributes.color.needsUpdate = true; });
   }
@@ -245,21 +276,53 @@ export class TracePainter extends MinigameScene {
     }
   }
 
-  syncGems(own, now) {
-    const list = own.gems || [];
+  // Welche Kristalle zur GEZEIGTEN Runde gehören. Der Roller ist dem Server
+  // um die Netzverzögerung voraus und steht deshalb am Rundenwechsel kurz schon
+  // auf der neuen Spur — dafür schickt der Server deren Kristalle mit.
+  gemsFor(own, lap) {
+    if (own.lap === lap) return { list: own.gems || [], taken: own.gemsTaken || {} };
+    if (own.lap + 1 === lap) return { list: own.nextGems || [], taken: {} };
+    return { list: [], taken: {} };
+  }
+
+  syncGems(own, lap, t, now) {
+    const { list, taken } = this.gemsFor(own, lap);
+    const clock = performance.now();
     this.gems.forEach((visual, i) => {
       const data = list[i];
-      const taken = data ? Boolean(own.gemsTaken?.[data.index]) : true;
-      const show = Boolean(data) && !taken;
-      visual.gem.visible = show;
-      visual.halo.visible = show;
-      if (!show) return;
+      // Eingesammelt: vom Server bestätigt, oder eben erst vom eigenen Roller
+      // berührt. Bestätigt der Server den Griff nicht, taucht der Kristall
+      // nach kurzer Zeit als verpasst wieder auf — ehrlich statt geschönt.
+      const local = data ? this.localGems.get(data.index) : null;
+      const gone = !data || Boolean(taken[data.index]) || (local && clock - local < 700);
+      visual.gem.visible = !gone;
+      visual.halo.visible = !gone;
+      if (gone) return;
+      const missed = t > data.t + 0.03;
       const x = boardX(data.x);
       const z = boardZ(data.t);
-      visual.gem.position.set(x, 0.22 + Math.sin(now / 300 + i) * 0.04, z);
+      visual.gem.material.color.set(missed ? "#b9b2a0" : "#ffe36b");
+      visual.halo.material.opacity = missed ? 0 : 0.5;
+      visual.gem.scale.setScalar(missed ? 0.6 : 1);
+      visual.gem.position.set(x, (missed ? 0.12 : 0.22) + (missed ? 0 : Math.sin(now / 300 + i) * 0.04), z);
       visual.halo.position.set(x, 0.03, z);
       visual.gem.rotation.y = now / 420 + i;
       visual.halo.scale.setScalar(1 + Math.sin(now / 260 + i) * 0.12);
+    });
+  }
+
+  // Der eigene Roller berührt einen Kristall — so misst auch der Server:
+  // seitlicher Abstand zur Mittellinie an der Stelle des Kristalls.
+  grabGems(own, seed, lap, t) {
+    const { list, taken } = this.gemsFor(own, lap);
+    list.forEach((gem) => {
+      if (taken[gem.index] || this.localGems.has(gem.index)) return;
+      if (Math.abs(t - gem.t) > 0.02) return;
+      const lateral = this.localBrush - pathX(seed, lap, gem.t);
+      if (Math.abs(lateral - gem.offset) > GEM_REACH) return;
+      this.localGems.set(gem.index, performance.now());
+      this.burst(new THREE.Vector3(boardX(gem.x), 0.3, boardZ(gem.t)), ["#ffe36b", "#ffffff"], { count: 10, speed: 1.5, up: 1.2, size: 0.055, life: 0.45, drag: 2.0 });
+      this.feedback?.vibrate(6);
     });
   }
 
@@ -393,14 +456,57 @@ export class TracePainter extends MinigameScene {
     return Math.abs(b.x - a.x);
   }
 
-  // Lenkziel an den Server, gedrosselt — aber der letzte Stand kommt immer an.
+  // Lenkziel an den Server, gedrosselt — aber der letzte Stand kommt immer an:
+  // was die Drossel zurückhält, geht im nächsten freien Bild raus, und der
+  // Server verschluckt beim Lenken nichts mehr (kein Cooldown).
   flushTarget(now) {
     if (this.localTarget === null) return;
     if (this.sentTarget !== null && Math.abs(this.localTarget - this.sentTarget) < 0.002) return;
     if (now - this.sentAt < 45) return;
     this.sentAt = now;
+    this.steeredAt = now;
     this.sentTarget = this.localTarget;
-    this.sendInput({ action: "steer", x: this.localTarget }).catch(() => {});
+    const sentAt = performance.now();
+    this.sendInput({ action: "steer", x: this.localTarget })
+      .then(() => this.noteRoundTrip(performance.now() - sentAt))
+      .catch(() => {});
+  }
+
+  // Wie lange eine Lenkung zum Server und zurück braucht, geglättet.
+  //
+  // Der Server wertet den Pinsel dort, wo SEIN Roller gerade ist. Das Bild auf
+  // dem Gerät ist aber um die einfache Laufzeit alt, und die Lenkung braucht
+  // noch einmal so lange hin — gelenkt wurde also immer auf eine Stelle, die
+  // der Server längst hinter sich hatte. Bei 200 ms Rundreise kostete das in
+  // der Messung fast jeden dritten Abschnitt. Darum zeigt das Gerät den
+  // eigenen Roller genau um diese Rundreise voraus.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip * 0.7 + clamped * 0.3;
+  }
+
+  // Wo der Server den eigenen Roller haben wird, wenn eine JETZT geschickte
+  // Lenkung ankommt — als Runde + Fortschritt. Die Uhr des Geräts läuft der
+  // des Servers um die einfache Laufzeit hinterher; eine Rundreise dazu ist
+  // die Ankunftszeit. Vor dem Anlauf und nach dem Schluss fährt nichts.
+  predictTotal(own, f, rollStart) {
+    const minigame = f.minigame || {};
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const snapAt = minigame.sentAt || f.now;
+    let lap = own.lap || 0;
+    let progress = own.progress || 0;
+    const aheadMs = Math.min(f.now + this.roundTrip, endAt) - Math.max(snapAt, rollStart);
+    const ahead = clamp(aheadMs / 1000, 0, 0.6);
+    if (ahead > 0 && !f.finale) {
+      progress += speedFor(lap) * ahead;
+      if (progress >= 1) {
+        const over = (progress - 1) / speedFor(lap);
+        lap += 1;
+        progress = over * speedFor(lap);
+      }
+    }
+    return lap + clamp(progress, 0, 0.9999);
   }
 
   tick(f) {
@@ -411,10 +517,40 @@ export class TracePainter extends MinigameScene {
     const animator = this.animators.get(controlledId);
     if (!own || !kin || !animator) return;
 
-    if (own.lap !== this.drawnLap) {
+    // Gefahren wird ab dem Ende des Anlaufs — auf der Serveruhr, zu der die
+    // Lenkung ankommt.
+    const rollStart = (f.minigame?.startedAt || 0) + (arcade.leadInMs || 0);
+    const endAt = (f.minigame?.startedAt || 0) + (f.minigame?.duration || 0);
+    const started = now + this.roundTrip >= rollStart;
+    // Nach dem Schluss fährt auch der Server nicht mehr — sonst liefe der
+    // Roller bis zum Finale weiter und würde dann zurückgezogen.
+    const moving = started && !finale && now + this.roundTrip < endAt;
+
+    // Vorwärts: lokal weiterfahren und sanft zur Vorhersage hin korrigieren.
+    // Ein grosser Unterschied (Aussetzer, Wiedereinstieg) wird übernommen.
+    const target = this.predictTotal(own, f, rollStart);
+    if (this.shownTotal === null || Math.abs(target - this.shownTotal) > 0.12) {
+      this.shownTotal = target;
+    } else {
+      if (moving) this.shownTotal += speedFor(Math.floor(this.shownTotal)) * dt;
+      this.shownTotal += (target - this.shownTotal) * frameLerp(0.15, dt);
+    }
+    // Die gezeigte Runde läuft nur vorwärts: ein Zurückzucken über die
+    // Ziellinie hätte die Spur zweimal neu gelegt.
+    let lap = Math.floor(this.shownTotal);
+    let t = this.shownTotal - lap;
+    if (lap < this.shownLap) {
+      lap = this.shownLap;
+      t = 0;
+    }
+    this.shownLap = lap;
+    this.shownProgress = t;
+
+    if (lap !== this.drawnLap) {
       const neueRunde = this.drawnLap >= 0;
-      this.layoutRibbons(arcade.seed, own.lap);
-      this.shownProgress = own.progress || 0;
+      this.layoutRibbons(arcade.seed, lap);
+      this.localCells = [];
+      this.localGems.clear();
       // Neue Runde: der Roller springt vom Ziel zurück an den Start. Das ist
       // gewollt, sah aber aus wie ein Aussetzer — jetzt ploppt die Figur mit
       // einem Farbwölkchen unten wieder auf. Die Markierung sagt den
@@ -422,29 +558,26 @@ export class TracePainter extends MinigameScene {
       if (neueRunde) {
         kin.userData.versetzt = performance.now();
         animator.trigger("spawn");
-        this.burst(new THREE.Vector3(boardX(this.localBrush ?? 0.5), 0.3, boardZ(this.shownProgress)), ["#ffffff", "#ffe36b"], { count: 10, speed: 1.4, up: 1.2, size: 0.06, life: 0.5 });
+        this.burst(new THREE.Vector3(boardX(this.localBrush ?? 0.5), 0.3, boardZ(t)), ["#ffffff", "#ffe36b"], { count: 10, speed: 1.4, up: 1.2, size: 0.06, life: 0.5 });
       }
     }
-    this.paintRibbons(own.cells || "");
 
-    // Eigenes Lenken: sofort im Bild, der Server bestätigt nur. Weicht er stark
-    // ab (anderes Gerät, verlorene Pakete), wird sanft nachgezogen.
+    // Eigenes Lenken: sofort im Bild, der Server bestätigt nur. Lenkt dieses
+    // Gerät gerade nicht (anderes Gerät, Autopilot), folgt das Bild dem Server.
     if (this.localBrush === null) this.localBrush = own.brushX ?? 0.5;
     if (this.localTarget === null) this.localTarget = own.targetX ?? this.localBrush;
     if (this.keyDir && !finale) this.localTarget = clamp(this.localTarget + this.keyDir * STEER_SPEED * 0.55 * dt, 0.02, 0.98);
     if (!finale) this.flushTarget(now);
+    const idle = !this.drag && !this.keyDir && now - (this.steeredAt || 0) > 400;
+    if (idle && Number.isFinite(own.targetX) && Math.abs(own.targetX - this.localTarget) > 0.004) {
+      this.localTarget = own.targetX;
+      this.sentTarget = own.targetX;
+    }
     const reach = STEER_SPEED * dt;
     this.localBrush += clamp(this.localTarget - this.localBrush, -reach, reach);
     const serverX = own.brushX ?? this.localBrush;
-    if (Math.abs(serverX - this.localBrush) > 0.08) this.localBrush += (serverX - this.localBrush) * frameLerp(0.2, dt);
+    if (idle && Math.abs(serverX - this.localBrush) > 0.02) this.localBrush += (serverX - this.localBrush) * frameLerp(0.2, dt);
 
-    // Vorwärts: lokal weiterfahren und zum Server hin korrigieren.
-    const started = now >= (f.minigame?.startedAt || 0) + (arcade.leadInMs || 0);
-    if (started && !finale) this.shownProgress += (own.speed || 0.2) * dt;
-    this.shownProgress += ((own.progress || 0) - this.shownProgress) * frameLerp(0.18, dt);
-    this.shownProgress = clamp(this.shownProgress, 0, 1);
-
-    const t = this.shownProgress;
     const x = boardX(this.localBrush);
     const z = boardZ(t);
     kin.position.x = x;
@@ -454,26 +587,44 @@ export class TracePainter extends MinigameScene {
     const lean = clamp((this.localTarget - this.localBrush) * 6, -0.5, 0.5);
     if (!finale) kin.rotation.y += Math.atan2(Math.sin(Math.PI + lean - kin.rotation.y), Math.cos(Math.PI + lean - kin.rotation.y)) * frameLerp(0.2, dt);
 
-    // Liegt der Roller auf der Linie? Das ist die Rückmeldung in jedem Bild.
-    const offset = Math.abs(this.localBrush - pathX(arcade.seed, own.lap, t));
-    const tolerance = TOLERANCE * widthAt(arcade.seed, own.lap, t);
+    // Liegt der Roller auf der Linie? Gerechnet wie auf dem Server, samt dessen
+    // Nachsicht — das ist die Rückmeldung in jedem Bild.
+    const offset = lagOffset(arcade.seed, lap, this.localBrush, t);
+    const tolerance = TOLERANCE * widthAt(arcade.seed, lap, t);
     const quality = offset <= tolerance * PERFECT ? 2 : offset <= tolerance ? 1 : 0;
+    const rolling = moving;
+
+    // Vorläufig malen: der Server wertet denselben Abschnitt erst eine
+    // Rundreise später. Bis dahin färbt das Gerät ihn nach eigener Rechnung,
+    // danach gilt die Wertung des Servers.
+    const cell = Math.min(CELLS - 1, Math.floor(t * CELLS));
+    if (rolling) this.localCells[cell] = Math.max(this.localCells[cell] ?? -1, quality);
+    const serverCells = own.lap === lap ? (own.cells || "") : "";
+    let marks = "";
+    for (let i = 0; i < CELLS; i += 1) {
+      if (i < serverCells.length) marks += serverCells[i];
+      else if (i < cell && this.localCells[i] !== undefined) marks += this.localCells[i] === 2 ? "P" : this.localCells[i] === 1 ? "G" : "-";
+      else marks += " ";
+    }
+    this.paintRibbons(marks);
+
     if (this.cursor) {
       this.cursor.position.set(x, 0.035, z - 0.04);
       this.cursor.material.color.set(quality === 2 ? "#7fe06f" : quality === 1 ? "#ffd15c" : "#ff6b7f");
       this.cursor.scale.setScalar(quality === 2 ? 1 + Math.sin(now / 90) * 0.08 : 1);
     }
-    if (this.drum && started && !finale) this.drum.rotation.x += dt * 12;
+    if (this.drum && rolling) this.drum.rotation.x += dt * 12;
     if (!finale) {
       animator.set(started ? "shove" : "ready");
-      animator.rate = started ? 0.8 + (own.speed || 0.2) * 1.2 : 1;
+      animator.rate = started ? 0.8 + speedFor(lap) * 1.2 : 1;
       if (quality === 0 && started) animator.expression("scared", 150);
       else if ((own.streak || 0) >= 20) animator.expression("happy", 150);
     }
-    if (started && quality > 0 && Math.random() < frameChance(quality === 2 ? 0.5 : 0.25, dt)) {
+    if (rolling && quality > 0 && Math.random() < frameChance(quality === 2 ? 0.5 : 0.25, dt)) {
       this.burst(new THREE.Vector3(x, 0.08, z - 0.15), [this.ownColor, "#ffffff"], { count: 1, speed: 0.4, up: 0.4, size: 0.045, life: 0.4, drag: 2.4 });
     }
-    this.syncGems(own, now);
+    if (rolling) this.grabGems(own, arcade.seed, lap, t);
+    this.syncGems(own, lap, t, now);
     this.reactToEvents(own, kin, animator);
   }
 
@@ -506,7 +657,9 @@ export class TracePainter extends MinigameScene {
       this.lastGemAt = own.lastGemAt;
       const gem = own.lastGem;
       const at = new THREE.Vector3(boardX(gem?.x ?? 0.5), 0.4, boardZ(gem?.t ?? 0.5));
-      this.burst(at, ["#ffe36b", "#ffffff"], { count: 14, speed: 1.8, up: 1.4, size: 0.06, life: 0.55, drag: 2.0 });
+      // Das Funkeln kam schon beim Berühren (grabGems); hier nur, wenn das
+      // Gerät den Griff nicht selbst gesehen hat.
+      if (!this.localGems.has(gem?.index)) this.burst(at, ["#ffe36b", "#ffffff"], { count: 14, speed: 1.8, up: 1.4, size: 0.06, life: 0.55, drag: 2.0 });
       this.pop(at, "+60", { color: "#ffe36b", size: 0.32, life: 0.7 });
       this.feedback?.sound("coin");
       this.feedback?.vibrate(8);
@@ -552,9 +705,12 @@ export class TracePainter extends MinigameScene {
       if (combo.textContent !== text) combo.textContent = text;
       combo.dataset.level = String(factor);
     }
+    // Im Finale gibt es nichts mehr zu lenken.
+    this.hintNode ||= this.controls.querySelector(".trace-hint");
+    if (this.hintNode) this.hintNode.hidden = Boolean(f.finale);
     const banner = this.hud.querySelector("[data-trace-banner]");
     if (!banner) return;
-    const waiting = f.now < (f.minigame?.startedAt || 0) + (arcade.leadInMs || 0);
+    const waiting = f.now + this.roundTrip < (f.minigame?.startedAt || 0) + (arcade.leadInMs || 0);
     if (waiting) {
       banner.hidden = false;
       banner.textContent = "Wisch zum Lenken — gleich geht's los";

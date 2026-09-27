@@ -3179,6 +3179,28 @@ test("trace: the result reports one number and it is the one that ranks", () => 
   assert.ok(detail.value > 0);
 });
 
+test("trace: two steering packets that arrive close together both count", () => {
+  // Das Gerät schickt höchstens alle 45 ms, aber im Netz rücken Pakete
+  // zusammen. Das letzte darf nicht verschluckt werden, sonst steht der Pinsel
+  // auf dem Server neben der Stelle, an der ihn das Gerät zeigt.
+  const { room, me, entry } = traceRoom();
+  assert.equal(handleArcadeInput(room, me, { action: "steer", x: 0.4 }).ok, true);
+  assert.equal(handleArcadeInput(room, me, { action: "steer", x: 0.62 }).ok, true);
+  assert.equal(entry.targetX, 0.62);
+});
+
+test("trace: the next lap's crystals are known before the lap starts", () => {
+  // Das Gerät zeigt den eigenen Roller um die Rundreise voraus und steht am
+  // Rundenwechsel kurz vor dem Server auf der neuen Spur.
+  const { arcade, entry, run, onLine } = traceRoom();
+  assert.deepEqual(entry.nextGems, buildTraceGems(arcade.seed, 1));
+  entry.brushX = onLine(entry);
+  run(5200, onLine);
+  assert.equal(entry.lap, 1);
+  assert.deepEqual(entry.gems, buildTraceGems(arcade.seed, 1), "die angekündigten Kristalle sind die der Runde");
+  assert.deepEqual(entry.nextGems, buildTraceGems(arcade.seed, 2));
+});
+
 test("trace: wrong action is refused", () => {
   const { room, me, entry } = traceRoom();
   assert.equal(handleArcadeInput(room, me, { action: "trace", x: 0.5, y: 0.2 }).ok, false);
