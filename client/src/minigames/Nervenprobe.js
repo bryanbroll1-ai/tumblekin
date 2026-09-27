@@ -569,9 +569,13 @@ export class Nervenprobe extends MinigameScene {
     // Breit genug für die äusseren Anzeigen, hoch genug für die Stoppuhr über
     // der Bühne. Vorher schnitt die Auflösung die linke Anzeige an, und das
     // halbe Bild darunter war leerer Studioboden.
+    // Hoch genug für Uhr UND Zielschild darüber. Bei vier Spielern gibt die
+    // Breite den Abstand vor und die Höhe kommt von selbst mit; im Eins gegen
+    // Eins zoomte die Kamera auf die zwei Pulte, und Uhr und Schild lagen
+    // oberhalb des Bildes.
     return {
-      look: [0.15, 1.7, 0.4],
-      frame: { w: count * PODIUM_GAP + 1.1, h: 4.6 },
+      look: [0.15, 2.75, 0.4],
+      frame: { w: count * PODIUM_GAP + 1.1, h: 6.2 },
       pitch: 0.14,
       fov: 36,
       intro: { yaw: 0.5, pitch: 0.2, zoom: 1.4 },
@@ -663,10 +667,10 @@ export class Nervenprobe extends MinigameScene {
       if (!entry || !station || !kin || !animator) return;
       const isOwn = player.id === controlledId;
       const stoppedReally = entry.stoppedMs !== null && entry.stoppedMs !== undefined;
-      // Wann die anderen gedrückt haben, sieht man erst in der Auflösung.
-      // Vorher verrieten Anzeige, Lampe, Knopf und ein "STOPP!" jeden Druck —
-      // man musste nur warten, bis der erste Bot drückte, und hinterher.
-      const stopped = stoppedReally && (isOwn || revealAll);
+      // DASS jemand gestoppt hat, sieht man sofort — Anzeige "STOP", blaue
+      // Lampe, gedrückter Buzzer. WELCHE Zeit er hat, erst in der Auflösung,
+      // wenn alle gedrückt haben.
+      const stopped = stoppedReally;
       const offen = revealAll && aufgedeckt(player.id);
       const deviation = entry.deviationMs ?? null;
       if (offen) {
@@ -693,8 +697,12 @@ export class Nervenprobe extends MinigameScene {
       station.bulb.material.emissive.set(bulbColor);
       station.bulb.material.emissiveIntensity = 0.8;
 
-      if (isOwn && stoppedReally && !this.lastStopped.get(player.id)) {
+      if (stoppedReally && !this.lastStopped.get(player.id)) {
         this.lastStopped.set(player.id, true);
+        if (!isOwn) {
+          animator.trigger("punch");
+          this.feedback?.sound("move");
+        }
         this.burst(station.buzzer.position.clone().setY(STAGE_Y + 0.6), ["#ff2038", "#ffffff"], { count: 9, speed: 1.9, up: 1.6, size: 0.07, life: 0.5, drag: 2, fadePow: 1.4 });
         this.pop(new THREE.Vector3(station.x, 1.4, KIN_Z + 0.4), "STOPP!", { color: "#ffffff", size: 0.3, life: 0.7, rise: 0.6 });
       }
