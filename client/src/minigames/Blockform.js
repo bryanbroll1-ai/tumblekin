@@ -1,32 +1,34 @@
 import * as THREE from "/vendor/three/three.module.js";
 
-// Runde Formen in Blöcken.
+// Runde Formen in Voxeln.
 //
 // Tumblekin ist aus Klötzen gebaut: Figuren, Kisten, Bühnen. Glatte Kugeln,
 // Zylinder und Ringe wirkten daneben wie aus einem anderen Spiel. Statt jede
 // der gut vierhundert runden Formen in über vierzig Dateien einzeln neu zu
 // bauen, ersetzt dieser Umwandler sie beim ersten Zeichnen durch gestufte
-// Blockformen — so, wie der Luftballon in Pump-Panik gebaut ist: ein Kern mit
-// Wölbungen, oben und unten schmaler.
+// Voxelformen: rund genug, dass man die Form sofort erkennt, gestuft genug,
+// dass man die Blöcke sieht.
 //
 // Verfahren: die Form wird in waagrechte Schichten geschnitten; jede Schicht
 // ist eine "Pixelscheibe" auf einem festen Raster, deren Zellen zu Reihen
-// zusammengefasst werden. Kleine Dinge bekommen drei Zellen über den
-// Durchmesser (Kreuzform wie der Ballon), grosse Spielflächen feinere Stufen —
-// dort muss der sichtbare Rand zu der Kante passen, an der man herunterfällt.
-// Die Teile überlappen nicht; auch durchsichtige Formen bleiben sauber.
+// zusammengefasst werden (siehe zellenFuer: fünf bis neun Zellen über den
+// Durchmesser, Spielflächen feiner, damit der sichtbare Rand zu der Kante
+// passt, an der man herunterfällt). Ringe (Tori) werden als Schlauch mit
+// gestuftem, rundem Querschnitt gebaut. Die Teile einer Schicht überlappen
+// nicht; auch durchsichtige Formen bleiben sauber.
 //
-// Bleibt rund:
+// Teilstücke (die Streifen eines Heissluftballons, Tortenstücke, die Bögen
+// eines gestreiften Schwimmrings) werden so gebaut, dass sie sich lückenlos
+// wieder zusammensetzen — die Streifen bleiben.
+//
+// Bleibt, wie es ist:
 //   - Himmelskuppeln (von innen gezeichnet, mit Farbverlauf in den Ecken)
 //   - Schattenflecken
 //   - Formen mit mehreren Materialien
-// Teilstücke (die Streifen eines Heissluftballons, Tortenstücke) werden in
-// Blöcken gebaut, deren Zellen genau dem Winkelbereich des Stücks gehören —
-// die Stücke setzen sich so lückenlos wieder zusammen, die Streifen bleiben.
 //   - alles, was geometry.userData.rund oder mesh.userData.rund trägt
-// Kanten- und Vielflächner (Pyramiden, Dreieckswimpel, Baumkronen aus
-// Zwölfflächnern) und absichtliche Vielecke (ein Ring mit vier Ecken ist ein
-// Quadrat, eine Scheibe mit fünf ein Stern) sind schon eckig und bleiben.
+//   - Kanten- und Vielflächner (Pyramiden, Dreieckswimpel, Baumkronen aus
+//     Zwölfflächnern) und absichtliche Vielecke (ein Ring mit vier Ecken ist
+//     ein Quadrat, eine Scheibe mit fünf ein Stern) — sie sind schon eckig.
 
 const TAU = Math.PI * 2;
 const cache = new Map();
@@ -56,20 +58,13 @@ export function verblocke(root) {
 export function blockform(geometry) {
   const type = geometry.type;
   if (!BAU[type]) return null;
-  // Eine Form darf feinere (oder gröbere) Stufen verlangen: userData.zellen
-  // ist die Zahl der Zellen über den Durchmesser (Spielflächen, deren Rand
-  // genau zur Kante passen muss, an der man hinunterfällt).
-  const wunsch = Number(geometry.userData?.zellen) || 0;
-  const key = `${type}|${JSON.stringify(geometry.parameters)}|${wunsch}`;
+  const key = `${type}|${JSON.stringify(geometry.parameters)}`;
   if (cache.has(key)) return cache.get(key);
   let block = null;
   try {
-    wunschZellen = wunsch;
     block = BAU[type](geometry.parameters || {});
   } catch {
     block = null;
-  } finally {
-    wunschZellen = 0;
   }
   if (block) {
     block.userData.block = true;
@@ -80,18 +75,18 @@ export function blockform(geometry) {
   return block;
 }
 
-// Zellen über den Durchmesser: klein und mittel wie der Ballon (3), grössere
-// Dinge 5 und 7, Spielflächen feiner, damit der Rand stimmt.
-let wunschZellen = 0;
-
+// Zellen über den Durchmesser. Genug, dass eine Kugel rund wirkt, wenig
+// genug, dass man die Voxel sieht: Winziges (Augen, Kerzen, Nägel) mit drei,
+// kleine Dinge mit fünf, mittlere mit sieben, grosse mit neun Zellen;
+// Spielflächen feiner, damit der Rand zur Kante passt, an der man fällt.
 function zellenFuer(radius) {
-  if (wunschZellen >= 3) return wunschZellen % 2 ? wunschZellen : wunschZellen + 1;
-  if (radius < 0.9) return 3;
-  if (radius < 1.8) return 5;
-  if (radius < 3) return 7;
-  let n = Math.round((radius * 2) / 0.45);
+  if (radius < 0.12) return 3;
+  if (radius < 0.5) return 5;
+  if (radius < 1.2) return 7;
+  if (radius < 2) return 9;
+  let n = Math.round((radius * 2) / 0.3);
   if (n % 2 === 0) n += 1;
-  return Math.min(25, n);
+  return Math.min(31, n);
 }
 
 const voll = (length) => length === undefined || length >= TAU - 1e-3;
@@ -167,17 +162,35 @@ const BAU = {
   },
 
   TorusGeometry({ radius = 1, tube = 0.4, arc = TAU }) {
-    // Ein Ring aus Blöcken in der xy-Ebene, so dick wie das Rohr.
-    const aussen = radius + tube;
-    const zelle = rasterFuerRing(aussen, tube * 2);
-    const flaeche = scheibe(zelle, aussen, (x, y) => {
-      const d = Math.hypot(x, y);
-      return Math.abs(d - radius) <= Math.max(tube, zelle * 0.5) && imBogen(x, y, 0, arc);
-    });
-    const tiefe = tube * 1.7;
+    // Ein Schlauch aus Voxeln: das Rohr hat einen gestuften, runden
+    // Querschnitt (eine kleine Pixelscheibe) und läuft in kurzen, geraden
+    // Stücken um den Ring — wie ein Schwimmring aus Klötzchen. Teilbögen
+    // (die Streifen eines Rings) bekommen ihre eigenen Stücke und setzen sich
+    // lückenlos zusammen.
+    const tubeZellen = tube < 0.12 ? 3 : tube < 0.3 ? 5 : 7;
+    const zelle = (tube * 2) / tubeZellen;
+    const querschnitt = scheibe(zelle, tube, (x, y) => Math.hypot(x, y) <= tube * 0.93 || (x === 0 && y === 0));
+    const bogen = Math.min(TAU, Math.max(1e-3, arc));
+    const rundum = Math.max(8, Math.min(48, Math.round((TAU * radius) / (zelle * 1.6))));
+    const stuecke = Math.max(1, Math.round(rundum * bogen / TAU));
+    const schritt = bogen / stuecke;
     const bau = new Bau();
-    flaeche.forEach(({ x0, x1, y0, y1 }) => bau.kiste(x0, x1, y0, y1, -tiefe / 2, tiefe / 2));
-    return bau.geometrie(planarUV(aussen));
+    for (let i = 0; i < stuecke; i += 1) {
+      const a = (i + 0.5) * schritt;
+      const radial = [Math.cos(a), Math.sin(a), 0];
+      const tangente = [-Math.sin(a), Math.cos(a), 0];
+      querschnitt.forEach(({ x0, x1, y0, y1 }) => {
+        // Aussen länger als innen, damit sich die Stücke aussen nicht öffnen.
+        const halb = (radius + Math.max(Math.abs(x0), Math.abs(x1))) * Math.tan(schritt / 2) + 0.002;
+        const mitte = radius + (x0 + x1) / 2;
+        bau.quader(
+          [radial[0] * mitte, radial[1] * mitte, (y0 + y1) / 2],
+          radial, tangente, [0, 0, 1],
+          (x1 - x0) / 2, halb, (y1 - y0) / 2
+        );
+      });
+    }
+    return bau.geometrie(planarUV(radius + tube));
   },
 
   CircleGeometry({ radius = 1, segments = 32, thetaStart = 0, thetaLength = TAU }) {
@@ -198,11 +211,11 @@ const BAU = {
   }
 };
 
-// Zellgrösse für Ringe: fein genug, dass die Ringbreite mindestens eine Zelle
-// ist — aber nie mehr als 25 Zellen über den Durchmesser.
+// Zellgrösse für flache Ringe: fein genug, dass die Ringbreite mindestens
+// eine Zelle ist — aber nie mehr als 31 Zellen über den Durchmesser.
 function rasterFuerRing(aussen, breite) {
   const grob = (aussen * 2) / zellenFuer(aussen);
-  return Math.max(Math.min(grob, breite), (aussen * 2) / 25);
+  return Math.max(Math.min(grob, breite), (aussen * 2) / 31);
 }
 
 function imBogen(x, y, start, laenge) {
@@ -333,6 +346,34 @@ class Bau {
       [[0, -1, 0], [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]],
       [[0, 0, 1], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]],
       [[0, 0, -1], [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]]]
+    ];
+    flaechen.forEach(([n, ecken]) => {
+      const i = this.pos.length / 3;
+      ecken.forEach(([x, y, z]) => {
+        this.pos.push(x, y, z);
+        this.norm.push(n[0], n[1], n[2]);
+        this.punkte.push(x, y, z);
+      });
+      this.idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+    });
+  }
+
+  // Ein gedrehter Quader: Mitte, drei Achsen (Einheitsvektoren) und die
+  // halben Kantenlängen entlang dieser Achsen.
+  quader(mitte, ax, ay, az, hx, hy, hz) {
+    const ecke = (sx, sy, sz) => [
+      mitte[0] + ax[0] * hx * sx + ay[0] * hy * sy + az[0] * hz * sz,
+      mitte[1] + ax[1] * hx * sx + ay[1] * hy * sy + az[1] * hz * sz,
+      mitte[2] + ax[2] * hx * sx + ay[2] * hy * sy + az[2] * hz * sz
+    ];
+    const neg = (v) => [-v[0], -v[1], -v[2]];
+    const flaechen = [
+      [ax, [ecke(1, -1, 1), ecke(1, -1, -1), ecke(1, 1, -1), ecke(1, 1, 1)]],
+      [neg(ax), [ecke(-1, -1, -1), ecke(-1, -1, 1), ecke(-1, 1, 1), ecke(-1, 1, -1)]],
+      [ay, [ecke(-1, 1, 1), ecke(1, 1, 1), ecke(1, 1, -1), ecke(-1, 1, -1)]],
+      [neg(ay), [ecke(-1, -1, -1), ecke(1, -1, -1), ecke(1, -1, 1), ecke(-1, -1, 1)]],
+      [az, [ecke(-1, -1, 1), ecke(1, -1, 1), ecke(1, 1, 1), ecke(-1, 1, 1)]],
+      [neg(az), [ecke(1, -1, -1), ecke(-1, -1, -1), ecke(-1, 1, -1), ecke(1, 1, -1)]]
     ];
     flaechen.forEach(([n, ecken]) => {
       const i = this.pos.length / 3;

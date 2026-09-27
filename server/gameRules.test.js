@@ -287,7 +287,7 @@ test("bumper: a hard ram costs a life, the rival springs back — the last life 
   assert.equal(vic.inPlay, false, "ohne Leben kommt niemand zurück");
 });
 
-test("bumper: in den letzten zwanzig Sekunden schrumpft die Insel", () => {
+test("bumper: in the last fifteen seconds the island shrinks", () => {
   const one = player({ id: "s1", name: "S1", color: "#f00" });
   const two = player({ id: "s2", name: "S2", color: "#00f" });
   const duration = 45000;
@@ -309,108 +309,6 @@ test("bumper: in den letzten zwanzig Sekunden schrumpft die Insel", () => {
   Object.values(arena.players).forEach((ap) => {
     assert.ok(Math.hypot(ap.x, ap.y) <= arena.radius, "niemand fällt, nur weil die Insel kleiner wird");
   });
-});
-
-// Zwei Ringe in einer Reihe: das Opfer bei `vx0` (innen) … `rim` Abstand zur
-// Mitte, der Angreifer knapp dahinter.
-function bumperDuel({ victimAt = ARENA_RADIUS - ARENA_BALL_RADIUS - 0.04, attackerSpeed = 0, dash = false } = {}) {
-  const attacker = player({ id: "d-atk", name: "Atk", color: "#f00" });
-  const victim = player({ id: "d-vic", name: "Vic", color: "#00f" });
-  const third = player({ id: "d-3", name: "Third", color: "#0f0" });
-  const startedAt = Date.now() - 5000;
-  const arena = createArenaState([attacker, victim, third], startedAt);
-  const minigame = { type: "bounceArena", arena, scores: {}, startedAt, duration: 45000, lastInputAt: {}, finishing: false };
-  const room = { currentMinigame: minigame, players: [attacker, victim, third] };
-  const atk = arena.players[attacker.id];
-  const vic = arena.players[victim.id];
-  const other = arena.players[third.id];
-  Object.values(arena.players).forEach((ap) => { ap.invulnUntil = 0; ap.dashReadyAt = 0; });
-  other.x = -0.2; other.y = -0.6; other.vx = 0; other.vy = 0;
-  vic.x = victimAt; vic.y = 0; vic.vx = 0; vic.vy = 0;
-  atk.x = vic.x - ARENA_BALL_RADIUS * 2 - 0.08; atk.y = 0; atk.vx = attackerSpeed; atk.vy = 0;
-  if (dash) handleArenaInput(room, attacker, { action: "dash", x: 1, y: 0 });
-  let knocked = false;
-  for (let tick = 0; tick < 22 && !knocked; tick += 1) {
-    arena.lastUpdateAt = Date.now() - 90;
-    updateBounceArena(room);
-    if (!vic.inPlay) knocked = true;
-  }
-  return { atk, vic, knocked, arena, room, attacker };
-}
-
-test("bumper: Rempeln mit voller Fahrt schiebt nur weg — hinaus fliegt man erst durch einen Schub", () => {
-  // Höchsttempo aus dem Stick allein (Schub/Reibung).
-  const top = 3.3 / 2.0;
-  const push = bumperDuel({ attackerSpeed: top });
-  assert.equal(push.knocked, false, "ein Rempler am Rand ohne Schub wirft nicht hinaus");
-  const ram = bumperDuel({ attackerSpeed: 0.8, dash: true });
-  assert.equal(ram.knocked, true, "ein Schub-Treffer am Rand wirft hinaus");
-  assert.equal(ram.atk.inPlay, true, "wer schiebt, ist gestemmt und bleibt oben");
-  assert.equal(ram.atk.knockouts, 1, "und bekommt den Rauswurf gutgeschrieben");
-});
-
-test("bumper: ein Schub-Treffer in der Mitte fängt sich am Wulst", () => {
-  const mid = bumperDuel({ victimAt: 0.05, attackerSpeed: 0.8, dash: true });
-  assert.equal(mid.knocked, false, "aus der Mitte rutscht man weit, fliegt aber nicht hinaus");
-  assert.ok(Math.hypot(mid.vic.x, mid.vic.y) > 0.3, "der Treffer schiebt spürbar weg");
-});
-
-test("bumper: RAMMEN hat eine Abklingzeit und ist zu Beginn gesperrt", () => {
-  const solo = player({ id: "dash-solo", name: "Solo", color: "#fff" });
-  const buddy = player({ id: "dash-buddy", name: "Buddy", color: "#000" });
-  const startedAt = Date.now();
-  const arena = createArenaState([solo, buddy], startedAt);
-  const minigame = { type: "bounceArena", arena, scores: {}, startedAt, duration: 45000, lastInputAt: {} };
-  const room = { currentMinigame: minigame, players: [solo, buddy] };
-  const me = arena.players[solo.id];
-  assert.equal(handleArenaInput(room, solo, { action: "dash", x: 1, y: 0 }).ok, true);
-  assert.equal(me.dashCount, 0, "in den ersten Sekunden noch kein Schub");
-  me.dashReadyAt = Date.now() - 1;
-  handleArenaInput(room, solo, { action: "dash", x: 1, y: 0 });
-  assert.equal(me.dashCount, 1);
-  assert.ok(me.vx > 0.9, "der Schub gibt Tempo in Stickrichtung");
-  handleArenaInput(room, solo, { action: "dash", x: -1, y: 0 });
-  assert.equal(me.dashCount, 1, "während der Abklingzeit passiert nichts");
-  // Ohne Stick: in Blickrichtung.
-  me.dashReadyAt = Date.now() - 1;
-  me.vx = 0; me.vy = 0; me.lastThrustAt = 0; me.faceX = 0; me.faceY = -1;
-  handleArenaInput(room, solo, { action: "dash" });
-  assert.ok(me.vy < -0.9, "ohne Stick geht der Schub in Blickrichtung");
-});
-
-test("bumper: Bots schieben, der starke gezielter als der schwache", () => {
-  const realNow = Date.now;
-  const realRandom = Math.random;
-  let seed = 11;
-  Math.random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const counts = {};
-  try {
-    ["easy", "hard"].forEach((level) => {
-      let clock = 5e9;
-      Date.now = () => clock;
-      const players = [0, 1, 2, 3].map((i) => player({ id: `bb-${level}-${i}`, name: `B${i}`, color: "#fff", isBot: true }));
-      const startedAt = clock;
-      const arena = createArenaState(players, startedAt, 45000);
-      const profile = level === "easy"
-        ? { edge: 0.9, aggro: 0.72, picks: false, dashRange: 0.55, dashAim: 0.7, dashChance: 0.3, dodge: 0 }
-        : { edge: 0.68, aggro: 1, picks: true, dashRange: 0.42, dashAim: 0.93, dashChance: 0.8, dodge: 0.5 };
-      Object.values(arena.players).forEach((ap) => { ap.arenaProfile = { ...profile }; });
-      const minigame = { type: "bounceArena", arena, scores: {}, startedAt, duration: 45000, lastInputAt: {}, finishing: false };
-      const room = { code: "t", currentMinigame: minigame, players };
-      for (let t = 0; t < 500 && !minigame.finaleAt; t += 1) {
-        clock += 90;
-        if (t % 2 === 0) players.forEach((p) => testRules.arenaBotStep(arena, p.id));
-        try { updateBounceArena(room); } catch { /* Finale ohne Sockets */ }
-      }
-      const aps = Object.values(arena.players);
-      counts[level] = { dashes: aps.reduce((n, ap) => n + ap.dashCount, 0), knockouts: aps.reduce((n, ap) => n + ap.knockouts, 0) };
-    });
-  } finally {
-    Date.now = realNow;
-    Math.random = realRandom;
-  }
-  assert.ok(counts.easy.dashes > 0 && counts.hard.dashes > 0, `Schübe ${JSON.stringify(counts)}`);
-  assert.ok(counts.hard.knockouts >= 1, "starke Bots werfen einander hinaus");
 });
 
 test("bumper: deciding the round starts a finale window instead of an abrupt cut", () => {

@@ -1250,37 +1250,18 @@ const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel
 // versprach dabei längst das Zurückpaddeln.
 //
 // Damit es trotzdem ein Ende findet, schrumpft die Insel in den letzten
-// zwanzig Sekunden — der Platz wird eng, und jeder Stoss sitzt.
-//
-// RAMMEN: ein kurzer Schub mit Abklingzeit. Vorher war jeder Rempler schon
-// ein Rauswurf — das Stick-Tempo allein reichte über die Stossschwelle, der
-// erste Sturz kam nach knapp drei Sekunden, und die Runde war nach Ø 28 von
-// 45 Sekunden entschieden, bevor die Insel überhaupt schrumpfte. Jetzt
-// schieben sich Ringe beim normalen Fahren nur weg; hinaus fliegt, wen ein
-// Schub trifft oder wer bei vollem Tempo frontal zusammenkracht. Wer schiebt,
-// ist beim eigenen Treffer gestemmt und fliegt nicht mit — wer daneben
-// schiebt, steht aber einen Moment ohne Schub da. Der Rand lässt einen
-// Getroffenen nur kurz durch: wer in der Mitte getroffen wird, rutscht weit,
-// aber fängt sich am Wulst. Gemessen mit Bots (200 Runden): Ø 78 Rempler und
-// 9,6 Stürze je Runde, Rundenende im Median nach 40 s — vorher 24 Rempler,
-// 10,5 Stürze, Ende nach 27 s, bevor die Insel schrumpfte.
+// fünfzehn Sekunden — der Platz wird eng, und jeder Stoss sitzt.
 const ARENA_LIVES = 3;
-const ARENA_SHRINK_MS = 20000;        // so lange vor Schluss beginnt die Insel zu schrumpfen
-const ARENA_SHRINK_TO = 0.6;          // auf diesen Anteil ihres Radius
+const ARENA_SHRINK_MS = 15000;        // so lange vor Schluss beginnt die Insel zu schrumpfen
+const ARENA_SHRINK_TO = 0.62;         // auf diesen Anteil ihres Radius
 const ARENA_RADIUS = 1.0;             // plate disk radius (logical units)
 const ARENA_BALL_RADIUS = 0.11;       // kin collision radius
-const ARENA_ACCEL = 3.3;              // stick thrust acceleration (snappy, responsive)
-const ARENA_DRAG = 2.0;               // velocity damping (quick stops, still carries momentum)
-const ARENA_RESTITUTION = 1.2;        // >1: federnde Ringe, Rempler tragen Wucht
+const ARENA_ACCEL = 3.8;              // stick thrust acceleration (snappy, responsive)
+const ARENA_DRAG = 1.75;              // velocity damping (quick stops, still carries momentum)
+const ARENA_RESTITUTION = 2.4;        // >1: bouncy bumpers, so rams carry punch
 const ARENA_RIM_RESTITUTION = 0.62;   // bounce back onto the plate when not launched
-const ARENA_LAUNCH_IMPULSE = 1.9;     // Stossstärke (Δv entlang der Normalen), ab der man ohne Schub fliegt
-const ARENA_DASH_LAUNCH = 0.5;        // mit Schub genügt diese Stärke
-const ARENA_DASH_SPEED = 1.0;         // so viel Tempo gibt ein Schub
-const ARENA_DASH_MAX = 2.2;           // höchstens so schnell insgesamt
-const ARENA_DASH_MS = 280;            // so lange gilt ein Treffer als Schub-Treffer
-const ARENA_DASH_COOLDOWN_MS = 2200;  // danach wieder bereit
-const ARENA_DASH_START_MS = 2000;     // die ersten zwei Sekunden ohne Schub: erst einmal orientieren
-const ARENA_LAUNCH_MS = 450;          // so lange lässt der Rand einen Getroffenen durch — nur wer nah am Rand getroffen wird, fliegt
+const ARENA_LAUNCH_IMPULSE = 0.95;    // min hit strength (normal Δv) that launches a rival
+const ARENA_LAUNCH_MS = 1150;         // launched window during which the rim lets you fly off
 const ARENA_SUBSTEPS = 4;             // sub-stepped integration prevents tunneling
 const ARENA_RESPAWN_MS = 2200;        // time out of play after a knock-off
 const ARENA_INVULN_MS = 1300;         // spawn grace: no collisions, can't be launched
@@ -1905,8 +1886,7 @@ function handleMinigameInput(room, player, rawInput) {
   if (minigame.type === "bounceArena") {
     const result = handleArenaInput(room, player, input);
     if (!result.ok) return result;
-    // Kein Sofort-Versand: der Stick meldet sich vierzehnmal je Sekunde und
-    // Hand — der Stand geht mit dem nächsten Takt (90 ms) an alle.
+    emitMinigameUpdate(room);
     return { ok: true };
   }
 
@@ -2014,12 +1994,6 @@ function updateBounceArena(room) {
     ap.launchedUntil = 0;
     ap.invulnUntil = now + ARENA_INVULN_MS;
     ap.spawnedAt = now;
-    ap.dashUntil = 0;
-    ap.dashReadyAt = now + ARENA_INVULN_MS;
-    // Nach dem Zurückspringen zur Inselmitte schauen.
-    const l = Math.hypot(ap.x, ap.y) || 1;
-    ap.faceX = -ap.x / l;
-    ap.faceY = -ap.y / l;
   });
 
   const sub = ARENA_SUBSTEPS;
@@ -2110,12 +2084,9 @@ function knockArenaPlayerOff(arena, ap, now) {
   ap.vy = 0;
   // Credit a recent hitter with the knockout.
   const hitter = ap.lastHitBy && arena.players[ap.lastHitBy];
-  ap.knockedBy = null;
   if (hitter && now - ap.lastHitAt < ARENA_CREDIT_MS) {
     hitter.knockouts += 1;
     hitter.score += ARENA_KNOCKOUT_BONUS;
-    // Für die Geräte: wer geschoben hat, bekommt seinen Moment.
-    ap.knockedBy = ap.lastHitBy;
   }
   ap.lastHitBy = null;
 }
@@ -2703,7 +2674,6 @@ function createArenaState(players, startedAt, duration = 45000) {
     radius: ARENA_RADIUS,
     ballRadius: ARENA_BALL_RADIUS,
     lives: ARENA_LIVES,
-    dashCooldownMs: ARENA_DASH_COOLDOWN_MS,
     shrinkFrom: startedAt + Math.max(0, duration - ARENA_SHRINK_MS),
     shrinkUntil: startedAt + duration,
     shrinkTo: ARENA_SHRINK_TO,
@@ -2714,8 +2684,8 @@ function createArenaState(players, startedAt, duration = 45000) {
   players.forEach((player, index) => {
     const angle = (index / Math.max(1, players.length)) * Math.PI * 2 - Math.PI / 2;
     arena.players[player.id] = {
-      x: Math.cos(angle) * 0.42,
-      y: Math.sin(angle) * 0.42,
+      x: Math.cos(angle) * 0.5,
+      y: Math.sin(angle) * 0.5,
       vx: 0,
       vy: 0,
       thrustX: 0,
@@ -2737,17 +2707,7 @@ function createArenaState(players, startedAt, duration = 45000) {
       lastCollisionAt: 0,
       knockedAt: 0,          // bumps the client into a tumble animation
       spawnedAt: startedAt,
-      outAt: null,
-      dashUntil: 0,          // Schub aktiv bis
-      dashReadyAt: startedAt + ARENA_DASH_START_MS, // erst nach dem ersten Rangeln
-      dashCount: 0,          // für die Geräte: jeder Schub einmal Effekt
-      dashAt: 0,
-      dashX: 0,
-      dashY: 0,
-      faceX: -Math.cos(angle), // Blickrichtung (zur Mitte), falls ohne Stick geschoben wird
-      faceY: -Math.sin(angle),
-      lastImpact: 0,         // Stärke des letzten Zusammenstosses (für Effekte)
-      lastImpactAt: 0
+      outAt: null
     };
   });
   return arena;
@@ -2775,17 +2735,6 @@ function handleArenaInput(room, player, rawInput) {
     arenaPlayer.thrustX = dx;
     arenaPlayer.thrustY = dy;
     arenaPlayer.lastThrustAt = now;
-    if (Math.hypot(dx, dy) > 0.2) {
-      const l = Math.hypot(dx, dy);
-      arenaPlayer.faceX = dx / l;
-      arenaPlayer.faceY = dy / l;
-    }
-    return { ok: true };
-  }
-
-  // RAMMEN: ein Schub in Stickrichtung (sonst Fahrt- oder Blickrichtung).
-  if (action === "dash") {
-    arenaDash(arenaPlayer, input, now);
     return { ok: true };
   }
 
@@ -2798,48 +2747,6 @@ function handleArenaInput(room, player, rawInput) {
   }
 
   return { ok: false, error: "Ungültiger Bounce-Arena-Input." };
-}
-
-// Ein Schub: Richtung aus der Eingabe, sonst aus dem Stick, der Fahrt oder
-// dem Blick. Während der Abklingzeit passiert nichts (kein Fehler — wer
-// hämmert, soll nicht bestraft werden).
-function arenaDash(ap, input = {}, now = Date.now()) {
-  if (!ap?.inPlay || now < (ap.dashReadyAt || 0)) return false;
-  let dx = inputNumber(input.x) || 0;
-  let dy = inputNumber(input.y) || 0;
-  if (Math.hypot(dx, dy) < 0.2 && now - (ap.lastThrustAt || 0) < 250) {
-    dx = ap.thrustX;
-    dy = ap.thrustY;
-  }
-  if (Math.hypot(dx, dy) < 0.2) {
-    const speed = Math.hypot(ap.vx, ap.vy);
-    if (speed > 0.15) {
-      dx = ap.vx;
-      dy = ap.vy;
-    } else {
-      dx = ap.faceX ?? 0;
-      dy = ap.faceY ?? 1;
-    }
-  }
-  const length = Math.hypot(dx, dy) || 1;
-  dx /= length;
-  dy /= length;
-  ap.vx += dx * ARENA_DASH_SPEED;
-  ap.vy += dy * ARENA_DASH_SPEED;
-  const speed = Math.hypot(ap.vx, ap.vy);
-  if (speed > ARENA_DASH_MAX) {
-    ap.vx *= ARENA_DASH_MAX / speed;
-    ap.vy *= ARENA_DASH_MAX / speed;
-  }
-  ap.faceX = dx;
-  ap.faceY = dy;
-  ap.dashX = dx;
-  ap.dashY = dy;
-  ap.dashAt = now;
-  ap.dashUntil = now + ARENA_DASH_MS;
-  ap.dashReadyAt = now + ARENA_DASH_COOLDOWN_MS;
-  ap.dashCount = (ap.dashCount || 0) + 1;
-  return true;
 }
 
 function resolveArenaCollision(entryA, entryB, now = Date.now()) {
@@ -2879,23 +2786,12 @@ function resolveArenaCollision(entryA, entryB, now = Date.now()) {
     a.vy -= jn * ny;
     b.vx += jn * nx;
     b.vy += jn * ny;
-    // Wer hinausfliegen darf: getroffen von einem Schub (schon bei mittlerer
-    // Stärke), oder bei einem richtig harten Frontalzusammenstoss beide. Wer
-    // selbst schiebt, ist gestemmt und fliegt beim eigenen Treffer nicht mit.
-    const aDash = now < (a.dashUntil || 0);
-    const bDash = now < (b.dashUntil || 0);
-    const launchA = (bDash && !aDash && jn >= ARENA_DASH_LAUNCH) || (jn >= ARENA_LAUNCH_IMPULSE && !aDash);
-    const launchB = (aDash && !bDash && jn >= ARENA_DASH_LAUNCH) || (jn >= ARENA_LAUNCH_IMPULSE && !bDash);
-    const bothDash = aDash && bDash && jn >= ARENA_DASH_LAUNCH;
-    if (launchA || bothDash) a.launchedUntil = now + ARENA_LAUNCH_MS;
-    if (launchB || bothDash) b.launchedUntil = now + ARENA_LAUNCH_MS;
-    // Ein Schub endet mit dem Treffer — ein Stoss wirft nicht zwei um.
-    if (aDash) a.dashUntil = now;
-    if (bDash) b.dashUntil = now;
-    a.lastImpact = jn;
-    b.lastImpact = jn;
-    a.lastImpactAt = now;
-    b.lastImpactAt = now;
+    // A solid hit "launches" both balls: for a short window the rim will let
+    // them fly off. Gentle nudges stay below the threshold and just bounce.
+    if (jn >= ARENA_LAUNCH_IMPULSE) {
+      a.launchedUntil = now + ARENA_LAUNCH_MS;
+      b.launchedUntil = now + ARENA_LAUNCH_MS;
+    }
   }
 
   a.lastHitBy = idB;
@@ -2921,40 +2817,14 @@ function arenaBotStep(arena, playerId) {
   // steht, und sonst in der Mitte bleiben.
   const profile = bot.arenaProfile || (bot.arenaProfile = (() => {
     const roll = Math.random();
-    // Schub: aus welcher Nähe, wie genau ausgerichtet, wie oft er zugreift,
-    // und ob er einem Schub ausweicht.
-    return roll < 0.33 ? { edge: 0.9, aggro: 0.72, picks: false, dashRange: 0.55, dashAim: 0.7, dashChance: 0.3, dodge: 0 }
-      : roll < 0.75 ? { edge: 0.8, aggro: 0.9, picks: true, dashRange: 0.45, dashAim: 0.86, dashChance: 0.55, dodge: 0.2 }
-        : { edge: 0.68, aggro: 1, picks: true, dashRange: 0.42, dashAim: 0.93, dashChance: 0.8, dodge: 0.5 };
+    return roll < 0.33 ? { edge: 0.9, aggro: 0.72, picks: false }
+      : roll < 0.75 ? { edge: 0.8, aggro: 0.9, picks: true }
+        : { edge: 0.68, aggro: 1, picks: true };
   })());
-
-  // Ausweichen: rast einer mit Schub heran, zur Seite schieben (Richtung Mitte).
-  if (profile.dodge && now >= (bot.dashReadyAt || 0) && Math.random() < profile.dodge) {
-    const threat = Object.values(arena.players).find((other) => {
-      if (other === bot || !other.inPlay || now >= (other.dashUntil || 0)) return false;
-      const rx = bot.x - other.x;
-      const ry = bot.y - other.y;
-      const d = Math.hypot(rx, ry);
-      if (d > 0.5 || d < 1e-4) return false;
-      const closing = ((other.vx - bot.vx) * rx + (other.vy - bot.vy) * ry) / d;
-      return closing > 1;
-    });
-    if (threat) {
-      const rx = bot.x - threat.x;
-      const ry = bot.y - threat.y;
-      // Quer zur Stossrichtung, und zwar auf die Seite, die zur Mitte zeigt.
-      let sx = -ry;
-      let sy = rx;
-      if (sx * -bot.x + sy * -bot.y < 0) { sx = -sx; sy = -sy; }
-      arenaDash(bot, { x: sx, y: sy }, now);
-      return;
-    }
-  }
 
   // Too close to the rim yourself: retreat toward the middle.
   let targetX = -bot.x;
   let targetY = -bot.y;
-  let huntPrey = null;
 
   if (distanceFromCenter < profile.edge) {
     const opponents = Object.entries(arena.players)
@@ -2979,7 +2849,6 @@ function arenaBotStep(arena, playerId) {
       opponents.sort((a, b) => Math.hypot(a.x - bot.x, a.y - bot.y) - Math.hypot(b.x - bot.x, b.y - bot.y));
       prey = opponents[0];
     }
-    huntPrey = prey || null;
     if (prey) {
       // Aim past the rival, along the line from the arena centre outward, so
       // the ram shoves them toward the nearest rim rather than across the plate.
@@ -2995,30 +2864,6 @@ function arenaBotStep(arena, playerId) {
   bot.thrustX = (targetX / length) * profile.aggro;
   bot.thrustY = (targetY / length) * profile.aggro;
   bot.lastThrustAt = now;
-  if (huntPrey && profile.dashRange) arenaBotMaybeDash(arena, bot, profile, now, huntPrey);
-}
-
-// Schieben, wenn es sitzt: nah genug, sauber ausgerichtet, und die Beute steht
-// so weit draussen, dass ein Treffer sie hinauswirft. Der schwache Bot ist
-// dabei ungeduldiger und ungenauer.
-function arenaBotMaybeDash(arena, bot, profile, now, prey) {
-  if (!prey?.inPlay || now < (bot.dashReadyAt || 0) || now < (prey.invulnUntil || 0)) return;
-  const dx = prey.x - bot.x;
-  const dy = prey.y - bot.y;
-  const d = Math.hypot(dx, dy);
-  if (d > profile.dashRange || d < 1e-4) return;
-  // Stösst der Schub die Beute nach aussen? Richtung Rand gemessen. Der
-  // schwache Bot fragt das gar nicht erst — er schiebt, wen er erwischt.
-  const rim = Math.hypot(prey.x, prey.y) || 1;
-  const outward = (dx * prey.x + dy * prey.y) / (d * rim);
-  if (profile.picks && outward < profile.dashAim - 0.35) return;
-  if (profile.picks && rim / (arena.radius || ARENA_RADIUS) < 0.4) return;
-  if (Math.random() > profile.dashChance) return;
-  // Zielfehler: je schwächer, desto mehr daneben.
-  const miss = (1 - profile.dashAim) * (Math.random() - 0.5) * 2;
-  const c = Math.cos(miss);
-  const sn = Math.sin(miss);
-  arenaDash(bot, { x: (dx * c - dy * sn) / d, y: (dx * sn + dy * c) / d }, now);
 }
 
 // Der Startwert jeder Runde ist neu gewürfelt. Vorher stand er je Spieltyp
@@ -8376,21 +8221,6 @@ function serializeRoom(room) {
 // Browser muss die Anzahl kennen, um den Schwarm überhaupt zu zeichnen. Wer die
 // Zahl im Paket abliest statt zu schätzen, betrügt bei einem Spiel, das im
 // selben Raum am selben Tisch gespielt wird — dagegen hilft kein Code.
-// Bumper Pool: nur, was die Geräte zeichnen. Bot-Profile, Stickrichtung,
-// Zähler und Wertungszwischenstände bleiben am Server — sie machten ein Drittel
-// jedes Pakets aus, elfmal je Sekunde an jedes Gerät.
-const ARENA_PUBLIC_FIELDS = ["x", "y", "vx", "vy", "inPlay", "lives", "invulnUntil", "knockedAt", "knockedBy", "knockouts", "lastImpact", "lastImpactAt", "dashAt", "dashReadyAt", "outAt"];
-function publicArena(arena) {
-  if (!arena?.players) return arena;
-  const players = {};
-  Object.entries(arena.players).forEach(([id, entry]) => {
-    const view = {};
-    ARENA_PUBLIC_FIELDS.forEach((key) => { if (entry[key] !== undefined) view[key] = entry[key]; });
-    players[id] = view;
-  });
-  return { ...arena, players };
-}
-
 function publicArcade(arcade) {
   if (!arcade) return arcade;
   // Farbenjagd: die Arbeitsliste des Feldes bleibt hier, die Geräte bekommen
@@ -8430,7 +8260,7 @@ function serializeMinigame(minigame) {
     duration: minigame.duration,
     finaleAt: minigame.finaleAt || null,
     scores: minigame.scores,
-    arena: publicArena(minigame.arena),
+    arena: minigame.arena,
     arcade: publicArcade(minigame.arcade)
   };
 }

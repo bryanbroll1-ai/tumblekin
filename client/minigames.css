@@ -1819,43 +1819,6 @@ canvas.is-stunned {
   opacity: 0.45;
 }
 
-/* Name vor den Punkten — sonst muss man die Farben auswendig kennen. */
-.arena-life {
-  align-items: center;
-}
-
-.arena-life b {
-  margin-right: 2px;
-  color: var(--chip);
-  font-size: 0.72rem;
-  font-weight: 900;
-}
-
-/* RAMMEN: rechts neben dem Stick; der Balken füllt sich, voll leuchtet er. */
-.arena-controls {
-  width: min(100%, 440px);
-  margin: 0 auto;
-}
-
-.snow-throw.arena-dash {
-  background: linear-gradient(180deg, #b7a3c9, #8a78a0);
-  box-shadow: 0 8px 0 #4e4260;
-}
-
-.snow-throw.arena-dash.is-ready {
-  background: linear-gradient(180deg, #ff7a59, #f0463b);
-  box-shadow: 0 8px 0 #85201a, 0 0 22px rgba(255, 106, 76, 0.55);
-}
-
-.snow-throw.arena-dash.is-ready::after {
-  content: none;
-}
-
-.snow-throw.arena-dash.is-off {
-  opacity: 0.5;
-  filter: saturate(0.4);
-}
-
 .kinetic-hud .color-banner.arena-banner {
   top: calc(98px + env(safe-area-inset-top));
   bottom: auto;

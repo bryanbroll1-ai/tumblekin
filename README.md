@@ -110,10 +110,13 @@ fehlten, danach blieben bei drei Spielen die Hilfetexte und bei zweien die
 Gestengruppe auf einem alten Stand stehen. Ein Test vergleicht den Abschnitt
 darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
-### 🕹️💥 Stick laufen, Knopf schubsen
+### 🕹️ Stick ziehen
 
-- **Bumper Pool:** Lenk deinen Schwimmring mit dem Stick. Rempeln schiebt nur weg — RAMMEN gibt dir einen kurzen Schub, und wen der am Rand erwischt, der fliegt ins Becken. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 20 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
-- **Schnappschuss:** Premiere auf dem roten Teppich! Die Kameradrohne zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und wer ganz allein drauf ist, bekommt noch 5. SCHUBS lässt dich nach vorn schnellen und stösst alle vor dir aus dem Bild.
+- **Bumper Pool:** Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
+- **Tiefenrausch:** Tauch mit dem Stick nach Gold — je tiefer, desto wertvoller, ganz unten wartet eine Truhe. Die Luft wird knapp, und zwar unten schneller: Tauch rechtzeitig auf, dann füllt sie sich wieder und dein Gold ist sicher eingezahlt. Quallen kosten Luft und etwas Gold. Geht dir die Luft aus, ist alles weg, was du trägst.
+- **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Auf deiner eigenen Farbe fährst du schneller, auf fremder langsamer — bau dir Bahnen und übermal die anderen. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Wer am Ende die meiste Fläche hat, gewinnt.
+- **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte; lenk sie mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
+- **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
 
 ### 👆✳️ In jede Richtung wischen
 
@@ -181,13 +184,6 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 - **Eisstock:** Wisch nach vorne, um einen Stein zu schieben: die Richtung deines Wischs ist die Richtung auf dem Eis, und je länger der Wisch, desto weiter gleitet er — Pfeil und Balken zeigen es schon beim Ziehen. Drei Steine, aber immer nur einer unterwegs: der nächste geht erst, wenn deiner liegt. Gezählt wird der Abstand zum Knopf, stufenlos — jeder Zentimeter näher ist mehr wert. Steine prallen nicht ab, sie schieben sich: du kannst jemanden vom Knopf drängen, aber niemand wird quer durchs Haus geschossen.
 
-### 🕹️ Stick ziehen
-
-- **Tiefenrausch:** Tauch mit dem Stick nach Gold — je tiefer, desto wertvoller, ganz unten wartet eine Truhe. Die Luft wird knapp, und zwar unten schneller: Tauch rechtzeitig auf, dann füllt sie sich wieder und dein Gold ist sicher eingezahlt. Quallen kosten Luft und etwas Gold. Geht dir die Luft aus, ist alles weg, was du trägst.
-- **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Auf deiner eigenen Farbe fährst du schneller, auf fremder langsamer — bau dir Bahnen und übermal die anderen. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Wer am Ende die meiste Fläche hat, gewinnt.
-- **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte; lenk sie mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
-- **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
-
 ### 👆🧭 Felder antippen und schliessen
 
 - **Spürsinn:** Irgendwo im Feld liegt ein Fundstück. Tippe ein Feld an, und die Zahl darauf sagt, wie viele Schritte es von dort bis zum Versteck sind — hoch, runter, links, rechts gezählt. Zwei Zahlen zusammengenommen grenzen es schon stark ein. Je weniger Tipps ein Fund kostet, desto mehr ist er wert.
@@ -211,6 +207,10 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 🕹️👆 Stick steuern, Knopf werfen
 
 - **Schneeballhang:** Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1 bis 3 Punkte, je grösser die Kugel war. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild.
+
+### 🕹️💥 Stick laufen, Knopf schubsen
+
+- **Schnappschuss:** Premiere auf dem roten Teppich! Die Kameradrohne zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und wer ganz allein drauf ist, bekommt noch 5. SCHUBS lässt dich nach vorn schnellen und stösst alle vor dir aus dem Bild.
 
 ### 👀👆 Mit den Augen folgen, dann tippen
 
@@ -312,7 +312,7 @@ Gemeinsame Bausteine der Minispiele:
 - `minigames/Kulisse.js` — Bausteine für Kulissen: Zäune, Wimpel, Heuballen, Bäume, Berge, Laternen, Tribünen, Himmel und Schilder. Gleiche Teile laufen als InstancedMesh in einem Zeichenaufruf, Zufall kommt aus einem Seed, damit jede Szene bei jedem Start gleich aussieht.
 - `minigames/VoxelKit.js` — Voxel-Bausteine, Partikel (`CubeBurst`) und Pop-up-Texte (`FloatingText`); reicht die Figur aus `Kin.js` weiter.
 - `minigames/SceneKit.js` — Renderer, Licht, HUD und Teardown.
-- `minigames/Blockform.js` — baut runde Formen (Kugeln, Zylinder, Kegel, Ringe, Scheiben, Tori, Drehkörper) vor dem ersten Bild in gestufte Blockformen um, damit alles zum Klötzchen-Stil passt. Grosse Spielflächen bekommen feinere Stufen, damit der sichtbare Rand zur Spielkante passt. Himmelskuppeln, Schatten und absichtlich eckige Vielecke bleiben unverändert; `userData.rund` nimmt eine Form ausdrücklich aus.
+- `minigames/Blockform.js` — baut runde Formen (Kugeln, Zylinder, Kegel, Ringe, Scheiben, Tori, Drehkörper) vor dem ersten Bild in gestufte Voxelformen um — rund genug, dass man die Form erkennt, gestuft genug, dass man die Blöcke sieht; Tori (Schwimmringe, Reifen) werden zu Schläuchen mit gestuftem Querschnitt. Grosse Spielflächen bekommen feinere Stufen, damit der sichtbare Rand zur Spielkante passt. Himmelskuppeln, Schatten und absichtlich eckige Vielecke bleiben unverändert; `userData.rund` nimmt eine Form ausdrücklich aus.
 - `minigames/Quality.js` — Bewegungspräferenz (`prefers-reduced-motion`) und Gerätestufe; steuert Kamera-Shake, Partikelmenge, Schattenauflösung und Pixelratio.
 - `ui/MenuStage.js` — die Bühne hinter den Menüs.
 

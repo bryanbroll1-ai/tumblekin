@@ -342,7 +342,7 @@ export class FalseSignal extends MinigameScene {
   shot() {
     return {
       look: [0, 1.4, 0.1],
-      frame: { w: 4.5, h: 3.8 },
+      frame: { w: 4.8, h: 3.8 },
       yaw: 0.3,
       pitch: 0.2,
       fov: 36,
