@@ -3002,9 +3002,9 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.trackLength = RUNNER_LENGTH;
     arcade.segments = createRunnerCourse(arcade.seed);
     arcade.segLen = RUNNER_SEG_LEN;
-    players.forEach((player) => {
+    players.forEach((player, index) => {
       const entry = arcade.players[player.id];
-      entry.lane = 1;
+      entry.lane = runnerStartLane(index, players.length);
       entry.progress = 0;
       entry.nextHurdle = 0;        // Index des nächsten noch offenen Abschnitts
       entry.stumbleUntil = 0;
@@ -3894,9 +3894,12 @@ function createRunnerCourse(seed) {
       if (lane === sand) return "sand";
       return "normal";
     });
-    // Ab dem vierten Abschnitt stehen Hürden, und nur in gut jedem dritten.
+    // Ab dem vierten Abschnitt stehen Hürden — anfangs in knapp jedem
+    // dritten, zum Ziel hin in gut jedem zweiten. Vorher war die Dichte über
+    // die ganze Strecke gleich, und die letzten Meter waren so ruhig wie die
+    // ersten; jetzt wird es zum Schluss hektischer.
     let hurdle = null;
-    if (index >= 3 && arcadeNoise(seed + index * 23) < 0.38) {
+    if (index >= 3 && arcadeNoise(seed + index * 23) < 0.3 + 0.24 * (index / Math.max(1, count - 1))) {
       const kandidaten = [0, 1, 2].filter((lane) => lanes[lane] !== "sand");
       hurdle = kandidaten[Math.floor(arcadeNoise(seed + index * 29) * kandidaten.length)];
     }
@@ -3925,6 +3928,17 @@ function createRunnerCourse(seed) {
     sand = (tempo + 1 + Math.floor(arcadeNoise(seed + index * 37) * 2)) % 3;
   }
   return segments;
+}
+
+// Startbahn: verteilt über alle drei Bahnen, wie an einer echten Startlinie.
+// Vorher standen alle in der Mitte auf demselben Fleck, die Figuren steckten
+// zu viert ineinander. Die ersten beiden Abschnitte sind in allen Bahnen
+// gleich, die Startbahn bringt also niemandem einen Vorteil.
+function runnerStartLane(index, count) {
+  if (count <= 1) return 1;
+  if (count === 2) return index === 0 ? 0 : 2;
+  if (count === 4) return [0, 1, 2, 1][index];
+  return index % 3;
 }
 
 // Der Abschnitt, in dem eine Position liegt.

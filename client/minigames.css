@@ -1314,7 +1314,8 @@
    Welteinheiten zwischen dem Ersten und dem Letzten, und alle vier ins Bild zu
    holen hiesse, die eigene auf ein paar Pixel zu schrumpfen. Wer wie hoch ist,
    steht deshalb hier: eine Leiste am Rand, ein Punkt je Spieler. */
-.climb-ladder {
+.climb-ladder,
+.race-rail {
   position: absolute;
   top: 22%;
   right: 10px;
@@ -1325,11 +1326,13 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
-.kinetic-hud.dev-mode .climb-ladder {
+.kinetic-hud.dev-mode .climb-ladder,
+.kinetic-hud.dev-mode .race-rail {
   top: 34%;
 }
 
-.climb-ladder i {
+.climb-ladder i,
+.race-rail i {
   position: absolute;
   left: 50%;
   width: 12px;
@@ -1342,11 +1345,62 @@
 
 /* Die eigene ist grösser und hat einen vollen weissen Ring — sie muss man im
    Augenwinkel finden, ohne hinzusehen. */
-.climb-ladder i.is-own {
+.climb-ladder i.is-own,
+.race-rail i.is-own {
   width: 18px;
   height: 18px;
   border-color: #ffffff;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+
+/* Zielgerade: dieselbe Leiste als Rennverlauf, oben die Zielflagge. Die
+   Punkte gleiten, statt zu springen — der Server meldet alle 90 ms. */
+.race-rail i {
+  transition: bottom 180ms linear;
+}
+
+/* Liegen Punkte übereinander, liegt der eigene oben. */
+.race-rail i.is-own {
+  z-index: 2;
+}
+
+.race-rail .race-rail-flag {
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Der Platz ist die wichtigste Zahl im Rennen: gross in Gelb. Überholt man,
+   springt sie kurz grün, wird man überholt, rot. */
+.kinetic-scorebar .runner-place {
+  min-width: 40px;
+  font-size: 1.15rem;
+  transition: background 160ms ease;
+}
+
+.kinetic-scorebar .runner-place[data-move="up"] {
+  background: #4fdc8b;
+  animation: runner-place-pop 0.45s ease-out;
+}
+
+.kinetic-scorebar .runner-place[data-move="down"] {
+  background: #ff6b7d;
+  animation: runner-place-pop 0.45s ease-out;
+}
+
+@keyframes runner-place-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+.kinetic-scorebar .runner-togo {
+  min-width: 64px;
+  padding: 0 8px;
+  font-size: 0.84rem;
 }
 
 /* --- Sortierband: Serie und Punktestände ------------------------------- */

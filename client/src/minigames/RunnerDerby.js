@@ -31,6 +31,12 @@ const SEGMENT = 0.62; // world units per track meter
 // nicht im Sand und nicht im normalen Belag.
 const SURFACE_COLOUR = { sand: "#6b4424", normal: "#c8624c", tempo: "#3ccfa8" };
 const FLOOR_Y = 0;                  // Oberkante der Laufbahn
+// Wie viel Platz eine laufende Figur braucht. Zwei passen nebeneinander in
+// eine Bahn (je 0.28 aus der Mitte), eine dritte läuft ein Stück dahinter.
+const KIN_BREIT = 0.56;
+const KIN_TIEF = 0.55;
+const BAHN_SPIEL = LANE_WIDTH / 2 - KIN_BREIT / 2;
+const JUMP_REST_MS = 350;           // wie auf dem Server: so lange nach der Landung kein neuer Sprung
 const HURDLE_CLEAR = 0.78;           // so hoch sind die Füsse über einer Hürde mindestens
 const HURDLE_CLEAR_REACH = 0.9;      // ab diesem Abstand zur Hürde gilt das
 const KIN_Y = standOn(FLOOR_Y);
@@ -90,8 +96,14 @@ export class RunnerDerby extends MinigameScene {
     };
   }
 
+  // Oben links Zeit, Platz und Meter bis ins Ziel; rechts am Rand die
+  // Rennleiste mit allen Läufern. Vorher stand dort nur, wie weit man selbst
+  // gelaufen war — ob man vorn oder hinten lag, sah man nur, wenn die anderen
+  // zufällig im Bild waren.
   hudHtml() {
-    return `<div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0m</strong></div>`;
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong class="runner-place" data-kinetic-score>1.</strong><span class="runner-togo" data-runner-togo>150m</span></div>
+      <div class="race-rail" data-race-rail><b class="race-rail-flag">🏁</b></div>`;
   }
 
   build() {
@@ -184,9 +196,18 @@ export class RunnerDerby extends MinigameScene {
       scene.add(this.chevrons);
     }
     if (felder.sand.length) {
+      // Matsch füllt seine Bahn wie ein Boostfeld: ein brauner Belag von Linie
+      // zu Linie, darauf dunklere Pfützen und Blasen. Vorher lagen drei
+      // gedrehte Pfützen übereinander, die über die Bahnlinien hinausragten —
+      // aus der Ferne sah man nicht, welche Bahn eigentlich Matsch war.
       const mud = new THREE.InstancedMesh(
-        new THREE.CylinderGeometry(0.5, 0.52, 0.02, 10),   // flach wie die Tempofelder
+        new THREE.BoxGeometry(LANE_WIDTH - 0.16, 0.02, segLen - 0.2),
         new THREE.MeshLambertMaterial({ color: SURFACE_COLOUR.sand }),
+        felder.sand.length
+      );
+      const puddles = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(0.2, 0.2, 0.012, 12),
+        new THREE.MeshLambertMaterial({ color: "#4a2d16" }),
         felder.sand.length * 3
       );
       const bubbles = new THREE.InstancedMesh(
@@ -195,31 +216,38 @@ export class RunnerDerby extends MinigameScene {
         felder.sand.length * 4
       );
       bubbles.userData.isFx = true;      // Blasen im Matsch, man läuft hindurch
+      puddles.userData.isFx = true;      // flach im Belag, kein Boden
       const place = new THREE.Object3D();
-      let k = 0;
       let b = 0;
       felder.sand.forEach((entry, i) => {
-        for (let n = 0; n < 3; n += 1) {
-          place.position.set(laneX(entry.lane) + (frac(i * 3 + n) - 0.5) * 0.14, FLOOR_Y + 0.008 + n * 0.002, entry.z + (n - 1) * segLen * 0.3);
-          place.scale.set(1.05, 1, (segLen * 0.42) / 1.04);
-          place.rotation.y = frac(i + n * 7) * 0.4;
-          place.updateMatrix();
-          mud.setMatrixAt(k, place.matrix);
-          k += 1;
-        }
+        place.position.set(laneX(entry.lane), FLOOR_Y + 0.008, entry.z);
         place.scale.set(1, 1, 1);
         place.rotation.set(0, 0, 0);
+        place.updateMatrix();
+        mud.setMatrixAt(i, place.matrix);
+        // Pfützen bleiben innerhalb der Bahn.
+        for (let n = 0; n < 3; n += 1) {
+          const breit = 0.8 + frac(i * 3 + n) * 0.6;
+          place.position.set(laneX(entry.lane) + (frac(i * 7 + n) - 0.5) * 0.3, FLOOR_Y + 0.02, entry.z + (n - 1) * segLen * 0.28 + (frac(i * 11 + n) - 0.5) * 0.3);
+          place.scale.set(breit, 1, 1.2 + frac(i * 13 + n) * 0.8);
+          place.updateMatrix();
+          puddles.setMatrixAt(i * 3 + n, place.matrix);
+        }
+        place.scale.set(1, 1, 1);
         for (let n = 0; n < 4; n += 1) {
-          place.position.set(laneX(entry.lane) + (frac(i * 5 + n) - 0.5) * 0.7, FLOOR_Y + 0.03, entry.z + (frac(i * 9 + n) - 0.5) * segLen * 0.8);
+          place.position.set(laneX(entry.lane) + (frac(i * 5 + n) - 0.5) * 0.6, FLOOR_Y + 0.03, entry.z + (frac(i * 9 + n) - 0.5) * segLen * 0.8);
           place.updateMatrix();
           bubbles.setMatrixAt(b, place.matrix);
           b += 1;
         }
       });
       mud.instanceMatrix.needsUpdate = true;
+      puddles.instanceMatrix.needsUpdate = true;
       bubbles.instanceMatrix.needsUpdate = true;
       mud.receiveShadow = true;
+      puddles.receiveShadow = true;
       scene.add(mud);
+      scene.add(puddles);
       scene.add(bubbles);
     }
 
@@ -327,6 +355,21 @@ export class RunnerDerby extends MinigameScene {
     const banner = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3 + 0.9, 0.5, 0.1), new THREE.MeshLambertMaterial({ map: checkerTex }));
     banner.position.set(0, FLOOR_Y + 3.2, trackZ);
     scene.add(banner);
+
+    // Die Startlinie: weiss über alle drei Bahnen, davor je Bahn ein
+    // Startblock. Vorher begann das Rennen irgendwo auf der Bahn.
+    const startLine = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3, 0.02, 0.14), new THREE.MeshBasicMaterial({ color: "#ffffff" }));
+    startLine.position.set(0, FLOOR_Y + 0.013, 0.35);
+    scene.add(startLine);
+    for (let lane = 0; lane < 3; lane += 1) {
+      [-1, 1].forEach((side) => {
+        const block = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.1, 0.22), new THREE.MeshLambertMaterial({ color: "#3a4a58" }));
+        block.position.set(laneX(lane) + side * 0.2, FLOOR_Y + 0.05, -0.55);
+        block.rotation.x = -0.35;
+        block.castShadow = true;
+        scene.add(block);
+      });
+    }
 
     // Hürden aus dem geteilten Kurs; weit entfernte werden ausgeblendet.
     this.courseParts = [];
@@ -639,43 +682,63 @@ export class RunnerDerby extends MinigameScene {
       this.feedback?.vibrate(14);
       this.sendInput({ action: "attack" }).catch(() => {});
     });
-    this.on(this.webglCanvas, "pointerdown", (event) => {
-      this.swipe = { x: event.clientX, y: event.clientY, at: performance.now(), moved: false };
+    // Wischen wirkt, sobald der Finger weit genug gezogen hat — nicht erst
+    // beim Loslassen. Vorher kam der Spurwechsel eine Wischlänge zu spät, und
+    // wer knapp vor einer Hürde wechselte, lief noch hinein. Gewischt werden
+    // darf auch über der Leiste unten, wo der Daumen ohnehin liegt; nur der
+    // Wurfknopf bleibt ein Knopf.
+    const beginne = (event) => {
+      this.swipe = { x: event.clientX, y: event.clientY, at: performance.now(), done: false };
+    };
+    this.on(this.webglCanvas, "pointerdown", beginne);
+    this.on(this.controls, "pointerdown", (event) => {
+      if (event.target.closest?.("[data-runner-throw]")) return;
+      beginne(event);
     });
-    this.on(this.webglCanvas, "pointermove", (event) => {
-      if (!this.swipe) return;
-      if (Math.hypot(event.clientX - this.swipe.x, event.clientY - this.swipe.y) > 16) this.swipe.moved = true;
+    this.on(window, "pointermove", (event) => {
+      const swipe = this.swipe;
+      if (!swipe || swipe.done) return;
+      const dx = event.clientX - swipe.x;
+      const dy = event.clientY - swipe.y;
+      if (Math.abs(dx) >= 28 && Math.abs(dx) > Math.abs(dy)) {
+        swipe.done = true;
+        this.sendLane(dx > 0 ? 1 : -1);
+      } else if (dy <= -34 && -dy > Math.abs(dx)) {
+        // Nach oben wischen springt ebenfalls — wer es so erwartet, soll es haben.
+        swipe.done = true;
+        this.springen();
+      }
     });
     this.on(window, "pointerup", (event) => this.resolveSwipe(event));
-    this.on(window, "pointercancel", (event) => this.resolveSwipe(event));
+    this.on(window, "pointercancel", () => { this.swipe = null; });
   }
 
   resolveSwipe(event) {
-    if (!this.swipe) return;
-    const dx = event.clientX - this.swipe.x;
-    const dy = event.clientY - this.swipe.y;
+    const swipe = this.swipe;
     this.swipe = null;
-    
+    if (!swipe || swipe.done) return;
     // Ein einfacher Tipp springt. Er löste vorher einen Angriff aus — genau
     // das, was man beim hastigen Tippen vor einer Hürde nicht wollte.
-    if (Math.abs(dx) < 26 && Math.abs(dy) < 26) {
-       this.feedback?.sound("pop");
-       this.sendInput({ action: "jump" }).catch(() => {});
-       return;
-    }
-    
-    if (Math.abs(dx) > Math.abs(dy)) {
-       this.sendLane(dx > 0 ? 1 : -1);
-    } else if (dy < 0) {
-       // Nach oben wischen springt ebenfalls — wer es so erwartet, soll es haben.
-       this.feedback?.sound("pop");
-       this.sendInput({ action: "jump" }).catch(() => {});
-    }
+    if (Math.abs(event.clientX - swipe.x) < 26 && Math.abs(event.clientY - swipe.y) < 26) this.springen();
+  }
+
+  // Springen, wenn es geht. In der Luft oder direkt nach der Landung verwirft
+  // der Server den Tipp; dann gibt es auch keinen Sprung-Ton, der etwas
+  // verspricht, das nicht passiert.
+  springen() {
+    const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
+    if (!own || own.finishedAt) return;
+    if (this.now() < (own.jumpUntil || 0) + JUMP_REST_MS) return;
+    this.feedback?.sound("pop");
+    this.feedback?.vibrate(8);
+    this.sendInput({ action: "jump" }).catch(() => {});
   }
 
   sendLane(dir) {
     const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
     if (own?.finishedAt) return;
+    // Schon ganz aussen: kein Wechsel, also auch kein Wechsel-Ton.
+    if (own && (own.lane + dir < 0 || own.lane + dir > 2)) return;
     this.feedback?.sound("move");
     this.feedback?.vibrate(10);
     this.sendInput({ action: "lane", dir }).catch(() => {});
@@ -686,6 +749,7 @@ export class RunnerDerby extends MinigameScene {
     if (!arcade) return;
     this.spectators.forEach((fan) => fan.update(now));
     this.tipHurdles(now);
+    const ziele = this.zielpunkte(arcade, players);
     let ownKin = null;
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
@@ -693,32 +757,13 @@ export class RunnerDerby extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const isOwn = player.id === controlledId;
-      // Mitten in der eigenen Bahn und genau auf dem eigenen Fortschritt.
-      // Vorher bekam jede Figur einen festen Seitenversatz (±0.45) und einen
-      // Vorsprung nach Startplatz: auf den Aussenbahnen ragte sie über den
-      // Bahnrand, und wer vorn aussah, lag nicht unbedingt vorn. Nur wenn zwei
-      // in derselben Bahn Schulter an Schulter laufen, rücken sie innerhalb
-      // der Bahn auseinander.
-      let nudge = 0;
-      players.forEach((other, j) => {
-        if (j === index) return;
-        const o = arcade.players[other.id];
-        if (!o || o.lane !== entry.lane || o.finishedAt || entry.finishedAt) return;
-        if (Math.abs((o.progress - entry.progress) * SEGMENT) > 0.7) return;
-        nudge += index < j ? -1 : 1;
-      });
-      let targetX = laneX(entry.lane) + clamp(nudge, -1, 1) * 0.24;
-      let targetZ = entry.progress * SEGMENT;
-      // Im Ziel: nebeneinander hinter der Linie aufreihen, in der Reihenfolge
-      // des Einlaufs — vorher standen alle auf demselben Fleck ineinander.
-      if (entry.finishedAt) {
-        const order = players
-          .map((other) => arcade.players[other.id])
-          .filter((o) => o?.finishedAt && (o.finishMs < entry.finishMs || (o.finishMs === entry.finishMs && o !== entry && players.findIndex((p) => arcade.players[p.id] === o) < index)))
-          .length;
-        targetX = (order - 1.5) * 0.78;
-        targetZ = (this.trackZ || entry.progress * SEGMENT) + 1.1;
-      }
+      const ziel = ziele.get(player.id);
+      const targetX = ziel.x;
+      const targetZ = ziel.z;
+      // Wer neben jemandem läuft, trägt sein Schild etwas höher — sonst
+      // lägen die Namen zweier Nachbarn genau übereinander.
+      const label = kin.userData.label;
+      if (label) label.position.y += ((this.labelY ?? 0.74) + (ziel.hoch ? 0.24 : 0) - label.position.y) * frameLerp(0.2, dt);
       const prevX = kin.position.x;
       kin.position.x += (targetX - kin.position.x) * frameLerp(0.25, dt);
       kin.position.z += (targetZ - kin.position.z) * frameLerp(0.4, dt);
@@ -835,11 +880,19 @@ export class RunnerDerby extends MinigameScene {
       }
       animator.groundY = standOn(FLOOR_Y) + lift;
 
+      // Die letzten 25 Meter: einmal kurz ansagen, dass es jetzt zählt.
+      if (isOwn && !finished && !this.endspurt && entry.progress >= (arcade.trackLength || 150) - 25) {
+        this.endspurt = true;
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.35, 0)), "ENDSPURT!", { color: "#ffe36b", size: 0.4, life: 0.9 });
+        this.feedback?.sound("whoosh");
+        this.feedback?.vibrate(10);
+      }
       if (finished && !this.lastFinished.get(player.id)) {
         this.lastFinished.set(player.id, true);
         animator.trigger("celebrate");
         this.burst(kin.position.clone(), [player.color, "#ffffff", "#ffd15c"], { count: 24, speed: 2.8, up: 3.0, size: 0.1, life: 0.95, drag: 1.2 });
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "ZIEL! 🏁", { color: "#ffe36b", size: 0.46, life: 1.2, rise: 1 });
+        const platz = ziel.platz;
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), isOwn && platz ? `${platz}. PLATZ! 🏁` : "ZIEL! 🏁", { color: "#ffe36b", size: isOwn ? 0.5 : 0.4, life: isOwn ? 1.6 : 1.2, rise: 1 });
         if (isOwn) {
           this.feedback?.sound("perfect");
           this.feedback?.vibrate([12, 16, 24]);
@@ -974,6 +1027,65 @@ export class RunnerDerby extends MinigameScene {
     });
   }
 
+  // Wo jede Figur hinläuft: Mitte ihrer Bahn auf ihrem Fortschritt, im Ziel
+  // nebeneinander hinter der Linie in der Reihenfolge des Einlaufs.
+  zielpunkte(arcade, players) {
+    const ziele = new Map();
+    const einlauf = players
+      .map((player, index) => ({ id: player.id, index, entry: arcade.players[player.id] }))
+      .filter((r) => r.entry?.finishedAt)
+      .sort((a, b) => (a.entry.finishMs - b.entry.finishMs) || (a.index - b.index));
+    players.forEach((player, index) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const platz = einlauf.findIndex((r) => r.id === player.id);
+      if (platz >= 0) {
+        ziele.set(player.id, { x: (platz - 1.5) * 0.78, z: (this.trackZ || entry.progress * SEGMENT) + 1.1, lane: null, index, platz: platz + 1, hoch: false });
+      } else {
+        ziele.set(player.id, { x: laneX(entry.lane), z: entry.progress * SEGMENT, lane: entry.lane, index, platz: 0, hoch: false });
+      }
+    });
+    this.auseinander([...ziele.values()].filter((ziel) => ziel.lane !== null));
+    return ziele;
+  }
+
+  // Zwei Läufer stecken nie ineinander. Vorher bekam, wer mit anderen in einer
+  // Bahn lief, einen festen Versatz von ±0.24 — liefen drei oder vier in
+  // einer Bahn, landeten je zwei auf demselben Fleck und steckten ganz
+  // ineinander, am Start sogar alle. Jetzt rücken zwei Nachbarn innerhalb der
+  // Bahn zur Seite; ist dort kein Platz mehr, läuft der Hintere ein Stück
+  // dahinter. Nur fürs Bild: der Fortschritt ist der des Servers, und ein
+  // halber Schritt fällt auf 150 Metern nicht auf.
+  auseinander(liste) {
+    for (let runde = 0; runde < 4; runde += 1) {
+      let eng = false;
+      for (let i = 0; i < liste.length; i += 1) {
+        for (let j = i + 1; j < liste.length; j += 1) {
+          const a = liste[i];
+          const b = liste[j];
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          if (Math.abs(dx) >= KIN_BREIT - 1e-3 || Math.abs(dz) >= KIN_TIEF - 1e-3) continue;
+          eng = true;
+          const seite = Math.abs(dx) > 1e-4 ? Math.sign(dx) : 1;
+          const fehlt = (KIN_BREIT - Math.abs(dx)) / 2;
+          a.x = clamp(a.x - seite * fehlt, laneX(a.lane) - BAHN_SPIEL, laneX(a.lane) + BAHN_SPIEL);
+          b.x = clamp(b.x + seite * fehlt, laneX(b.lane) - BAHN_SPIEL, laneX(b.lane) + BAHN_SPIEL);
+          if (Math.abs(b.x - a.x) >= KIN_BREIT - 1e-3) {
+            // Nebeneinander: das Schild des rechten etwas höher.
+            if (Math.abs(b.z - a.z) < KIN_TIEF) (b.x > a.x ? b : a).hoch = true;
+            continue;
+          }
+          // Seitlich ist kein Platz mehr: der Hintere läuft dahinter.
+          const hinten = a.z < b.z || (a.z === b.z && a.index > b.index) ? a : b;
+          const vorn = hinten === a ? b : a;
+          hinten.z = vorn.z - KIN_TIEF;
+        }
+      }
+      if (!eng) break;
+    }
+  }
+
   // Mitlaufen: die eigene Figur und wer in ihrer Nähe läuft.
   keepInView(f) {
     const own = this.kins.get(f.controlledId);
@@ -988,11 +1100,70 @@ export class RunnerDerby extends MinigameScene {
     return { look: [this.focus.x * 0.3, 0.7, this.focus.z + 2.4] };
   }
 
+  // Die Rennleiste: ein Punkt je Läufer auf seinem Weg zum Ziel, der eigene
+  // grösser und mit weissem Ring. Man sieht auf einen Blick, wie weit der
+  // Vordermann weg ist und wer von hinten kommt.
+  syncRail(arcade, state, controlledId) {
+    this.railNode ||= this.hud.querySelector("[data-race-rail]");
+    if (!this.railNode || !arcade) return;
+    this.railPips ||= new Map();
+    const laenge = arcade.trackLength || 150;
+    // Wer die Runde verlassen hat, verschwindet auch von der Leiste.
+    this.railPips.forEach((pip, id) => {
+      if (state?.players?.some((player) => player.id === id)) return;
+      pip.remove();
+      this.railPips.delete(id);
+    });
+    (state?.players || []).forEach((player) => {
+      let pip = this.railPips.get(player.id);
+      if (!pip) {
+        pip = document.createElement("i");
+        pip.className = player.id === controlledId ? "is-own" : "";
+        pip.style.background = player.color;
+        this.railNode.appendChild(pip);
+        this.railPips.set(player.id, pip);
+      }
+      const entry = arcade.players[player.id];
+      const anteil = entry?.finishedAt ? 1 : Math.min(1, (entry?.progress || 0) / laenge);
+      const unten = `${(3 + anteil * 90).toFixed(1)}%`;
+      if (pip.style.bottom !== unten) pip.style.bottom = unten;
+    });
+  }
+
   drawHud(f) {
     const { arcade, controlledId, state } = f;
     const controlled = arcade?.players?.[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = controlled?.finishedAt ? "Ziel!" : `${Math.round(controlled?.progress || 0)}m`;
+    this.togoNode ||= this.hud.querySelector("[data-runner-togo]");
+    // Platz: wer im Ziel ist, nach Einlaufzeit, dann alle anderen nach Weg.
+    const reihe = (state?.players || [])
+      .map((player) => ({ id: player.id, entry: arcade?.players?.[player.id] }))
+      .filter((r) => r.entry)
+      .sort((a, b) => {
+        const fa = a.entry.finishedAt ? 1 : 0;
+        const fb = b.entry.finishedAt ? 1 : 0;
+        if (fa !== fb) return fb - fa;
+        if (fa) return (a.entry.finishMs || 0) - (b.entry.finishMs || 0);
+        return (b.entry.progress || 0) - (a.entry.progress || 0);
+      });
+    const platz = reihe.findIndex((r) => r.id === controlledId) + 1;
+    // Wer nur zuschaut, hat keinen Platz.
+    const platzText = platz > 0 ? `${platz}.` : "–";
+    if (this.scoreNode.textContent !== platzText) {
+      // Überholt oder überholt worden: die Zahl springt kurz grün oder rot.
+      const vorher = this.letzterPlatz;
+      this.letzterPlatz = platz;
+      this.scoreNode.textContent = platzText;
+      if (vorher && platz && !f.finale) {
+        this.scoreNode.dataset.move = platz < vorher ? "up" : "down";
+        this.platzBis = performance.now() + 650;
+      }
+    }
+    if (this.scoreNode.dataset.move && performance.now() > (this.platzBis || 0)) delete this.scoreNode.dataset.move;
+    const rest = Math.max(0, Math.ceil((arcade?.trackLength || 150) - (controlled?.progress || 0)));
+    const togoText = controlled?.finishedAt ? "Ziel!" : `🏁 ${rest}m`;
+    if (this.togoNode && this.togoNode.textContent !== togoText) this.togoNode.textContent = togoText;
+    this.syncRail(arcade, state, controlledId);
     const nameOf = (id) => state?.players?.find((player) => player.id === id)?.name || "Jemand";
     // Der Wurfknopf sagt immer, was gerade geht: Kiste holen, kein Ziel, werfen.
     if (this.throwButton) {
