@@ -83,7 +83,8 @@ export const REWORKED = new Set([
   "fassmut",
   "fassrolle",
   "zuendstoff",
-  "muenzregen"
+  "muenzregen",
+  "blobklopfe"
 ]);
 
 export const ARCADE_TYPES = new Set(

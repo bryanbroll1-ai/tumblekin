@@ -412,10 +412,13 @@ export class WhackBlob extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 0.35, 0.3],
-      // Die Klopfer stehen an den Ecken; mit 1.2 Zugabe lag der äussere
-      // Hammerarm knapp am Bildrand.
-      frame: { w: HOME * 2 + 1.5, h: HOME_Z * 2 * Math.sin(0.82) + 1.6 },
+      // Das Feld ist die Tippfläche: je grösser die Löcher im Bild, desto
+      // sicherer trifft der Daumen. Mit 1.5 Zugabe und dem Blick vor die
+      // Feldmitte blieb seitlich Luft und das Feld rutschte nach oben; mit
+      // 1.1 stehen die Klopfer an den Ecken noch ganz im Bild (bei 0.9 lag
+      // der rechte am Rand).
+      look: [0, 0.35, 0],
+      frame: { w: HOME * 2 + 1.1, h: HOME_Z * 2 * Math.sin(0.82) + 1.6 },
       finale: { pull: 0.6, zoom: 0.85, lift: 0.4, orbit: 0.1 },
       pitch: 0.82,
       fov: 38,
@@ -441,9 +444,40 @@ export class WhackBlob extends MinigameScene {
       }
       if (cell >= 0) {
         this.feedback?.vibrate(8);
-        this.sendInput({ action: "whack", cell }).catch(() => {});
+        // Ein Tipp ins leere Loch staubt kurz — man sieht, dass er ankam.
+        if (!this.blobAt(cell)) {
+          const pos = this.cellPos(cell);
+          this.burst(new THREE.Vector3(pos.x, 0.4, pos.z), ["#8a6a45", "#b08a5e"], { count: 4, speed: 0.8, up: 0.9, size: 0.06, life: 0.35, drag: 2.4 });
+        }
+        this.sendWhack(cell);
       }
     });
+  }
+
+  // Der Server nimmt höchstens alle 110 ms einen Schlag an. Wer zwei Blobs
+  // mit zwei Fingern fast gleichzeitig trifft, verlor bisher den zweiten
+  // Tipp stillschweigend. Jetzt wartet er die paar Millisekunden ab.
+  sendWhack(cell) {
+    const wait = (this.lastWhackAt || 0) + 120 - performance.now();
+    const send = () => {
+      this.lastWhackAt = performance.now();
+      this.sendInput({ action: "whack", cell }).catch(() => {});
+    };
+    if (wait <= 0) {
+      send();
+      return;
+    }
+    if (wait > 360) return;              // mehr als drei auf Halde: das ist Trommeln
+    this.lastWhackAt = performance.now() + wait;
+    setTimeout(() => { if (this.frame) send(); }, wait);
+  }
+
+  // Der sichtbare Blob in einem Loch (noch nicht selbst getroffen), oder null.
+  blobAt(cell) {
+    for (const blob of this.blobs.values()) {
+      if (blob.userData.cell === cell && blob.userData.up && !blob.userData.whacked) return blob;
+    }
+    return null;
   }
 
   unbind() {
@@ -487,6 +521,9 @@ export class WhackBlob extends MinigameScene {
     (arcade.pops || []).forEach((pop) => {
       popById.set(pop.id, pop);
       if (elapsed < pop.from - 100 || elapsed > pop.until + 150) return;
+      // Der Plan reicht über die Spielzeit hinaus; im Finale taucht nichts
+      // Neues mehr auf — sonst poppten Blobs mitten in die Siegerehrung.
+      if (pop.from >= (minigame.duration || Infinity) && !this.blobs.has(pop.id)) return;
       active.add(pop.id);
       let blob = this.blobs.get(pop.id);
       if (!blob) {
@@ -514,7 +551,11 @@ export class WhackBlob extends MinigameScene {
         blob.position.y = -0.35 + height * 0.7;
         const wobble = Math.sin(now / 120 + pop.id) * 0.05;
         const k = blob.userData.baseScale || 1;
-        blob.scale.set(k * (1 - wobble * 0.5), k * (1 + wobble), k * (1 - wobble * 0.5));
+        // Ein fremder Hammer: kurz gestaucht, dann steht er wieder — für
+        // einen selbst ist er ja noch zu haben.
+        const bonk = (now - (blob.userData.bonkAt || -1e9)) / 200;
+        const squash = bonk >= 0 && bonk <= 1 ? Math.sin(bonk * Math.PI) * 0.3 : 0;
+        blob.scale.set(k * (1 - wobble * 0.5 + squash * 0.6), k * (1 + wobble - squash), k * (1 - wobble * 0.5 + squash * 0.6));
         // Stachelblobs drohen: sie zittern. Gute schauen neugierig herum.
         blob.rotation.y = pop.kind === "bad" ? Math.sin(now / 35) * 0.08 : Math.sin(now / 400 + pop.id * 2) * 0.35;
       }
@@ -552,16 +593,23 @@ export class WhackBlob extends MinigameScene {
         swing.hopped = false;
         swing.face = Math.atan2(pos.x - swing.target.x, pos.z - swing.target.z);
         animator.trigger("dig");
+        // Jeder klopft seine eigene Runde: plattgehauen wird der Blob nur
+        // für den, der ihn getroffen hat. Vorher verschwand er für alle,
+        // sobald irgendwer draufhaute — der schnellste Bot "nahm" ihn allen
+        // anderen weg, obwohl sie ihn noch hätten treffen dürfen, und wer
+        // auf die leere Stelle tippte, punktete unsichtbar.
         const blob = this.blobs.get(pop.id);
-        if (blob && !blob.userData.whacked) {
+        if (blob && isOwn && !blob.userData.whacked) {
           blob.userData.whacked = true;
           blob.userData.whackedAt = now;
+        } else if (blob && !isOwn) {
+          blob.userData.bonkAt = now + Math.min(swing.leap, 300);
         }
         const gold = pop.kind === "gold";
         const points = entry.lastWhack?.popId === pop.id ? entry.lastWhack.points : (bad ? -2 : 1);
         const label = bad ? `AUA! ${points}` : gold ? `GOLD +${points}` : points >= 3 ? `+3 BLITZ!` : `+${points}`;
-        this.burst(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : gold ? ["#ffe36b", "#ffffff", "#ffc52e"] : ["#8f6ae0", "#ffd15c", player.color], { count: gold ? 22 : 12, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
-        this.bursts.ring(new THREE.Vector3(pos.x, 0.42, pos.z), bad ? "#ff2038" : "#ffd15c", { radius: bad ? 1.3 : 1, life: 0.45, opacity: 0.5, tilt: null });
+        this.burst(new THREE.Vector3(pos.x, 0.9, pos.z), bad ? ["#ff2038", "#8a0f1e"] : gold ? ["#ffe36b", "#ffffff", "#ffc52e"] : ["#8f6ae0", "#ffd15c", player.color], { count: isOwn ? (gold ? 22 : 12) : 5, speed: 2.1, up: 2, size: 0.08, life: 0.6, drag: 2, fadePow: 1.4 });
+        if (isOwn || bad) this.bursts.ring(new THREE.Vector3(pos.x, 0.42, pos.z), bad ? "#ff2038" : "#ffd15c", { radius: bad ? 1.3 : 1, life: 0.45, opacity: 0.5, tilt: null });
         // Nur die eigenen Zahlen gross; fremde Treffer sieht man am Sprung.
         if (isOwn || bad) this.pop(new THREE.Vector3(pos.x, 1.3, pos.z), label, { color: bad ? "#ff6b7f" : gold ? "#ffe36b" : player.color, size: isOwn ? (bad ? 0.38 : 0.34) : 0.26, life: bad ? 0.8 : 0.65, rise: 0.7 });
         if (bad) {
@@ -619,7 +667,11 @@ export class WhackBlob extends MinigameScene {
           const hole = this.cellPos(cell);
           naechstes = Math.min(naechstes, Math.hypot(hole.x - kin.position.x, hole.z - kin.position.z));
         }
-        const ueber = Math.max(0, Math.min(1, (0.62 - naechstes) / 0.25));
+        // Der Blob, auf den ein ANDERER haut, bleibt jetzt für einen selbst
+        // stehen — der Sprung muss auch über ihn hinweg, bis kurz vor die
+        // Landung 0.75 neben dem Loch. Ganz oben ab 0.53 (Körper samt
+        // Rücklehne), bei 0.74 wieder am Boden.
+        const ueber = Math.max(0, Math.min(1, (0.74 - naechstes) / 0.21));
         arc = Math.max(arc, BLOB_CLEAR * ueber);
       }
       this.setGround(player.id, MOUND_TOP + arc);
