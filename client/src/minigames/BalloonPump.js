@@ -47,6 +47,12 @@ const R_GROW = 80;
 const TALL = 1.12;
 // Endspurt: die letzten Sekunden bekommen ein eigenes Bild und eigenen Ton.
 const RUSH_MS = 3000;
+// Finale des Siegers (Sekunden ab Finalbeginn, das Finale dauert 2,6 s): bis
+// 0,95 s abheben, bei POP_AT platzt es, danach kurz schweben, fallen, landen —
+// und vor dem Ende bleibt gut eine halbe Sekunde zum Jubeln.
+const WINNER_LIFT = 1.0;
+const POP_AT = 1.1;
+const FALL_G = 7;
 
 function balloonRadius(pumps) {
   return R0 + (R_MAX - R0) * (1 - Math.exp(-Math.max(0, pumps) / R_GROW));
@@ -729,25 +735,40 @@ export class BalloonPump extends MinigameScene {
     const winnerId = this.finaleWinnerId(f);
     const mine = player.id === f.controlledId;
     if (player.id === winnerId) {
+      const animator = this.animators.get(player.id);
       if (!station.popped) {
-        const u = Math.min(1, since / 1.1);
+        // Aufblähen und sanft abheben — erst langsam, dann gleichmässig.
+        const u = Math.min(1, since / 1.0);
         const grow = balloonRadius(station.lastPumps) * (1 + 0.55 * u * u);
         station.radius += (grow - station.radius) * frameLerp(0.25, dt);
-        station.lift = Math.min(1.2, Math.max(0, since - 0.2) * 1.5);
-        if (since > 1.3) this.popBalloon(player, station, mine);
-      } else {
-        // Fallen und landen.
-        station.liftVel -= 11 * dt;
-        station.lift = Math.max(0, station.lift + station.liftVel * dt);
-        if (station.lift === 0 && !station.landed) {
+        const rise = Math.min(1, Math.max(0, since - 0.15) / 0.8);
+        station.lift = WINNER_LIFT * rise * rise * (3 - 2 * rise);
+        if (station.lift > 0.02) animator?.set("hang");
+        if (since > POP_AT) this.popBalloon(player, station, mine);
+      } else if (!station.landed) {
+        // Nach dem Knall einen Wimpernschlag in der Luft stehen — wie im
+        // Zeichentrick —, dann mit rudernden Armen fallen. Vorher fiel die
+        // Figur in einer halben Sekunde mit hochgestreckten Armen, und die
+        // Kamera sprang gleichzeitig auf sie: es sah aus, als würde sie auf
+        // den Boden teleportiert.
+        const hangFor = (now - station.poppedAt) / 1000;
+        if (hangFor > 0.16) {
+          animator?.set("panic");
+          station.liftVel -= FALL_G * dt;
+          station.lift = Math.max(0, station.lift + station.liftVel * dt);
+        }
+        if (station.lift === 0) {
           station.landed = true;
-          this.animators.get(player.id)?.trigger("land");
-          this.bursts.ring(this.kins.get(player.id).position, "#ffffff", { radius: 0.9, life: 0.35, opacity: 0.5, y: DECK_Y + 0.03 });
+          animator?.trigger("land");
+          const kin = this.kins.get(player.id);
+          this.bursts.ring(kin.position, "#ffffff", { radius: 1, life: 0.4, opacity: 0.55, y: DECK_Y + 0.03 });
+          this.burst(_a.set(kin.position.x, DECK_Y + 0.05, kin.position.z).clone(), ["#e8c49a", "#ffffff"], { count: 8, speed: 1.4, up: 0.8, size: 0.06, life: 0.45, gravity: 4 });
+          this.rig.shake(0.18);
           this.feedback?.sound("land");
+          this.feedback?.vibrate(20);
         }
       }
       this.setGround(player.id, this.kinGround(station.lift));
-      if (station.lift > 0.05 && !station.popped) this.animators.get(player.id)?.set("hang");
       return;
     }
     if (winnerId === null && since < 0.2) return;
@@ -903,7 +924,9 @@ export class BalloonPump extends MinigameScene {
 
   popBalloon(player, station, mine) {
     station.popped = true;
-    station.liftVel = 0.6;
+    station.poppedAt = this.now();
+    station.popY = this.kins.get(player.id)?.position.y ?? DECK_Y + 1;
+    station.liftVel = 0;
     station.balloon.visible = false;
     station.string.visible = false;
     const at = station.pos.clone();
@@ -965,11 +988,17 @@ export class BalloonPump extends MinigameScene {
     const kin = id && this.kins.get(id);
     if (!station || !kin) return null;
     if (!station.popped) {
+      // Bis zum Knall: Figur, Bühne und Ballon zusammen.
       const top = station.pos.y + station.radius * TALL;
-      const bottom = kin.position.y - 0.35 * S;
-      const h = Math.max(3, (top - bottom) * 1.3);
-      return { look: [kin.position.x * 0.8, (top + bottom) / 2, 0], frame: { w: h * 0.9, h }, pitch: 0.12 };
+      const bottom = DECK_Y - 0.1;
+      const h = Math.max(3, (top - bottom) * 1.25);
+      station.popShot = { look: [kin.position.x * 0.8, (top + bottom) / 2, 0], frame: { w: h * 0.9, h }, pitch: 0.12 };
+      return station.popShot;
     }
+    // Während des Falls steht die Kamera still — dieselbe Einstellung wie im
+    // Moment des Knalls, die Bühne ist schon im Bild. Erst nach der Landung
+    // fährt sie heran; vorher fuhr sie der fallenden Figur hinterher.
+    if (!station.landed && station.popShot) return station.popShot;
     return { look: [kin.position.x * 0.8, kin.position.y + 0.5, kin.position.z], frame: { w: 3.2, h: 3 }, pitch: 0.16 };
   }
 
