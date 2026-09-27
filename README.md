@@ -126,7 +126,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 ### 👆 Tippen
 
 - **Nervenprobe:** Die Zielzeit liegt zwischen 4 und 8 Sekunden. Nach 2 Sekunden verschwindet jede Uhr — zähl im Kopf weiter und drück so nah wie möglich an der Zielzeit.
-- **Pump-Panik:** Tipp auf PUMPEN, so schnell du kannst — jeder Tipp pumpt deinen Ballon ein Stück dicker. Wer am Ende am meisten gepumpt hat, bringt seinen Ballon zum Platzen und gewinnt.
+- **Pump-Panik:** Tippe so schnell du kannst, gern mit zwei Fingern — jeder Tipp pumpt deinen Ballon dicker. Wer am Ende am meisten gepumpt hat, lässt seinen Ballon platzen und gewinnt.
 - **Fassmut:** Über dir hängt ein Fass am Seil. Irgendwann wird es losgelassen und fällt — EIN Tipp spannt das Seil, doch das Fass rutscht noch ein Stück nach. Der Schatten zeigt, wo es stehen bliebe: zieh, wenn er im Grünen dicht über deinem Kopf ist. Wer es am dichtesten über dem Kopf stoppt, gewinnt — zu spät gezogen gibt eine Beule.
 - **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus.
 - **Blob-Klopfe:** Blobs poppen aus den Löchern — tipp drauf, bevor sie abtauchen. Je schneller, desto mehr: 3, 2 oder 1 Punkt, der goldene bringt 5. Finger weg von den dunkelroten mit Stachelkrone: zwei Punkte weg und kurz benommen.

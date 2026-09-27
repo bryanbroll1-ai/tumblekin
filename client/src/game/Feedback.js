@@ -39,7 +39,9 @@ export class Feedback {
     navigator.vibrate(softened);
   }
 
-  sound(name, { pan = 0 } = {}) {
+  // `pitch` hebt oder senkt alle Töne eines Klangs (1 = wie definiert) —
+  // Pump-Panik lässt den Pumpenton mit dem Ballon steigen.
+  sound(name, { pan = 0, pitch = 1 } = {}) {
     if (!this.enabled) return;
     const context = this.ensureAudio();
     if (!context || context.state !== "running") return;
@@ -140,15 +142,34 @@ export class Feedback {
       swish: [
         { noise: true, duration: 0.16, gain: 0.013 },
         tone(300, 640, 0.14, "sine", 0.01, 0.01)
+      ],
+      // Ein Pumpenstoss: kurzes Zischen, dumpfer Stoss. Leise, weil er bis zu
+      // zwölfmal je Sekunde kommt.
+      pump: [
+        { noise: true, duration: 0.045, gain: 0.009 },
+        tone(170, 240, 0.07, "triangle", 0.018)
+      ],
+      // Ein Ballon platzt: lauter Knall, dann ein tiefer Nachhall.
+      burst: [
+        { noise: true, duration: 0.2, gain: 0.05 },
+        tone(900, 160, 0.14, "square", 0.02),
+        tone(120, 60, 0.3, "triangle", 0.035, 0.03)
+      ],
+      // Luft entweicht: ein Pfeifen, das nach unten fällt.
+      deflate: [
+        { noise: true, duration: 0.5, gain: 0.008 },
+        tone(620, 150, 0.8, "sawtooth", 0.006),
+        tone(560, 130, 0.7, "sine", 0.012, 0.05)
       ]
     };
 
     const now = context.currentTime;
     const clampedPan = Math.max(-1, Math.min(1, pan));
+    const factor = Number.isFinite(pitch) && pitch > 0 ? Math.max(0.25, Math.min(4, pitch)) : 1;
     (sequences[name] || sequences.tap).forEach((preset) => {
       const start = now + (preset.offset || 0);
       if (preset.noise) this.playNoise(context, start, preset, clampedPan);
-      else this.playTone(context, start, preset, clampedPan);
+      else this.playTone(context, start, factor === 1 ? preset : { ...preset, frequency: preset.frequency * factor, endFrequency: preset.endFrequency * factor }, clampedPan);
     });
   }
 

@@ -136,7 +136,10 @@ const {
   paintIndex,
   paintSweep,
   paintOwnedCount,
-  RUNNER_ATTACK_RANGE
+  RUNNER_ATTACK_RANGE,
+  arcadeBotStep,
+  PUMP_RATE,
+  PUMP_BURST
 } = testRules;
 
 // Im Spiel wird der Startwert jeder Runde gewürfelt. Die Tests halten ihn je
@@ -1076,24 +1079,113 @@ test("fassmut: mehr Punkte gewinnen, bei Gleichstand der dichteste Treffer", () 
     > arcadeRankingScore(arcade, { points: 500, best: 1.2 }));
 });
 
-test("pump-panik: jeder Tipp zählt, ohne Wartezeit dazwischen", () => {
-  const tapper = player({ id: "pp", name: "PP", color: "#fff" });
-  const rival = player({ id: "pr", name: "PR", color: "#000" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("ballonPump", [tapper, rival], startedAt);
+// Pump-Panik mit gefälschter Uhr: `tap(id, ms)` tippt zum Zeitpunkt `ms` ab
+// Rundenbeginn.
+function pumpRoom(ids = ["pp", "pr"]) {
+  const players = ids.map((id, i) => player({ id, name: id.toUpperCase(), color: ["#fff", "#000", "#f00", "#0f0"][i] }));
+  const startedAt = 1000000;
+  const arcade = createArcadeState("ballonPump", players, startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 12000, finishing: false };
-  const room = { currentMinigame: minigame, players: [tapper, rival] };
-  // Zwanzig Tipps im selben Augenblick — keiner darf verschluckt werden.
-  for (let i = 0; i < 20; i += 1) handleArcadeInput(room, tapper, { action: "pump" });
-  for (let i = 0; i < 12; i += 1) handleArcadeInput(room, rival, { action: "pump" });
-  const me = arcade.players[tapper.id];
-  const other = arcade.players[rival.id];
-  assert.equal(me.pumps, 20);
-  assert.equal(other.pumps, 12);
-  assert.ok(arcadeRankingScore(arcade, me) > arcadeRankingScore(arcade, other), "wer mehr pumpt, gewinnt");
-  const detail = arcadeResultDetail(arcade, me);
-  assert.equal(detail.value, 20, "die Anzeige ist die Wertung");
-  assert.equal(handleArcadeInput(room, tapper, { action: "blow" }).ok, false);
+  const room = { currentMinigame: minigame, players };
+  const realNow = Date.now;
+  const tap = (id, ms) => {
+    Date.now = () => startedAt + ms;
+    try {
+      return handleArcadeInput(room, players.find((p) => p.id === id), { action: "pump" });
+    } finally {
+      Date.now = realNow;
+    }
+  };
+  return { players, arcade, minigame, room, tap, entry: (id) => arcade.players[id] };
+}
+
+test("pump-panik: jeder Tipp zählt, ohne Wartezeit dazwischen", () => {
+  const { arcade, tap, entry, room, players } = pumpRoom();
+  // Zwei Finger im Wechsel, zwölf Tipps je Sekunde über die ganze Runde —
+  // schneller, als die meisten tippen. Keiner darf verschluckt werden.
+  for (let i = 0; i < 144; i += 1) tap("pp", i * (1000 / 12));
+  // Und ein Bündel: fünf Tipps, die das Netz auf einmal zustellt.
+  for (let i = 0; i < 40; i += 1) tap("pr", i * 250);
+  for (let i = 0; i < 5; i += 1) tap("pr", 10500);
+  assert.equal(entry("pp").pumps, 144);
+  assert.equal(entry("pr").pumps, 45);
+  assert.ok(arcadeRankingScore(arcade, entry("pp")) > arcadeRankingScore(arcade, entry("pr")), "wer mehr pumpt, gewinnt");
+  const detail = arcadeResultDetail(arcade, entry("pp"));
+  assert.equal(detail.value, 144, "die Anzeige ist die Wertung");
+  assert.equal(detail.extra, null, "kein Feinwert, wenn niemand gleichauf liegt");
+  assert.equal(handleArcadeInput(room, players[0], { action: "blow" }).ok, false);
+  assert.equal(arcade.pumpRate, PUMP_RATE, "die Geräte zählen mit derselben Grenze");
+  assert.equal(arcade.pumpBurst, PUMP_BURST);
+});
+
+test("pump-panik: ein Autoklicker zählt nur bis zur Obergrenze", () => {
+  const { tap, entry } = pumpRoom();
+  assert.ok(PUMP_RATE >= 14, "zwei Finger im Wechsel dürfen nie an die Grenze stossen");
+  // Fünfhundert Tipps je Sekunde, zwei Sekunden lang.
+  for (let i = 0; i < 1000; i += 1) tap("pp", 2000 + i * 2);
+  const pumps = entry("pp").pumps;
+  assert.ok(pumps <= PUMP_RATE * 2 + PUMP_BURST, `${pumps} Pumps aus 1000 Tipps`);
+  assert.ok(pumps >= PUMP_RATE * 2, "bis zur Grenze zählt alles");
+});
+
+test("pump-panik: bei Gleichstand liegt vorn, wer die Zahl zuerst hatte", () => {
+  const { arcade, tap, entry } = pumpRoom(["pa", "pb", "pc"]);
+  for (let i = 0; i < 30; i += 1) tap("pa", 1000 + i * 100);   // 30 Pumps bei 3,9 s
+  for (let i = 0; i < 30; i += 1) tap("pb", 4000 + i * 100);   // 30 Pumps bei 6,9 s
+  for (let i = 0; i < 12; i += 1) tap("pc", 500 + i * 100);
+  const a = arcadeRankingScore(arcade, entry("pa"));
+  const b = arcadeRankingScore(arcade, entry("pb"));
+  const c = arcadeRankingScore(arcade, entry("pc"));
+  assert.ok(a > b && b > c, `Rangfolge ${a} > ${b} > ${c}`);
+  // Auch der knappste Vorsprung schlägt jede Zeit.
+  assert.ok(arcadeRankingScore(arcade, { pumps: 31, reachedMs: 11999 }) > arcadeRankingScore(arcade, { pumps: 30, reachedMs: 0 }));
+  assert.equal(arcadeResultDetail(arcade, entry("pa")).extra, "erreicht nach 3,9 s");
+  assert.equal(arcadeResultDetail(arcade, entry("pb")).extra, "erreicht nach 6,9 s");
+  assert.equal(arcadeResultDetail(arcade, entry("pc")).extra, null);
+  // Wer gar nicht tippt, liegt mit allen anderen Nichttippern gleichauf.
+  assert.equal(arcadeRankingScore(arcade, { pumps: 0, reachedMs: null }), 0);
+});
+
+test("pump-panik: Bots tippen wie Menschen — je Stufe schneller, nie im Gleichtakt", () => {
+  const levels = { easy: [], normal: [], hard: [] };
+  const realNow = Date.now;
+  const realRandom = Math.random;
+  let seed = 7;
+  Math.random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  try {
+    for (let run = 0; run < 12; run += 1) {
+      Object.keys(levels).forEach((level) => {
+        const bot = player({ id: `b-${level}`, name: "Bot", color: "#fff", isBot: true });
+        const startedAt = 5000000;
+        const arcade = createArcadeState("ballonPump", [bot], startedAt);
+        const entry = arcade.players[bot.id];
+        entry.botProfile = { level, reactionMs: 500, mistake: 0.1, spreadMs: 300 };
+        const minigame = { arcade, scores: {}, startedAt, duration: 12000, finishing: false };
+        const room = { currentMinigame: minigame, players: [bot] };
+        let first = null;
+        for (let ms = 0; ms <= 12000; ms += 150) {
+          Date.now = () => startedAt + ms;
+          arcadeBotStep(room, bot);
+          if (first === null && entry.pumps > 0) first = ms;
+        }
+        levels[level].push({ pumps: entry.pumps, first });
+      });
+    }
+  } finally {
+    Date.now = realNow;
+    Math.random = realRandom;
+  }
+  const avg = (list) => list.reduce((sum, r) => sum + r.pumps, 0) / list.length;
+  const easy = avg(levels.easy);
+  const normal = avg(levels.normal);
+  const hard = avg(levels.hard);
+  assert.ok(easy < normal && normal < hard, `Stufen ${easy} < ${normal} < ${hard}`);
+  assert.ok(easy >= 40 && easy <= 65, `leicht ${easy}`);
+  assert.ok(hard >= 80 && hard <= 115, `schwer ${hard} — schlagbar für eine flinke Hand`);
+  // Nach dem LOS braucht jeder einen Moment.
+  Object.values(levels).flat().forEach((r) => assert.ok(r.first >= 150, `erster Tipp nach ${r.first} ms`));
+  // Nicht zwölfmal dieselbe Zahl: kein Metronom.
+  assert.ok(new Set(levels.hard.map((r) => r.pumps)).size > 4);
 });
 
 test("fassrolle: the spinning barrel slides idle players off, counter-running holds", () => {

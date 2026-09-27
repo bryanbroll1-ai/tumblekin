@@ -1380,23 +1380,34 @@ const STATES = {
       face(p, "effort");
     }
   },
-  pump: {
-    dur: 0.3,
-    blend: 0.03,
-    pose(p, t) {
-      const u = clamp01(t / 0.3);
-      const down = bump(u, 0, 0.55);
-      const up = bump(u, 0.45, 1);
-      p.crouch = down * 0.08;
-      p.sq = 1 - down * 0.14 + up * 0.06;
-      p.aLs = 0.9 + down * 0.3;
-      p.aRs = 0.9 + down * 0.3;
-      p.aLr = 0.2;
-      p.aRr = 0.2;
-      p.lean = 0.2 * down;
-      p.y = up * 0.05;
-      face(p, "effort");
-      p.mouth = down > 0.5 ? "open" : "grin";
+  // Eine Pumpe bedienen, von der Szene geführt: `params.stroke` sagt, wie weit
+  // der Griff gerade unten ist (0 oben, 1 ganz unten), `params.strain`, wie
+  // sehr es anstrengt (0..1). Die frühere Einmal-Geste `pump` hatte eine feste
+  // Dauer — bei zehn Tipps je Sekunde begann sie alle 100 ms von vorn, und die
+  // Figur zitterte nur noch geduckt, statt zu pumpen. Hier folgt der Körper
+  // dem Griff, so schnell oder langsam er gerade geht. Die Hände legt die
+  // Szene mit reachArm auf den Griff.
+  pumpen: {
+    blend: 0.12,
+    pose(p, t, a) {
+      const s = clamp01(a.params.stroke ?? 0);
+      const strain = clamp01(a.params.strain ?? 0);
+      const n = a.now + a.phase;
+      p.crouch = s * 0.075;
+      p.sq = 1 - s * 0.1 + (1 - s) * 0.02;
+      p.lean = 0.05 + s * 0.13;
+      p.hX = s * 0.08 - 0.08;
+      p.aLs = 0.8 + s * 0.35;
+      p.aRs = 0.8 + s * 0.35;
+      p.aLr = 0.12;
+      p.aRr = 0.12;
+      p.lL = 0.05;
+      p.lR = -0.05;
+      // Unter Anstrengung ein feines Zittern — im Endspurt sieht man es.
+      p.tilt = strain * sin(n * 47) * 0.025;
+      face(p, strain > 0.45 ? "effort" : "focus");
+      p.mouth = s > 0.55 ? "open" : strain > 0.45 ? "flat" : "grin";
+      p.blink = Math.max(p.blink, strain * 0.25);
     }
   },
   dig: {

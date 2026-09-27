@@ -288,7 +288,6 @@
 .nerve-button,
 .hold-button,
 .jump-button,
-.pump-button,
 .dare-button,
 .bomb-button {
   display: grid;
@@ -338,12 +337,6 @@
 .jump-button:active {
   transform: translateY(6px);
   box-shadow: 0 2px 0 #084a80;
-}
-
-.pump-button {
-  border: 4px solid #ffffff;
-  background: linear-gradient(180deg, #ff8b2e, #f2600f);
-  box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
 }
 
 /* Fassmut: der Bremsknopf und die laufende Abstandsanzeige. Die Zahl ist der
@@ -387,30 +380,6 @@
 .dare-distance.steht { color: #7fe0a8; }
 .dare-distance.ueberrollt { color: #ff6b7f; letter-spacing: 0.16em; }
 
-.pump-button:active {
-  transform: translateY(6px) scale(0.98);
-  box-shadow: 0 2px 0 #833508;
-}
-
-/* Der Taktring läuft auf den Knopf ZU und ist genau auf dem Schlag
-   deckungsgleich mit ihm. Ein Ring, der zuläuft, kündigt den Takt an; ein
-   blosses Blinken meldet ihn nur — und dann tippt man immer zu spät. */
-.pump-beat {
-  position: absolute;
-  inset: -6px;
-  border: 4px solid rgba(255, 255, 255, 0.7);
-  border-radius: 28px;
-  pointer-events: none;
-  transform: scale(2.2);
-  opacity: 0.25;
-  transition: none;
-}
-
-.pump-beat.jetzt {
-  border-color: #7fe0a8;
-  box-shadow: 0 0 16px rgba(127, 224, 168, 0.8);
-}
-
 /* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
    dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
    Wisch zu geben hiesse, den Finger ständig neu aufzusetzen. */
@@ -442,7 +411,6 @@
 .nerve-button,
 .hold-button,
 .jump-button,
-.pump-button,
 .dare-button,
 .bomb-button {
   display: grid;
@@ -494,104 +462,6 @@
   box-shadow: 0 2px 0 #084a80;
 }
 
-.pump-button {
-  border: 4px solid #ffffff;
-  background: linear-gradient(180deg, #ff8b2e, #f2600f);
-  box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
-}
-
-.pump-button:active {
-  transform: translateY(6px) scale(0.98);
-  box-shadow: 0 2px 0 #833508;
-}
-
-/* Der Taktring läuft auf den Knopf ZU und ist genau auf dem Schlag
-   deckungsgleich mit ihm. Ein Ring, der zuläuft, kündigt den Takt an; ein
-   blosses Blinken meldet ihn nur — und dann tippt man immer zu spät. */
-.pump-beat {
-  position: absolute;
-  inset: -6px;
-  border: 4px solid rgba(255, 255, 255, 0.7);
-  border-radius: 28px;
-  pointer-events: none;
-  transform: scale(2.2);
-  opacity: 0.25;
-  transition: none;
-}
-
-.pump-beat.jetzt {
-  border-color: #7fe0a8;
-  box-shadow: 0 0 16px rgba(127, 224, 168, 0.8);
-}
-
-/* Die Druckanzeige IST hier das Spiel. Drei Dinge übereinander, alle ohne
-   Nachdenken lesbar: der Druck als Balken, die wandernde rote Linie als
-   Marke darauf, und die Spannung als dünner Streifen darunter. Danach regelt
-   man im Sekundentakt — sie gehört deshalb direkt über den Knopf und nicht
-   oben zur Uhr. */
-.pump-pad {
-  display: grid;
-  gap: 10px;
-  width: 100%;
-}
-
-.pump-gauge {
-  position: relative;
-  height: 26px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-}
-
-.pump-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #7fe0a8, #ffc400);
-  transition: width 90ms linear;
-}
-
-.pump-fill.ueber {
-  background: linear-gradient(90deg, #ffc400, #ff3b52);
-  animation: pump-alarm 260ms ease-in-out infinite alternate;
-}
-
-@keyframes pump-alarm {
-  from { filter: brightness(1); }
-  to { filter: brightness(1.35); }
-}
-
-/* Die rote Linie. Sie wandert langsam — ohne sie wäre das beste Spiel
-   "einmal einstellen und Finger liegen lassen". */
-.pump-limit {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 4px;
-  margin-left: -2px;
-  border-radius: 2px;
-  background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(255, 59, 82, 0.9);
-  transition: left 120ms linear;
-}
-
-.pump-strain {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 5px;
-  width: 0%;
-  border-radius: 999px;
-  background: #ff8b2e;
-  transition: width 90ms linear;
-}
-
-.pump-strain.kritisch {
-  background: #ff2038;
-  animation: pump-alarm 160ms ease-in-out infinite alternate;
-}
-
 .bomb-button {
   border: 4px solid #ffffff;
   background: linear-gradient(180deg, #40506a, #26303f);
@@ -606,7 +476,6 @@
 .nerve-button:disabled,
 .hold-button:disabled,
 .jump-button:disabled,
-.pump-button:disabled,
 .bomb-button:disabled {
   opacity: 0.55;
   filter: saturate(0.4);
@@ -1995,29 +1864,198 @@ canvas.is-stunned {
   z-index: 1;
 }
 
-/* --- Pump-Panik: ein grosser Knopf ----------------------------------------- */
-/* Ein reiner Klicker: ein Knopf, so gross wie möglich, jeder Tipp zählt. */
+/* --- Pump-Panik ------------------------------------------------------------ */
+/* Ein reiner Klicker: ein Knopf, so gross wie möglich, jeder Tipp zählt. Die
+   ganze Leiste um den Knopf nimmt Tipps an — wer hämmert, trifft nicht immer
+   genau. Im Knopf ein Tempobalken: wie schnell man gerade ist, ohne Zahl. */
 .pump-single {
   display: grid;
   justify-items: center;
   gap: 6px;
   width: min(100%, 420px);
   margin: 0 auto;
+  padding: 4px 0 2px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
-.pump-single .pump-button {
+.pump-button {
+  position: relative;
+  display: grid;
+  place-items: center;
   width: 100%;
-  min-height: 112px;
-  font-size: 1.6rem;
+  min-height: 118px;
+  margin: 0 auto;
+  padding: 0 0 14px;
+  overflow: hidden;
+  border: 4px solid #ffffff;
+  border-radius: 26px;
+  background: linear-gradient(180deg, #ff8b2e, #f2600f);
+  box-shadow: 0 8px 0 #833508, 0 18px 30px rgba(242, 96, 15, 0.4);
+  color: #ffffff;
+  font-size: 1.7rem;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  line-height: 1;
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pump-button:active {
+  transform: translateY(6px) scale(0.98);
+  box-shadow: 0 2px 0 #833508;
+}
+
+.pump-button:disabled {
+  opacity: 0.55;
+  filter: saturate(0.4);
+  transform: none;
+}
+
+.pump-button-face {
+  text-shadow: 0 3px 0 rgba(131, 53, 8, 0.55);
+  pointer-events: none;
+}
+
+.pump-tempo {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 12px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(96, 32, 0, 0.35);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pump-tempo i {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #ffe36b;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 120ms linear, background-color 160ms linear;
+}
+
+.pump-tempo i[data-level="mittel"] { background: #fff2a8; }
+.pump-tempo i[data-level="hoch"] { background: #ffffff; }
+.pump-tempo i[data-level="max"] {
+  background: #ffffff;
+  box-shadow: 0 0 10px #ffffff;
 }
 
 .pump-hint {
   margin: 0;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.8rem;
   font-weight: 800;
+  text-align: center;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+/* Der Führende trägt die Krone auch in der Leiste. */
+.pump-chips .hud-chip {
+  font-variant-numeric: tabular-nums;
+  transition: transform 160ms ease;
+}
+
+.pump-chips .hud-chip.is-lead {
+  transform: scale(1.08);
+  background: rgba(64, 44, 4, 0.9);
+}
+
+.pump-chips .hud-chip.is-lead::before {
+  content: "👑";
+  margin-right: -2px;
+}
+
+/* Die letzten drei Sekunden: die Uhr pulsiert rot. */
+.kinetic-scorebar.pump-hurry span {
+  background: #ff3b52;
+  animation: pump-hurry 500ms ease-in-out infinite alternate;
+}
+
+@keyframes pump-hurry {
+  from { transform: scale(1); }
+  to { transform: scale(1.12); }
+}
+
+.pump-rush {
+  position: absolute;
+  top: 25%;
+  left: 50%;
+  padding: 10px 22px;
+  border: 4px solid #ffffff;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ff5d73, #d81330);
+  box-shadow: 0 8px 0 #7c0a1c, 0 16px 30px rgba(0, 0, 0, 0.3);
+  color: #ffffff;
+  font-size: 1.7rem;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.pump-rush.zeigen {
+  animation: pump-rush 1500ms cubic-bezier(0.2, 0.9, 0.3, 1.2) forwards;
+}
+
+@keyframes pump-rush {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-6deg); }
+  14% { opacity: 1; transform: translate(-50%, -50%) scale(1.12) rotate(2deg); }
+  24% { transform: translate(-50%, -50%) scale(1) rotate(0); }
+  80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -80%) scale(0.9); }
+}
+
+/* Schmale Handys: vier Chips in einer Zeile. */
+@media (max-width: 360px) {
+  .pump-chips {
+    gap: 4px;
+  }
+
+  .pump-chips .hud-chip {
+    gap: 4px;
+    padding: 3px 7px;
+    font-size: 0.72rem;
+  }
+}
+
+/* Querformat mit wenig Höhe: der Knopf wird flach, damit das Bild Platz hat.
+   Getippt werden darf ohnehin auch ins Bild. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .pump-single {
+    width: min(100%, 360px);
+    gap: 2px;
+    padding: 0;
+  }
+
+  .pump-button {
+    min-height: 62px;
+    padding-bottom: 9px;
+    border-radius: 20px;
+    font-size: 1.25rem;
+  }
+
+  .pump-tempo {
+    bottom: 7px;
+    height: 5px;
+  }
+
+  .pump-hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kinetic-scorebar.pump-hurry span { animation: none; }
+  .pump-rush.zeigen { animation-duration: 1ms; animation-delay: 1200ms; }
 }
 
 /* --- Allgemein: Chip-Leiste mit dem Stand aller ------------------------- */

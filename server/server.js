@@ -1030,6 +1030,15 @@ function climbSideFor(arcade, rung) {
 // Pump-Panik — ein reiner Klicker: jeder Tipp pumpt, wer am Ende am meisten
 // gepumpt hat, bringt seinen Ballon zum Platzen und gewinnt. Keine Grenze,
 // kein Zubinden, keine Wartezeit zwischen den Tipps.
+//
+// Nur eine Obergrenze fürs Tempo: schneller als PUMP_RATE Tipps je Sekunde
+// tippt auf Dauer niemand, auch nicht mit zwei Fingern im Wechsel — was
+// darüber liegt, ist ein Autoklicker. Gezählt wird mit einem Eimer, der
+// PUMP_BURST Tipps fasst, damit Tipps, die das Netz gebündelt zustellt, nicht
+// verloren gehen. Die Geräte bekommen beide Zahlen und zählen genauso, damit
+// die eigene Anzeige nie mehr zeigt, als der Server zählt.
+const PUMP_RATE = 16;
+const PUMP_BURST = 8;
 
 // Blob-Klopfe — Blobs kommen aus 3 x 4 Löchern. Hochkant wie das Handy: das
 // quadratische 3 x 3 füllte nur die Bildmitte, darunter lag leere Wiese.
@@ -1856,6 +1865,8 @@ function startMinigame(room, reason, forcedType = null) {
   setTrackedTimeout(room, () => finishMinigame(room), countdownMs + template.duration + 350 + MINIGAME_FINALE_MS + 500);
 }
 
+const QUIET_INPUT_FAMILIES = new Set(["pump"]);
+
 function handleMinigameInput(room, player, rawInput) {
   const minigame = room.currentMinigame;
   if (room.status !== "minigame" || !minigame) {
@@ -1882,7 +1893,12 @@ function handleMinigameInput(room, player, rawInput) {
   if (minigame.arcade) {
     const result = handleArcadeInput(room, player, input);
     if (!result.ok) return result;
-    emitMinigameUpdate(room);
+    // Pump-Panik schickt bis zu sechzehn Tipps je Sekunde und Hand. Jeden
+    // davon sofort an alle zu verteilen, hiesse bei vier Menschen sechzig
+    // volle Spielstände je Sekunde an jedes Gerät — das eigene Gerät zählt
+    // seine Tipps ohnehin selbst, und die anderen sehen den Stand mit dem
+    // nächsten Takt (90 ms).
+    if (!QUIET_INPUT_FAMILIES.has(minigame.arcade.family)) emitMinigameUpdate(room);
     return { ok: true };
   }
 
@@ -2281,7 +2297,10 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     return Math.round((arcadePlayer.points || 0) * 1000) + nah;
   }
   if (arcade.family === "pump") {
-    return arcadePlayer.pumps || 0;
+    // Pumps zuerst; bei Gleichstand, wer die Zahl früher erreicht hatte.
+    const pumps = arcadePlayer.pumps || 0;
+    if (!pumps) return 0;
+    return pumps * 100000 + Math.max(0, 99999 - Math.round(arcadePlayer.reachedMs ?? 99999));
   }
   if (arcade.family === "dive") {
     return Math.max(0, arcadePlayer.banked || 0);
@@ -2448,7 +2467,16 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: Math.round(arcadePlayer.points || 0), label: "Punkte" };
   }
   if (arcade.family === "pump") {
-    return { kind: "points", value: arcadePlayer.pumps || 0, label: "Pumps" };
+    // Den Feinwert nur zeigen, wenn er etwas entscheidet: wenn jemand anderes
+    // genauso oft gepumpt hat.
+    const pumps = arcadePlayer.pumps || 0;
+    const tied = pumps > 0 && Object.values(arcade.players).some((other) => other !== arcadePlayer && (other.pumps || 0) === pumps);
+    return {
+      kind: "points",
+      value: pumps,
+      label: "Pumps",
+      extra: tied && arcadePlayer.reachedMs !== null ? `erreicht nach ${formatSekunden(arcadePlayer.reachedMs)}` : null
+    };
   }
   if (arcade.family === "barrel") {
     // Die Zahl, nach der auch sortiert wird: wie lange man MITTIG oben stand.
@@ -3056,8 +3084,16 @@ function createArcadeState(type, players, startedAt, options = {}) {
     });
   }
   if (config.family === "pump") {
+    arcade.pumpRate = PUMP_RATE;
+    arcade.pumpBurst = PUMP_BURST;
     players.forEach((player) => {
-      arcade.players[player.id].pumps = 0;
+      const entry = arcade.players[player.id];
+      entry.pumps = 0;
+      entry.pumpTokens = PUMP_BURST;
+      entry.pumpBucketAt = 0;
+      // Wann (ms ab Rundenbeginn) der Endstand erreicht war — die Feinwertung:
+      // bei gleich vielen Pumps liegt vorn, wer die Zahl zuerst hatte.
+      entry.reachedMs = null;
     });
   }
   if (config.family === "barrel") {
@@ -4092,9 +4128,16 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "pump") {
     if (input.action !== "pump") return { ok: false, error: "Tippe so schnell du kannst." };
+    // Der Eimer (siehe PUMP_RATE): was darüber liegt, zählt still nicht.
+    const refill = (Math.max(0, now - (arcadePlayer.pumpBucketAt || 0)) / 1000) * PUMP_RATE;
+    arcadePlayer.pumpTokens = Math.min(PUMP_BURST, (arcadePlayer.pumpTokens ?? PUMP_BURST) + refill);
+    arcadePlayer.pumpBucketAt = now;
+    if (arcadePlayer.pumpTokens < 1) return { ok: true };
+    arcadePlayer.pumpTokens -= 1;
     arcadePlayer.pumps += 1;
     arcadePlayer.score = arcadePlayer.pumps;
     arcadePlayer.hasMoved = true;
+    arcadePlayer.reachedMs = Math.max(0, now - room.currentMinigame.startedAt);
     if (arcadePlayer.pumps % 10 === 0) {
       arcadePlayer.flash = "good";
       arcadePlayer.lastHitAt = now;
@@ -6975,6 +7018,50 @@ function bounceNearestBeat(elapsed) {
 
 
 
+// Bots pumpen wie Menschen, nicht wie ein Metronom: jeder hat ein eigenes
+// Grundtempo, braucht nach dem LOS einen Moment, läuft an, lässt gegen Ende
+// etwas nach und zieht in den letzten Sekunden noch einmal an — dazu kurze
+// Aussetzer (Finger neu ansetzen). Vorher tippte ein Bot in jedem seiner
+// Takte mit fester Wahrscheinlichkeit: ein gleichmässiges Rattern, und der
+// starke Bot kam nicht über sechs Tipps je Sekunde.
+//
+// Der Bot-Takt (120–180 ms) sagt nur, wie oft nachgerechnet wird; das Tempo
+// sammelt sich dazwischen als Bruchteil an.
+function pumpBotStep(room, bot, arcadePlayer) {
+  const minigame = room.currentMinigame;
+  const now = Date.now();
+  const profile = botProfile(arcadePlayer);
+  if (!arcadePlayer.botPump) {
+    arcadePlayer.botPump = {
+      rate: byBotLevel(profile, 5.4, 7.2, 9.2) * (0.92 + Math.random() * 0.16),
+      react: byBotLevel(profile, 0.5, 0.32, 0.2) + Math.random() * 0.15,
+      tire: byBotLevel(profile, 0.2, 0.13, 0.08),
+      spurt: byBotLevel(profile, 1.04, 1.1, 1.15),
+      stall: byBotLevel(profile, 0.05, 0.03, 0.015),
+      phase: Math.random() * 6.3,
+      last: now,
+      carry: 0,
+      pauseUntil: 0
+    };
+  }
+  const b = arcadePlayer.botPump;
+  const dt = Math.min(0.3, Math.max(0, now - b.last) / 1000);
+  b.last = now;
+  const t = (now - minigame.startedAt) / 1000;
+  const total = minigame.duration / 1000;
+  if (t < b.react || now < b.pauseUntil || t > total) return;
+  const warm = Math.min(1, 0.7 + (t - b.react) * 0.6);
+  const tired = 1 - b.tire * Math.min(1, t / (total * 0.75));
+  const spurt = total - t < 3 ? b.spurt : 1;
+  const wobble = 1 + Math.sin(t * 2.3 + b.phase) * 0.08;
+  b.carry += b.rate * warm * tired * spurt * wobble * dt;
+  if (Math.random() < b.stall) b.pauseUntil = now + 150 + Math.random() * 200;
+  while (b.carry >= 1) {
+    b.carry -= 1;
+    handleArcadeInput(room, bot, { action: "pump" });
+  }
+}
+
 function arcadeBotStep(room, bot) {
   const minigame = room.currentMinigame;
   const arcade = minigame?.arcade;
@@ -7271,10 +7358,7 @@ function arcadeBotStep(room, bot) {
   }
 
   if (arcade.family === "pump") {
-    const profile = botProfile(player);
-    // Wie oft der Bot tippt, ist seine Spielstärke.
-    const chance = profile.level === "hard" ? 0.9 : profile.level === "normal" ? 0.7 : 0.5;
-    if (Math.random() < chance) handleArcadeInput(room, bot, { action: "pump" });
+    pumpBotStep(room, bot, player);
     return;
   }
   if (arcade.family === "barrel") {
@@ -8146,6 +8230,17 @@ function publicArcade(arcade) {
     return rest;
   }
   if (PARTY_FAMILIES[arcade.family]?.publicView) return PARTY_FAMILIES[arcade.family].publicView(arcade);
+  // Pump-Panik: Eimerstand und Bot-Tempo sind Rechenwerte des Servers — sie
+  // mit elf Bildern je Sekunde an jedes Gerät zu schicken, kostete ein Drittel
+  // des Pakets.
+  if (arcade.family === "pump") {
+    const players = {};
+    Object.entries(arcade.players).forEach(([id, entry]) => {
+      const { botPump, pumpTokens, pumpBucketAt, ...rest } = entry;
+      players[id] = rest;
+    });
+    return { ...arcade, players };
+  }
   if (!arcade.secret) return arcade;
   const { secret, ...rest } = arcade;
   return rest;
@@ -8432,6 +8527,8 @@ module.exports = {
     updateBounceArena,
     arenaBotStep,
     arcadeBotStep,
+    PUMP_RATE,
+    PUMP_BURST,
     ARENA_RADIUS,
     ARENA_BALL_RADIUS,
     ARENA_RESPAWN_MS,

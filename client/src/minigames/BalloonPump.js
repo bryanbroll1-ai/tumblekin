@@ -1,32 +1,77 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, standOn } from "./VoxelKit.js?v=tumblekin200";
+import { createCloud, reachArm } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Pump-Panik — ein reiner Klicker: jeder Tipp pumpt den eigenen Ballon
 // grösser. Wer am Ende am meisten gepumpt hat, bringt seinen zum Platzen.
 //
-// Das Schönste daran ist, alle vier Ballons live wachsen zu sehen. Die Figur
-// stampft dabei bei jedem Pumpen auf die Pumpe; eine Krone schwebt über dem
-// Ballon, der gerade vorn liegt. Im Finale hebt der dickste Ballon seinen Kin
-// ein Stück in die Luft — und platzt.
-// Eng genug, dass vier Stationen auf ein hochkantes Handy passen, ohne dass
-// die Figuren zu Punkten werden.
-const STATION_GAP = 1.2;
-// Grösser als vorher (1.6): der Ballon IST die Anzeige, und bei 35 Pumps sah
-// man den Unterschied zwischen erstem und letztem Platz kaum.
-const BALLOON_MAX = 2.4;
-const BALLOON_GROW = 45;   // Pumps bis gut zwei Drittel der Endgrösse
+// Der Ballon IST die Anzeige. Damit man im Augenwinkel sieht, wer vorn liegt,
+// wächst er über die ganze Runde gut lesbar (siehe balloonRadius), und die
+// vier Ballons stehen in zwei Reihen gestaffelt wie ein Strauss: vorne die
+// Stationen 1 und 3, hinten und höher 2 und 4. Wenn sie gross werden, drücken
+// sie sich an ihren Schnüren gegenseitig zur Seite, statt ineinander zu
+// stecken.
+//
+// Jeder Tipp ist eine kleine Kette: der Griff geht runter, die Figur geht mit,
+// ein Luftstoss läuft durch den Schlauch, und wenn er ankommt, zuckt der
+// Ballon und wird dicker. Im Finale reisst der dickste Ballon seinen Kin in
+// die Luft und platzt; die anderen rutschen vom Ventil und sausen pfeifend
+// davon.
+
+// Figuren und Pumpen eine Nummer grösser als die Standardfigur: vier
+// Stationen nebeneinander auf einem hochkanten Handy liessen die Figuren
+// sonst zu Punkten schrumpfen.
+const S = 1.3;
+const STATION_GAP = 1.1;
 const DECK_Y = 0.3;
+const KIN_Z = 0.28;
+// Der Griff liegt da, wo die kurzen Arme hinreichen: oben knapp unter den
+// Schultern, unten auf Kniehöhe.
+const GRIP_Z = KIN_Z + 0.2 * S;
+const GRIP_UP = 0.26 * S;
+const GRIP_DOWN = 0.14 * S;
+const GRIP_HALF = 0.2 * S;
+// Das Ventil auf seinem Pfosten hinter der Figur, über ihrem Kopf.
+const NOZZLE_Y = DECK_Y + 1.28 * S;
+// Ballongrösse aus der Zahl der Pumps: klein am Anfang, dann gut sichtbar
+// wachsend, und erst weit jenseits dessen, was eine Hand in zwölf Sekunden
+// schafft, am Anschlag. 50 / 75 / 100 Pumps ergeben 0,57 / 0,69 / 0,77 —
+// vorher klebten ab 60 Pumps alle am Deckel.
+const R0 = 0.2;
+const R_MAX = 1.0;
+const R_GROW = 80;
+// Tropfenform: die Hülle ist um diesen Faktor höher als breit.
+const TALL = 1.12;
+// Endspurt: die letzten Sekunden bekommen ein eigenes Bild und eigenen Ton.
+const RUSH_MS = 3000;
+
+function balloonRadius(pumps) {
+  return R0 + (R_MAX - R0) * (1 - Math.exp(-Math.max(0, pumps) / R_GROW));
+}
+
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const UP = new THREE.Vector3(0, 1, 0);
+const WHITE = new THREE.Color("#ffffff");
 
 export class BalloonPump extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.stations = new Map();
+    this.order = [];
     this.localPumps = 0;
     this.leaderId = null;
+    this.tokens = null;
+    this.tokenAt = 0;
+    this.tapTimes = [];
+    this.reduced = prefersReducedMotion();
+    this.rushShown = false;
+    this.lastTick = null;
   }
 
   stage() {
@@ -48,18 +93,14 @@ export class BalloonPump extends MinigameScene {
 
     // Holzbühne mit Planken und einem Rand — eine Jahrmarktbühne, keine Platte.
     const deck = new THREE.Mesh(new THREE.BoxGeometry(7.2, DECK_Y, 3.2), new THREE.MeshLambertMaterial({ color: "#c98d4e" }));
-    deck.position.y = DECK_Y / 2;
+    deck.position.set(0, DECK_Y / 2, -0.2);
     deck.receiveShadow = true;
     deck.castShadow = true;
     scene.add(deck);
-    const plank = new THREE.MeshLambertMaterial({ color: "#b67a3f" });
-    for (let i = 0; i < 9; i += 1) {
-      const line = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 3.1), plank);
-      line.position.set(-3.2 + i * 0.8, DECK_Y + 0.005, 0);
-      scene.add(line);
-    }
+    viele(scene, new THREE.BoxGeometry(0.03, 0.01, 3.1), lambert("#b67a3f"),
+      Array.from({ length: 9 }, (_, i) => ({ p: [-3.2 + i * 0.8, DECK_Y + 0.005, -0.2] })));
     const trim = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.12, 0.16), new THREE.MeshLambertMaterial({ color: "#ff5d73" }));
-    trim.position.set(0, DECK_Y - 0.02, 1.62);
+    trim.position.set(0, DECK_Y - 0.02, 1.42);
     scene.add(trim);
 
     // Wimpelleine hinter der Bühne.
@@ -67,21 +108,21 @@ export class BalloonPump extends MinigameScene {
     this.flags = [];
     for (let i = 0; i < 17; i += 1) {
       const t = i / 16;
-      const flag = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.32, 3), new THREE.MeshLambertMaterial({ color: flagColors[i % 5] }));
+      const flag = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.32, 3), lambert(flagColors[i % 5]));
       flag.rotation.x = Math.PI;
-      flag.position.set(-4 + t * 8, 4.1 - Math.sin(t * Math.PI) * 0.5, -1.8);
+      flag.position.set(-4 + t * 8, 5.2 - Math.sin(t * Math.PI) * 0.5, -2.2);
       flag.userData.phase = i * 0.6;
       scene.add(flag);
       this.flags.push(flag);
     }
     [-4.1, 4.1].forEach((x) => {
-      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.14, 4.4, 0.14), new THREE.MeshLambertMaterial({ color: "#f4efe4" }));
-      pole.position.set(x, 2.2, -1.8);
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.14, 5.5, 0.14), lambert("#f4efe4"));
+      pole.position.set(x, 2.75, -2.2);
       pole.castShadow = true;
       scene.add(pole);
     });
 
-    [[-7, 5.6, -6, 5], [7, 6.4, -4, 6], [0, 7, -9, 7]].forEach(([x, y, z, seed]) => {
+    [[-7, 6.6, -6, 5], [7, 7.4, -4, 6], [0, 8, -9, 7]].forEach(([x, y, z, seed]) => {
       const cloud = createCloud(seed);
       cloud.position.set(x, y, z);
       scene.add(cloud);
@@ -92,42 +133,107 @@ export class BalloonPump extends MinigameScene {
     this.crown.visible = false;
     scene.add(this.crown);
 
+    this.balloonGeometry = balloonGeometry();
+    this.puffGeometry = new THREE.SphereGeometry(0.045 * S, 8, 6);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => this.ensureStation(player, index, players.length));
   }
 
   shot() {
-    return { look: [0, 2.2, 0], frame: { w: 5.2, h: 4.6 }, pitch: 0.16, fov: 36, intro: { yaw: -0.6, pitch: 0.3, zoom: 1.6 } };
+    // Eigene Finalfahrt (rigOptions): die Standardfahrt zoomt auf die Figur,
+    // und der platzende Ballon darüber lag ausserhalb des Bildes.
+    return {
+      look: [0, 2.8, 0],
+      frame: { w: 4.4, h: 5.6 },
+      pitch: 0.14,
+      fov: 36,
+      intro: { yaw: -0.5, pitch: 0.28, zoom: 1.5 },
+      finale: false
+    };
   }
 
   hudHtml() {
-    return `<div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>`;
+    return `
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="hud-chips pump-chips" data-pump-chips></div>
+      <div class="pump-rush" data-pump-rush hidden>ENDSPURT!</div>`;
   }
 
   bind() {
     this.controls.innerHTML = `
       <div class="pump-single">
-        <button type="button" class="pump-button" data-pump><span class="pump-button-face">PUMPEN</span></button>
-        <p class="pump-hint">Tippen, so schnell du kannst!</p>
+        <button type="button" class="pump-button" data-pump>
+          <span class="pump-button-face">PUMPEN</span>
+          <span class="pump-tempo" aria-hidden="true"><i data-pump-tempo></i></span>
+        </button>
+        <p class="pump-hint" data-pump-hint>So schnell tippen, wie du kannst!</p>
       </div>`;
     this.pumpButton = this.controls.querySelector("[data-pump]");
-    // Jeder Finger zählt — auch zwei gleichzeitig. Keine Sperre zwischen den
-    // Tipps.
-    this.on(this.pumpButton, "pointerdown", (event) => {
+    this.tempoBar = this.controls.querySelector("[data-pump-tempo]");
+    this.hintNode = this.controls.querySelector("[data-pump-hint]");
+    // Jeder Finger zählt — auch zwei gleichzeitig. Getippt werden darf auf den
+    // Knopf, die ganze Leiste darum und das Spielbild: wer wild hämmert,
+    // trifft nicht immer genau.
+    const press = (event) => {
+      if (event.button !== undefined && event.button > 0) return;
+      event.preventDefault();
+      this.pressPump();
+    };
+    this.on(this.controls.querySelector(".pump-single"), "pointerdown", press);
+    this.on(this.webglCanvas, "pointerdown", press);
+    // Am Rechner: Leertaste oder Enter. Nicht, wenn gerade ein Menü oder ein
+    // Eingabefeld den Fokus hat.
+    this.on(window, "keydown", (event) => {
+      if (event.repeat || (event.code !== "Space" && event.code !== "Enter")) return;
+      if (event.target?.closest?.("input, textarea, select, [contenteditable], dialog, .overlay")) return;
+      const menu = document.getElementById("game-menu");
+      if (menu && !menu.hidden) return;
       event.preventDefault();
       this.pressPump();
     });
   }
 
+  // Tippt man schneller als der Server zählt (Autoklicker-Grenze), zählt das
+  // Gerät genauso wenig — sonst liefe die eigene Zahl dem Server davon.
+  takeToken(now, arcade) {
+    const rate = arcade?.pumpRate || 16;
+    const burst = arcade?.pumpBurst || 8;
+    if (this.tokens === null) this.tokens = burst;
+    this.tokens = Math.min(burst, this.tokens + (Math.max(0, now - this.tokenAt) / 1000) * rate);
+    this.tokenAt = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
+  }
+
   pressPump() {
     const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const now = this.now();
+    if (!minigame || minigame.finaleAt || now < minigame.startedAt || now > minigame.startedAt + minigame.duration) return;
+    // Wer nur zuschaut, hat keine Pumpe.
+    const id = this.getControlledPlayerId();
+    if (!minigame.arcade?.players?.[id]) return;
+    if (!this.takeToken(now, minigame.arcade)) return;
     this.localPumps += 1;
-    this.feedback?.sound("pop");
-    this.feedback?.vibrate(6);
-    // Die eigene Figur reagiert sofort, nicht erst mit der Antwort des Servers.
-    this.stationPumped(this.getControlledPlayerId());
+    this.tapTimes.push(performance.now());
+    if (this.tapTimes.length > 20) this.tapTimes.shift();
+    const station = this.stations.get(id);
+    // Die eigene Station reagiert sofort, nicht erst mit der Antwort des
+    // Servers. Der Ton steigt mit dem Ballon — man hört ihn dicker werden.
+    if (station) this.stroke(station, now, true);
+    const fill = station ? (station.radius - R0) / (R_MAX - R0) : 0;
+    this.feedback?.sound("pump", { pitch: 1 + fill * 0.7, pan: station ? station.x / 4 : 0 });
+    this.feedback?.vibrate(7);
+    this.pumpButton?.animate?.([{ transform: "translateY(5px) scale(0.975)" }, { transform: "none" }], { duration: 110, easing: "ease-out" });
     this.sendInput({ action: "pump" }).catch(() => {});
+  }
+
+  // Eigenes Tempo (Tipps je Sekunde) aus den letzten Tipps.
+  ownRate() {
+    const t = performance.now();
+    let n = 0;
+    for (let i = this.tapTimes.length - 1; i >= 0 && t - this.tapTimes[i] < 1000; i -= 1) n += 1;
+    return n;
   }
 
   stationX(index, count) {
@@ -137,65 +243,190 @@ export class BalloonPump extends MinigameScene {
   ensureStation(player, index, count) {
     if (this.stations.has(player.id)) return this.stations.get(player.id);
     const x = this.stationX(index, count);
-    const kinZ = 0.35;
+    const back = index % 2 === 1;
+    // Die Ventile der äusseren Stationen rücken etwas nach innen, damit die
+    // grossen Ballons am Rand nicht aus dem Bild ragen.
+    const postX = x * 0.9;
+    const postZ = back ? KIN_Z - 0.62 : KIN_Z - 0.3;
+    const neck = back ? 1.25 : 0.3;
 
-    // Kolbenpumpe VOR der Figur: sie drückt den T-Griff mit beiden Händen
-    // herunter — genau die Bewegung der Pump-Pose.
-    const red = new THREE.MeshLambertMaterial({ color: "#e04a58" });
-    const dark = new THREE.MeshLambertMaterial({ color: "#40506a" });
+    const group = new THREE.Group();
+    this.scene.add(group);
+
+    // Standpumpe VOR der Figur, in der Spielerfarbe: Fussplatte, Zylinder,
+    // Kolbenstange mit T-Griff. Die Figur drückt den Griff mit beiden Händen.
+    const body = new THREE.MeshPhongMaterial({ color: player.color, shininess: 60, specular: "#444444" });
+    const dark = lambert("#3b4658");
+    const steel = new THREE.MeshPhongMaterial({ color: "#c9d2dc", shininess: 90, specular: "#ffffff" });
     const pump = new THREE.Group();
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.26), dark);
-    foot.position.y = 0.03;
+    pump.position.set(x, DECK_Y, GRIP_Z);
+    group.add(pump);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.34 * S, 0.035 * S, 0.2 * S), dark);
+    foot.position.y = 0.0175 * S;
+    foot.castShadow = true;
     pump.add(foot);
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.2, 0.13), red);
-    barrel.position.y = 0.16;
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.075 * S, 0.085 * S, 0.12 * S, 14), body);
+    barrel.position.y = 0.035 * S + 0.06 * S;
     barrel.castShadow = true;
     pump.add(barrel);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.082 * S, 0.082 * S, 0.02 * S, 14), dark);
+    cap.position.y = 0.035 * S + 0.12 * S;
+    pump.add(cap);
     const plunger = new THREE.Group();
-    const rod = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.04), dark);
-    rod.position.y = -0.08;
-    plunger.add(rod);
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 0.06), dark);
-    plunger.add(handle);
-    plunger.position.y = 0.34;
     pump.add(plunger);
-    pump.position.set(x, DECK_Y, kinZ + 0.42);
-    this.scene.add(pump);
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012 * S, 0.012 * S, 0.16 * S, 6), steel);
+    rod.position.y = -0.08 * S;
+    plunger.add(rod);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(GRIP_HALF * 2 + 0.06 * S, 0.04 * S, 0.05 * S), steel);
+    plunger.add(handle);
+    [-1, 1].forEach((side) => {
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.08 * S, 0.05 * S, 0.06 * S), body);
+      grip.position.x = side * (GRIP_HALF - 0.01 * S);
+      plunger.add(grip);
+    });
+    plunger.position.y = GRIP_UP;
 
-    // Schlauch um die Figur herum zum Ballonpflock dahinter.
-    const peg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.4, 0.06), dark);
-    peg.position.set(x + 0.32, DECK_Y + 0.2, -0.28);
-    this.scene.add(peg);
-    const hoseMat = new THREE.MeshLambertMaterial({ color: "#6b7b94" });
-    const hoseA = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.7), hoseMat);
-    hoseA.position.set(x + 0.3, DECK_Y + 0.03, kinZ + 0.03);
-    this.scene.add(hoseA);
+    // Pfosten mit Ventil hinter der Figur, der Schlauch läuft über die Bühne
+    // und am Pfosten hoch.
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.05 * S, NOZZLE_Y - DECK_Y, 0.05 * S), lambert("#f4efe4"));
+    post.position.set(postX, (NOZZLE_Y + DECK_Y) / 2, postZ);
+    post.castShadow = true;
+    group.add(post);
+    const postFoot = new THREE.Mesh(new THREE.BoxGeometry(0.2 * S, 0.03 * S, 0.2 * S), dark);
+    postFoot.position.set(postX, DECK_Y + 0.015 * S, postZ);
+    group.add(postFoot);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.03 * S, 0.045 * S, 0.08 * S, 10), body);
+    nozzle.position.set(postX, NOZZLE_Y + 0.04 * S, postZ);
+    group.add(nozzle);
+    const nozzleTop = new THREE.Vector3(postX, NOZZLE_Y + 0.08 * S, postZ);
 
-    const balloon = buildBalloon(player.color);
-    // Abwechselnd höher und weiter hinten: grosse Ballons stehen wie ein
-    // Strauss gestaffelt, statt sich gegenseitig zu verdecken.
-    const back = index % 2 === 1;
-    balloon.userData.baseY = back ? 2.9 : 2.1;
-    balloon.userData.baseZ = back ? -0.9 : -0.3;
-    balloon.position.set(x, balloon.userData.baseY, balloon.userData.baseZ);
-    balloon.scale.setScalar(0.42);
+    const side = x >= 0 ? 1 : -1;
+    const hosePath = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x + 0.07 * S * side, DECK_Y + 0.05 * S, GRIP_Z),
+      new THREE.Vector3(x + 0.2 * S * side, DECK_Y + 0.02 * S, GRIP_Z - 0.02),
+      new THREE.Vector3(x + 0.32 * S * side, DECK_Y + 0.02 * S, KIN_Z - 0.05),
+      new THREE.Vector3((x + postX) / 2 + 0.2 * side, DECK_Y + 0.02 * S, postZ + 0.08),
+      new THREE.Vector3(postX + 0.04 * S * side, DECK_Y + 0.05 * S, postZ + 0.03),
+      new THREE.Vector3(postX + 0.04 * S * side, NOZZLE_Y - 0.25, postZ + 0.03),
+      new THREE.Vector3(postX + 0.01 * side, NOZZLE_Y, postZ + 0.01)
+    ], false, "catmullrom", 0.3);
+    const hose = new THREE.Mesh(new THREE.TubeGeometry(hosePath, 48, 0.017 * S, 6, false), lambert("#4d5b72"));
+    hose.castShadow = true;
+    group.add(hose);
+    // Luftstösse im Schlauch: ein kleiner Vorrat, der wiederverwendet wird.
+    const puffMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(player.color).lerp(WHITE, 0.55) });
+    const puffs = Array.from({ length: 5 }, () => {
+      const mesh = new THREE.Mesh(this.puffGeometry, puffMat);
+      mesh.visible = false;
+      mesh.userData.isFx = true;
+      this.scene.add(mesh);
+      return { mesh, t: -1 };
+    });
+
+    // Der Ballon: glänzende Latexhülle, ein Glanzlicht, der Knoten.
+    const baseColor = new THREE.Color(player.color);
+    const skin = new THREE.MeshPhongMaterial({ color: baseColor.clone(), shininess: 70, specular: "#666666", emissive: "#000000" });
+    const balloon = new THREE.Group();
+    const hull = new THREE.Mesh(this.balloonGeometry, skin);
+    hull.castShadow = true;
+    balloon.add(hull);
+    const shine = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55, depthWrite: false }));
+    shine.userData.isFx = true;
+    balloon.add(shine);
+    const knot = new THREE.Mesh(new THREE.ConeGeometry(0.05 * S, 0.07 * S, 8), skin);
+    knot.rotation.x = Math.PI;
+    balloon.add(knot);
     this.scene.add(balloon);
-    const string = new THREE.Mesh(new THREE.BoxGeometry(0.025, 1, 0.025), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
+    const string = new THREE.Mesh(new THREE.CylinderGeometry(0.01 * S, 0.01 * S, 1, 5), lambert("#fff7ea"));
     this.scene.add(string);
+    // Für die Kamera: ein Punkt am oberen Rand des Ballons.
+    const top = new THREE.Object3D();
+    this.scene.add(top);
 
-    this.addKin(player, index, { x, ground: DECK_Y, z: kinZ });
-    const station = { pump, plunger, balloon, string, peg, x, pulse: 0, lastPumps: 0, lift: 0 };
+    // Die Figur steht etwas höher, weil sie grösser ist (standOn rechnet mit
+    // der Sohle der Standardfigur).
+    this.addKin(player, index, { x, ground: this.kinGround(0), z: KIN_Z, scale: S });
+
+    const radius = R0;
+    const rest = new THREE.Vector3(postX, nozzleTop.y + neck + radius * TALL, postZ);
+    const station = {
+      id: player.id,
+      color: player.color,
+      index,
+      x,
+      group,
+      plunger,
+      nozzleTop,
+      neck,
+      hosePath,
+      puffs,
+      balloon,
+      hull,
+      shine,
+      knot,
+      skin,
+      baseColor,
+      string,
+      top,
+      radius,
+      pos: rest.clone(),
+      vel: new THREE.Vector3(),
+      rest,
+      tilt: new THREE.Quaternion(),
+      swell: 0,
+      depth: 0,
+      strokeAt: -1e9,
+      strokeFrom: 0,
+      strokeDur: 0.22,
+      pending: 0,
+      nextStrokeAt: 0,
+      lastPumps: 0,
+      history: [],
+      rate: 0,
+      lift: 0,
+      liftVel: 0,
+      popped: false,
+      landed: false,
+      loose: null,
+      gone: false
+    };
     this.stations.set(player.id, station);
+    this.order.push(station);
     return station;
   }
 
-  stationPumped(playerId) {
-    const station = this.stations.get(playerId);
-    const animator = this.animators.get(playerId);
-    if (!station || !animator) return;
-    station.pulse = 1;
-    station.plunger.position.y = 0.2;
-    animator.trigger("pump");
+  kinGround(lift) {
+    // standOn() setzt die Standardfigur mit der Sohle auf `ground`. Bei S-facher
+    // Grösse liegt die Sohle S-mal so tief unter der Mitte.
+    return DECK_Y + 0.3 * (S - 1) + lift;
+  }
+
+  // Ein Pumpstoss an einer Station: Griff runter, Luftstoss auf den Weg.
+  stroke(station, now, mine = false) {
+    const interval = station.rate > 0.5 ? 1000 / station.rate : 260;
+    station.strokeFrom = station.depth;
+    station.strokeAt = now;
+    station.strokeDur = Math.max(80, Math.min(260, interval * (mine ? 0.9 : 0.95)));
+    const puff = station.puffs.find((p) => p.t < 0);
+    if (puff) {
+      puff.t = 0;
+      puff.mesh.visible = true;
+    } else {
+      // Alle unterwegs: der Ballon bekommt die Luft trotzdem.
+      station.swell = Math.min(1, station.swell + 0.5);
+    }
+  }
+
+  // Wie weit der Griff unten ist (0..1): schnell runter, weich wieder hoch.
+  strokeDepth(station, now) {
+    const u = (now - station.strokeAt) / station.strokeDur;
+    if (u >= 1 || u < 0) return 0;
+    if (u < 0.38) {
+      const k = u / 0.38;
+      return station.strokeFrom + (1 - station.strokeFrom) * (1 - (1 - k) * (1 - k));
+    }
+    const k = (u - 0.38) / 0.62;
+    return 1 - k * k * (3 - 2 * k);
   }
 
   // Eine Geburtstagsfeier im Garten: vorn eine karierte Picknickdecke mit
@@ -234,20 +465,19 @@ export class BalloonPump extends MinigameScene {
 
     // Ballonbündel an einem Gewicht.
     this.partyBalloons = [];
-    kiste(scene, 0.14, 0.1, 0.14, "#8a90a0", [1.85, 0.05, 3.9]);
+    this.partyStrings = [];
+    this.partyAnchor = new THREE.Vector3(3.3, 0.1, 3.2);
+    kiste(scene, 0.14, 0.1, 0.14, "#8a90a0", [3.3, 0.05, 3.2]);
     ["#ff5d73", "#ffd15c", "#28c7d9"].forEach((farbe, i) => {
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), lambert(farbe));
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), new THREE.MeshPhongMaterial({ color: farbe, shininess: 60, specular: "#555555" }));
       ball.scale.y = 1.2;
-      ball.userData = { basis: new THREE.Vector3(1.85 + (i - 1) * 0.2, 1.25 + (i % 2) * 0.22, 3.9 + (i === 1 ? -0.12 : 0.05)), phase: i * 2 };
+      ball.userData = { basis: new THREE.Vector3(3.3 + (i - 1) * 0.2, 1.25 + (i % 2) * 0.22, 3.2 + (i === 1 ? -0.12 : 0.05)), phase: i * 2 };
       scene.add(ball);
       this.partyBalloons.push(ball);
-    });
-    const faeden = this.partyBalloons.map((b) => {
       const faden = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 1, 4), lambert("#ffffff"));
       scene.add(faden);
-      return faden;
+      this.partyStrings.push(faden);
     });
-    this.partyStrings = faeden;
 
     // Konfetti im Gras.
     const farben = ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b98cff"];
@@ -282,173 +512,560 @@ export class BalloonPump extends MinigameScene {
     viele(haus, new THREE.PlaneGeometry(0.6, 0.6), lambert("#8fc6e8"), [[-1.1, 1.6], [-1.1, 0.6], [1.5, 1.8]].map(([x, y]) => ({ p: [x, y, 1.53] })));
   }
 
-  tick(f) {
-    const { now, dt, arcade, players, controlledId, finale } = f;
+  tickParty(now) {
     if (this.candleFlames) this.candleFlames.scale.setScalar(1 + Math.sin(now / 70) * 0.15);
     this.partyBalloons?.forEach((ball, i) => {
       const b = ball.userData.basis;
       ball.position.set(b.x + Math.sin(now / 900 + ball.userData.phase) * 0.05, b.y + Math.sin(now / 700 + ball.userData.phase) * 0.04, b.z);
-      const faden = this.partyStrings[i];
-      const unten = new THREE.Vector3(1.85, 0.1, 3.9);
-      const oben = ball.position.clone().add(new THREE.Vector3(0, -0.2, 0));
-      faden.position.copy(unten).lerp(oben, 0.5);
-      faden.scale.y = unten.distanceTo(oben);
-      faden.lookAt(oben);
-      faden.rotateX(Math.PI / 2);
+      _b.copy(ball.position);
+      _b.y -= 0.2;
+      placeLine(this.partyStrings[i], this.partyAnchor, _b);
     });
-    if (!arcade) return;
+    this.flags.forEach((flag) => { flag.rotation.z = Math.sin(now / 320 + flag.userData.phase) * 0.18; });
+  }
 
-    let best = -1;
+  // Wer liegt vorn? Mehr Pumps; bei Gleichstand, wer die Zahl zuerst hatte —
+  // genau wie der Server wertet.
+  leaderOf(arcade, players, controlledId) {
     let leader = null;
+    let best = 0;
+    let bestAt = Infinity;
     players.forEach((player) => {
-      const pumps = arcade.players[player.id]?.pumps || 0;
-      if (pumps > best) { best = pumps; leader = player.id; }
-      else if (pumps === best) leader = null;
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const pumps = this.pumpsOf(player.id, entry, controlledId);
+      const at = entry.reachedMs ?? Infinity;
+      if (pumps > best || (pumps === best && pumps > 0 && at < bestAt)) {
+        best = pumps;
+        bestAt = at;
+        leader = player.id;
+      }
     });
+    return leader;
+  }
+
+  pumpsOf(id, entry, controlledId) {
+    const server = entry?.pumps || 0;
+    const minigame = this.update || this.minigame;
+    // Im Finale gilt nur noch, was der Server gezählt hat.
+    if (id !== controlledId || minigame?.finaleAt) return server;
+    return Math.max(server, this.localPumps);
+  }
+
+  tick(f) {
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
+    this.tickParty(now);
+    if (!arcade) return;
+    const end = minigame.startedAt + minigame.duration;
+    const left = end - now;
+    const rush = f.started && left > 0 && left <= RUSH_MS;
+    const leader = this.leaderOf(arcade, players, controlledId);
 
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
       if (!entry) return;
       const station = this.ensureStation(player, index, players.length);
-      const animator = this.animators.get(player.id);
-      const kin = this.kins.get(player.id);
       const mine = player.id === controlledId;
-      const pumps = mine ? Math.max(entry.pumps || 0, this.localPumps) : (entry.pumps || 0);
+      const pumps = this.pumpsOf(player.id, entry, controlledId);
 
+      // Tempo aus dem Verlauf der Zahl über die letzte Sekunde; für mich
+      // zählen zusätzlich die eigenen Tipps, die sofort da sind.
+      const history = station.history;
+      if (!history.length || history[history.length - 1].pumps !== pumps) history.push({ at: now, pumps });
+      while (history.length > 2 && now - history[0].at > 1100) history.shift();
+      const first = history[0];
+      let rate = history.length > 1 && now - first.at > 150 ? (pumps - first.pumps) / Math.max(0.4, (now - first.at) / 1000) : 0;
+      if (now - history[history.length - 1].at > 700) rate = 0;
+      station.rate = mine ? Math.max(rate, this.ownRate()) : rate;
+
+      // Neue Pumps kommen im Servertakt gebündelt an. Als Stösse werden sie im
+      // Tempo der Hand verteilt, nicht alle auf einmal. Meine eigenen Tipps
+      // haben ihren Stoss schon beim Tippen bekommen — nur was der Server
+      // darüber hinaus zählt (Wiedereinstieg, Autopilot), kommt hier dazu.
       if (pumps > station.lastPumps) {
-        if (!mine) this.stationPumped(player.id);
+        const tapped = mine ? this.localPumps - (station.localSeen || 0) : 0;
+        station.pending = Math.min(6, station.pending + Math.max(0, pumps - station.lastPumps - tapped));
+        this.milestones(station, player, station.lastPumps, pumps, mine);
         station.lastPumps = pumps;
-        // Alle zehn Pumps ein kleiner Knall — man hört, wer gut dabei ist.
-        if (pumps % 10 === 0 && pumps > 0) {
-          const at = station.balloon.position.clone();
-          this.burst(at, [player.color, "#ffffff"], { count: 6, speed: 1.2, up: 1, size: 0.06, life: 0.5 });
-          if (mine) this.feedback?.sound("sparkle");
-        }
       }
-      station.pulse *= Math.pow(0.001, dt);
-      station.plunger.position.y += (0.34 - station.plunger.position.y) * frameLerp(0.22, dt);
-
-      // Wächst schnell an und flacht dann ab: auch bei sehr schnellen Daumen
-      // bleibt ein Unterschied sichtbar, statt dass alle am Deckel kleben.
-      const size = 0.42 + (BALLOON_MAX - 0.42) * (1 - Math.exp(-pumps / BALLOON_GROW));
-      const wobble = 1 + station.pulse * 0.14 + Math.sin(now / 300 + index) * 0.012;
-      let balloonScale = size;
-      if (finale && !station.popped) {
-        const place = f.places?.[player.id];
-        const since = Math.max(0, now - (f.minigame.finaleAt - 2600));
-        if (place === 1) {
-          // Überblasen, hochheben — und PENG.
-          balloonScale = size * (1 + Math.min(0.9, since / 1100)) + Math.sin(now / 55) * 0.03;
-          station.lift = Math.min(1.1, since / 900);
-          if (since > 1250) this.popBalloon(player, station, mine);
-          station.balloon.position.x = station.x;
-        } else {
-          station.deflate = station.deflate ?? size;
-          balloonScale = Math.max(0.12, station.deflate * Math.max(0.12, 1 - since / 1500));
-          station.balloon.position.x = station.x + Math.sin(now / 80 + index) * Math.min(0.35, since / 1300);
-          if (since < 1500 && Math.random() < frameChance(0.3, dt)) {
-            this.burst(station.balloon.position.clone(), ["#ffffff"], { count: 1, speed: 0.8, up: 0.3, size: 0.04, life: 0.3 });
-          }
-        }
+      if (mine) station.localSeen = this.localPumps;
+      if (station.pending > 0 && now >= station.nextStrokeAt && !finale) {
+        station.pending -= 1;
+        this.stroke(station, now);
+        const interval = station.rate > 0.5 ? 1000 / station.rate : 120;
+        station.nextStrokeAt = now + Math.max(55, Math.min(260, interval));
       }
-      station.balloon.scale.set(balloonScale * wobble, balloonScale * (1 + station.pulse * 0.2), balloonScale * wobble);
-      const floatY = station.balloon.userData.baseY + balloonScale * 0.42 + Math.sin(now / 700 + index * 1.7) * 0.06 + station.lift * 1.2;
-      station.balloon.position.z = station.balloon.userData.baseZ;
-      station.balloon.position.y = floatY;
-      station.balloon.rotation.z = Math.sin(now / 900 + index) * 0.06;
 
-      // Der Sieger hängt am Ballon und wird mit hochgezogen.
-      const kinGround = DECK_Y + (station.popped ? 0 : station.lift * 1.2);
-      this.setGround(player.id, kinGround);
-      if (station.lift > 0 && !station.popped) animator.set("hang");
-      else if (!finale) animator.set(pumps > 0 && now - (station.lastAt || 0) < 400 ? "focus" : "idle");
-      if (pumps !== station.seen) { station.seen = pumps; station.lastAt = now; }
+      // Griff, Figur und Luftstösse.
+      const depth = finale ? 0 : this.strokeDepth(station, now);
+      station.depth += (depth - station.depth) * frameLerp(0.7, dt);
+      station.plunger.position.y = GRIP_UP - (GRIP_UP - GRIP_DOWN) * station.depth;
+      this.advancePuffs(station, dt);
 
-      const balloonBottom = station.balloon.position.y - balloonScale * 0.45;
-      const lifted = station.lift > 0 && !station.popped;
-      const anchorY = lifted ? kin.position.y + 0.3 : DECK_Y + 0.4;
-      const anchorX = lifted ? kin.position.x : station.x + 0.32;
-      const anchorZ = lifted ? kin.position.z : -0.28;
-      station.string.visible = station.balloon.visible;
-      station.string.scale.y = Math.max(0.2, balloonBottom - anchorY);
-      station.string.position.set((station.balloon.position.x + anchorX) / 2, (balloonBottom + anchorY) / 2, (station.balloon.position.z + anchorZ) / 2);
-      station.string.rotation.z = Math.atan2(anchorX - station.balloon.position.x, balloonBottom - anchorY) * 0.9;
+      // Der Ballon wächst mit der Zahl — weich, nicht in Stufen.
+      const target = balloonRadius(pumps);
+      if (!finale) station.radius += (target - station.radius) * frameLerp(0.18, dt);
+      station.swell *= Math.pow(0.004, dt);
 
-      // Der Ballon hängt hinter der Figur. Beim Pumpen geht nur der Blick nach
-      // oben — das Gesicht bleibt zur Kamera, sonst sähe man nur Hinterköpfe.
-      animator.look(finale ? null : (now - (station.lastAt || 0) < 400 ? 0 : null), 0.7);
+      this.animateKin(player, station, f, rush);
+      if (finale) this.finaleStation(player, station, f);
+      this.simulateBalloon(station, f, rush);
+      this.drawBalloon(station, f, rush);
     });
 
-    // Krone über dem Führenden (nur wenn einer allein vorn liegt).
-    if (leader && !finale && best > 0) {
-      const station = this.stations.get(leader);
+    this.separateBalloons(dt);
+
+    // Krone über dem führenden Ballon.
+    const crownAt = leader && !finale ? this.stations.get(leader) : null;
+    if (crownAt && !crownAt.loose) {
       this.crown.visible = true;
-      const target = station.balloon.position.clone();
-      target.y += station.balloon.scale.y * 0.62 + 0.25;
-      this.crown.position.lerp(target, this.leaderId === leader ? frameLerp(0.3, dt) : 1);
+      _a.copy(crownAt.pos);
+      _a.y += crownAt.radius * TALL * (1 + crownAt.swell * 0.12) + 0.22;
+      // Wechselt die Führung, fliegt die Krone hinüber, statt zu springen.
+      this.crown.position.lerp(_a, this.crownPlaced ? frameLerp(this.leaderId === leader ? 0.3 : 0.2, dt) : 1);
+      this.crownPlaced = true;
       this.crown.rotation.y = now / 600;
-      if (this.leaderId !== leader && this.leaderId !== null && leader === controlledId) this.feedback?.sound("select");
+      // Kopf an Kopf wechselt die Führung mehrmals je Sekunde — gefeiert wird
+      // höchstens alle anderthalb Sekunden.
+      if (this.leaderId !== leader && this.leaderId !== null && leader === controlledId && f.started && now - (this.cheeredAt || 0) > 1500) {
+        this.cheeredAt = now;
+        this.feedback?.sound("select");
+        this.feedback?.vibrate(14);
+        this.pop(_a.clone().add(new THREE.Vector3(0, 0.35, 0)), "Führung!", { color: "#ffe36b", size: 0.36, life: 0.8 });
+      }
     } else {
       this.crown.visible = false;
     }
     this.leaderId = leader;
 
-    this.flags.forEach((flag) => { flag.rotation.z = Math.sin(now / 320 + flag.userData.phase) * 0.18; });
+    // Endspurt: ein Banner, ein Ton, jede Sekunde ein Tick.
+    if (rush && !this.rushShown) {
+      this.rushShown = true;
+      this.showRush();
+      this.feedback?.sound("combo");
+      this.feedback?.vibrate([18, 30, 18]);
+    }
+    const second = Math.ceil(left / 1000);
+    if (rush && second !== this.lastTick && second >= 1 && second <= 3) {
+      this.lastTick = second;
+      if (second < 3) this.feedback?.sound("countdown");
+    }
+  }
+
+  // Kleine Feiern unterwegs: alle 10 Pumps ein Funkeln am Ballon, für mich
+  // alle 25 dazu die Zahl und ein Ton.
+  milestones(station, player, before, after, mine) {
+    // Ein grosser Sprung (Wiedereinstieg nach Verbindungsabbruch) ist kein
+    // Anlass für eine Feuerwerkssalve.
+    if (after - before > 12) return;
+    for (let n = before + 1; n <= after; n += 1) {
+      if (n % 10 === 0) {
+        this.burst(_a.copy(station.pos).add(_b.set(0, station.radius * 0.6, 0.2)).clone(), [player.color, "#ffffff"], { count: mine ? 7 : 4, speed: 1.1, up: 0.9, size: 0.05, life: 0.45, gravity: 2 });
+      }
+      if (mine && n % 25 === 0) {
+        this.feedback?.sound("combo");
+        this.pop(_a.copy(station.pos).add(_b.set(0, station.radius * TALL + 0.3, 0)).clone(), String(n), { color: "#ffffff", size: 0.34, life: 0.7 });
+      }
+    }
+  }
+
+  advancePuffs(station, dt) {
+    station.puffs.forEach((puff) => {
+      if (puff.t < 0) return;
+      // Etwa 0,15 s durch den ganzen Schlauch — spürbar, aber nicht träge.
+      puff.t += dt / 0.15;
+      if (puff.t >= 1) {
+        puff.t = -1;
+        puff.mesh.visible = false;
+        station.swell = Math.min(1, station.swell + 0.6);
+        station.vel.y += 0.25;
+        return;
+      }
+      station.hosePath.getPointAt(puff.t, puff.mesh.position);
+      puff.mesh.scale.setScalar(1 + Math.sin(puff.t * Math.PI) * 0.4);
+    });
+  }
+
+  animateKin(player, station, f, rush) {
+    const animator = this.animators.get(player.id);
+    if (!animator || f.finale) return;
+    const strain = Math.min(1, station.rate / 11) * 0.7 + (rush ? 0.3 : 0);
+    animator.set("pumpen", { params: { stroke: station.depth, strain: f.started ? strain : 0 } });
+    animator.look(null);
+    // Schweisstropfen bei hohem Tempo.
+    if (f.started && station.rate >= 8 && Math.random() < frameChance(0.05 + (station.rate - 8) * 0.02, f.dt)) {
+      const kin = this.kins.get(player.id);
+      _a.set(kin.position.x + (Math.random() - 0.5) * 0.3, kin.position.y + 0.55 * S, kin.position.z + 0.1);
+      this.burst(_a.clone(), ["#8fdcff", "#ffffff"], { count: 2, speed: 0.9, up: 1.2, size: 0.04, life: 0.45, gravity: 5 });
+    }
+  }
+
+  // Hände an den Griff — nach der Pose, damit Ducken und Neigen stimmen.
+  afterAnimate(f) {
+    this.stations.forEach((station) => {
+      const kin = this.kins.get(station.id);
+      if (!kin) return;
+      if (f.finale) {
+        if (station.lift > 0.05 && !station.popped) {
+          // Der Sieger hält sich mit beiden Händen an der Schnur fest.
+          _a.copy(kin.position);
+          _a.y += 0.75 * S;
+          reachArm(kin, 0, _a, 1);
+          reachArm(kin, 1, _a, 1);
+        }
+        return;
+      }
+      station.plunger.updateWorldMatrix(true, false);
+      reachArm(kin, 0, station.plunger.localToWorld(_a.set(GRIP_HALF - 0.01 * S, 0.01, 0)), 1);
+      reachArm(kin, 1, station.plunger.localToWorld(_a.set(-GRIP_HALF + 0.01 * S, 0.01, 0)), 1);
+    });
+  }
+
+  // Finale: Platz 1 bläst nach, wird hochgehoben und platzt; alle anderen
+  // Ballons rutschen vom Ventil und sausen pfeifend davon.
+  finaleStation(player, station, f) {
+    const { now, dt } = f;
+    const since = (now - (f.minigame.finaleAt - 2600)) / 1000;
+    const winnerId = this.finaleWinnerId(f);
+    const mine = player.id === f.controlledId;
+    if (player.id === winnerId) {
+      if (!station.popped) {
+        const u = Math.min(1, since / 1.1);
+        const grow = balloonRadius(station.lastPumps) * (1 + 0.55 * u * u);
+        station.radius += (grow - station.radius) * frameLerp(0.25, dt);
+        station.lift = Math.min(1.2, Math.max(0, since - 0.2) * 1.5);
+        if (since > 1.3) this.popBalloon(player, station, mine);
+      } else {
+        // Fallen und landen.
+        station.liftVel -= 11 * dt;
+        station.lift = Math.max(0, station.lift + station.liftVel * dt);
+        if (station.lift === 0 && !station.landed) {
+          station.landed = true;
+          this.animators.get(player.id)?.trigger("land");
+          this.bursts.ring(this.kins.get(player.id).position, "#ffffff", { radius: 0.9, life: 0.35, opacity: 0.5, y: DECK_Y + 0.03 });
+          this.feedback?.sound("land");
+        }
+      }
+      this.setGround(player.id, this.kinGround(station.lift));
+      if (station.lift > 0.05 && !station.popped) this.animators.get(player.id)?.set("hang");
+      return;
+    }
+    if (winnerId === null && since < 0.2) return;
+    // Nacheinander, nicht alle im selben Augenblick.
+    const slipAt = 0.25 + station.index * 0.17;
+    if (!station.loose && since >= slipAt) {
+      station.loose = { at: now, turnAt: 0, ax: 0, ay: 0, az: 0, from: station.radius };
+      this.feedback?.sound("deflate", { pan: station.x / 4, pitch: 0.8 + Math.random() * 0.5 });
+      this.burst(station.nozzleTop.clone(), ["#ffffff"], { count: 4, speed: 0.8, up: 0.6, size: 0.04, life: 0.35 });
+    }
+  }
+
+  finaleWinnerId(f) {
+    if (this.winnerCache !== undefined && this.winnerFor === f.minigame.finaleAt) return this.winnerCache;
+    const ids = Object.keys(f.places || {}).filter((id) => f.places[id] === 1);
+    // Niemand hat getippt (alle gleichauf): kein Sieger-Ballon.
+    this.winnerCache = ids.length === 1 && (f.arcade.players[ids[0]]?.pumps || 0) > 0 ? ids[0] : null;
+    this.winnerFor = f.minigame.finaleAt;
+    return this.winnerCache;
+  }
+
+  // Die Ballons hängen an Schnüren: Auftrieb zieht sie gerade nach oben, Wind
+  // und Pumpstösse lassen sie schaukeln, die Schnur hält sie am Ventil.
+  simulateBalloon(station, f, rush) {
+    const { now, dt } = f;
+    const pos = station.pos;
+    const vel = station.vel;
+    if (station.popped || station.gone) return;
+    if (station.loose) {
+      // Frei: die ausströmende Luft schiebt den Ballon wild herum, er
+      // schrumpft und ist nach gut einer Sekunde weg.
+      const loose = station.loose;
+      const age = (now - loose.at) / 1000;
+      if (now >= loose.turnAt) {
+        loose.turnAt = now + 90 + Math.random() * 90;
+        const a = Math.random() * Math.PI * 2;
+        loose.ax = Math.cos(a) * 16;
+        loose.az = Math.sin(a) * 5;
+        loose.ay = 6 + Math.random() * 12;
+      }
+      vel.x += loose.ax * dt;
+      vel.y += loose.ay * dt;
+      vel.z += loose.az * dt;
+      vel.multiplyScalar(Math.pow(0.12, dt));
+      pos.addScaledVector(vel, dt);
+      station.radius = loose.from * Math.max(0.1, 1 - age / 1.3);
+      if (age > 1.3) {
+        station.gone = true;
+        station.balloon.visible = false;
+        station.string.visible = false;
+      }
+      return;
+    }
+    // Ruhelage: gerade über dem Ventil — oder, beim Sieger, über seinen Händen.
+    const lifted = station.lift > 0;
+    const kin = this.kins.get(station.id);
+    const anchor = lifted && kin ? _a.set(kin.position.x, kin.position.y + 0.75 * S, kin.position.z) : _a.copy(station.nozzleTop);
+    // Beim Sieger wird die Schnur kurz: der Ballon zieht direkt über seinen
+    // Händen, und Figur und Ballon passen zusammen ins Bild.
+    const length = (lifted ? 0.35 : station.neck) + station.radius * TALL;
+    station.rest.set(anchor.x, anchor.y + length, anchor.z);
+    const steps = 2;
+    const h = dt / steps;
+    const wind = Math.sin(now / 1300 + station.index * 1.7) * 0.5 + Math.sin(now / 470 + station.index) * 0.2;
+    const tremble = rush ? 1.4 : 0;
+    for (let i = 0; i < steps; i += 1) {
+      vel.x += (-(pos.x - station.rest.x) * 16 - vel.x * 3.4 + wind + (Math.random() - 0.5) * tremble * 6) * h;
+      vel.y += (-(pos.y - station.rest.y) * 16 - vel.y * 3.4) * h;
+      vel.z += (-(pos.z - station.rest.z) * 16 - vel.z * 3.4) * h;
+      pos.addScaledVector(vel, h);
+      // Die Schnur ist straff: weiter als ihre Länge kommt der Ballon nicht.
+      _dir.subVectors(pos, anchor);
+      const d = _dir.length();
+      if (d > length && d > 1e-4) {
+        _dir.divideScalar(d);
+        pos.copy(anchor).addScaledVector(_dir, length);
+        const out = vel.dot(_dir);
+        if (out > 0) vel.addScaledVector(_dir, -out);
+      }
+    }
+  }
+
+  // Grosse Ballons schieben sich gegenseitig zur Seite.
+  separateBalloons(dt) {
+    const list = this.order;
+    for (let i = 0; i < list.length; i += 1) {
+      const a = list[i];
+      if (a.popped || a.gone || a.loose) continue;
+      for (let j = i + 1; j < list.length; j += 1) {
+        const b = list[j];
+        if (b.popped || b.gone || b.loose) continue;
+        _dir.subVectors(a.pos, b.pos);
+        _dir.z *= 0.6;
+        const d = _dir.length();
+        const min = (a.radius + b.radius) * 1.04;
+        if (d >= min || d < 1e-4) continue;
+        _dir.divideScalar(d);
+        const push = (min - d) * 40 * dt;
+        a.vel.addScaledVector(_dir, push);
+        b.vel.addScaledVector(_dir, -push);
+      }
+    }
+  }
+
+  drawBalloon(station, f, rush) {
+    const { now } = f;
+    const balloon = station.balloon;
+    if (station.popped || station.gone) return;
+    const r = station.radius;
+    const pulse = station.swell;
+    // Beim Luftstoss kurz breiter als hoch, dann wieder rund.
+    const wide = r * (1 + pulse * 0.1);
+    const tall = r * (1 + pulse * 0.04);
+    const shake = rush && !this.reduced ? Math.sin(now / 23 + station.index * 2) * 0.012 * r : 0;
+    balloon.position.set(station.pos.x + shake, station.pos.y, station.pos.z);
+    station.hull.scale.set(wide, tall, wide);
+    // Latex wird beim Dehnen heller; ein Stoss leuchtet kurz auf.
+    const fill = (r - R0) / (R_MAX - R0);
+    station.skin.color.copy(station.baseColor).lerp(WHITE, Math.max(0, Math.min(0.2, fill * 0.12)));
+    station.skin.emissive.copy(station.baseColor).multiplyScalar(pulse * 0.35);
+    station.shine.scale.set(r * 0.2, r * 0.3, r * 0.08);
+    station.shine.position.set(-r * 0.38, r * 0.42, r * 0.82);
+    station.shine.rotation.z = 0.5;
+    station.knot.position.y = -r * TALL - 0.02 * S;
+
+    // Neigung entlang der Schnur.
+    const kin = this.kins.get(station.id);
+    const lifted = station.lift > 0 && !station.loose;
+    const anchor = station.loose
+      ? null
+      : lifted && kin ? _a.set(kin.position.x, kin.position.y + 0.75 * S, kin.position.z) : _a.copy(station.nozzleTop);
+    if (anchor) {
+      _dir.subVectors(station.pos, anchor).normalize();
+      _q.setFromUnitVectors(UP, _dir);
+    } else {
+      // Frei fliegend: der Knoten zeigt gegen die Flugrichtung.
+      _dir.copy(station.vel);
+      if (_dir.lengthSq() > 1e-4) _q.setFromUnitVectors(UP, _dir.normalize());
+    }
+    station.tilt.slerp(_q, 0.35);
+    balloon.quaternion.copy(station.tilt);
+    balloon.rotateY(Math.sin(now / 1500 + station.index) * 0.25);
+
+    // Die Schnur vom Ventil (oder den Händen) zum Knoten.
+    station.string.visible = Boolean(anchor);
+    if (anchor) {
+      balloon.updateMatrixWorld();
+      station.knot.getWorldPosition(_b);
+      placeLine(station.string, anchor, _b);
+    }
+    station.top.position.set(station.pos.x, station.pos.y + r * TALL, station.pos.z);
   }
 
   popBalloon(player, station, mine) {
     station.popped = true;
+    station.liftVel = 0.6;
     station.balloon.visible = false;
     station.string.visible = false;
-    const at = station.balloon.position.clone();
-    this.burst(at, [player.color, "#ffffff"], { count: 30, speed: 4.2, up: 2.6, size: 0.12, life: 1.1, drag: 1.1 });
-    this.burst(at, ["#ffd15c", player.color, "#ffffff"], { count: 20, speed: 2.5, up: 3.4, size: 0.09, life: 1.3, drag: 0.9 });
-    this.bursts.ring(at, "#ffffff", { radius: 2.6, life: 0.55, opacity: 0.65, tilt: null });
-    this.pop(at.clone().add(new THREE.Vector3(0, 0.5, 0)), "PENG! 🎈", { color: "#ffe36b", size: 0.55, life: 1.1 });
-    this.animators.get(player.id)?.trigger("land");
-    this.rig.shake(0.55);
-    this.feedback?.sound("impact");
-    this.feedback?.vibrate([40, 26, 50]);
+    const at = station.pos.clone();
+    this.burst(at, [player.color, "#ffffff"], { count: 34, speed: 4.4, up: 2.8, size: 0.12, life: 1.1, drag: 1.1 });
+    this.burst(at, ["#ffd15c", player.color, "#ffffff", "#71d97b", "#28c7d9"], { count: 26, speed: 2.6, up: 3.6, size: 0.09, life: 1.5, drag: 0.9, gravity: 3.2 });
+    this.bursts.ring(at, "#ffffff", { radius: 3, life: 0.55, opacity: 0.7, tilt: null });
+    this.pop(at.clone().add(new THREE.Vector3(0, 0.6, 0)), "PENG! 🎈", { color: "#ffe36b", size: 0.6, life: 1.2 });
+    this.animators.get(player.id)?.expression("surprised", 500);
+    this.rig.shake(0.6);
+    this.feedback?.sound("burst");
+    this.feedback?.vibrate([40, 26, 60]);
     if (mine) this.feedback?.sound("win");
   }
 
   // Der Sieger hängt am Ballon: dort keine Siegerpose, das Hängen IST sie.
+  // Nach dem Platzen fällt er erst — gejubelt wird nach der Landung.
   finaleOverride(player, place) {
     const station = this.stations.get(player.id);
-    return place === 1 && station && !station.popped && station.lift > 0;
+    if (!station || place !== 1 || this.winnerCache !== player.id) return false;
+    return !station.landed;
+  }
+
+  // Die Kamera behält alle Figuren und die Ballonkuppen im Bild.
+  keepInView() {
+    const keep = [...this.kins.values()];
+    this.stations.forEach((station) => {
+      if (!station.popped && !station.gone && !station.loose) keep.push(station.top);
+    });
+    return keep;
+  }
+
+  // Finale: den Sieger MIT seinem Ballon rahmen, bis es knallt; danach nah auf
+  // die Landung.
+  rigOptions(f) {
+    if (!f.finale) {
+      // Querformat: das freie Band ist flach, die volle Höhe des Strausses
+      // machte die Figuren winzig. Hier zählt die Breite; wird ein Ballon zu
+      // gross, holt keepInView die Kamera ohnehin zurück.
+      const size = this.rig.lastSize;
+      const wide = size.w > size.h * 1.2;
+      const base = this.rig.base.frame;
+      let w = base.w;
+      let h = wide ? 4.1 : base.h;
+      const look = wide ? [0, 2.3, 0] : undefined;
+      // Endspurt: die Kamera rückt ein Stück näher — man spürt, dass es
+      // gleich vorbei ist.
+      const left = f.minigame.startedAt + f.minigame.duration - f.now;
+      if (f.started && left > 0 && left <= RUSH_MS && !this.reduced) {
+        const k = 1 - 0.07 * Math.min(1, (RUSH_MS - left) / 1200);
+        w *= k;
+        h *= k;
+      } else if (!wide) {
+        return null;
+      }
+      return look ? { frame: { w, h }, look } : { frame: { w, h } };
+    }
+    const id = this.finaleWinnerId(f);
+    const station = id && this.stations.get(id);
+    const kin = id && this.kins.get(id);
+    if (!station || !kin) return null;
+    if (!station.popped) {
+      const top = station.pos.y + station.radius * TALL;
+      const bottom = kin.position.y - 0.35 * S;
+      const h = Math.max(3, (top - bottom) * 1.3);
+      return { look: [kin.position.x * 0.8, (top + bottom) / 2, 0], frame: { w: h * 0.9, h }, pitch: 0.12 };
+    }
+    return { look: [kin.position.x * 0.8, kin.position.y + 0.5, kin.position.z], frame: { w: 3.2, h: 3 }, pitch: 0.16 };
+  }
+
+  showRush() {
+    const node = this.hud?.querySelector("[data-pump-rush]");
+    if (!node) return;
+    node.hidden = false;
+    node.classList.remove("zeigen");
+    void node.offsetWidth;
+    node.classList.add("zeigen");
+    clearTimeout(this.rushTimer);
+    this.rushTimer = setTimeout(() => { node.hidden = true; }, 1500);
+  }
+
+  unbind() {
+    clearTimeout(this.rushTimer);
   }
 
   drawHud(f) {
-    const own = f.arcade?.players?.[f.controlledId];
-    const shown = Math.max(own?.pumps || 0, this.localPumps);
+    const { arcade, players, controlledId, minigame, now } = f;
+    const own = arcade?.players?.[controlledId];
+    const shown = this.pumpsOf(controlledId, own, controlledId);
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    if (this.scoreNode) this.scoreNode.textContent = String(shown);
-    if (this.pumpButton) this.pumpButton.disabled = Boolean(f.minigame.finaleAt);
+    const text = String(shown);
+    if (this.scoreNode && this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
+    const left = minigame.startedAt + minigame.duration - now;
+    const over = Boolean(minigame.finaleAt) || left <= 0;
+    this.scorebar ||= this.hud.querySelector(".kinetic-scorebar");
+    this.scorebar?.classList.toggle("pump-hurry", f.started && !over && left <= RUSH_MS);
+
+    // Stand aller: in der Reihenfolge der Stationen auf der Bühne, der
+    // Führende mit Krone.
+    const chips = this.chipsNode ||= this.hud.querySelector("[data-pump-chips]");
+    if (chips && arcade) {
+      const leader = this.leaderId;
+      const html = players.map((player) => {
+        const entry = arcade.players[player.id];
+        const count = this.pumpsOf(player.id, entry, controlledId);
+        const lead = player.id === leader && count > 0;
+        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${lead ? " is-lead" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${count}</span>`;
+      }).join("");
+      if (html !== this.chipsHtml) {
+        this.chipsHtml = html;
+        chips.innerHTML = html;
+      }
+    }
+
+    if (this.pumpButton) {
+      if (this.pumpButton.disabled !== over) this.pumpButton.disabled = over;
+    }
+    const station = this.stations.get(controlledId);
+    const rate = station ? station.rate : 0;
+    const max = (arcade?.pumpRate || 16) - 1;
+    if (this.tempoBar) {
+      const share = Math.min(1, rate / 12);
+      this.tempoBar.style.transform = `scaleX(${share.toFixed(3)})`;
+      this.tempoBar.dataset.level = rate >= max ? "max" : rate >= 8 ? "hoch" : rate >= 4 ? "mittel" : "niedrig";
+    }
+    if (this.hintNode) {
+      const hint = over
+        ? "Zeit!"
+        : !f.started
+          ? "Gleich geht's los …"
+          : left <= RUSH_MS
+            ? "Endspurt — alles geben!"
+            : rate >= max
+              ? "Volle Pulle!"
+              : "So schnell tippen, wie du kannst!";
+      if (this.hintNode.textContent !== hint) this.hintNode.textContent = hint;
+    }
   }
 }
 
-// Ein Ballon aus Klötzen: dicker Kern, Wölbungen, Knoten.
-function buildBalloon(color) {
-  const balloon = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color });
-  const core = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.62), mat);
-  core.castShadow = true;
-  balloon.add(core);
-  [[0.3, 0, 0], [-0.3, 0, 0], [0, 0, 0.3], [0, 0, -0.3]].forEach(([x, y, z]) => {
-    const bulge = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, 0.34), mat);
-    bulge.position.set(x, y + 0.03, z);
-    balloon.add(bulge);
-  });
-  const top = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.4), mat);
-  top.position.y = 0.42;
-  balloon.add(top);
-  const shine = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.05), new THREE.MeshLambertMaterial({ color: "#ffffff", transparent: true, opacity: 0.6 }));
-  shine.position.set(-0.16, 0.22, 0.32);
-  balloon.add(shine);
-  const knot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), mat);
-  knot.position.y = -0.44;
-  balloon.add(knot);
-  return balloon;
+// Eine Schnur (Zylinder der Höhe 1) von a nach b legen.
+function placeLine(mesh, a, b) {
+  _dir.subVectors(b, a);
+  const length = _dir.length();
+  mesh.position.copy(a).addScaledVector(_dir, 0.5);
+  mesh.scale.set(1, Math.max(0.001, length), 1);
+  if (length > 1e-5) mesh.quaternion.setFromUnitVectors(UP, _dir.divideScalar(length));
+}
+
+// Ein Ballon: oben voll und rund, unten zum Knoten hin spitz. Radius 1, die
+// Szene skaliert ihn auf die aktuelle Grösse.
+function balloonGeometry() {
+  const geometry = new THREE.SphereGeometry(1, 24, 18);
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i += 1) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const k = y < 0 ? 1 - 0.3 * Math.pow(-y, 1.8) : 1 + 0.03 * (1 - y * y);
+    pos.setXYZ(i, x * k, y * TALL, z * k);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function buildCrown() {
@@ -464,10 +1081,13 @@ function buildCrown() {
   const gem = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshLambertMaterial({ color: "#ff5d8f" }));
   gem.position.set(0, 0.02, 0.19);
   crown.add(gem);
+  crown.traverse((o) => { o.userData.isFx = true; });
   return crown;
 }
 
-export { standOn };
+function escapeName(name) {
+  return String(name || "?").slice(0, 8).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 // Rot-weiss karierte Picknickdecke.
 function karoTextur() {
