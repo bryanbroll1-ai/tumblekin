@@ -67,6 +67,27 @@ function formatSeconds(ms) {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+// Abweichung mit Vorzeichen: "+0.23" zu spät, "−0.10" zu früh.
+function formatDeviation(stoppedMs, targetMs) {
+  const d = (stoppedMs - targetMs) / 1000;
+  return `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(2)}`;
+}
+
+// Wie gut: golden bis 0,15 s, grün bis 0,4 s, dann gelb, ab einer Sekunde rot.
+function accentFor(deviation) {
+  if (deviation === null || deviation === undefined) return "#ff6b7f";
+  if (deviation < 150) return "#ffd76a";
+  if (deviation < 400) return "#7df0a0";
+  if (deviation < 1000) return "#ffd166";
+  return "#ff8a6b";
+}
+
+// Die Auflösung im Takt: erst nach einer kurzen Pause die erste Anzeige, dann
+// alle 380 ms die nächste, zuletzt die beste — und dann der Jubel.
+const REVEAL_FIRST_MS = 300;
+const REVEAL_STEP_MS = 380;
+const REVEAL_SWEEP_MS = 450;
+
 // A blocky game-show clock driven by a canvas texture: dark glass screen,
 // glowing digits, rounded accent bezel.
 function createTimerDisplay() {
@@ -95,10 +116,10 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function paintDisplay(panel, text, accent = "#7df0a0") {
+function paintDisplay(panel, text, accent = "#7df0a0", sub = "") {
   const { ctx, canvas, texture, lastText, lastAccent } = panel.userData;
-  if (lastText === text && lastAccent === accent) return;
-  panel.userData.lastText = text;
+  if (lastText === text + sub && lastAccent === accent) return;
+  panel.userData.lastText = text + sub;
   panel.userData.lastAccent = accent;
   // Screen glass with a soft top sheen.
   const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -128,10 +149,15 @@ function paintDisplay(panel, text, accent = "#7df0a0") {
   ctx.fillStyle = accent;
   ctx.shadowColor = accent;
   ctx.shadowBlur = 16;
-  ctx.font = "bold 58px 'Courier New', monospace";
+  ctx.font = `bold ${sub ? 50 : 58}px 'Courier New', monospace`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 4);
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + (sub ? -12 : 4));
+  if (sub) {
+    ctx.font = "bold 28px 'Courier New', monospace";
+    ctx.shadowBlur = 8;
+    ctx.fillText(sub, canvas.width / 2, canvas.height / 2 + 32);
+  }
   ctx.restore();
   texture.needsUpdate = true;
 }
@@ -141,11 +167,11 @@ export class Nervenprobe extends MinigameScene {
     super(ctx);
     this.stations = new Map();
     this.lastStopped = new Map();
-    this.revealed = false;
     this.hidAt = false;
     this.labelY = 0.74;
     this.nextNod = new Map();
     this.finaleFocus = false;
+    this.reveal = null;
   }
 
   stage() {
@@ -493,6 +519,12 @@ export class Nervenprobe extends MinigameScene {
     this.stations.set(player.id, { x, buzzer, display, bulb });
   }
 
+  // Die Posen des Finales (Jubel, Enttäuschung) erst, wenn die Auflösung
+  // durch ist — vorher jubelte der Sieger, bevor seine Zahl zu sehen war.
+  finaleOverride() {
+    return !this.jubelt;
+  }
+
   shot() {
     const count = Math.max(1, this.stations.size);
     // Breit genug für die äusseren Anzeigen, hoch genug für die Stoppuhr über
@@ -536,7 +568,7 @@ export class Nervenprobe extends MinigameScene {
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     if (this.audience) {
-      this.audience.jubel += ((minigame?.finaleAt ? 1 : 0) - this.audience.jubel) * Math.min(1, dt * 3);
+      this.audience.jubel += ((this.jubelt ? 1 : 0) - this.audience.jubel) * Math.min(1, dt * 3);
       this.placeAudience(now);
     }
     if (this.tally) this.tally.visible = Math.floor(now / 700) % 2 === 0;
@@ -548,25 +580,40 @@ export class Nervenprobe extends MinigameScene {
       this.hidAt = true;
       this.feedback?.sound("move");
     }
-    if (revealAll && !this.revealed) {
-      this.revealed = true;
-      this.feedback?.sound("win");
-      this.feedback?.vibrate([30, 30, 60]);
+    // Die Auflösung: vom Weitesten zum Nächsten, einer nach dem anderen.
+    if (revealAll && !this.reveal) {
+      const reihe = players
+        .map((player) => ({ player, entry: arcade.players[player.id] }))
+        .filter((r) => r.entry)
+        .sort((a, b) => (b.entry.deviationMs ?? Infinity) - (a.entry.deviationMs ?? Infinity));
+      const sieger = reihe.length && reihe[reihe.length - 1].entry.deviationMs !== null ? reihe[reihe.length - 1] : null;
+      this.reveal = {
+        at: now,
+        order: reihe.map((r, i) => ({ id: r.player.id, due: now + REVEAL_FIRST_MS + i * REVEAL_STEP_MS, done: false })),
+        winnerAt: now + REVEAL_FIRST_MS + Math.max(0, reihe.length - 1) * REVEAL_STEP_MS + 320,
+        winner: sieger,
+        cheered: false
+      };
+      this.feedback?.sound("countdown");
     }
+    const aufgedeckt = (id) => Boolean(this.reveal?.order.find((o) => o.id === id && now >= o.due));
+    const jubelt = Boolean(this.reveal && now >= this.reveal.winnerAt);
+    this.jubelt = jubelt;
+
     // Die grosse Uhr: der Zeiger läuft, solange man ihn sehen darf; dann
-    // deckt sie sich zu, und zur Auflösung öffnet sie sich wieder.
+    // deckt sie sich zu, und zur Auflösung öffnet sie sich und der Zeiger
+    // fährt zur Zielzeit.
     if (this.hand) {
-      const shownMs = hidden && !revealAll ? arcade.hideAfterMs : Math.min(elapsed, revealAll ? arcade.targetMs : elapsed);
+      let shownMs = hidden ? arcade.hideAfterMs : elapsed;
+      if (this.reveal) {
+        const u = Math.min(1, (now - this.reveal.at) / REVEAL_SWEEP_MS);
+        const e = 1 - Math.pow(1 - u, 3);
+        shownMs = arcade.hideAfterMs + (arcade.targetMs - arcade.hideAfterMs) * e;
+      }
       this.hand.rotation.z = -(shownMs / DIAL_MS) * Math.PI * 2;
       const coverTarget = hidden && !revealAll ? 1 : 0;
       this.cover.material.opacity += (coverTarget - this.cover.material.opacity) * frameLerp(0.2, dt);
       this.cover.visible = this.cover.material.opacity > 0.01;
-      if (revealAll) {
-        players.forEach((player) => {
-          const entry = arcade.players[player.id];
-          if (entry?.stoppedMs !== null && entry?.stoppedMs !== undefined) this.markDial(player, entry.stoppedMs);
-        });
-      }
     }
 
     players.forEach((player) => {
@@ -575,10 +622,24 @@ export class Nervenprobe extends MinigameScene {
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       if (!entry || !station || !kin || !animator) return;
-      const stopped = entry.stoppedMs !== null && entry.stoppedMs !== undefined;
-      if (revealAll) {
-        const deviation = entry.deviationMs ?? null;
-        paintDisplay(station.display, stopped ? formatSeconds(entry.stoppedMs) : "—", deviation !== null && deviation < 400 ? "#7df0a0" : "#ffd166");
+      const isOwn = player.id === controlledId;
+      const stoppedReally = entry.stoppedMs !== null && entry.stoppedMs !== undefined;
+      // Wann die anderen gedrückt haben, sieht man erst in der Auflösung.
+      // Vorher verrieten Anzeige, Lampe, Knopf und ein "STOPP!" jeden Druck —
+      // man musste nur warten, bis der erste Bot drückte, und hinterher.
+      const stopped = stoppedReally && (isOwn || revealAll);
+      const offen = revealAll && aufgedeckt(player.id);
+      const deviation = entry.deviationMs ?? null;
+      if (offen) {
+        const siegerHier = jubelt && this.reveal.winner?.player.id === player.id;
+        paintDisplay(
+          station.display,
+          stoppedReally ? formatSeconds(entry.stoppedMs) : "—",
+          siegerHier ? (Math.floor(now / 160) % 2 === 0 ? "#ffd76a" : "#fff3c4") : accentFor(stoppedReally ? deviation : null),
+          stoppedReally ? formatDeviation(entry.stoppedMs, arcade.targetMs) : "kein Stopp"
+        );
+      } else if (revealAll) {
+        paintDisplay(station.display, "? ? ?", Math.floor(now / 140) % 2 === 0 ? "#ffd76a" : "#c8a24a");
       } else if (stopped) {
         paintDisplay(station.display, "STOP", "#8fd4ff");
       } else if (!hidden) {
@@ -588,22 +649,37 @@ export class Nervenprobe extends MinigameScene {
       }
       station.buzzer.position.y += ((stopped ? STAGE_Y + 0.45 : STAGE_Y + 0.49) - station.buzzer.position.y) * frameLerp(0.25, dt);
       station.buzzer.material.emissiveIntensity = stopped ? 1 : 0.25;
-      const bulbColor = revealAll ? "#ffd76a" : stopped ? "#12aaff" : hidden ? "#ff2038" : "#2ee86a";
+      const bulbColor = offen ? accentFor(stoppedReally ? deviation : null) : revealAll ? "#ffd76a" : stopped ? "#12aaff" : hidden ? "#ff2038" : "#2ee86a";
       station.bulb.material.color.set(bulbColor);
       station.bulb.material.emissive.set(bulbColor);
       station.bulb.material.emissiveIntensity = hidden && !stopped && !revealAll ? (Math.floor(now / 320) % 2 === 0 ? 1.1 : 0.15) : 0.8;
 
-      if (stopped && !this.lastStopped.get(player.id)) {
+      if (isOwn && stoppedReally && !this.lastStopped.get(player.id)) {
         this.lastStopped.set(player.id, true);
-        if (player.id !== controlledId) {
-          animator.trigger("punch");
-          this.feedback?.sound("move");
-        }
         this.burst(station.buzzer.position.clone().setY(STAGE_Y + 0.6), ["#ff2038", "#ffffff"], { count: 9, speed: 1.9, up: 1.6, size: 0.07, life: 0.5, drag: 2, fadePow: 1.4 });
         this.pop(new THREE.Vector3(station.x, 1.4, KIN_Z + 0.4), "STOPP!", { color: "#ffffff", size: 0.3, life: 0.7, rise: 0.6 });
       }
+
+      // Aufdecken: Marke an der Uhr, Funken, die Abweichung als Zahl.
+      const slot = this.reveal?.order.find((o) => o.id === player.id);
+      if (slot && offen && !slot.done) {
+        slot.done = true;
+        if (stoppedReally) this.markDial(player, entry.stoppedMs);
+        const farbe = accentFor(stoppedReally ? deviation : null);
+        this.burst(station.display.position.clone().add(new THREE.Vector3(0, 0, 0.2)), [farbe, "#ffffff"], { count: 10, speed: 1.6, up: 1.2, size: 0.06, life: 0.5, drag: 2 });
+        this.pop(new THREE.Vector3(station.x, 2.3, 0.4), stoppedReally ? `${(deviation / 1000).toFixed(2)} s` : "—", { color: farbe, size: isOwn ? 0.34 : 0.28, life: 0.9, rise: 0.4 });
+        this.feedback?.sound("pop", { pan: station.x * 0.2 });
+        if (isOwn) this.feedback?.vibrate(12);
+        animator.trigger(stoppedReally && deviation < 400 ? "hop" : "flinch", { height: 0.2 });
+      }
+
       if (revealAll) {
-        if (!stopped) animator.set("shrug");
+        if (!stoppedReally) animator.set("shrug");
+        else if (!jubelt) {
+          // Bangen, bis die eigene Zahl aufgeht.
+          animator.set("focus");
+          animator.lookAt(station.display.position);
+        }
         return;
       }
       if (stopped) {
@@ -629,6 +705,21 @@ export class Nervenprobe extends MinigameScene {
         animator.lookAt(station.display.position);
       }
     });
+
+    // Der Sieger: goldene Anzeige, Konfetti, das Publikum steht auf.
+    if (jubelt && !this.reveal.cheered) {
+      this.reveal.cheered = true;
+      const sieger = this.reveal.winner;
+      if (sieger) {
+        const station = this.stations.get(sieger.player.id);
+        if (station) {
+          this.burst(station.display.position.clone().add(new THREE.Vector3(0, 0.3, 0.2)), [sieger.player.color, "#ffd76a", "#ffffff"], { count: 30, speed: 2.6, up: 2.4, size: 0.08, life: 1, drag: 1.4 });
+          this.pop(new THREE.Vector3(station.x, 2.75, 0.4), sieger.entry.deviationMs < 100 ? "🎯 VOLLTREFFER!" : "AM NÄCHSTEN!", { color: "#ffd76a", size: 0.4, life: 1.2, rise: 0.5 });
+        }
+      }
+      this.rig.shake(0.35);
+      this.feedback?.vibrate([30, 30, 60]);
+    }
 
     this.spotCones?.forEach((cone) => {
       cone.rotation.z = Math.sin(now / 1600 + cone.userData.phase) * 0.35;
@@ -657,7 +748,11 @@ export class Nervenprobe extends MinigameScene {
     const stopped = own?.stoppedMs !== null && own?.stoppedMs !== undefined;
     if (revealAll) {
       banner.hidden = false;
-      banner.textContent = "Auflösung!";
+      const sieger = this.jubelt ? this.reveal?.winner : null;
+      const name = sieger ? (f.state?.players?.find((player) => player.id === sieger.player.id)?.name || "?") : null;
+      banner.textContent = sieger
+        ? `🏆 ${name} — ${(sieger.entry.deviationMs / 1000).toFixed(2).replace(".", ",")} s daneben`
+        : "Auflösung …";
       banner.style.background = "#ffc400";
       banner.style.color = "#5c4508";
     } else if (stopped) {
