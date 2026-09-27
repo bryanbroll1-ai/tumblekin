@@ -339,9 +339,19 @@ const BELT_SPEED_START = 0.22;         // Bandanteil pro Sekunde
 const BELT_SPEED_END = 0.82;           // am Ende der Runde
 const BELT_SPEED_CURVE = 1.5;          // >1: erst gemächlich, gegen Ende steiler
 const BELT_REACH_AT = 0.34;            // ab hier ist das vorderste Paket greifbar
+// Nachsicht an der Greifkante: das Gerät zeigt das Band so, wie es bei Ankunft
+// der Eingabe steht, aber seine Laufzeitmessung schwankt. Ein Wisch, der auf
+// dem Bild genau an der Kante kam, soll nicht ins Leere gehen.
+const BELT_REACH_GRACE = 0.03;
 const BELT_SWAP_FIRST_MS = 11000;      // erster Tausch der Rutschen
 const BELT_SWAP_EVERY_MS = 7000;
 const BELT_SWAP_WARN_MS = 1200;        // so lange vorher wird der Tausch angekündigt
+// Schonfrist um jeden Tausch: so lange gilt die Anordnung davor UND danach.
+// Das Gerät zeigt die Schilder so, wie sie bei Ankunft der Eingabe stehen
+// werden — aber seine Messung der Laufzeit schwankt um ein paar Dutzend
+// Millisekunden. Ohne Schonfrist wurde genau am Tausch mal ein richtig
+// einsortiertes Teil als FALSCH gewertet.
+const BELT_SWAP_GRACE_MS = 150;
 const BELT_POINTS = 100;               // richtig einsortiert
 const BELT_STREAK_BONUS = 12;          // je Paket in Folge, gedeckelt
 const BELT_STREAK_MAX = 8;
@@ -4690,11 +4700,10 @@ function handleArcadeInput(room, player, rawInput) {
     if (!parcel) return { ok: true };
     // Ganz am Anfang des Bandes greift man ins Leere: das Paket muss erst in die
     // Reichweite fahren. Ohne diese Sperre koennte man blind vorsortieren.
-    if (arcadePlayer.beltPos < BELT_REACH_AT) return { ok: true };
+    if (arcadePlayer.beltPos < BELT_REACH_AT - BELT_REACH_GRACE) return { ok: true };
 
     arcadePlayer.hasMoved = true;
-    const wanted = arcade.chutes[chute];
-    if (wanted === parcel.colour) {
+    if (beltChuteFits(arcade, chute, parcel.colour, now - room.currentMinigame.startedAt)) {
       arcadePlayer.streak += 1;
       if (arcadePlayer.streak > arcadePlayer.bestStreak) arcadePlayer.bestStreak = arcadePlayer.streak;
       const bonus = Math.min(arcadePlayer.streak, BELT_STREAK_MAX) * BELT_STREAK_BONUS;
@@ -4703,12 +4712,12 @@ function handleArcadeInput(room, player, rawInput) {
       // Wie weit war das Paket schon gerollt? Wer fehlerfrei durchkommt, landet
       // am Punktemaximum — dann ordnet, wer schneller zugegriffen hat.
       arcadePlayer.reachSum = (arcadePlayer.reachSum || 0) + Math.max(0, arcadePlayer.beltPos - BELT_REACH_AT);
-      arcadePlayer.lastVerdict = { kind: "good", chute, colour: parcel.colour, icon: parcel.icon, name: parcel.name, at: now, bonus };
+      arcadePlayer.lastVerdict = { kind: "good", id: parcel.id, chute, colour: parcel.colour, icon: parcel.icon, name: parcel.name, at: now, bonus };
     } else {
       arcadePlayer.streak = 0;
       arcadePlayer.score = Math.max(0, arcadePlayer.score - BELT_WRONG_COST);
       arcadePlayer.wrong += 1;
-      arcadePlayer.lastVerdict = { kind: "wrong", chute, colour: parcel.colour, icon: parcel.icon, name: parcel.name, at: now, bonus: 0 };
+      arcadePlayer.lastVerdict = { kind: "wrong", id: parcel.id, chute, colour: parcel.colour, icon: parcel.icon, name: parcel.name, at: now, bonus: 0 };
     }
     arcadePlayer.lastSortAt = now;
     advanceBeltQueue(arcade, arcadePlayer);
@@ -5182,7 +5191,7 @@ function updateArcade(room) {
         entry.missed += 1;
         entry.streak = 0;
         entry.score = Math.max(0, entry.score - BELT_MISS_COST);
-        entry.lastVerdict = { kind: "missed", chute: -1, colour: entry.queue[0] ? entry.queue[0].colour : 0, icon: entry.queue[0]?.icon, name: entry.queue[0]?.name, at: now, bonus: 0 };
+        entry.lastVerdict = { kind: "missed", id: entry.queue[0]?.id, chute: -1, colour: entry.queue[0] ? entry.queue[0].colour : 0, icon: entry.queue[0]?.icon, name: entry.queue[0]?.name, at: now, bonus: 0 };
         advanceBeltQueue(arcade, entry, true);
       }
       entry.reachable = entry.beltPos >= BELT_REACH_AT;
@@ -7038,6 +7047,18 @@ function buildBeltChutePlan(seed, durationMs = BELT_DURATION_MS) {
   return plan;
 }
 
+// Passt die Rutsche zum Teil? Massgeblich ist das Schild, das gerade hängt —
+// und in der Schonfrist rund um einen Tausch auch das davor bzw. danach.
+function beltChuteFits(arcade, chute, colour, elapsed) {
+  if (arcade.chutes[chute] === colour) return true;
+  const plan = arcade.chutePlan || [];
+  for (let i = 1; i < plan.length; i += 1) {
+    if (Math.abs(elapsed - plan[i].at) > BELT_SWAP_GRACE_MS) continue;
+    if (plan[i].chutes[chute] === colour || plan[i - 1].chutes[chute] === colour) return true;
+  }
+  return false;
+}
+
 // Ein Paket. Die Farbe haengt nur an Startwert und laufender Nummer, nie am
 // Zeitpunkt — sonst laege dieselbe Runde bei jedem anders.
 function makeBeltParcel(arcade, seed, index) {
@@ -7875,14 +7896,18 @@ function arcadeBotStep(room, bot) {
     // Gewissheit — derselbe Fehler, der hier schon mehrfach steckte.
     if (player.botParcelId !== parcel.id) {
       player.botParcelId = parcel.id;
-      const rightChance = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.78 : 0.55;
+      // Der schwache Bot lag mit 55 % und seinem späten Griff kaum über
+      // blindem Raten (Messung: 463 gegen 356 Punkte) — ein Gegner, der
+      // nichts kann, ist keiner. Jetzt liest er meistens richtig, greift aber
+      // spät und lässt ab und zu eins durch.
+      const rightChance = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.84 : 0.72;
       // Verwechsler erwischen auch Bots öfter.
       player.botRight = Math.random() < rightChance * (parcel.tricky ? 0.82 : 1);
       // Wo auf dem Band gegriffen wird. Der schwache Bot laesst sich Zeit, und
       // sein Band reicht ueber 1 hinaus — dann rutscht das Paket durch.
       const band = profile.level === "hard" ? [0.40, 0.62]
         : profile.level === "normal" ? [0.48, 0.86]
-        : [0.58, 1.14];
+        : [0.56, 1.04];
       player.botActPos = band[0] + Math.random() * (band[1] - band[0]);
     }
     if (player.beltPos < Math.max(BELT_REACH_AT, player.botActPos)) return;
@@ -8774,6 +8799,7 @@ module.exports = {
     BELT_SWAP_FIRST_MS,
     BELT_SWAP_EVERY_MS,
     BELT_SWAP_WARN_MS,
+    BELT_SWAP_GRACE_MS,
     BELT_POINTS,
     BELT_STREAK_BONUS,
     BELT_STREAK_MAX,

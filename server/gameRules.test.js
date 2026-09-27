@@ -103,6 +103,7 @@ const {
   BELT_WRONG_COST,
   BELT_MISS_COST,
   BELT_DURATION_MS,
+  BELT_SWAP_GRACE_MS,
   beltSpeed,
   buildBeltChutePlan,
   FISH_DURATION_MS,
@@ -3288,6 +3289,69 @@ test("belt: a parcel out of reach cannot be sorted", () => {
   sort(0);
   assert.equal(entry.sorted, before, "vor der Greifkante darf nichts passieren");
   assert.equal(entry.wrong, 0, "und es darf auch nichts kosten");
+});
+
+test("belt: a swipe that lands right at the reach edge still counts", () => {
+  // Das Gerät zeigt das Band so, wie es bei Ankunft steht — mit etwas
+  // Schwankung in der Laufzeitmessung. Knapp vor der Kante zählt es noch,
+  // deutlich davor nicht.
+  const { entry, sort, rightChute } = beltRoom();
+  entry.beltPos = BELT_REACH_AT - 0.02;
+  sort(rightChute());
+  assert.equal(entry.sorted, 1);
+  entry.beltPos = BELT_REACH_AT - 0.1;
+  sort(rightChute());
+  assert.equal(entry.sorted, 1, "deutlich vor der Kante greift man weiter ins Leere");
+});
+
+test("belt: right at a swap both the old and the new sign count", () => {
+  // Wer im letzten Moment nach den alten Schildern greift, soll nicht wegen
+  // ein paar Millisekunden Laufzeit ein FALSCH bekommen — und wer den Tausch
+  // schon sieht, auch nicht.
+  const { arcade, entry, minigame, sort } = beltRoom();
+  const swap = arcade.chutePlan[1];
+  const before = arcade.chutePlan[0].chutes;
+  const colour = entry.queue[0].colour;
+  const oldChute = before.indexOf(colour);
+  const newChute = swap.chutes.indexOf(colour);
+  assert.notEqual(oldChute, newChute, "der erste Tausch versetzt diese Kategorie");
+
+  // Kurz NACH dem Tausch, nach dem alten Schild gegriffen.
+  minigame.startedAt = Date.now() - swap.at - BELT_SWAP_GRACE_MS / 2;
+  arcade.chutes = swap.chutes;
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  sort(oldChute);
+  assert.equal(entry.sorted, 1);
+  assert.equal(entry.wrong, 0);
+
+  // Kurz VOR dem Tausch, schon nach dem neuen Schild gegriffen.
+  minigame.startedAt = Date.now() - swap.at + BELT_SWAP_GRACE_MS / 2;
+  arcade.chutes = before;
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  const next = entry.queue[0].colour;
+  sort(swap.chutes.indexOf(next));
+  assert.equal(entry.sorted, 2);
+
+  // Weit weg vom Tausch zählt nur das Schild, das hängt.
+  minigame.startedAt = Date.now() - swap.at - 2000;
+  arcade.chutes = swap.chutes;
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  const third = entry.queue[0].colour;
+  const stale = before.indexOf(third);
+  if (stale !== swap.chutes.indexOf(third)) {
+    sort(stale);
+    assert.equal(entry.wrong, 1, "ausserhalb der Schonfrist gilt nur das aktuelle Schild");
+  }
+});
+
+test("belt: the verdict names the parcel it was about", () => {
+  // Das Gerät lässt das Teil schon beim Wisch fliegen und muss das Urteil
+  // diesem Teil zuordnen können.
+  const { entry, sort, rightChute } = beltRoom();
+  entry.beltPos = BELT_REACH_AT + 0.1;
+  const id = entry.queue[0].id;
+  sort(rightChute());
+  assert.equal(entry.lastVerdict.id, id);
 });
 
 test("belt: the right chute scores, the wrong one costs", () => {

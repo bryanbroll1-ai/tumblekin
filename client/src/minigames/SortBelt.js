@@ -45,6 +45,14 @@ const CATEGORIES = [
   { name: "SPIELZEUG", icon: "🧸" }
 ];
 const CRATE_COLOUR = "#c9a26f";
+// Wie auf dem Server: ab hier ist das vorderste Teil greifbar, so weit stehen
+// die Teile auseinander, so lange vorher wird ein Tausch angekündigt.
+const REACH_AT = 0.34;
+const PARCEL_GAP = 0.34;
+const SWAP_WARN_MS = 1200;
+// Der Server nimmt je Person höchstens alle 90 ms einen Griff an. Zwei schnelle
+// Wische hält das Gerät darum 100 ms auseinander, statt den zweiten zu verlieren.
+const SEND_GAP_MS = 100;
 const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 
 function clamp(value, min, max) {
@@ -66,11 +74,22 @@ export class SortBelt extends MinigameScene {
     this.parcels = [];
     this.flying = [];
     this.lastVerdictAt = 0;
-    this.lastSwapAt = 0;
     this.beltScroll = 0;
     this.swapPulse = 0;
     this.workerTurn = Math.PI / 2;
     this.labelY = 0.74;
+    this.roundTrip = 0;
+    this.pending = new Map();    // lokal einsortiert, vom Server noch nicht bestätigt: id -> { chute, at, good }
+    this.flown = new Set();      // Teile, deren Flug schon beim Wisch startete
+    this.sendQueue = [];
+    this.lastSendAt = 0;
+    this.displayHead = null;     // gezeigter Stand des vordersten Teils
+    this.headTarget = 0;         // vorausgerechneter Stand, ungeglättet
+    this.displayQueue = [];
+    this.reachableNow = false;
+    this.layout = [0, 1, 2];     // Schilder, wie sie bei Ankunft einer Eingabe hängen
+    this.warnLayout = null;
+    this.shownPlanIndex = -1;
   }
 
   stage() {
@@ -383,10 +402,15 @@ export class SortBelt extends MinigameScene {
   }
 
   shot() {
+    // Der Blick liegt ein Stück das Band hinauf und etwas steiler: vorher
+    // standen die Rutschen mitten im Hochformat, und das untere Drittel bis zur
+    // Hinweiszeile war leerer Hallenboden. Jetzt sitzen sie im unteren Drittel,
+    // wo der Daumen ohnehin ist, und das Band mit den kommenden Teilen füllt
+    // die Mitte.
     return {
-      look: [-0.25, 0.55, BELT_NEAR_Z - 0.6],
+      look: [-0.25, 0.4, BELT_NEAR_Z - 3.6],
       frame: { w: 5.2, h: 3.8 },
-      pitch: 0.5,
+      pitch: 0.62,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.25, zoom: 1.35 }
     };
@@ -454,19 +478,114 @@ export class SortBelt extends MinigameScene {
     return Math.floor(share * 3);
   }
 
+  // Ein Wisch wirkt sofort: das Teil fliegt los, das nächste rückt nach, die
+  // Figur wirft. Ob es richtig war, sagt dann der Server — das Gerät rechnet
+  // es aber schon mit denselben Schildern vor, die bei Ankunft hängen.
   sortTo(chute) {
     const minigame = this.update || this.minigame;
     if (!minigame || minigame.finaleAt) return;
-    const own = minigame.arcade?.players?.[this.getControlledPlayerId()];
-    if (!own) return;
+    const head = this.displayQueue[0];
     // Vor der Reichweite passiert nichts — dann aber auch kein Klick-Geräusch,
     // sonst klingt es, als hätte man etwas ausgelöst.
-    if (!own.reachable) {
+    if (!head || !this.reachableNow || this.pending.size >= 2) {
       this.feedback?.sound("clack");
       return;
     }
+    const good = this.layout[chute] === head.colour;
+    this.pending.set(head.id, { chute, at: performance.now(), good });
+    this.flown.add(head.id);
+    this.spawnFlight(head.icon, chute, good, beltZ(this.displayHead ?? REACH_AT));
+    this.workerThrow(chute);
+    // Das nächste Teil rückt sichtbar nach, ohne auf den Server zu warten —
+    // auch für einen zweiten Wisch noch im selben Bild.
+    this.displayHead = (this.displayHead ?? REACH_AT) - PARCEL_GAP;
+    this.displayQueue = this.displayQueue.slice(1);
+    this.headTarget -= PARCEL_GAP;
+    this.reachableNow = this.headTarget >= REACH_AT;
     this.feedback?.sound("tap");
-    this.sendInput({ action: "sort", chute }).catch(() => {});
+    this.sendQueue.push(chute);
+    this.flushSends();
+  }
+
+  flushSends() {
+    if (!this.sendQueue.length) return;
+    const clock = performance.now();
+    if (clock - this.lastSendAt < SEND_GAP_MS) return;
+    this.lastSendAt = clock;
+    const chute = this.sendQueue.shift();
+    this.sendInput({ action: "sort", chute })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => {});
+  }
+
+  // Wie lange ein Griff zum Server und zurück braucht, geglättet.
+  //
+  // Der Server prüft Reichweite und Schild bei ANKUNFT. Das Bild auf dem Gerät
+  // ist aber um die einfache Laufzeit alt, und der Griff braucht noch einmal so
+  // lange hin. In der Messung kostete das bei 200 ms Rundreise ein Viertel der
+  // Teile, und wer kurz vor einem Tausch nach den alten Schildern griff, bekam
+  // FALSCH. Darum zeigt das Gerät Band und Schilder genau um diese Rundreise
+  // voraus.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip * 0.7 + clamped * 0.3;
+  }
+
+  // Läuft das Band gerade — gemessen an der Ankunftszeit einer Eingabe?
+  beltMoving(f) {
+    const startedAt = f.minigame?.startedAt || 0;
+    const arrival = f.now + this.roundTrip;
+    return !f.finale && arrival >= startedAt && arrival < startedAt + (f.minigame?.duration || 0);
+  }
+
+  // Stand bei Ankunft einer jetzt geschickten Eingabe: das letzte Serverbild
+  // plus die Zeit bis dahin. Die Uhr des Geräts läuft der des Servers um die
+  // einfache Laufzeit hinterher; eine Rundreise dazu ist die Ankunftszeit.
+  predict(own, arcade, f) {
+    const minigame = f.minigame || {};
+    const startedAt = minigame.startedAt || 0;
+    const endAt = startedAt + (minigame.duration || 0);
+    const arrival = Math.min(f.now + this.roundTrip, endAt);
+    const aheadMs = f.finale ? 0 : arrival - Math.max(minigame.sentAt || f.now, startedAt);
+    const serverHead = (own.beltPos || 0) + (arcade.speed || 0.3) * clamp(aheadMs / 1000, 0, 0.6);
+
+    // Lokal einsortierte Teile: bestätigt, sobald der Server sie nicht mehr in
+    // der Schlange hat; nach einer Weile ohne Bestätigung verworfen — dann
+    // steht das Teil eben wieder auf dem Band.
+    const queue = own.queue || [];
+    const ids = new Set(queue.map((parcel) => parcel.id));
+    const clock = performance.now();
+    this.pending.forEach((entry, id) => {
+      if (ids.has(id) && clock - entry.at <= this.roundTrip + 700) return;
+      this.pending.delete(id);
+      if (ids.has(id)) this.flown.delete(id);
+    });
+    this.displayQueue = queue.filter((parcel) => !this.pending.has(parcel.id));
+    const target = serverHead - PARCEL_GAP * (queue.length - this.displayQueue.length);
+    this.headTarget = target;
+    this.reachableNow = !f.finale && target >= REACH_AT;
+    return target;
+  }
+
+  // Schilder bei Ankunft einer jetzt geschickten Eingabe. Der Plan steht von
+  // Anfang an fest und ist öffentlich.
+  predictLayout(arcade, f) {
+    const startedAt = f.minigame?.startedAt || 0;
+    const plan = arcade.chutePlan;
+    if (Array.isArray(plan) && plan.length) {
+      const elapsed = f.now + this.roundTrip - startedAt;
+      let index = 0;
+      while (index + 1 < plan.length && elapsed >= plan[index + 1].at) index += 1;
+      this.planIndex = index;
+      this.layout = plan[index].chutes;
+      const next = plan[index + 1];
+      this.warnLayout = next && next.at - elapsed <= SWAP_WARN_MS ? next.chutes : null;
+    } else {
+      this.planIndex = 0;
+      this.layout = arcade.chutes || [0, 1, 2];
+      this.warnLayout = arcade.nextChutes || null;
+    }
   }
 
   syncBelt(arcade, dt) {
@@ -478,15 +597,21 @@ export class SortBelt extends MinigameScene {
   }
 
   syncChutes(arcade, dt, now) {
-    const wanted = arcade.chutes || [0, 1, 2];
-    const warn = arcade.nextChutes || null;
-    const swapped = arcade.lastSwapAt && arcade.lastSwapAt !== this.lastSwapAt;
+    // Schilder und Vorwarnung so, wie sie bei Ankunft einer Eingabe stehen
+    // (predict) — der Tausch kommt damit auf dem Gerät genau dann, wenn er
+    // auch für den eigenen Griff gilt.
+    const wanted = this.layout;
+    const warn = this.warnLayout;
+    // Beim ersten Bild (auch nach einem Wiedereinstieg mitten im Spiel) ist
+    // nichts getauscht worden — die Schilder hängen einfach so.
+    const swapped = this.shownPlanIndex >= 0 && this.planIndex > this.shownPlanIndex;
+    this.shownPlanIndex = Math.max(this.shownPlanIndex, this.planIndex || 0);
     if (swapped) {
-      this.lastSwapAt = arcade.lastSwapAt;
       this.swapPulse = 1;
       this.feedback?.sound("portal");
       this.feedback?.vibrate(14);
-      this.pop(new THREE.Vector3(0, 2.9, BELT_NEAR_Z - 0.4), "TAUSCH!", { color: "#ffe9a8", size: 0.4, life: 0.85 });
+      // Höher als FALSCH und DURCH!, die an derselben Stelle aufgehen können.
+      this.pop(new THREE.Vector3(0, 3.5, BELT_NEAR_Z - 1.6), "TAUSCH!", { color: "#ffe9a8", size: 0.4, life: 0.85 });
     }
     this.swapPulse = Math.max(0, this.swapPulse - dt * 1.6);
 
@@ -522,8 +647,8 @@ export class SortBelt extends MinigameScene {
   }
 
   syncParcels(own, arcade, dt, now) {
-    const queue = own.queue || [];
-    const head = own.beltPos || 0;
+    const queue = this.displayQueue;
+    const head = this.displayHead ?? 0;
     this.parcels.forEach((visual, slot) => {
       const parcel = queue[slot];
       if (!parcel) {
@@ -568,26 +693,26 @@ export class SortBelt extends MinigameScene {
 
       // Das vorderste Paket hebt sich ab, sobald es greifbar ist: es wippt
       // stärker und steht einen Hauch höher.
-      if (slot === 0 && own.reachable) {
+      if (slot === 0 && this.reachableNow) {
         const lift = 0.06 + Math.sin(now / 140) * 0.04;
         visual.group.position.y += lift;
       }
     });
 
     if (this.reachLine) {
-      this.reachLine.material.opacity = own.reachable ? 0.25 : 0.75;
+      this.reachLine.material.opacity = this.reachableNow ? 0.25 : 0.75;
     }
   }
 
   // Sortierte Pakete fliegen sichtbar in ihre Rutsche. Sie einfach verschwinden
   // zu lassen liest sich wie ein Aussetzer des Spiels — man will sehen, wohin
   // die eigene Entscheidung geführt hat.
-  spawnFlight(icon, chuteIndex, good) {
+  spawnFlight(icon, chuteIndex, good, fromZ = beltZ(0.55)) {
     const proxy = makeCanvasSprite(128, 128);
     paintIcon(proxy, icon || "📦");
     proxy.scale.setScalar(0.85);
     proxy.userData.base = 0.85;
-    proxy.position.set(0, BELT_TOP_Y + 0.6, beltZ(0.55));
+    proxy.position.set(0, BELT_TOP_Y + 0.6, fromZ);
     this.scene.add(proxy);
     const target = this.chutes[chuteIndex]?.group.position || new THREE.Vector3(0, 0, BELT_NEAR_Z);
     this.flying.push({
@@ -627,8 +752,11 @@ export class SortBelt extends MinigameScene {
     this.lastVerdictAt = verdict.at;
 
     const categories = arcade.categories || CATEGORIES;
+    // Der Flug startete schon beim Wisch (sortTo) — hier nur, wenn dieses Gerät
+    // den Griff nicht selbst ausgelöst hat.
+    const flown = this.flown.delete(verdict.id);
     if (verdict.kind === "good") {
-      this.spawnFlight(verdict.icon, verdict.chute, true);
+      if (!flown) this.spawnFlight(verdict.icon, verdict.chute, true);
       const chute = this.chutes[verdict.chute];
       if (chute) chute.flash = 1;
       const at = new THREE.Vector3(chute?.group.position.x || 0, 1.7, BELT_NEAR_Z);
@@ -638,9 +766,9 @@ export class SortBelt extends MinigameScene {
       }
       this.feedback?.sound("coin");
       this.feedback?.vibrate(10);
-      this.workerAct("good", verdict.chute);
+      this.workerAct("good", verdict.chute, flown);
     } else if (verdict.kind === "wrong") {
-      this.spawnFlight(verdict.icon, verdict.chute, false);
+      if (!flown) this.spawnFlight(verdict.icon, verdict.chute, false);
       // Sagen, wohin es gehört hätte — beim Verwechsler lernt man daraus.
       const right = categories[verdict.colour]?.name || "";
       this.pop(new THREE.Vector3(0, 2.4, BELT_NEAR_Z - 1), "FALSCH", { color: "#ff9aa8", size: 0.38, life: 0.9 });
@@ -648,7 +776,7 @@ export class SortBelt extends MinigameScene {
       this.feedback?.sound("error");
       this.feedback?.vibrate(26);
       this.rig.shake(0.45);
-      this.workerAct("wrong", verdict.chute);
+      this.workerAct("wrong", verdict.chute, flown);
     } else {
       // Durchgerutscht: das Paket kippt vorne über die Kante.
       const at = new THREE.Vector3(0, 0.5, BELT_NEAR_Z + 0.2);
@@ -661,18 +789,25 @@ export class SortBelt extends MinigameScene {
     }
   }
 
-  // Der Arbeiter reagiert: Wurf zur Rutsche, Fehlwurf, durchgerutscht.
-  workerAct(kind, chute) {
+  // Der Wurf selbst: sofort beim Wisch.
+  workerThrow(chute) {
     const animator = this.animators.get(this.getControlledPlayerId());
     if (!animator) return;
     const target = this.chutes[chute]?.group.position;
     if (target) this.workerTurn = Math.atan2(target.x - WORKER_X, target.z - WORKER_Z);
     this.workerTurnUntil = this.now() + 500;
+    animator.trigger("throw");
+  }
+
+  // Der Arbeiter reagiert auf das Urteil: Freude, Fehlwurf, durchgerutscht.
+  // `thrown`: der Wurf lief schon beim Wisch.
+  workerAct(kind, chute, thrown = false) {
+    const animator = this.animators.get(this.getControlledPlayerId());
+    if (!animator) return;
+    if (!thrown && kind !== "missed") this.workerThrow(chute);
     if (kind === "good") {
-      animator.trigger("throw");
       animator.expression("happy", 400);
     } else if (kind === "wrong") {
-      animator.trigger("throw");
       animator.trigger("facepalm");
       animator.expression("sad", 800);
     } else {
@@ -686,11 +821,23 @@ export class SortBelt extends MinigameScene {
     const { now, dt, arcade, controlledId, finale } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
-    this.syncChutes(arcade, dt, now);
-    this.syncBelt(arcade, dt);
+    this.predictLayout(arcade, f);
     if (own) {
-      this.syncParcels(own, arcade, dt, now);
+      // Das Band läuft lokal weiter und wird sanft zur Vorhersage gezogen; ein
+      // grosser Unterschied (Nachrücken, Durchgerutscht) wird übernommen.
+      const target = this.predict(own, arcade, f);
+      if (this.displayHead === null || Math.abs(target - this.displayHead) > 0.15) this.displayHead = target;
+      else {
+        if (this.beltMoving(f)) this.displayHead += (arcade.speed || 0.3) * dt;
+        this.displayHead += (target - this.displayHead) * frameLerp(0.2, dt);
+      }
+      this.flushSends();
+    }
+    this.syncChutes(arcade, dt, now);
+    if (this.beltMoving(f)) this.syncBelt(arcade, dt);
+    if (own) {
       this.reactToVerdict(own, arcade);
+      this.syncParcels(own, arcade, dt, now);
     }
     this.updateFlying(dt);
     const kin = this.kins.get(controlledId);
@@ -701,7 +848,7 @@ export class SortBelt extends MinigameScene {
     kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.3, dt);
     const head = this.parcels[0]?.group;
     animator.lookAt(head?.visible ? head.position : null);
-    if (own?.reachable) {
+    if (this.reachableNow) {
       animator.set("ready");
       animator.set("reach", { params: { side: 1 } });
     } else {
@@ -736,16 +883,19 @@ export class SortBelt extends MinigameScene {
       }).join("");
     }
 
+    // Im Finale gibt es nichts mehr zu sortieren.
+    this.hintNode ||= this.controls.querySelector(".trace-hint");
+    if (this.hintNode) this.hintNode.hidden = Boolean(f.finale);
     const banner = this.hud.querySelector("[data-belt-banner]");
     if (!banner) return;
-    const soon = arcade.nextChutes;
+    const soon = !f.finale && this.warnLayout;
     if (soon) {
       banner.hidden = false;
       banner.textContent = "Schilder tauschen gleich!";
       banner.style.background = "#ffd15c";
       banner.style.color = "#4a3405";
-    } else if (own && !own.reachable) {
-      const parcel = own.queue?.[0];
+    } else if (own && !f.finale && !this.reachableNow) {
+      const parcel = this.displayQueue[0];
       banner.hidden = false;
       banner.textContent = parcel ? `Gleich: ${parcel.icon || ""} ${parcel.name || ""}` : "Band läuft an";
       banner.style.background = "#2b3a45";
