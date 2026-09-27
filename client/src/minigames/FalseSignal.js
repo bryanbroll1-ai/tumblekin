@@ -373,7 +373,22 @@ export class FalseSignal extends MinigameScene {
     this.animators.get(id)?.trigger("punch");
     const lane = this.lanes.get(id);
     if (lane) lane.pressedAt = this.now();
-    this.sendInput({ action: "react" }).catch(() => {});
+    const sentAt = performance.now();
+    this.sendInput({ action: "react" }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+  }
+
+  // Wie lange ein Tipp zum Server und zurück braucht, geglättet.
+  //
+  // Der Ring wuchs auf der Uhr des Geräts, die einen Hinweg hinter der des
+  // Servers hängt, und gewertet wird bei Ankunft, noch einen Hinweg später.
+  // Bis dahin war der Ring um eine Rundreise gewachsen — jeder Treffer
+  // brachte dadurch weniger, als der Ring beim Tippen versprach, und die
+  // Bots (ohne Netz) hatten diesen Abzug nie. Der Ring zeigt darum, wie weit
+  // er bei Ankunft ist. Der Server glaubt dem Gerät dabei nichts.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = (this.roundTrip ?? 0) * 0.7 + clamped * 0.3;
   }
 
   activeSignal(arcade, elapsed) {
@@ -397,7 +412,7 @@ export class FalseSignal extends MinigameScene {
     });
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    const elapsed = Math.max(0, now + (this.roundTrip || 0) - minigame.startedAt);
     const signal = this.activeSignal(arcade, elapsed);
     this.paintLamp(signal, dt, elapsed, arcade);
     const growing = signal ? this.ringRadius(signal, elapsed - signal.at, arcade.growMs || 950) : 0;
@@ -554,7 +569,10 @@ export class FalseSignal extends MinigameScene {
       banner.textContent = `Fehlgriff — gesperrt (${Math.ceil((own.lockUntil - now) / 100) / 10}s)`;
       banner.style.background = "#ff6b7f";
       banner.style.color = "#42101a";
-    } else if ((own?.hits || 0) >= 3 && (own?.falseStarts || 0) === 0) {
+    } else if ((own?.hits || 0) >= 3 && (own?.falseStarts || 0) === 0
+      && own.lastReact?.kind === "go" && now - own.lastReact.at < 1800) {
+      // Nur kurz nach einem sauberen Treffer — vorher stand die Zeile ab dem
+      // dritten Treffer bis zum Rundenende oben und wurde zum Hintergrund.
       banner.hidden = false;
       // Der Mut ist die eigentliche Leistung — der kleinste Ring, bei dem ein
       // Treffer sass. Deshalb steht er hier und nicht die Zahl der Treffer.

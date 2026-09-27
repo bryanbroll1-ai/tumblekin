@@ -91,7 +91,8 @@ export const REWORKED = new Set([
   "turmbau",
   "bergsteiger",
   "ballonfahrt",
-  "trampolin"
+  "trampolin",
+  "falschsignal"
 ]);
 
 export const ARCADE_TYPES = new Set(
