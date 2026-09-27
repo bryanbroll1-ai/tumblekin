@@ -149,13 +149,25 @@ export class RedLightGate extends MinigameScene {
     this.guardAnimator = new KinAnimator(this.guard);
     this.guardAnimator.groundY = guardY;
 
-    this.lampMat = new THREE.MeshLambertMaterial({ color: "#2ee86a", emissive: new THREE.Color("#2ee86a"), emissiveIntensity: 0.9 });
-    const lampBox = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), this.lampMat);
-    lampBox.position.set(0, 5.2, gateZ - 2.2);
-    scene.add(lampBox);
-    const lampPole = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.4, 0.24), new THREE.MeshLambertMaterial({ color: "#40506a" }));
-    lampPole.position.set(0, 4.3, gateZ - 2.2);
-    scene.add(lampPole);
+    // Die Ampel sitzt mitten auf dem Torbalken: Rot, Gelb, Grün nebeneinander,
+    // nur die gültige leuchtet. Vorher hing eine einzelne Lampe hoch über dem
+    // Kopf des Wächters — im Bild genau hinter Banner und Fortschrittsleiste.
+    const ampel = new THREE.Group();
+    ampel.position.set(0, 3.4 + 0.62, gateZ + 0.05);
+    const gehaeuse = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.78, 0.42), new THREE.MeshLambertMaterial({ color: "#2b3242" }));
+    gehaeuse.castShadow = true;
+    ampel.add(gehaeuse);
+    const schirm = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, 0.56), new THREE.MeshLambertMaterial({ color: "#1d222e" }));
+    schirm.position.set(0, 0.44, 0.07);
+    ampel.add(schirm);
+    this.ampelLampen = ["#ff2038", "#ffc400", "#2ee86a"].map((farbe, i) => {
+      const mat = new THREE.MeshLambertMaterial({ color: "#3a3f4c", emissive: new THREE.Color(farbe), emissiveIntensity: 0 });
+      const lampe = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.52, 0.12), mat);
+      lampe.position.set((i - 1) * 0.66, 0, 0.24);
+      ampel.add(lampe);
+      return { mat, farbe: new THREE.Color(farbe), aus: new THREE.Color("#3a3f4c") };
+    });
+    scene.add(ampel);
 
     // Ein grosser Baum hinter dem Wächter gibt dem Ziel eine Silhouette —
     // seitlich neben dem Tor, nicht dahinter. In der Linie des linken
@@ -434,12 +446,14 @@ export class RedLightGate extends MinigameScene {
       this.lastPhaseKey = key;
     }
 
-    // Lampe: Grün, blinkend Gelb in der Drehung, Rot.
+    // Ampel: Grün, blinkend Gelb in der Drehung, Rot.
     const warn = kind === "turn" || kind === "feint";
-    const lampColor = kind === "red" ? "#ff2038" : warn ? "#ffc400" : "#2ee86a";
-    this.lampMat.color.set(lampColor);
-    this.lampMat.emissive.set(lampColor);
-    this.lampMat.emissiveIntensity = warn ? (Math.sin(now / 55) > 0 ? 1.4 : 0.3) : 0.7 + Math.abs(Math.sin(now / 160)) * 0.5;
+    const an = kind === "red" ? 0 : warn ? 1 : 2;
+    this.ampelLampen?.forEach((lampe, i) => {
+      const leuchtet = i === an && (!warn || Math.sin(now / 70) > -0.2);
+      lampe.mat.color.copy(leuchtet ? lampe.farbe : lampe.aus);
+      lampe.mat.emissiveIntensity = leuchtet ? 1.1 : 0;
+    });
 
     // Der Wächter: abgewandt bei Grün, dreht sich in der Drehphase herum,
     // steht bei Rot zugewandt. Die Finte dreht halb an und wieder zurück.
@@ -543,8 +557,14 @@ export class RedLightGate extends MinigameScene {
   }
 
   rigOptions(f) {
+    // Im Finale aufs Tor, wo alle ankommen — ohne eigenen Blickpunkt stand die
+    // Kamera auf halbem Weg zwischen Start und Sieger, die Figuren waren
+    // winzig und eine Gartenlaterne schob sich gross ins Bild.
+    // Gerade von vorn: seitlich versetzt schob sich die Laternenreihe rechts
+    // der Bahn vor die Linse.
+    if (f.finale) return { look: [0, 1.3, (this.gateZ ?? 0) + 2.2], frame: { w: 7.2, h: 4.2 }, yaw: 0 };
     const own = this.kins.get(f.controlledId);
-    if (!own || f.finale) return {};
+    if (!own) return {};
     return { look: [own.position.x * 0.3, 1.1, own.position.z - 2.5] };
   }
 
