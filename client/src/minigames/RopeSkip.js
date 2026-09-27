@@ -256,10 +256,14 @@ export class RopeSkip extends MinigameScene {
     // oben über die Köpfe und vorn auf die Füsse zu kommt. Frontal war er eine
     // Linie, die auf- und abwippte, und die Szene hing klein oben im Bild.
     return {
-      look: [0, 0.75, 0.1],
-      frame: { w: 4.3, h: 3.0 },
+      // Näher dran: mit 4.3 Breite waren die Springer im Hochformat kaum
+      // grösser als ein Daumennagel, und darunter lag leerer Asphalt. Der
+      // Blickpunkt sitzt etwas rechts, weil das rechte Seilende durch die
+      // Schrägsicht näher an der Kamera ist — so bleiben beide Dreher im Bild.
+      look: [0.35, 0.75, 0.1],
+      frame: { w: 3.9, h: 2.7 },
       yaw: 0.85,
-      pitch: 0.24,
+      pitch: 0.28,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }
     };
@@ -402,10 +406,18 @@ export class RopeSkip extends MinigameScene {
       if (!out && (entry.survived || 0) > (this.lastSurvived.get(player.id) || 0)) {
         this.lastSurvived.set(player.id, entry.survived);
         // Die Wellenzahl nur über der eigenen Figur — vier Zahlen je Welle
-        // waren ein Flackern, das niemand lesen konnte.
-        if (isOwn) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), `${entry.survived}`, { color: "#ffe36b", size: 0.3, life: 0.6, rise: 0.6 });
+        // waren ein Flackern, das niemand lesen konnte. Dazu, wie mittig der
+        // Sprung über dem Seil lag: das entscheidet, wenn am Ende mehrere
+        // übrig sind, und so lernt man es schon während des Springens.
         if (isOwn) {
-          this.feedback?.sound("pop", { pan: kin.position.x * 0.18 });
+          const wave = arcade.waves?.[entry.survived - 1];
+          const mitte = (entry.jumpUntil || 0) - arcade.jumpMs / 2 - minigame.startedAt;
+          const abweichung = wave ? Math.abs(mitte - wave.hitAt) : 999;
+          const perfekt = abweichung <= 60;
+          const knapp = abweichung >= 170;
+          const text = perfekt ? `${entry.survived} ✨` : knapp ? `${entry.survived} knapp!` : `${entry.survived}`;
+          this.pop(kin.position.clone().add(new THREE.Vector3(0, 1, 0)), text, { color: perfekt ? "#7fe0a8" : knapp ? "#ffb04a" : "#ffe36b", size: 0.3, life: 0.6, rise: 0.6 });
+          this.feedback?.sound(perfekt ? "perfect" : "pop", { pan: kin.position.x * 0.18 });
           this.feedback?.vibrate(8);
         }
       }
@@ -435,8 +447,25 @@ export class RopeSkip extends MinigameScene {
     });
   }
 
+  // Im Bild gehalten wird, wo die Figuren STEHEN, nicht wie hoch sie gerade
+  // springen. Mit der Sprunghöhe schob die Sicherung die Kamera bei jedem
+  // Sprung zurück und liess sie nur langsam wieder heran — das Bild atmete
+  // im Takt des Seils, und die Figuren blieben meist klein.
   keepInView(f) {
-    return f.players.map((player) => this.kins.get(player.id)).filter(Boolean);
+    this.anchors ||= new Map();
+    return f.players.map((player) => {
+      const kin = this.kins.get(player.id);
+      if (!kin) return null;
+      let anchor = this.anchors.get(player.id);
+      if (!anchor) {
+        anchor = new THREE.Object3D();
+        this.anchors.set(player.id, anchor);
+      }
+      anchor.position.set(kin.position.x, KIN_Y, kin.position.z);
+      anchor.visible = kin.visible;
+      anchor.updateMatrixWorld(true);
+      return anchor;
+    }).filter(Boolean);
   }
 
   drawHud(f) {
