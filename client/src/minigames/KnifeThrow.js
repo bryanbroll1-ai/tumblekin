@@ -100,6 +100,7 @@ export class KnifeThrow extends MinigameScene {
     super(ctx);
     this.stations = new Map();
     this.flying = [];
+    this.pendingOwn = [];
     this.debris = [];
     // Kein wippender Pfeil über der eigenen Figur und das Namensschild unter
     // die Füsse: beide hingen genau in der Flugbahn der Messer, zwischen Hand
@@ -175,6 +176,7 @@ export class KnifeThrow extends MinigameScene {
       const kin = isOwn
         ? this.addKin(player, index, { x: 0, ground: 0, z: OWN_KIN_Z, facing: Math.PI })
         : this.addKin(player, index, { x: x + 0.55, ground: PODIUM_Y + 0.12, z: MINI_Z + 0.2, facing: 0, scale: 0.6 });
+      if (isOwn) this.ownColor = player.color;
       const hand = buildKnife(player.color);
       hand.scale.setScalar(0.9);
       kin.userData.arms?.[1]?.add(hand);
@@ -331,7 +333,38 @@ export class KnifeThrow extends MinigameScene {
     this.feedback?.sound("whoosh");
     this.feedback?.vibrate(8);
     this.animators.get(this.getControlledPlayerId())?.trigger("throw");
-    this.sendInput({ action: "throw" }).catch(() => {});
+    // Das eigene Messer fliegt sofort los — was es trifft, sagt der Server
+    // kurz darauf; bis dahin wartet es an der Unterkante des Stamms.
+    const st = this.stations.get(this.getControlledPlayerId());
+    if (st) {
+      const knife = buildKnife(this.ownColor);
+      this.scene.add(knife);
+      const fly = { knife, from: st.hand.getWorldPosition(new THREE.Vector3()), to: st.center.clone().add(new THREE.Vector3(0, -(LOG_R + 0.12), 0.05)), start: now, result: undefined, scale: 1, own: true };
+      this.flying.push(fly);
+      this.pendingOwn.push(fly);
+    }
+    const sentAt = performance.now();
+    this.sendInput({ action: "throw" }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {
+      // Nicht angekommen: das Messer verschwindet wieder.
+      const fly = this.pendingOwn.shift();
+      if (fly) fly.result = "void";
+    });
+  }
+
+  // Wie lange ein Wurf zum Server und zurück braucht, geglättet.
+  //
+  // Die eigene Uhr läuft um den Hinweg hinter der des Servers her (sie wird
+  // an Nachrichten gestellt, die unterwegs waren), und der Wurf kommt noch
+  // einmal einen Hinweg später an. Zusammen ist das die Rundreise: um so viel
+  // hat sich der Stamm beim Server schon weitergedreht, wenn er den Wurf
+  // wertet. Bei schnellen Stämmen waren das gut 10° — bei 13° Mindestabstand
+  // traf man scheinbar in die Lücke und hörte trotzdem ein Klirren. Deshalb
+  // zeigt der EIGENE Stamm, wo er stehen wird, wenn das Messer ankommt. Der
+  // Server glaubt dem Gerät dabei nichts; er wertet wie immer bei Ankunft.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip == null ? clamped : this.roundTrip * 0.7 + clamped * 0.3;
   }
 
   // Ein Messer steckt im Stamm: radial, die Spitze zur Mitte.
@@ -392,22 +425,31 @@ export class KnifeThrow extends MinigameScene {
       st.log.scale.setScalar(scale);
       st.log.visible = scale > 0.02;
 
-      // Drehen nach dem Muster der Stufe.
-      const deg = logAngleDeg(entry.spin, now - (entry.stageStartedAt || now));
+      // Drehen nach dem Muster der Stufe — der eigene Stamm um die Rundreise
+      // voraus (siehe noteRoundTrip).
+      const lead = mine ? (this.roundTrip || 0) : 0;
+      const deg = logAngleDeg(entry.spin, now + lead - (entry.stageStartedAt || now));
       const clash = entry.lastThrow?.result === "clash" && now - entry.lastThrow.at < 450;
       st.log.rotation.z = THREE.MathUtils.degToRad(deg) + (clash ? Math.sin(now / 25) * 0.05 : 0);
       st.log.position.x = st.center.x + (clash ? Math.sin(now / 21) * 0.05 * st.scale : 0);
 
-      // Ein neuer Wurf: das Messer fliegt aus der Hand nach oben.
+      // Ein neuer Wurf: das Messer fliegt aus der Hand nach oben. Das eigene
+      // ist schon unterwegs (pressThrow) und erfährt hier nur sein Ergebnis.
       if ((entry.throws || 0) > st.throwsSeen) {
         st.throwsSeen = entry.throws;
         if (!mine) animator.trigger("throw");
         const from = st.hand.getWorldPosition(new THREE.Vector3());
         const to = st.center.clone().add(new THREE.Vector3(0, -(LOG_R + 0.12) * st.scale, 0.05));
-        const knife = buildKnife(player.color);
-        knife.scale.setScalar(st.scale);
-        this.scene.add(knife);
-        this.flying.push({ knife, from, to, start: now, result: entry.lastThrow?.result, scale: st.scale });
+        const pending = mine ? this.pendingOwn.shift() : null;
+        if (pending) {
+          pending.result = entry.lastThrow?.result;
+          pending.resolvedAt = now;
+        } else {
+          const knife = buildKnife(player.color);
+          knife.scale.setScalar(st.scale);
+          this.scene.add(knife);
+          this.flying.push({ knife, from, to, start: now, result: entry.lastThrow?.result, scale: st.scale });
+        }
         const result = entry.lastThrow?.result;
         if (result === "clash") {
           // Mit dem Stamm fallen auch seine Punkte — das soll man sehen.
@@ -459,8 +501,17 @@ export class KnifeThrow extends MinigameScene {
     // Fliegende Messer: kurz nach oben, dann stecken oder abprallen.
     this.flying = this.flying.filter((fly) => {
       const u = (now - fly.start) / FLIGHT_MS;
+      // Eigenes Messer ohne Antwort: an der Kante warten, höchstens eine
+      // halbe Sekunde, dann ist die Antwort verloren gegangen.
+      if (fly.result === undefined && u >= 1) {
+        fly.knife.position.copy(fly.to);
+        if (now - fly.start < 500) return true;
+        fly.result = "void";
+        const index = this.pendingOwn.indexOf(fly);
+        if (index >= 0) this.pendingOwn.splice(index, 1);
+      }
       if (fly.result === "clash" && u >= 1) {
-        const v = (now - fly.start - FLIGHT_MS) / 1000;
+        const v = (now - Math.max(fly.start + FLIGHT_MS, fly.resolvedAt || 0)) / 1000;
         fly.knife.position.set(fly.to.x + v * 1.6 * fly.scale, fly.to.y + v * 2.2 * fly.scale - 9 * v * v * fly.scale, fly.to.z + 0.3);
         fly.knife.rotation.z += dt * 16;
         if (v > 0.8) {
