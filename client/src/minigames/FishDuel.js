@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { dressWater } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { forecastFish } from "./Angelvorschau.js?v=tumblekin200";
 
 // Angelduell: Halten holt die Schnur ein, aber wenn der Fisch zieht, reisst
 // sie bei zu viel Spannung. Wer die meisten Punkte an Land zieht, gewinnt.
@@ -43,6 +44,9 @@ export class FishDuel extends MinigameScene {
     this.holding = false;
     this.lastPingAt = 0;
     this.labelY = 0.74;
+    this.roundTrip = 0;
+    this.pressLog = [];          // { at, v }: wann der Finger (Geräteuhr) gedrückt bzw. gelöst hat
+    this.ownView = null;         // eigene Schnur, wie sie bei Ankunft der nächsten Eingabe steht
   }
 
   stage() {
@@ -218,33 +222,105 @@ export class FishDuel extends MinigameScene {
       // VOR dem Steg, und der Kampf mit dem Fisch spielte sich in einem
       // schmalen Streifen ab. Jetzt steht der Steg unten, das Wasser mit den
       // Fischen füllt die Mitte.
-      look: [0, 0.4, -3.4],
+      // Noch ein Stück weiter hinaus und etwas steiler: vorher lag unter dem
+      // Steg ein Fünftel des Bildes leeres Wasser bis zum Knopf, und die
+      // Fische schwammen klein in der oberen Mitte.
+      look: [0, 0.3, -5.2],
       frame: { w: count * LANE_GAP + 0.7, h: 3.8 },
       yaw: 0.18,
-      pitch: 0.42,
+      pitch: 0.56,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.2, zoom: 1.4 }
     };
   }
 
   bind() {
+    // Die Spannung steht auch IM Knopf: dort liegt der Daumen, und der Blick
+    // ist beim Fisch — der Balken oben am Rand war dafür zu weit weg.
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-fish-reel>
+      <button type="button" class="nerve-button fish-reel-button" data-fish-reel>
         <span class="nerve-button-face">EINHOLEN</span>
+        <span class="fish-reel-meter"><i data-fish-reel-meter></i></span>
       </button>`;
     const button = this.controls.querySelector("[data-fish-reel]");
     const down = (event) => {
       event.preventDefault();
+      if (this.holding) return;
       this.holding = true;
+      this.notePress(true);
       this.feedback?.sound("tap");
     };
+    // Loslassen wird ausdrücklich gemeldet. Vorher merkte der Server es erst,
+    // wenn 190 ms lang kein Halte-Ping mehr kam.
     const up = () => {
+      if (!this.holding) return;
       this.holding = false;
+      this.notePress(false);
+      const minigame = this.update || this.minigame;
+      if (minigame?.finaleAt) return;
+      const sentAt = performance.now();
+      this.sendInput({ action: "lift" }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
     };
     this.on(button, "pointerdown", down);
     this.on(this.webglCanvas, "pointerdown", down);
     this.on(window, "pointerup", up);
     this.on(window, "pointercancel", up);
+  }
+
+  notePress(v) {
+    const at = this.now();
+    this.pressLog.push({ at, v });
+    // Mehr als ein paar Sekunden zurück wird nie gefragt.
+    while (this.pressLog.length > 2 && this.pressLog[1].at < at - 3000) this.pressLog.shift();
+  }
+
+  // Ob der Server zur Serverzeit `at` „halten“ sieht: das ist, was dieses Gerät
+  // eine Rundreise vorher gedrückt hatte (Geräteuhr = Serverzeit − einfache
+  // Laufzeit, dazu die Laufzeit hin).
+  pressedAt(at) {
+    const when = at - this.roundTrip;
+    let v = false;
+    for (const entry of this.pressLog) {
+      if (entry.at <= when) v = entry.v;
+      else break;
+    }
+    return v;
+  }
+
+  // Wie lange ein Ping zum Server und zurück braucht, geglättet (gedeckelt auf
+  // 250 ms wie in den anderen Spielen).
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip * 0.7 + clamped * 0.3;
+  }
+
+  // Die eigene Schnur, wie der Server sie sieht, wenn eine JETZT geschickte
+  // Eingabe ankommt (Angelvorschau.js). Danach richten sich Balken, Rute,
+  // Fisch und Warnruf — nicht nach dem Stand von vor einer halben Rundreise.
+  forecastOwn(own, arcade, f) {
+    const minigame = f.minigame || {};
+    // Vor dem Start rechnet der Server nicht und nimmt keine Eingabe an —
+    // wer im Countdown schon drückt, spannt damit noch nichts.
+    const from = Math.max(minigame.sentAt || f.now, minigame.startedAt || 0);
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const to = f.finale ? from : Math.max(from, Math.min(f.now + this.roundTrip, endAt));
+    const rules = {
+      reelSpeed: arcade.reelSpeed ?? 0.3,
+      slipSpeed: arcade.slipSpeed ?? 0.13,
+      tensionCalm: arcade.tensionCalm ?? 0.26,
+      tensionSurge: arcade.tensionSurge ?? 0.62,
+      relax: arcade.relax ?? 0.45
+    };
+    const view = forecastFish(own, rules, from, to, (at) => this.pressedAt(at));
+    const kind = own.species || { surge: 1, calm: 1 };
+    // Reisst sie gleich, wenn man weiter hält? Genau dann — und nur dann —
+    // heisst es LOSLASSEN. Ein kurzer Schub mit lockerer Schnur lässt sich
+    // durchhalten, und das ist das Können hier.
+    const rate = view.surging ? rules.tensionSurge * kind.surge : rules.tensionCalm * kind.calm;
+    view.danger = (1 - view.tension) / Math.max(0.01, rate) < 0.45;
+    view.paused = (own.pauseUntil || 0) > to;
+    return view;
   }
 
   applySpecies(lane, kind) {
@@ -265,10 +341,11 @@ export class FishDuel extends MinigameScene {
     const own = arcade.players[controlledId];
     if (this.holding && !minigame.finaleAt && frameNow - this.lastPingAt > 70) {
       this.lastPingAt = frameNow;
-      this.sendInput({ action: "reel" }).catch(() => {});
+      this.sendInput({ action: "reel" }).then(() => this.noteRoundTrip(performance.now() - frameNow)).catch(() => {});
     }
+    this.ownView = own ? this.forecastOwn(own, arcade, f) : null;
     if (this.holding && !minigame.finaleAt) {
-      const takt = 190 - Math.min(1, Math.max(0, own?.tension ?? 0)) * 110;
+      const takt = 190 - Math.min(1, Math.max(0, this.ownView?.tension ?? 0)) * 110;
       if (frameNow - (this.lastClack || 0) > takt) {
         this.lastClack = frameNow;
         this.feedback?.sound("clack");
@@ -286,15 +363,19 @@ export class FishDuel extends MinigameScene {
       // Der Eimer hüpft kurz, wenn ein Fisch hineinplumpst.
       const bump = lane.bucketBump ? Math.max(0, 1 - (now - lane.bucketBump) / 260) : 0;
       lane.bucket.scale.set(1 + bump * 0.18, 1 - bump * 0.14, 1 + bump * 0.18);
-      const tension = Math.min(1, Math.max(0, entry.tension || 0));
-      const holding = isOwn ? this.holding || entry.holding : entry.holding;
+      // Die eigene Schnur zeigt den vorausgerechneten Stand (forecastOwn),
+      // die der anderen den letzten vom Server.
+      const view = isOwn && this.ownView ? this.ownView : null;
+      const tension = Math.min(1, Math.max(0, view ? view.tension : entry.tension || 0));
+      const holding = isOwn ? this.holding : entry.holding;
+      const surging = view ? view.surging : entry.surging;
       const paused = (entry.pauseUntil || 0) > now;
 
       // Fisch: näher mit sinkender Entfernung, zappelt beim Ziehen.
-      const distance = Math.min(1, Math.max(0, entry.distance ?? 1));
+      const distance = Math.min(1, Math.max(0, view ? view.distance : entry.distance ?? 1));
       const targetZ = FISH_NEAR_Z + (FISH_FAR_Z - FISH_NEAR_Z) * distance;
       const fish = lane.fish;
-      lane.thrash += dt * (entry.surging ? 13 : 3.4);
+      lane.thrash += dt * (surging ? 13 : 3.4);
       const escaping = lane.escape && now - lane.escape.at < ESCAPE_MS;
       if (escaping) {
         this.tickEscape(lane, now);
@@ -313,24 +394,24 @@ export class FishDuel extends MinigameScene {
           if (isOwn) this.feedback?.sound("plink");
         }
         fish.position.z += (targetZ - fish.position.z) * frameLerp(0.16, dt);
-        fish.position.x = lane.x + Math.sin(lane.thrash) * (entry.surging ? 0.4 : 0.1);
-        fish.position.y = 0.08 + (entry.surging ? Math.abs(Math.sin(lane.thrash * 1.3)) * 0.18 : 0);
+        fish.position.x = lane.x + Math.sin(lane.thrash) * (surging ? 0.4 : 0.1);
+        fish.position.y = 0.08 + (surging ? Math.abs(Math.sin(lane.thrash * 1.3)) * 0.18 : 0);
         // Blickrichtung: eingeholt wird er mit dem Maul voran zum Steg
         // gezogen; wehrt er sich oder lässt man los, dreht er ab und will weg.
-        const toward = holding && !entry.surging ? Math.PI : 0;
+        const toward = holding && !surging ? Math.PI : 0;
         lane.heading += (toward - lane.heading) * frameLerp(0.12, dt);
-        fish.rotation.set(0, lane.heading + Math.sin(lane.thrash) * (entry.surging ? 0.5 : 0.14), Math.sin(lane.thrash * 1.7) * (entry.surging ? 0.32 : 0.05));
+        fish.rotation.set(0, lane.heading + Math.sin(lane.thrash) * (surging ? 0.5 : 0.14), Math.sin(lane.thrash * 1.7) * (surging ? 0.32 : 0.05));
         fish.userData.tail.rotation.y = Math.sin(lane.thrash * 2.2) * (holding ? 0.3 : 0.6);
         fish.scale.setScalar((0.9 + (1 - distance) * 0.3) * (lane.speciesScale || 1));
-        if (entry.surging && Math.random() < frameChance(0.2, dt)) this.burst(fish.position.clone(), ["#ffffff", "#bfe9ff"], { count: 1, speed: 1, up: 1.2, size: 0.05, life: 0.4 });
+        if (surging && Math.random() < frameChance(0.2, dt)) this.burst(fish.position.clone(), ["#ffffff", "#bfe9ff"], { count: 1, speed: 1, up: 1.2, size: 0.05, life: 0.4 });
       }
       lane.wake.position.set(fish.position.x, 0.03, fish.position.z + (lane.heading > 1.5 ? -0.2 : 0.2));
       lane.wake.visible = fish.visible && !escaping;
-      lane.wake.material.opacity = entry.surging ? 0.55 : 0.2;
+      lane.wake.material.opacity = surging ? 0.55 : 0.2;
       this.tickCast(lane, now, isOwn);
 
       // Rute biegt sich, Rolle dreht beim Einholen.
-      lane.tipPivot.rotation.x = tension * 0.9 + (entry.surging ? 0.25 : 0);
+      lane.tipPivot.rotation.x = tension * 0.9 + (surging ? 0.25 : 0);
       if (holding && !paused) lane.reel.rotation.x += dt * 14;
       lane.rod.rotation.x += ((holding ? 0.62 : 0.9) - lane.rod.rotation.x) * frameLerp(0.18, dt);
 
@@ -372,11 +453,11 @@ export class FishDuel extends MinigameScene {
       if (finale) return;
       if (now - lane.snapped < 1200) return;
       if (paused) animator.set("idle");
-      else if (entry.surging && holding) {
+      else if (surging && holding) {
         animator.set("brace");
         animator.expression("effort", 150);
       } else if (holding) animator.set("pull");
-      else if (entry.surging) {
+      else if (surging) {
         animator.set("focus");
         animator.expression("surprised", 150);
       } else animator.set("focus");
@@ -432,8 +513,10 @@ export class FishDuel extends MinigameScene {
         }
       }
     }
-    if (isOwn && entry.surging && !lane.wasSurging) this.feedback?.sound("plink");
-    lane.wasSurging = Boolean(entry.surging);
+    // Der Schub-Ton kommt, wenn der Schub für die eigene Eingabe beginnt.
+    const surging = isOwn && this.ownView ? this.ownView.surging : entry.surging;
+    if (isOwn && surging && !lane.wasSurging) this.feedback?.sound("plink");
+    lane.wasSurging = Boolean(surging);
   }
 
   // Gefangen: ein Abbild des Fisches fliegt vom Wasser in den Eimer.
@@ -523,11 +606,18 @@ export class FishDuel extends MinigameScene {
     const own = arcade.players[f.controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(Math.max(0, Math.round(own?.score || 0)));
-    const tension = Math.min(1, Math.max(0, own?.tension || 0));
+    const view = this.ownView;
+    const tension = Math.min(1, Math.max(0, view ? view.tension : own?.tension || 0));
+    const colour = tension > 0.82 ? "#ff4f68" : tension > 0.6 ? "#ffb24f" : "#7fe06f";
     const bar = this.hud.querySelector("[data-fish-tension]");
     if (bar) {
       bar.style.transform = `scaleX(${tension.toFixed(3)})`;
-      bar.style.background = tension > 0.82 ? "#ff4f68" : tension > 0.6 ? "#ffb24f" : "#7fe06f";
+      bar.style.background = colour;
+    }
+    this.reelMeter ||= this.controls.querySelector("[data-fish-reel-meter]");
+    if (this.reelMeter) {
+      this.reelMeter.style.transform = `scaleX(${tension.toFixed(3)})`;
+      this.reelMeter.style.background = colour;
     }
     const chips = this.hud.querySelector("[data-fish-chips]");
     if (chips) {
@@ -539,16 +629,25 @@ export class FishDuel extends MinigameScene {
     }
     const banner = this.hud.querySelector("[data-fish-banner]");
     if (!banner) return;
-    if ((own?.pauseUntil || 0) > now) {
+    if (f.finale) {
+      banner.hidden = true;
+    } else if ((own?.pauseUntil || 0) > now) {
       banner.hidden = false;
       banner.textContent = "Neu auswerfen …";
       banner.style.background = "#8fa4b4";
       banner.style.color = "#12222c";
-    } else if (own?.surging) {
+    } else if (view?.surging && view.danger) {
+      // Vorher stand hier bei JEDEM Schub „LOSLASSEN!“ — auch mit lockerer
+      // Schnur, wo Durchhalten das Richtige ist.
       banner.hidden = false;
       banner.textContent = "ER ZIEHT — LOSLASSEN!";
       banner.style.background = "#ff6b7f";
       banner.style.color = "#42101a";
+    } else if (view?.surging) {
+      banner.hidden = false;
+      banner.textContent = "ER ZIEHT!";
+      banner.style.background = "#ffb24f";
+      banner.style.color = "#4a3400";
     } else if (tension > 0.82) {
       banner.hidden = false;
       banner.textContent = "Schnur am Limit!";

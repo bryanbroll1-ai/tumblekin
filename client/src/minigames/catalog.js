@@ -94,7 +94,8 @@ export const REWORKED = new Set([
   "trampolin",
   "falschsignal",
   "spurmaler",
-  "sortierband"
+  "sortierband",
+  "angelduell"
 ]);
 
 export const ARCADE_TYPES = new Set(

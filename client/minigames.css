@@ -1481,6 +1481,33 @@
   transition: background 0.1s linear;
 }
 
+/* Dieselbe Spannung noch einmal im Einholen-Knopf, unter dem Daumen. */
+.fish-reel-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.fish-reel-meter {
+  position: absolute;
+  right: 18px;
+  bottom: 12px;
+  left: 18px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(60, 0, 12, 0.35);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fish-reel-meter i {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #7fe06f;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
 .fish-chips {
   position: absolute;
   top: calc(60px + env(safe-area-inset-top));

@@ -3524,6 +3524,10 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.tensionCalm = FISH_TENSION_CALM;
     arcade.tensionSurge = FISH_TENSION_SURGE;
     arcade.reelSpeed = FISH_REEL_SPEED;
+    // Für die Vorschau auf dem Gerät (Angelvorschau.js): mit denselben Zahlen
+    // rechnet es Spannung und Weg bis zur Ankunft der nächsten Eingabe weiter.
+    arcade.slipSpeed = FISH_SLIP_SPEED;
+    arcade.relax = FISH_RELAX;
     arcade.species = FISH_SPECIES;
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -4683,6 +4687,15 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "fish") {
+    // Loslassen meldet das Gerät ausdrücklich. Vorher merkte der Server es nur
+    // daran, dass die Halte-Pings ausblieben — erst 190 ms nach dem letzten.
+    // Im Schub eines Welses baut die Spannung in dieser Zeit fast ein Viertel
+    // auf: wer rechtzeitig losliess, riss trotzdem. `lift` ist vom Cooldown
+    // ausgenommen, damit es direkt hinter einem Ping nicht verschluckt wird.
+    if (input.action === "lift") {
+      arcadePlayer.lastReelAt = 0;
+      return { ok: true };
+    }
     if (input.action !== "reel") return { ok: false, error: "Halte den Knopf, um einzuholen." };
     if (now < arcadePlayer.pauseUntil) return { ok: true };
     // Halten heisst: es kam gerade ein Ping. Der Tick macht die Arbeit — so
@@ -7843,7 +7856,10 @@ function arcadeBotStep(room, bot) {
     const resume = ceiling * (profile.level === "hard" ? 0.8 : profile.level === "normal" ? 0.6 : 0.55);
     // Ob er den Schub überhaupt bemerkt, entscheidet sein Können — genau das
     // unterscheidet ihn vom Spieler, der ihn sieht.
-    const notices = profile.level === "hard" ? 0.92 : profile.level === "normal" ? 0.72 : 0.45;
+    // Der mittlere Bot bemerkte nur 72 % der Schübe und lag damit knapp über
+    // dem schwachen (1356 gegen 1190) und unter jemandem, der einfach jeden
+    // Schub loslässt. Jetzt schaut er öfter hin.
+    const notices = profile.level === "hard" ? 0.92 : profile.level === "normal" ? 0.84 : 0.45;
     if (player.botLetGo === undefined) player.botLetGo = false;
 
     // EINMAL pro Schub entscheiden, ob der Bot ihn bemerkt. Je Tick neu gewürfelt
@@ -7864,7 +7880,7 @@ function arcadeBotStep(room, bot) {
     // alle 150 ms liess er immer rechtzeitig los, und in vier gespielten Runden
     // riss keine einzige Schnur. Wer seltener hinschaut, überzieht — und genau
     // das trennt hier Können von Glück.
-    const checkMs = profile.level === "hard" ? 200 : profile.level === "normal" ? 340 : 560;
+    const checkMs = profile.level === "hard" ? 200 : profile.level === "normal" ? 280 : 560;
     if (player.botCheckAt === undefined) player.botCheckAt = 0;
     // Der starke Bot lässt im Schub nicht blind los, sondern erst, wenn die
     // Spannung bis zum nächsten Blick über die Grenze käme. Mit lockerer

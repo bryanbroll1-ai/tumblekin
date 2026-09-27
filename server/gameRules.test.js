@@ -3582,6 +3582,50 @@ test("fish: holding reels in and builds tension", () => {
   assert.equal(entry.snaps, 0);
 });
 
+test("fish: letting go takes effect at once, not 190 ms later", () => {
+  // Vorher merkte der Server das Loslassen nur daran, dass keine Pings mehr
+  // kamen. Im Schub eines Welses sind 190 ms fast ein Viertel Spannung.
+  const { entry, reel, arcade, room, me } = fishRoom();
+  reel();
+  entry.lastInputAt = Date.now();          // der Ping kam eben erst
+  assert.equal(handleArcadeInput(room, me, { action: "lift" }).ok, true, "auch direkt hinter einem Ping");
+  arcade.lastUpdateAt = Date.now() - 50;
+  updateArcade(room);
+  assert.equal(entry.holding, false);
+});
+
+test("fish: the device forecast matches what the server computes", async () => {
+  // Angelvorschau.js rechnet vom letzten Serverbild bis zur Ankunft der
+  // nächsten Eingabe weiter. Weicht sie ab, zeigt der Balken etwas anderes
+  // als das, was gleich gewertet wird.
+  const { forecastFish } = await import("../client/src/minigames/Angelvorschau.js");
+  const { entry, arcade, room } = fishRoom();
+  // Mit etwas Spannung auf der Schnur, 200 ms vor dem ersten Schub. Die
+  // Vorschau schaut höchstens 600 ms voraus — so weit reicht eine Rundreise
+  // samt Bildalter nie.
+  entry.hookedAt = Date.now() - (entry.phases[0].at - 200);
+  entry.tension = 0.3;
+  entry.distance = 0.7;
+  const from = Date.now();
+  const snapshot = JSON.parse(JSON.stringify(entry));
+  // Halten in den Schub hinein, kurz lösen, wieder halten.
+  const pattern = (t) => t < 300 || t >= 500;
+  const span = 600;
+  for (let t = 0; t < span; t += 100) {
+    const now = Date.now();
+    arcade.lastUpdateAt = now - 100;
+    entry.hookedAt -= 100;
+    if (entry.pauseUntil) entry.pauseUntil -= 100;
+    entry.lastReelAt = pattern(t) ? now : 0;
+    updateArcade(room);
+  }
+  assert.equal(entry.snaps, 0, "das Muster soll ohne Riss durchgehen");
+  const rules = { reelSpeed: arcade.reelSpeed, slipSpeed: arcade.slipSpeed, tensionCalm: arcade.tensionCalm, tensionSurge: arcade.tensionSurge, relax: arcade.relax };
+  const view = forecastFish(snapshot, rules, from, from + span, (at) => pattern(at - from));
+  assert.ok(Math.abs(view.tension - entry.tension) < 0.06, `Spannung ${view.tension.toFixed(3)} statt ${entry.tension.toFixed(3)}`);
+  assert.ok(Math.abs(view.distance - entry.distance) < 0.04, `Weg ${view.distance.toFixed(3)} statt ${entry.distance.toFixed(3)}`);
+});
+
 test("fish: letting go relaxes the line but loses ground", () => {
   const { entry, advance, intoCalm } = fishRoom();
   intoCalm();
