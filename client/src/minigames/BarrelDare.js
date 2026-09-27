@@ -89,6 +89,9 @@ export class BarrelDare extends MinigameScene {
     this.labelY = -0.5;
     this.showSeenAt = null;
     this.reveal = new Map();
+    // Die Auflösung ist das Finale: die Kamera bleibt auf allen Bahnen. Fuhr
+    // sie auf den Sieger zu, lagen die Tafeln der anderen am Bildrand.
+    this.finaleFocus = false;
   }
 
   stage() {
@@ -417,12 +420,22 @@ export class BarrelDare extends MinigameScene {
           this.pop(at.clone().add(new THREE.Vector3(0, 0.42, 0)), judged.word, { color: judged.color, size: 0.5, life: 1.6, rise: 0.5 });
           this.pop(at, `${rest.toFixed(2)} m`, { color: "#ffffff", size: 0.34, life: 1.6, rise: 0.5 });
           this.feedback?.sound(rest < 1.2 ? "perfect" : "pop");
-          if (rest < 1.2) animator.trigger("celebrate");
+          // Die Faust, kein Luftsprung: das Fass hängt keine Handbreit über
+          // dem Kopf, ein Hüpfer ging mitten hinein.
+          if (rest < 1.2) animator.trigger("fistpump");
         }
       }
       const since = lane.settledAt === null ? 0 : (now - lane.settledAt) / 1000;
       const lift = caught ? Math.sin(Math.min(1, since / 0.35) * Math.PI) * 0.35 * Math.exp(-since * 1.5) + Math.min(0.12, since * 0.4) : 0;
       lane.shown = distance + lift;
+      // Nach dem Aufdecken wird das Seil eingeholt: das Fass fährt nach oben,
+      // damit im Finale niemand beim Jubeln ins Fass springt.
+      const row = this.reveal.get(player.id);
+      if (!hit && row?.done) {
+        const u = Math.min(1, Math.max(0, (now - row.at - 450) / 900));
+        const e = u * u * (3 - 2 * u);
+        lane.shown += (startM * 0.62 - lane.shown) * e;
+      }
 
       const bottom = HEAD_TOP + Math.max(0, lane.shown) * METER;
       const swing = t < 0 ? Math.sin(now / 520 + lane.x) * 0.05 : caught ? Math.sin(since * 9) * 0.08 * Math.exp(-since * 2) : 0;
@@ -558,10 +571,10 @@ export class BarrelDare extends MinigameScene {
         const at = lane.barrel.position.clone().add(new THREE.Vector3(0, BARREL_H + 0.3, 0.2));
         this.burst(at, ["#ffd15c", "#ffffff", "#ff7ab8", "#7fe0a8"], { count: 26, speed: 2.8, up: 3, size: 0.08, life: 1.1, drag: 1.1 });
         this.feedback?.sound(id === controlledId ? "win" : "perfect");
-        animator?.trigger("celebrate");
+        animator?.trigger("fistpump");
       } else {
         this.feedback?.sound(row.hit ? "clack" : "pop");
-        if (!row.hit) animator?.trigger("hop");
+        if (!row.hit) animator?.trigger("nod");
       }
       if (kin && id === controlledId) this.feedback?.vibrate(row.best ? [20, 30, 40] : 10);
     });

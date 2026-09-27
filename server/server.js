@@ -7327,8 +7327,15 @@ function arcadeBotStep(room, bot) {
     // ein Bot, der immer 0.0 trifft, wäre unschlagbar.
     if (player.botAimDist === undefined || player.botAimRound !== arcade.round) {
       player.botAimRound = arcade.round;
-      const ziel = profile.level === "hard" ? 0.5 : profile.level === "normal" ? 1.5 : 3.2;
-      player.botAimDist = Math.max(0.05, ziel + (Math.random() - 0.5) * 2 * (ziel * 0.55));
+      const ziel = profile.level === "hard" ? 0.55 : profile.level === "normal" ? 1.4 : 2.8;
+      player.botAimDist = Math.max(0.05, ziel + (Math.random() - 0.5) * 2 * (ziel * 0.45));
+      // Dazu die Hand: wie ein Mensch zieht auch der Bot mal ein paar
+      // Hundertstel zu früh oder zu spät. Vorher traf der starke Bot seinen
+      // Zielabstand auf die Millisekunde, wurde nie überrollt und gewann jede
+      // einzelne Partie — gegen ihn war das Spiel nicht zu gewinnen.
+      const streuung = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.085 : 0.13;
+      const gauss = (Math.random() + Math.random() + Math.random() - 1.5) / 0.5;
+      player.botHand = gauss * streuung;
     }
     // Bremszeitpunkt aus dem Zielabstand: dareRestingDistance ist streng
     // fallend in brakeAt, also reicht eine kurze Suche.
@@ -7341,7 +7348,8 @@ function arcadeBotStep(room, bot) {
     // Sobald der Zeitpunkt durch ist, wird gebremst — und zwar auf `lo`, nicht
     // auf „jetzt". Siehe handleArcadeInput: sonst misst der Lauf die Tickrate
     // des Bots statt sein Zielvermögen.
-    if ((arcade.rollT || 0) >= lo) handleArcadeInput(room, bot, { action: "brake", at: lo });
+    const zug = Math.max(0, lo + (player.botHand || 0));
+    if ((arcade.rollT || 0) >= zug) handleArcadeInput(room, bot, { action: "brake", at: zug });
     return;
   }
 
