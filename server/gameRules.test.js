@@ -5,6 +5,7 @@ const { testRules } = require("./server");
 const {
   MINIGAMES,
   SEEK_SIZE,
+  ESTIMATE_GRACE_MS,
   seekSteps,
   seekFindValue,
   publicArcade,
@@ -4561,6 +4562,70 @@ test("Spürsinn: a tap aimed at the previous board costs nothing on the new one"
   probe(miss.x, miss.y, { round: 1 });
   assert.equal(entry.probes.length, 1);
   assert.equal(seekFindValue(entry.probes.length), 150 - 18, "und senkt den Wert des nächsten Funds");
+});
+
+// --- Augenmass --------------------------------------------------------------
+
+function estimateRoom() {
+  const players = [{ id: "am1", name: "AM1", isBot: false }];
+  const startedAt = Date.now();
+  let clock = startedAt;
+  const arcade = createArcadeState("augenmass", players, startedAt);
+  const minigame = { id: 1, type: "augenmass", startedAt, duration: 40000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  const at = (ms, fn) => {
+    clock = startedAt + ms;
+    const real = Date.now;
+    Date.now = () => clock;
+    try { return fn(); } finally { Date.now = real; }
+  };
+  const tick = (ms) => at(ms, () => updateArcade(room));
+  const guess = (ms, value) => at(ms, () => handleArcadeInput(room, me, { action: "guess", value }));
+  return { arcade, entry, tick, guess };
+}
+
+// Die Anzahl stand vorher für alle vier Durchgänge von Anfang an im Paket.
+test("Augenmass: the count reaches the device only just before the swarm shows", () => {
+  const { arcade, tick } = estimateRoom();
+  const second = arcade.rounds[1];
+  tick(second.showFrom - 1000);
+  assert.equal(publicArcade(arcade).rounds[1].count, null, "eine Sekunde vorher noch geheim");
+  assert.ok(!JSON.stringify(publicArcade(arcade)).includes("counts"), "das Geheimfach bleibt auf dem Server");
+  tick(second.showFrom - 100);
+  assert.ok(Number.isInteger(publicArcade(arcade).rounds[1].count), "rechtzeitig zum Hinsehen da");
+  assert.equal(publicArcade(arcade).rounds[2].count, null, "der nächste Durchgang bleibt geheim");
+});
+
+// Zwei Reglermeldungen kurz hintereinander: die letzte zählt. Mit 40 ms
+// Sperre fiel sie weg, und gewertet wurde eine andere Zahl als die auf dem
+// Regler.
+test("Augenmass: the last slider value counts, even right after another", () => {
+  const { arcade, entry, tick, guess } = estimateRoom();
+  const round = arcade.rounds[0];
+  tick(round.guessFrom + 10);
+  guess(round.guessFrom + 500, round.low + 1);
+  guess(round.guessFrom + 510, round.low + 3);
+  assert.equal(entry.guess, round.low + 3);
+});
+
+// Ein Wert, der kurz nach dem Ende des Fensters ankommt (die Laufzeit
+// schwankt), zählt noch; einer nach der Schonfrist nicht mehr. Gewertet wird
+// erst nach der Frist.
+test("Augenmass: a guess arriving just after the window still counts, a late one does not", () => {
+  const { arcade, entry, tick, guess } = estimateRoom();
+  const round = arcade.rounds[0];
+  tick(round.guessFrom + 10);
+  guess(round.guessFrom + 500, round.low);
+  tick(round.revealFrom + 20);
+  assert.equal(entry.guesses.length, 0, "noch nicht gewertet — die Frist läuft");
+  guess(round.revealFrom + ESTIMATE_GRACE_MS - 30, round.high);
+  tick(round.revealFrom + ESTIMATE_GRACE_MS + 10);
+  assert.equal(entry.guesses[0].guess, round.high, "innerhalb der Frist angekommen, also gezählt");
+  guess(round.revealFrom + ESTIMATE_GRACE_MS + 40, round.low);
+  assert.equal(entry.guesses.length, 1);
+  assert.equal(entry.guesses[0].guess, round.high, "nach der Wertung ändert nichts mehr etwas");
 });
 
 test("Spürsinn: das Versteck verlässt den Server nicht", () => {

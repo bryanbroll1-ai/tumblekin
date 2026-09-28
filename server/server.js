@@ -45,6 +45,14 @@ const ESTIMATE_SHOW_MS = 2200;         // so lange ist der Schwarm zu sehen
 const ESTIMATE_GUESS_MS = 4800;        // so lange darf geschätzt werden
 const ESTIMATE_REVEAL_MS = 1900;       // Auflösung, gemeinsam
 const ESTIMATE_LEAD_IN_MS = 900;
+// Die Anzahl eines Durchgangs geht erst so kurz vor dem Hinsehen ans Gerät —
+// vorher standen alle vier Antworten von Anfang an im Netzpaket.
+const ESTIMATE_PUBLISH_LEAD_MS = 400;
+// Schonfrist nach dem Ende des Schätzfensters. Das Gerät sperrt den Regler,
+// sobald eine Bewegung nicht mehr rechtzeitig ankäme (Laufzeit mitgerechnet);
+// die Frist fängt ab, dass seine Messung der Laufzeit schwankt. Gewertet wird
+// erst danach.
+const ESTIMATE_GRACE_MS = 150;
 const ESTIMATE_DURATION_MS = ESTIMATE_LEAD_IN_MS
   + ESTIMATE_ROUNDS * (ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS) + 500;
 const GLIDE_DURATION_MS = 34000;
@@ -3466,6 +3474,10 @@ function createArcadeState(type, players, startedAt, options = {}) {
   }
   if (config.family === "estimate") {
     arcade.rounds = buildEstimateRounds(arcade.seed);
+    // Die Anzahlen liegen im Geheimfach, das nicht mitgeschickt wird; jeder
+    // Durchgang bekommt seine erst kurz vor dem Hinsehen (updateEstimate).
+    arcade.secret = { counts: arcade.rounds.map((round) => round.count) };
+    arcade.rounds.forEach((round) => { round.count = null; });
     arcade.resolvedRound = -1;
     arcade.lastReveal = null;
     players.forEach((player) => {
@@ -4248,7 +4260,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -4743,7 +4755,7 @@ function handleArcadeInput(room, player, rawInput) {
     const round = estimateRoundAt(arcade, elapsed);
     if (!round) return { ok: true };
     if (elapsed < round.guessFrom) return { ok: false, error: "Erst schauen, dann schätzen." };
-    if (elapsed >= round.revealFrom) return { ok: true };   // schon aufgelöst
+    if (elapsed >= round.revealFrom + ESTIMATE_GRACE_MS || arcade.resolvedRound >= round.index) return { ok: true };   // schon aufgelöst
     const value = Math.round(inputNumber(input.value));
     if (!Number.isFinite(value)) return { ok: false, error: "Das ist keine Zahl." };
     arcadePlayer.guess = clamp(value, round.low, round.high);
@@ -6182,6 +6194,11 @@ function plinkoSettle(room, minigame, arcade, now) {
 
 function updateEstimate(room, minigame, arcade, now) {
   const elapsed = Math.max(0, now - minigame.startedAt);
+  (arcade.rounds || []).forEach((candidate) => {
+    if (candidate.count === null && elapsed >= candidate.showFrom - ESTIMATE_PUBLISH_LEAD_MS) {
+      candidate.count = arcade.secret?.counts?.[candidate.index] ?? candidate.count;
+    }
+  });
   const round = estimateRoundAt(arcade, elapsed);
   arcade.round = round ? round.index : null;
   arcade.phase = !round ? "over"
@@ -6189,9 +6206,11 @@ function updateEstimate(room, minigame, arcade, now) {
       : elapsed < round.revealFrom ? "guess" : "reveal";
   if (!round) return;
 
-  // Genau EINMAL je Durchgang werten, beim Übergang in die Auflösung. Ohne die
-  // Merkzahl liefe die Wertung mit jedem Tick erneut.
+  // Genau EINMAL je Durchgang werten, nach der Schonfrist. Ohne die Merkzahl
+  // liefe die Wertung mit jedem Tick erneut.
   if (arcade.phase !== "reveal" || arcade.resolvedRound >= round.index) return;
+  if (elapsed < round.revealFrom + ESTIMATE_GRACE_MS) return;
+  if (round.count === null) round.count = arcade.secret?.counts?.[round.index] ?? 0;
   arcade.resolvedRound = round.index;
 
   const reveal = { round: round.index, count: round.count, at: now, guesses: {} };
@@ -7636,19 +7655,21 @@ function arcadeBotStep(room, bot) {
       player.botGuessAt = Date.now() + 500 + Math.random() * (ESTIMATE_GUESS_MS - 1400);
       player.botGuessDone = false;
 
-      // Das Können steckt in EINER Zahl: wie weit die Schätzung streut,
-      // gemessen an der Breite der Spanne. Ein Mensch, der ein Auge dafür hat,
-      // liegt bei grossen Mengen um wenige Prozent daneben; wer nur rät,
-      // verschätzt sich um ein Viertel der Spanne.
+      // Das Können steckt in EINER Zahl: wie weit die Schätzung streut, als
+      // Anteil der Menge — so irrt auch ein Mensch, der schätzt statt zählt
+      // (bei 40 Käfern um vier, bei 10 um einen). Vorher war die Streuung ein
+      // Anteil der Spanne, und der starke Bot lag mit 5 % fast immer genau:
+      // nachgerechnet 314 Punkte, wo ein guter Schätzer (±15 %) auf 242
+      // kommt — schlagen konnte ihn niemand. Jetzt ±10 / ±17 / ±28 %.
       const profile = botProfile(player);
-      const spread = Math.max(1, round.high - round.low);
-      const relative = profile.level === "hard" ? 0.05
-        : profile.level === "normal" ? 0.13 : 0.27;
+      const weber = profile.level === "hard" ? 0.10
+        : profile.level === "normal" ? 0.17 : 0.28;
       // Gauss-artig statt gleichverteilt: kleine Fehler sind viel häufiger als
       // grosse. Gleichverteilt sähe die Streuung aus wie Würfeln.
       const noise = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+      const count = round.count ?? arcade.secret?.counts?.[round.index] ?? Math.round((round.low + round.high) / 2);
       player.botGuess = clamp(
-        Math.round(round.count + noise * spread * relative),
+        Math.round(count * (1 + noise * weber)),
         round.low, round.high
       );
     }
@@ -8986,6 +9007,7 @@ module.exports = {
     SEEK_SIZE,
     publicArcade,
     ESTIMATE_ROUNDS,
+    ESTIMATE_GRACE_MS,
     ESTIMATE_BANDS,
     buildEstimateRounds,
     estimateRoundAt,

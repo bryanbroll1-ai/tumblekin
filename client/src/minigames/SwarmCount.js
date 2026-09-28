@@ -49,6 +49,8 @@ function swarmShape() {
     : { base: 1.0, height: 3.3, look: 2.0, frameH: 4.6 };
 }
 
+const GUESS_GAP_MS = 60;         // so dicht folgen Reglermeldungen höchstens
+
 export class SwarmCount extends MinigameScene {
   constructor(ctx) {
     super(ctx);
@@ -56,8 +58,12 @@ export class SwarmCount extends MinigameScene {
     this.shownRound = -1;
     this.shownPhase = "";
     this.countUpUntil = 0;
+    this.roundTrip = 0;
+    this.wantGuess = null;
     this.lastSentGuess = null;
-    this.sendTimer = 0;
+    this.lastGuessSentAt = -1e9;
+    this.guessOpen = false;
+    this.lastSentGuess = null;
     this.reacted = new Map();
     this.labelY = 0.74;
     this.swarmCentre = new THREE.Vector3(0, 2.6, -0.4);
@@ -255,6 +261,7 @@ export class SwarmCount extends MinigameScene {
         <div class="estimate-value"><strong data-estimate-value>?</strong><span>Stück</span></div>
         <input type="range" class="estimate-slider" data-estimate-slider
           min="0" max="10" step="1" value="5" aria-label="Deine Schätzung" disabled>
+        <div class="estimate-timer" data-estimate-timer-bar><i data-estimate-timer></i></div>
         <div class="estimate-scale"><span data-estimate-low>0</span><span data-estimate-high>10</span></div>
       </div>
     `;
@@ -262,30 +269,56 @@ export class SwarmCount extends MinigameScene {
     this.valueLabel = this.controls.querySelector("[data-estimate-value]");
     this.lowLabel = this.controls.querySelector("[data-estimate-low]");
     this.highLabel = this.controls.querySelector("[data-estimate-high]");
+    this.timerBar = this.controls.querySelector("[data-estimate-timer-bar]");
+    this.timerFill = this.controls.querySelector("[data-estimate-timer]");
 
     this.onSlide = () => {
       const value = Number(this.slider.value);
       if (this.valueLabel) this.valueLabel.textContent = String(value);
-      // Beim Ziehen fliegen sonst dutzende Pakete je Sekunde los. Gesendet wird
-      // gedrosselt — und beim Loslassen in jedem Fall, damit der letzte Stand
-      // ankommt.
-      const now = this.now();
-      if (now - this.sendTimer < 90) return;
-      this.sendTimer = now;
-      this.pushGuess(value);
+      if (value !== this.wantGuess) this.feedback?.sound("step");
+      this.wantGuess = value;
+      this.flushGuess();
     };
-    this.onSlideEnd = () => this.pushGuess(Number(this.slider.value));
-
+    // Loslassen schickt den Stand sofort, ohne auf die Drossel zu warten.
+    this.onRelease = () => {
+      this.onSlide();
+      this.flushGuess(true);
+    };
     this.on(this.slider, "input", this.onSlide);
-    this.on(this.slider, "change", this.onSlideEnd);
-    this.on(this.slider, "pointerup", this.onSlideEnd);
+    this.on(this.slider, "change", this.onRelease);
+    this.on(this.slider, "pointerup", this.onRelease);
   }
 
-  pushGuess(value) {
-    if (this.lastSentGuess === value) return;
+  // Gesendet wird höchstens alle 60 ms — und der jeweils letzte Stand immer,
+  // spätestens im nächsten Frame. Vorher ging der Wert beim Loslassen direkt
+  // hinter einer Zwischenmeldung in der Sperrzeit des Servers verloren, und
+  // gewertet wurde eine andere Zahl als die auf dem Regler.
+  flushGuess(force = false) {
+    const value = this.wantGuess;
+    if (value === null || value === undefined || value === this.lastSentGuess || !this.guessOpen) return;
+    const clock = performance.now();
+    if (!force && clock - this.lastGuessSentAt < GUESS_GAP_MS) return;
+    this.lastGuessSentAt = clock;
     this.lastSentGuess = value;
-    this.feedback?.sound("step");
-    this.sendInput({ action: "guess", value }).catch(() => {});
+    this.sendInput({ action: "guess", value })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => { if (this.lastSentGuess === value) this.lastSentGuess = null; });
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Ohne Regler keine Antworten, also keine Laufzeit: dann misst ein Ping.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastGuessSentAt < 1000 || clock - (this.lastPingAt || 0) < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
   }
 
   syncPhase(active, own, now) {
@@ -298,8 +331,15 @@ export class SwarmCount extends MinigameScene {
     if (round.index !== this.shownRound) {
       this.shownRound = round.index;
       this.shownPhase = "";
-      this.layoutSwarm(round);
+      this.laidOut = null;
       this.lastSentGuess = null;
+      this.wantGuess = null;
+    }
+    // Die Anzahl kommt erst kurz vor dem Hinsehen vom Server — aufgebaut wird
+    // der Schwarm, sobald sie da ist.
+    if (round.count !== null && round.count !== undefined && this.laidOut !== round.index) {
+      this.laidOut = round.index;
+      this.layoutSwarm(round);
     }
     if (phase === this.shownPhase) return;
     this.shownPhase = phase;
@@ -324,13 +364,10 @@ export class SwarmCount extends MinigameScene {
     }
 
     if (phase === "guess") {
-      // Freigeben und die Mitte als Startwert zeigen — das ist auch der Wert,
-      // mit dem der Server rechnet, wenn niemand den Regler anfasst. Was man
-      // sieht, ist also genau das, was gewertet wird.
-      if (this.slider) {
-        this.slider.disabled = false;
-        if (this.valueLabel) this.valueLabel.textContent = String(this.slider.value);
-      }
+      // Die Mitte als Startwert zeigen — das ist auch der Wert, mit dem der
+      // Server rechnet, wenn niemand den Regler anfasst. Was man sieht, ist
+      // also genau das, was gewertet wird. Frei gibt den Regler tick().
+      if (this.slider && this.valueLabel) this.valueLabel.textContent = String(this.slider.value);
       this.feedback?.sound("lock");
     }
 
@@ -395,6 +432,9 @@ export class SwarmCount extends MinigameScene {
     const own = arcade.players[f.controlledId];
     const active = this.activeRound();
     this.syncPhase(active, own, now);
+    this.syncGuessWindow(active, f);
+    this.flushGuess();
+    this.pingIfIdle(f.minigame);
     this.syncSwarm(active, dt, now);
     const swarmCentre = this.swarmCentre;
     players.forEach((player) => {
@@ -427,6 +467,31 @@ export class SwarmCount extends MinigameScene {
       animator.set("sit");
       if (active?.phase === "guess") animator.expression("focus", 150);
     });
+  }
+
+  // Der Regler zählt, solange eine Bewegung noch vor dem Ende des Fensters beim
+  // Server ankommt: Geräteuhr plus Rundreise. Vorher blieb er bis zum Ende
+  // nach Geräteuhr offen, und was man in der letzten Rundreise noch zog, kam
+  // zu spät und zählte nicht.
+  syncGuessWindow(active, f) {
+    const startedAt = f.minigame?.startedAt || 0;
+    const arrive = f.now + this.roundTrip - startedAt;
+    const open = Boolean(active && active.phase === "guess" && !f.finale && arrive < active.round.revealFrom);
+    if (open !== this.guessOpen) {
+      // Beim Schliessen geht der letzte Stand noch hinaus, auch wenn die
+      // Drossel ihn gerade zurückhielte — er kommt so zum Ende des Fensters
+      // an, in der Schonfrist des Servers.
+      if (!open) this.flushGuess(true);
+      this.guessOpen = open;
+      if (this.slider) this.slider.disabled = !open;
+    }
+    if (this.timerFill) {
+      const span = active ? active.round.revealFrom - active.round.guessFrom : 1;
+      const left = active && active.phase === "guess" ? clamp((active.round.revealFrom - arrive) / span, 0, 1) : 0;
+      this.timerFill.style.width = `${(left * 100).toFixed(1)}%`;
+      const late = left > 0 && left < 0.25 ? "1" : "0";
+      if (this.timerBar && this.timerBar.dataset.late !== late) this.timerBar.dataset.late = late;
+    }
   }
 
   keepInView(f) {

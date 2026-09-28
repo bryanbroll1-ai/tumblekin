@@ -1733,6 +1733,28 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
+/* Wie lange der Regler noch zählt — gerechnet bis zu dem Moment, in dem eine
+   Bewegung gerade noch rechtzeitig beim Server ankommt. */
+.estimate-timer {
+  height: 4px;
+  margin: 2px 4px 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.estimate-timer > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: #7fe06f;
+}
+
+.estimate-timer[data-late="1"] > i {
+  background: #ffb347;
+}
+
 .estimate-scale {
   display: flex;
   justify-content: space-between;
