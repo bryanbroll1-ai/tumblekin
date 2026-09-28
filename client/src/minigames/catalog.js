@@ -101,7 +101,8 @@ export const REWORKED = new Set([
   "nagelbrett",
   "eisstock",
   "tiefenrausch",
-  "farbenjagd"
+  "farbenjagd",
+  "spuersinn"
 ]);
 
 export const ARCADE_TYPES = new Set(

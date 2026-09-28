@@ -5,6 +5,8 @@ const { testRules } = require("./server");
 const {
   MINIGAMES,
   SEEK_SIZE,
+  seekSteps,
+  seekFindValue,
   publicArcade,
   updatePlinko,
   PLINKO_BALL_R,
@@ -4510,6 +4512,57 @@ test("Klänge: jeder gerufene Name ist auch definiert", () => {
 // meisten Minispiele ist das richtig — dort IST der Zustand das, was man sieht.
 // Spürsinn ist der erste Fall mit echtem Geheimnis: läge das Versteck im Paket,
 // wäre das Spiel mit einem Blick in die Entwicklerkonsole erledigt.
+// Zwei schnelle Tipps — etwa zwei Ecken hintereinander — sind der Normalfall
+// für jemanden, der weiss, was er tut. Mit 260 ms Sperre verschluckte der
+// Server den zweiten stumm; das Gerät schickt jetzt im Abstand von 200 ms,
+// und beide müssen zählen.
+function seekRoom() {
+  const players = [{ id: "sk1", name: "SK1", isBot: false }];
+  let clock = Date.now();
+  const startedAt = clock;
+  const arcade = createArcadeState("spuersinn", players, startedAt);
+  const minigame = { id: 1, type: "spuersinn", startedAt, duration: 42000, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  const me = players[0];
+  const entry = arcade.players[me.id];
+  const probe = (x, y, extra = {}, wait = 200) => {
+    clock += wait;
+    const real = Date.now;
+    Date.now = () => clock;
+    try { return handleArcadeInput(room, me, { action: "probe", x, y, ...extra }); } finally { Date.now = real; }
+  };
+  return { arcade, entry, probe, gem: () => arcade.secret.gems[me.id] };
+}
+
+test("Spürsinn: two taps 200 ms apart both count", () => {
+  const { entry, probe, gem } = seekRoom();
+  const cells = [];
+  for (let y = 0; y < SEEK_SIZE; y += 1) for (let x = 0; x < SEEK_SIZE; x += 1) cells.push({ x, y });
+  const misses = cells.filter((cell) => seekSteps(cell.x, cell.y, gem().x, gem().y) > 0).slice(0, 2);
+  probe(misses[0].x, misses[0].y);
+  probe(misses[1].x, misses[1].y);
+  assert.equal(entry.probes.length, 2, "beide Zahlen liegen auf dem Brett");
+});
+
+test("Spürsinn: a tap aimed at the previous board costs nothing on the new one", () => {
+  const { entry, probe, gem } = seekRoom();
+  const first = gem();
+  probe(first.x, first.y, { round: 0 });
+  assert.equal(entry.found, 1, "der erste Tipp war der Fund");
+  assert.equal(entry.round, 1);
+  // Der zweite Tipp ging noch aufs alte Brett — schon unterwegs, als der Fund kam.
+  const other = { x: (first.x + 3) % SEEK_SIZE, y: first.y };
+  probe(other.x, other.y, { round: 0 });
+  assert.equal(entry.probes.length, 0, "auf dem neuen Brett kostet er nichts");
+  assert.equal(entry.totalProbes, 1);
+  // Mit der richtigen Runde zählt er wie jeder andere.
+  const next = gem();
+  const miss = next.x === 0 && next.y === 0 ? { x: 1, y: 0 } : { x: 0, y: 0 };
+  probe(miss.x, miss.y, { round: 1 });
+  assert.equal(entry.probes.length, 1);
+  assert.equal(seekFindValue(entry.probes.length), 150 - 18, "und senkt den Wert des nächsten Funds");
+});
+
 test("Spürsinn: das Versteck verlässt den Server nicht", () => {
   const one = player({ id: "sk1", name: "SK1", color: "#fff" });
   const two = player({ id: "sk2", name: "SK2", color: "#0ff" });

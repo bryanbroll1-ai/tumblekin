@@ -498,23 +498,27 @@ const SEEK_SIZE = 6;                   // 6x6 = 36 Felder
 const SEEK_BASE_POINTS = 150;          // ein Fund mit null Tipps wäre so viel wert
 const SEEK_PROBE_COST = 18;            // jeder Tipp zieht ab …
 const SEEK_MIN_POINTS = 20;            // … aber ein Fund zählt immer etwas
-// Ein Tipp pro 260 ms reicht für zügiges Suchen und verhindert, dass jemand mit
-// einem Wischen über das Raster einfach alle 25 Felder aufdeckt.
-const SEEK_COOLDOWN_MS = 260;
-// Wie lange ein Bot je Tipp braucht. Der entscheidende Punkt des ganzen Spiels
-// steckt in diesen drei Zahlen: NACHDENKEN KOSTET ZEIT.
+// Ein Tipp je 150 ms. Die Sperre hält ein Skript davon ab, das Brett in einem
+// Augenblick abzuklappern — blind bringt ein Fund ohnehin nur 20 bis 35 Punkte.
+// Mit 260 ms verschluckte sie den zweiten von zwei schnellen Tipps (etwa zwei
+// Ecken hintereinander) stumm: das Feld zuckte, eine Zahl kam nie. Jetzt reiht
+// das Gerät schnelle Tipps ein und schickt sie im Abstand von 200 ms.
+const SEEK_COOLDOWN_MS = 150;
+// Wie lange ein Bot je Tipp braucht.
 //
 // Zuerst tippten alle Stufen gleich schnell, damit nur die Denkleistung den
 // Unterschied macht. Gemessen kam dabei ein Bot heraus, der 35 Fundstücke in
-// 42 Sekunden hebt und 4152 Punkte macht, wo blindes Suchen auf 199 kommt — das
-// Zwanzigfache. Bots füllen im echten Spiel freie Plätze, und gegen so einen
-// hätte kein Mensch je eine Chance gehabt.
+// 42 Sekunden hebt und 4152 Punkte macht — gegen so einen hätte kein Mensch je
+// eine Chance gehabt. Denken kostet Zeit, also bekam jede Stufe ihr Tempo.
 //
-// Der Fehler war nicht die Denkleistung, sondern dass sie umsonst war. Wer alle
-// Angaben im Kopf zusammenrechnet, braucht dafür einen Moment; wer blind tippt,
-// tippt eben schnell. Damit wird aus dem Spiel eine echte Frage — denken oder
-// draufhalten? — statt einer Rechenaufgabe, die der Schnellste gewinnt.
-const SEEK_BOT_INTERVAL = { easy: 400, normal: 700, hard: 1150 };
+// Danach tippte der schwache Bot schnell und blind und fand gemessen in 42
+// Sekunden im Schnitt keinen einzigen Schatz (0,9 Funde, 44 Punkte) — das sah
+// nicht schwach aus, sondern kaputt. Jetzt denkt jede Stufe auf ihre Art:
+// der schwache merkt sich meist nur die letzte Zahl, der mittlere kombiniert
+// alle, wählt aber irgendein passendes Feld und braucht dafür am längsten,
+// der starke teilt die Möglichkeiten gezielt auf wie ein geübter Spieler.
+// Gemessen: 275 / 729 / 1099 Punkte.
+const SEEK_BOT_INTERVAL = { easy: 900, normal: 1250, hard: 1000 };
 
 // Augenmass — ein Schwarm blitzt auf, dann schätzt man die Anzahl.
 //
@@ -4244,7 +4248,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -4756,6 +4760,10 @@ function handleArcadeInput(room, player, rawInput) {
       || x < 0 || y < 0 || x >= SEEK_SIZE || y >= SEEK_SIZE) {
       return { ok: false, error: "Dieses Feld gibt es nicht." };
     }
+    // Ein Tipp, der noch zum vorigen Brett gehörte: zwei schnelle Tipps, und der
+    // erste war schon der Fund. Der zweite war auf das alte Brett gezielt und
+    // darf das neue nichts kosten.
+    if (Number.isInteger(input.round) && input.round !== arcadePlayer.round) return { ok: true, stale: true };
     // Ein zweites Mal auf dasselbe Feld ist kein Fehler, sondern ein Verrutscher
     // — es kostet nichts und verrät auch nichts Neues.
     if (arcadePlayer.probes.some((probe) => probe.x === x && probe.y === y)) return { ok: true };
@@ -7586,12 +7594,21 @@ function arcadeBotStep(room, bot) {
         }
       }
     } else if (profile.level === "normal") {
-      // Behält nur die LETZTE Angabe im Kopf — genau das tut, wer mitdenkt,
-      // aber nicht mitschreibt.
+      // Kombiniert alle Angaben, sucht aber nicht den klügsten nächsten Tipp:
+      // irgendein Feld, das zu allem passt.
+      const candidates = consistentWith(player.probes || []);
+      pick = candidates[Math.floor(Math.random() * candidates.length)] || null;
+    } else {
+      // Behält meist nur die LETZTE Angabe im Kopf — genau das tut, wer
+      // mitdenkt, aber nicht mitschreibt. Ab und zu tippt er ins Blaue.
+      // Vorher tippte er nur blind und fand in 42 Sekunden im Schnitt keinen
+      // einzigen Schatz: das sah nicht schwach aus, sondern kaputt.
       const clues = player.probes || [];
       const last = clues[clues.length - 1];
-      const candidates = consistentWith(last ? [last] : []);
-      pick = candidates[Math.floor(Math.random() * candidates.length)] || null;
+      if (Math.random() < 0.75) {
+        const candidates = consistentWith(last ? [last] : []);
+        pick = candidates[Math.floor(Math.random() * candidates.length)] || null;
+      }
     }
 
     if (!pick) {

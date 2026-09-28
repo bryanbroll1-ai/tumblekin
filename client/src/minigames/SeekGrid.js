@@ -11,6 +11,11 @@ import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 // herauskommt, und die anderen stehen rund um das Feld und jubeln, wenn sie
 // ihren eigenen gefunden haben — jeder sucht auf seinem eigenen Brett.
 const SIZE = 6;
+// Schnelle Tipps gehen in eine Reihe und im Abstand von 200 ms hinaus. Der
+// Server nimmt einen je 150 ms an; ohne Reihe verschluckte er den zweiten von
+// zwei schnellen Tipps stumm — das Feld zuckte, eine Zahl kam nie.
+const TAP_GAP_MS = 200;
+const PENDING_GIVE_UP_MS = 2500;        // danach darf man dasselbe Feld neu tippen
 const TILE = 0.82;                       // Kantenlänge eines Feldes
 const GAP = 0.06;
 const STEP = TILE + GAP;
@@ -47,8 +52,10 @@ function buildDigitMaterials() {
     ctx.fillText(String(value), 48, 52);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
+    // Über allem gezeichnet: die eigene Figur hüpft auf das getippte Feld
+    // und stand vorher genau auf der Zahl, die man zum Kombinieren braucht.
     materials.push(new THREE.MeshBasicMaterial({
-      map: texture, transparent: true, depthWrite: false, toneMapped: false
+      map: texture, transparent: true, depthWrite: false, depthTest: false, toneMapped: false
     }));
   }
   return materials;
@@ -68,6 +75,9 @@ export class SeekGrid extends MinigameScene {
     this.otherFinds = new Map();
     this.searchAt = null;
     this.labelY = 0.74;
+    this.tapQueue = [];          // { gx, gy, round }
+    this.lastTapSentAt = -1e9;
+    this.pending = new Map();    // "x,y" → Zeitpunkt des Tipps (performance.now)
   }
 
   stage() {
@@ -82,7 +92,7 @@ export class SeekGrid extends MinigameScene {
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-      <div class="simon-round" data-seek-round>Tipps: 0</div>
+      <div class="simon-round seek-info" data-seek-round>0 Tipps · Fund: 150</div>
       <div class="simon-chips" data-seek-chips></div>
       <div class="color-banner" data-seek-banner hidden></div>`;
   }
@@ -260,6 +270,7 @@ export class SeekGrid extends MinigameScene {
     digit.rotation.x = -Math.PI / 2;
     digit.position.y = 0.48;
     digit.visible = false;
+    digit.renderOrder = 20;
     group.add(digit);
 
     const hit = new THREE.Mesh(
@@ -329,17 +340,35 @@ export class SeekGrid extends MinigameScene {
     if (hits.length === 0) return;
     const { gx, gy } = hits[0].object.userData;
     const tile = this.tileAt(gx, gy);
-    // Ein schon aufgedecktes Feld noch einmal zu tippen ist ein Verrutscher.
-    // Der Server nimmt es stillschweigend hin; hier wackelt das Feld kurz,
-    // damit man merkt, dass der Tipp nichts gekostet hat.
-    if (tile?.revealed) {
-      tile.nudge = 1;
+    // Ein schon aufgedecktes (oder gerade getipptes) Feld noch einmal zu
+    // tippen ist ein Verrutscher. Der Server nimmt es stillschweigend hin;
+    // hier wackelt das Feld kurz, damit man merkt, dass der Tipp nichts
+    // gekostet hat.
+    const key = `${gx},${gy}`;
+    if (tile?.revealed || this.pending.has(key)) {
+      if (tile) tile.nudge = 1;
       this.feedback?.sound("clack");
       return;
     }
     if (tile) tile.press = 1;
     this.feedback?.sound("tap");
-    this.sendInput({ action: "probe", x: gx, y: gy }).catch(() => {});
+    this.pending.set(key, performance.now());
+    // Mit der Runde, die man gerade sieht: war ein früherer Tipp schon der
+    // Fund, kostet dieser auf dem neuen Brett nichts.
+    this.tapQueue.push({ gx, gy, round: this.shownRound });
+    this.flushTaps();
+  }
+
+  flushTaps() {
+    const clock = performance.now();
+    if (!this.tapQueue.length || clock - this.lastTapSentAt < TAP_GAP_MS) return;
+    const tap = this.tapQueue.shift();
+    this.lastTapSentAt = clock;
+    const input = { action: "probe", x: tap.gx, y: tap.gy };
+    if (tap.round >= 0) input.round = tap.round;
+    this.sendInput(input).catch(() => {
+      this.pending.delete(`${tap.gx},${tap.gy}`);
+    });
   }
 
   tileAt(gx, gy) {
@@ -354,6 +383,8 @@ export class SeekGrid extends MinigameScene {
     // Augenblick des Spiels.
     if (own.round !== this.shownRound) {
       this.shownRound = own.round;
+      this.tapQueue.length = 0;
+      this.pending.clear();
       this.tiles.forEach((tile) => {
         tile.revealed = false;
         tile.steps = -1;
@@ -367,6 +398,7 @@ export class SeekGrid extends MinigameScene {
     probes.forEach((probe) => {
       const tile = this.tileAt(probe.x, probe.y);
       if (!tile || tile.revealed) return;
+      this.pending.delete(`${probe.x},${probe.y}`);
       tile.revealed = true;
       tile.steps = probe.steps;
       tile.target.set(heatColour(probe.steps));
@@ -411,8 +443,18 @@ export class SeekGrid extends MinigameScene {
   }
 
   syncTiles(dt, now) {
+    const clock = performance.now();
+    this.pending.forEach((at, key) => {
+      if (clock - at > PENDING_GIVE_UP_MS) this.pending.delete(key);
+    });
     this.tiles.forEach((tile) => {
       tile.press = Math.max(0, tile.press - dt * 4.0);
+      // Getippt, Antwort unterwegs: das Feld bleibt gedrückt und pulsiert —
+      // man sieht, dass der Tipp angekommen ist, auch wenn die Zahl noch
+      // eine Rundreise braucht.
+      if (!tile.revealed && this.pending.has(`${tile.gx},${tile.gy}`)) {
+        tile.press = Math.max(tile.press, 0.55 + Math.sin(now / 70) * 0.25);
+      }
       tile.nudge = Math.max(0, tile.nudge - dt * 5.0);
 
       // Aufgedeckte Felder sinken ein Stück ein: der Blick soll über die
@@ -447,6 +489,7 @@ export class SeekGrid extends MinigameScene {
     const own = arcade.players[controlledId];
     const before = own?.probes?.length || 0;
     const known = this.lastProbeCount;
+    this.flushTaps();
     this.syncBoard(own, now);
     this.syncTiles(dt, now);
     this.syncGem(own, now, dt);
@@ -528,7 +571,7 @@ export class SeekGrid extends MinigameScene {
         arcade.minPoints || 20,
         (arcade.basePoints || 150) - used * (arcade.probeCost || 18)
       );
-      roundLabel.textContent = `${used} Tipps · Fund noch ${worth} wert`;
+      roundLabel.textContent = `${used} ${used === 1 ? "Tipp" : "Tipps"} · Fund: ${worth}`;
     }
 
     const chips = this.hud.querySelector("[data-seek-chips]");

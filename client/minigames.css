@@ -1007,6 +1007,15 @@
   line-height: 1.35;
 }
 
+/* Spürsinn: Tipps und Fundwert in einer Zeile — die lange Fassung („Fund noch
+   114 wert") lief unter den Menüknopf. */
+.simon-round.seek-info {
+  max-width: calc(100% - 132px - 64px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .simon-chips,
 .react-rounds {
   position: absolute;
