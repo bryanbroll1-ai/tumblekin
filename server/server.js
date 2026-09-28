@@ -455,12 +455,12 @@ const FISH_SPECIES = [
 const PAINT_COLS = 12;
 const PAINT_ROWS = 26;
 const PAINT_SPEED = 4.8;               // Felder pro Sekunde
-const PAINT_ACCEL = 16;                // wie schnell die Richtung greift
+const PAINT_ACCEL = 22;                // wie schnell die Fahrt dem Stick folgt (1/s)
 const PAINT_TURN_RATE = 11;            // rad/s — die Walze schwenkt, sie springt nicht
 const PAINT_ROLLER_AHEAD = 0.9;        // so weit rollt die Walze vor der Figur
 const PAINT_BRUSH = 1.05;              // Radius der Walze in Feldern
 const PAINT_BRUSH_WIDE = 2.05;         // mit der goldenen Walze: fast doppelt so breit
-const PAINT_BOMB_RADIUS = 3.2;         // Farbbombe: Klecks um die Figur
+const PAINT_BOMB_RADIUS = 2.4;         // Farbbombe: Klecks um die Figur (~18 Felder)
 const PAINT_START_RADIUS = 1.6;        // Startfleck in der eigenen Ecke
 // Heimvorteil: auf eigener Farbe schneller, auf fremder langsamer.
 const PAINT_OWN_BOOST = 1.2;
@@ -469,11 +469,18 @@ const PAINT_BUMP_RADIUS = 1.7;         // ab hier schubsen sich zwei Kins
 const PAINT_BUMP_FORCE = 4.5;          // Stoss in Feldern pro Sekunde je Feld Überlappung
 const PAINT_KNOCK_DECAY = 5;           // wie schnell ein Stoss ausläuft (1/s)
 const PAINT_BUMP_COOLDOWN_MS = 500;    // ein Rempler, nicht einer pro Tick
-const PAINT_BOOST_MS = 5000;           // Dauer der breiten Rolle
-const PAINT_PICKUP_EVERY_MS = 3800;
-const PAINT_PICKUP_MAX = 2;
+const PAINT_BOOST_MS = 3000;           // Dauer der breiten Rolle
+// Extras: eins zur Zeit, alle 5 s. Vorher lagen bis zu zwei herum, alle 3,8 s
+// kam ein neues, die Bombe färbte 32 Felder und die breite Walze hielt 5 s —
+// wer nur Extras jagte, gewann in der Simulation 63 % der Runden. Jetzt sind
+// sie ein lohnender Umweg, kein Plan: wer frei malt, schlägt den Jäger.
+const PAINT_PICKUP_EVERY_MS = 5000;
+const PAINT_PICKUP_MAX = 1;
 const PAINT_PICKUP_REACH = 1.2;        // so nah muss man an ein Extra heran
 const PAINT_EMPTY = ".";
+const PAINT_GROUND_LEAD = 0.6;         // so weit vor der Walzenkante wird der Boden gelesen
+const PAINT_STEP_MS = 30;              // Rechenschritt, wie STEP_MS in Farbwalze.js
+const PAINT_CATCHUP_MS = 250;          // hängt der Server, holt er höchstens so viel nach
 
 // Spürsinn — im ganzen Katalog das einzige Spiel, das NACHDENKEN verlangt statt
 // zu reagieren. 28 Minispiele messen Reflex, Timing, Steuerung, Rhythmus und
@@ -3504,8 +3511,19 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.brushWide = PAINT_BRUSH_WIDE;
     arcade.pickups = [];
     arcade.nextPickupAt = startedAt + PAINT_PICKUP_EVERY_MS;
+    // Die Uhr der festen Rechenschritte; sie steht bis zum Start.
+    arcade.paintClock = startedAt;
     arcade.nextPickupId = 1;
     arcade.ownBoost = PAINT_OWN_BOOST;
+    // Alles, was das Gerät braucht, um die Walzen bis zur Ankunft einer
+    // Eingabe vorauszurechnen (Farbwalze.js) — dieselben Zahlen wie hier.
+    arcade.paintRules = {
+      speed: PAINT_SPEED, accel: PAINT_ACCEL, turn: PAINT_TURN_RATE, ahead: PAINT_ROLLER_AHEAD,
+      brush: PAINT_BRUSH, brushWide: PAINT_BRUSH_WIDE, bomb: PAINT_BOMB_RADIUS,
+      own: PAINT_OWN_BOOST, rival: PAINT_RIVAL_DRAG, groundLead: PAINT_GROUND_LEAD,
+      bumpRadius: PAINT_BUMP_RADIUS, bumpForce: PAINT_BUMP_FORCE, knockDecay: PAINT_KNOCK_DECAY,
+      bumpCooldownMs: PAINT_BUMP_COOLDOWN_MS, boostMs: PAINT_BOOST_MS, pickupReach: PAINT_PICKUP_REACH
+    };
     // Startplätze in den Ecken; zu zweit über Kreuz, damit keiner dem anderen
     // gleich zu Beginn vor der Walze steht.
     const corners = [
@@ -4226,7 +4244,7 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 55 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: 260, estimate: 40, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -5067,113 +5085,37 @@ function updateArcade(room) {
 
 
   if (arcade.family === "paint") {
-    const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    // Feste Schritte auf einer eigenen Uhr, wie beim Tauchen: `paintClock` ist
+    // die Serverzeit, zu der der Stand gilt. Das Gerät rechnet in denselben
+    // Schritten weiter (Farbwalze.js). Vorher war der Tick selbst der Schritt,
+    // und das Anfahren hing an seiner Länge — bei 90 ms war die volle Fahrt
+    // sofort da, bei kürzeren Ticks nicht.
     arcade.lastUpdateAt = now;
-    const active = room.players.filter((player) => arcade.players[player.id]);
+    if (!arcade.paintClock) arcade.paintClock = now;
+    if (now - arcade.paintClock > PAINT_CATCHUP_MS) arcade.paintClock = now - PAINT_CATCHUP_MS;
+    // In der festen Reihenfolge der Plätze: wer zuletzt über ein Feld rollt,
+    // färbt es — das Gerät rechnet in derselben Reihenfolge.
+    const present = new Set(room.players.map((player) => player.id));
+    const active = arcade.order.filter((id) => present.has(id) && arcade.players[id]).map((id) => room.players.find((player) => player.id === id));
     const entries = active.map((player) => arcade.players[player.id]);
-
-    // Extras, nie mehr als zwei gleichzeitig — sonst wird es ein Wettlauf um
-    // Boni statt um Fläche. Sie erscheinen dort, wo gerade niemand steht.
-    if (now >= arcade.nextPickupAt && arcade.pickups.length < PAINT_PICKUP_MAX) {
-      arcade.nextPickupAt = now + PAINT_PICKUP_EVERY_MS;
-      const id = arcade.nextPickupId;
-      arcade.nextPickupId += 1;
-      const spot = paintPickupSpot(arcade, entries, id);
-      const kind = arcadeNoise(arcade.seed + id * 71) < 0.55 ? "wide" : "bomb";
-      arcade.pickups.push({ id, kind, x: spot.x, y: spot.y });
+    while (arcade.paintClock + PAINT_STEP_MS <= now) {
+      const at = arcade.paintClock + PAINT_STEP_MS;
+      arcade.paintClock = at;
+      // Extras, nie mehr als PAINT_PICKUP_MAX gleichzeitig. Sie erscheinen
+      // dort, wo gerade niemand steht.
+      if (at >= arcade.nextPickupAt && arcade.pickups.length < PAINT_PICKUP_MAX) {
+        arcade.nextPickupAt = at + PAINT_PICKUP_EVERY_MS;
+        const id = arcade.nextPickupId;
+        arcade.nextPickupId += 1;
+        const spot = paintPickupSpot(arcade, entries, id);
+        const kind = arcadeNoise(arcade.seed + id * 71) < 0.55 ? "wide" : "bomb";
+        arcade.pickups.push({ id, kind, x: spot.x, y: spot.y });
+      }
+      paintStep(arcade, entries, PAINT_STEP_MS / 1000, at);
     }
-
     entries.forEach((entry) => {
-      if (entry.boostUntil && now >= entry.boostUntil) {
-        entry.wide = false;
-        entry.boostUntil = 0;
-      }
-      // Die Fahrt folgt dem Stick zügig, ohne zusätzliche Bremse: wer den
-      // Daumen hält, fährt volle Geschwindigkeit, wer loslässt, steht sofort.
-      const under = arcade.cells[paintIndex(clamp(Math.floor(entry.px), 0, PAINT_COLS - 1), clamp(Math.floor(entry.py), 0, PAINT_ROWS - 1))];
-      const ground = under === entry.slot ? PAINT_OWN_BOOST : under >= 0 ? PAINT_RIVAL_DRAG : 1;
-      entry.ground = under === entry.slot ? "own" : under >= 0 ? "rival" : "empty";
-      const top = PAINT_SPEED * ground;
-      entry.vx += (entry.dirX * top - entry.vx) * Math.min(1, PAINT_ACCEL * dt);
-      entry.vy += (entry.dirY * top - entry.vy) * Math.min(1, PAINT_ACCEL * dt);
-      // Ein Rempler wirkt getrennt davon: sonst frässe die Lenkung ihn im
-      // nächsten Tick wieder auf, und niemand würde je weggeschoben.
-      entry.px = clamp(entry.px + (entry.vx + entry.kx) * dt, 0.3, PAINT_COLS - 0.3);
-      entry.py = clamp(entry.py + (entry.vy + entry.ky) * dt, 0.3, PAINT_ROWS - 0.3);
-      const fade = Math.exp(-PAINT_KNOCK_DECAY * dt);
-      entry.kx *= fade;
-      entry.ky *= fade;
-      // Die Blickrichtung kommt aus dem Stick, nicht aus der Fahrt: ein
-      // Rempler dreht niemanden um. Sie schwenkt mit Höchstrate, damit die
-      // Walze bei einer Kehrtwende einen Bogen fährt statt durch die Figur zu
-      // springen — genau so, wie es auf dem Bildschirm aussieht.
-      if (Math.hypot(entry.dirX, entry.dirY) > 0.15) {
-        const want = Math.atan2(entry.dirX, entry.dirY);
-        const diff = Math.atan2(Math.sin(want - entry.heading), Math.cos(want - entry.heading));
-        const turn = PAINT_TURN_RATE * dt;
-        entry.heading += clamp(diff, -turn, turn);
-      }
-    });
-
-    // Anrempeln: zwei Kins schieben sich auseinander. Man kann jemanden von
-    // seiner Schleife abdrängen, bevor er sie schliesst.
-    for (let a = 0; a < entries.length; a += 1) {
-      for (let b = a + 1; b < entries.length; b += 1) {
-        const one = entries[a];
-        const two = entries[b];
-        const dx = two.px - one.px;
-        const dy = two.py - one.py;
-        const dist = Math.hypot(dx, dy);
-        if (dist >= PAINT_BUMP_RADIUS || dist < 1e-6) continue;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const overlap = PAINT_BUMP_RADIUS - dist;
-        const push = overlap * PAINT_BUMP_FORCE;
-        one.kx -= nx * push;
-        one.ky -= ny * push;
-        two.kx += nx * push;
-        two.ky += ny * push;
-        // Und gleich ein Stück auseinander, damit niemand durch den anderen fährt.
-        one.px = clamp(one.px - nx * overlap * 0.25, 0.3, PAINT_COLS - 0.3);
-        one.py = clamp(one.py - ny * overlap * 0.25, 0.3, PAINT_ROWS - 0.3);
-        two.px = clamp(two.px + nx * overlap * 0.25, 0.3, PAINT_COLS - 0.3);
-        two.py = clamp(two.py + ny * overlap * 0.25, 0.3, PAINT_ROWS - 0.3);
-        [one, two].forEach((entry) => {
-          if (now - entry.lastBumpAt <= PAINT_BUMP_COOLDOWN_MS) return;
-          entry.bumps += 1;
-          entry.lastBumpAt = now;
-        });
-      }
-    }
-
-    entries.forEach((entry) => {
-      // Die Walze malt ihren ganzen Weg seit dem letzten Tick.
-      const rx = clamp(entry.px + Math.sin(entry.heading) * PAINT_ROLLER_AHEAD, 0, PAINT_COLS);
-      const ry = clamp(entry.py + Math.cos(entry.heading) * PAINT_ROLLER_AHEAD, 0, PAINT_ROWS);
-      const radius = entry.wide ? PAINT_BRUSH_WIDE : PAINT_BRUSH;
-      paintCells(arcade, entry.slot, paintSweep(entry.rx, entry.ry, rx, ry, radius), entry);
-      entry.rx = rx;
-      entry.ry = ry;
-
-      // Extras: hinlaufen genügt.
-      const taken = arcade.pickups.findIndex((pickup) => Math.hypot(pickup.x - entry.px, pickup.y - entry.py) < PAINT_PICKUP_REACH);
-      if (taken >= 0) {
-        const [pickup] = arcade.pickups.splice(taken, 1);
-        entry.pickups += 1;
-        entry.lastPickupAt = now;
-        entry.lastPickupKind = pickup.kind;
-        entry.flash = "good";
-        entry.lastHitAt = now;
-        if (pickup.kind === "wide") {
-          entry.wide = true;
-          entry.boostUntil = now + PAINT_BOOST_MS;
-        } else {
-          paintCells(arcade, entry.slot, paintSweep(entry.px, entry.py, entry.px, entry.py, PAINT_BOMB_RADIUS), entry);
-        }
-      }
       entry.hasMoved = entry.hasMoved || Math.abs(entry.dirX) + Math.abs(entry.dirY) > 0.05;
     });
-
     paintRefresh(arcade);
     active.forEach((player) => syncArcadeScore(minigame, player, arcade.players[player.id]));
     return;
@@ -6808,6 +6750,123 @@ function paintCells(arcade, slot, cells, entry = null, stat = "painted") {
 }
 
 
+// Was die Walze gleich überrollt: die Farbe knapp vor ihrer Vorderkante. Davon
+// hängt das Tempo ab — über eigener Farbe gleitet sie, über fremder zieht sie
+// schwer. Vorher zählte das Feld unter der FIGUR, und da die Walze direkt davor
+// malt, stand die Figur gemessen 95 % der Zeit auf eigener Farbe: der Bonus galt
+// praktisch immer, die Bremse auf fremder Farbe fast nie.
+function paintGround(arcade, entry) {
+  const reach = PAINT_ROLLER_AHEAD + (entry.wide ? PAINT_BRUSH_WIDE : PAINT_BRUSH) + PAINT_GROUND_LEAD;
+  const x = entry.px + Math.sin(entry.heading) * reach;
+  const y = entry.py + Math.cos(entry.heading) * reach;
+  if (x < 0 || y < 0 || x >= PAINT_COLS || y >= PAINT_ROWS) return "empty";
+  const cell = arcade.cells[paintIndex(Math.floor(x), Math.floor(y))];
+  return cell === entry.slot ? "own" : cell >= 0 ? "rival" : "empty";
+}
+
+// Anfahren und Ausrollen, geschlossen gelöst: die Fahrt nähert sich dem Ziel
+// mit der Rate `rate`, gleich in wie vielen Schritten gerechnet wird.
+function paintEase(v, target, rate, dt) {
+  const fade = Math.exp(-rate * dt);
+  return { v: target + (v - target) * fade, d: target * dt + (v - target) * (1 - fade) / rate };
+}
+
+// Ein Rechenschritt für alle Walzen — dieselbe Folge wie stepPaint in
+// Farbwalze.js: fahren, rempeln, malen, Extras.
+function paintStep(arcade, entries, dt, now) {
+  entries.forEach((entry) => {
+    if (entry.boostUntil && now >= entry.boostUntil) {
+      entry.wide = false;
+      entry.boostUntil = 0;
+    }
+    const ground = paintGround(arcade, entry);
+    entry.ground = ground;
+    const top = PAINT_SPEED * (ground === "own" ? PAINT_OWN_BOOST : ground === "rival" ? PAINT_RIVAL_DRAG : 1);
+    const gx = paintEase(entry.vx, entry.dirX * top, PAINT_ACCEL, dt);
+    const gy = paintEase(entry.vy, entry.dirY * top, PAINT_ACCEL, dt);
+    // Ein Rempler läuft für sich aus: sonst frässe die Lenkung ihn gleich
+    // wieder auf, und niemand würde je weggeschoben.
+    const fade = Math.exp(-PAINT_KNOCK_DECAY * dt);
+    const kick = (1 - fade) / PAINT_KNOCK_DECAY;
+    entry.vx = gx.v;
+    entry.vy = gy.v;
+    entry.px = clamp(entry.px + gx.d + entry.kx * kick, 0.3, PAINT_COLS - 0.3);
+    entry.py = clamp(entry.py + gy.d + entry.ky * kick, 0.3, PAINT_ROWS - 0.3);
+    entry.kx *= fade;
+    entry.ky *= fade;
+    // Die Blickrichtung kommt aus dem Stick, nicht aus der Fahrt: ein Rempler
+    // dreht niemanden um. Sie schwenkt mit Höchstrate, damit die Walze bei
+    // einer Kehrtwende einen Bogen fährt statt durch die Figur zu springen.
+    if (Math.hypot(entry.dirX, entry.dirY) > 0.15) {
+      const want = Math.atan2(entry.dirX, entry.dirY);
+      const diff = Math.atan2(Math.sin(want - entry.heading), Math.cos(want - entry.heading));
+      const turn = PAINT_TURN_RATE * dt;
+      entry.heading += clamp(diff, -turn, turn);
+    }
+  });
+
+  // Anrempeln: zwei Kins schieben sich auseinander. Stoss und Trennung sind je
+  // Sekunde bemessen (wie früher je 90-ms-Tick), nicht je Schritt.
+  const share = dt / 0.09;
+  for (let a = 0; a < entries.length; a += 1) {
+    for (let b = a + 1; b < entries.length; b += 1) {
+      const one = entries[a];
+      const two = entries[b];
+      const dx = two.px - one.px;
+      const dy = two.py - one.py;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= PAINT_BUMP_RADIUS || dist < 1e-6) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const overlap = PAINT_BUMP_RADIUS - dist;
+      const push = overlap * PAINT_BUMP_FORCE * share;
+      one.kx -= nx * push;
+      one.ky -= ny * push;
+      two.kx += nx * push;
+      two.ky += ny * push;
+      // Und gleich ein Stück auseinander, damit niemand durch den anderen fährt.
+      const part = overlap * 0.25 * share;
+      one.px = clamp(one.px - nx * part, 0.3, PAINT_COLS - 0.3);
+      one.py = clamp(one.py - ny * part, 0.3, PAINT_ROWS - 0.3);
+      two.px = clamp(two.px + nx * part, 0.3, PAINT_COLS - 0.3);
+      two.py = clamp(two.py + ny * part, 0.3, PAINT_ROWS - 0.3);
+      [one, two].forEach((entry) => {
+        if (now - entry.lastBumpAt <= PAINT_BUMP_COOLDOWN_MS) return;
+        entry.bumps += 1;
+        entry.lastBumpAt = now;
+      });
+    }
+  }
+
+  entries.forEach((entry) => {
+    // Die Walze malt ihren ganzen Weg seit dem letzten Schritt.
+    const rx = clamp(entry.px + Math.sin(entry.heading) * PAINT_ROLLER_AHEAD, 0, PAINT_COLS);
+    const ry = clamp(entry.py + Math.cos(entry.heading) * PAINT_ROLLER_AHEAD, 0, PAINT_ROWS);
+    const radius = entry.wide ? PAINT_BRUSH_WIDE : PAINT_BRUSH;
+    paintCells(arcade, entry.slot, paintSweep(entry.rx, entry.ry, rx, ry, radius), entry);
+    entry.rx = rx;
+    entry.ry = ry;
+
+    // Extras: hinlaufen genügt.
+    const taken = arcade.pickups.findIndex((pickup) => Math.hypot(pickup.x - entry.px, pickup.y - entry.py) < PAINT_PICKUP_REACH);
+    if (taken >= 0) {
+      const [pickup] = arcade.pickups.splice(taken, 1);
+      entry.pickups += 1;
+      entry.lastPickupAt = now;
+      entry.lastPickupKind = pickup.kind;
+      entry.lastPickupId = pickup.id;
+      entry.flash = "good";
+      entry.lastHitAt = now;
+      if (pickup.kind === "wide") {
+        entry.wide = true;
+        entry.boostUntil = now + PAINT_BOOST_MS;
+      } else {
+        paintCells(arcade, entry.slot, paintSweep(entry.px, entry.py, entry.px, entry.py, PAINT_BOMB_RADIUS), entry);
+      }
+    }
+  });
+}
+
 // Zählt die Felder je Platz neu und schreibt das Feld als Zeichenkette für die
 // Geräte. Der Punktestand IST die Fläche.
 function paintRefresh(arcade) {
@@ -6856,14 +6915,39 @@ function paintPickupSpot(arcade, entries, id) {
   return best;
 }
 
-// Der Bot fährt Strecken über Fläche, die ihm noch nicht gehört: ein Stück
-// hinaus, ein Stück quer, zurück über die eigene Farbe (dort ist er
-// schneller). Er probiert ein paar Wege im Kopf aus (malt sie auf einer Kopie
-// des Feldes) und nimmt den, der je Weglänge am meisten bringt. Das Können
-// steckt darin, wie viele Varianten er durchdenkt, ob ihm ein Extra auffällt
-// und wie sauber er fährt.
 function paintBotPlan(arcade, entry, profile, now) {
-  const tries = profile.level === "hard" ? 9 : profile.level === "normal" ? 4 : 1;
+  if (profile.level !== "hard") return paintBotWander(arcade, entry, profile, now);
+  // Der starke Bot sucht sich eine Stelle mit viel Fläche, die ihm noch nicht
+  // gehört — freie Leinwand zuerst, fremde Farbe danach —, gegen den Weg
+  // dorthin gerechnet. Mit dem zufälligen Streckenplaner fand er bei neun
+  // Versuchen kaum Besseres als der mittlere bei vier: gemessen malte er kaum
+  // mehr. Der mittlere und der schwache fahren weiter Strecken (unten).
+  const worth = (cell) => (cell === entry.slot ? 0 : cell < 0 ? 1 : 0.45);
+  let best = null;
+  for (let cy = 1; cy < PAINT_ROWS; cy += 1.5) {
+    for (let cx = 1; cx < PAINT_COLS; cx += 1.5) {
+      let sum = 0;
+      paintSweep(cx, cy, cx, cy, 2).forEach((at) => { sum += worth(arcade.cells[at]); });
+      const value = sum / (Math.hypot(cx - entry.px, cy - entry.py) + 3);
+      if (!best || value > best.value) best = { points: [{ x: cx, y: cy }], value };
+    }
+  }
+  arcade.pickups.forEach((pickup) => {
+    const value = (pickup.kind === "bomb" ? 12 : 9) / (Math.hypot(pickup.x - entry.px, pickup.y - entry.py) + 3);
+    if (!best || value > best.value) best = { points: [{ x: pickup.x, y: pickup.y }], value };
+  });
+  if (!best) return null;
+  // Ziel nach knapp einer Sekunde neu wählen: bis dahin hat sich das Feld
+  // unter den anderen Walzen verändert.
+  return { points: best.points, step: 0, until: now + 900 };
+}
+
+// Der mittlere und der schwache Bot fahren Strecken über Fläche, die ihnen noch
+// nicht gehört: ein Stück hinaus, ein Stück quer (der schwache danach zurück
+// über die eigene Farbe). Sie probieren ein paar Wege im Kopf aus und nehmen
+// den, der je Weglänge am meisten bringt.
+function paintBotWander(arcade, entry, profile, now) {
+  const tries = profile.level === "normal" ? 4 : 1;
   const radius = entry.wide ? PAINT_BRUSH_WIDE : PAINT_BRUSH;
   const home = (x, y) => {
     let best = null;
@@ -6916,7 +7000,7 @@ function paintBotPlan(arcade, entry, profile, now) {
     if (!best || value > best.value) best = { points, value };
   }
   // Ein Extra in der Nähe lohnt den Umweg — der schwache Bot sieht es selten.
-  const notices = profile.level === "hard" ? 1 : profile.level === "normal" ? 0.6 : 0.2;
+  const notices = profile.level === "hard" ? 1 : profile.level === "normal" ? 0.5 : 0.2;
   arcade.pickups.forEach((pickup) => {
     if (Math.random() > notices) return;
     const dist = Math.hypot(pickup.x - entry.px, pickup.y - entry.py);
@@ -9087,6 +9171,7 @@ module.exports = {
     PAINT_BUMP_COOLDOWN_MS,
     PAINT_BOOST_MS,
     PAINT_PICKUP_MAX,
+    PAINT_STEP_MS,
     PAINT_DURATION_MS,
     paintIndex,
     paintInside,

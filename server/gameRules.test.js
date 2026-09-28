@@ -138,6 +138,8 @@ const {
   PAINT_BOOST_MS,
   PAINT_PICKUP_MAX,
   PAINT_DURATION_MS,
+  PAINT_OWN_BOOST,
+  PAINT_RIVAL_DRAG,
   paintIndex,
   paintSweep,
   paintOwnedCount,
@@ -4053,6 +4055,9 @@ function paintRoom(count = 2) {
       const chunk = Math.min(STEP, left);
       const now = Date.now();
       arcade.lastUpdateAt = now - chunk;
+      // Der Server rechnet in festen Schritten auf arcade.paintClock: die Uhr
+      // um das Stück zurückstellen, das vergehen soll.
+      if (arcade.paintClock) arcade.paintClock -= chunk;
       if (arcade.nextPickupAt) arcade.nextPickupAt -= chunk;
       players.forEach((player) => {
         const state = arcade.players[player.id];
@@ -4158,6 +4163,111 @@ test("paint: own colour is fast ground, rival colour is slow", () => {
   const rival = run("rival");
   assert.ok(own > empty, `eigene Farbe ${own.toFixed(2)} gegen leer ${empty.toFixed(2)}`);
   assert.ok(empty > rival, `leer ${empty.toFixed(2)} gegen fremd ${rival.toFixed(2)}`);
+});
+
+// Die Walze malt direkt vor der Figur — die Figur stand darum fast immer auf
+// ihrer eigenen, frischen Farbe (gemessen 95 % der Zeit), und der Heimvorteil
+// galt auch beim Übermalen fremder Fläche. Jetzt zählt, worauf die Walze
+// gleich rollt: frische Leinwand ist normales Tempo, fremde Farbe zieht,
+// nur eine schon gelegte eigene Bahn trägt schneller.
+test("paint: the ground ahead of the roller sets the pace, not your own fresh trail", () => {
+  const cruise = (fill) => {
+    const { entry, players, me, arcade, advance, steer, place, slotOf, clear } = paintRoom(2);
+    clear();
+    const slot = fill === "own" ? slotOf(me) : fill === "rival" ? slotOf(players[1]) : -1;
+    if (slot >= 0) for (let at = 0; at < arcade.cells.length; at += 1) arcade.cells[at] = slot;
+    place(me, 6, 2.5, 0);
+    steer(0, 1);
+    advance(900);
+    return Math.hypot(entry.vx, entry.vy) / PAINT_SPEED;
+  };
+  const empty = cruise("empty");
+  const rival = cruise("rival");
+  const own = cruise("own");
+  assert.ok(Math.abs(empty - 1) < 0.03, `frische Leinwand: ${empty.toFixed(2)} × Grundtempo`);
+  assert.ok(Math.abs(rival - PAINT_RIVAL_DRAG) < 0.03, `fremde Farbe: ${rival.toFixed(2)} × Grundtempo`);
+  assert.ok(Math.abs(own - PAINT_OWN_BOOST) < 0.03, `eigene Bahn: ${own.toFixed(2)} × Grundtempo`);
+});
+
+// Das Gerät zeigt Walzen und Farbe so, wie der Server sie hat, wenn ein jetzt
+// geschickter Stick ankommt (Farbwalze.js). Dafür muss es genauso rechnen —
+// fahren, schwenken, rempeln, malen und Extras, im selben Raster und in
+// derselben Reihenfolge.
+test("paint: the device forecasts rollers and canvas exactly like the server", async () => {
+  const { forecastPaint } = await import("../client/src/minigames/Farbwalze.js");
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const players = ["c1", "c2", "c3"].map((id) => ({ id, name: id, isBot: false }));
+  let clock = Date.now();
+  const startedAt = clock;
+  const arcade = createArcadeState("farbenjagd", players, startedAt);
+  const minigame = { id: 1, type: "farbenjagd", startedAt, duration: PAINT_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
+  const room = { currentMinigame: minigame, players };
+  // Neue Extras legt nur der Server; im Test liegen sie von Hand.
+  arcade.nextPickupAt = Infinity;
+  const at = (fn) => {
+    const real = Date.now;
+    Date.now = () => clock;
+    try { return fn(); } finally { Date.now = real; }
+  };
+  let seed = 11;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const steer = (player) => {
+    arcade.players[player.id].lastInputAt = 0;
+    const idle = rand() < 0.15;
+    at(() => handleArcadeInput(room, player, { action: "steer", x: idle ? 0 : rand() * 2 - 1, y: idle ? 0 : rand() * 2 - 1 }));
+  };
+  const run = () => { clock += 40 + Math.floor(rand() * 11) * 10; at(() => updateArcade(room)); };
+  // Alle in die Mitte, damit sie sich auch rempeln.
+  players.forEach((player, index) => {
+    const entry = arcade.players[player.id];
+    entry.px = 5 + index * 1.2;
+    entry.py = 12 + index;
+  });
+  for (let i = 0; i < 30; i += 1) { players.forEach(steer); run(); }
+  let compared = 0;
+  let happened = 0;
+  for (let round = 0; round < 25; round += 1) {
+    if (round % 4 === 0) {
+      const lead = arcade.players.c1;
+      arcade.pickups = [
+        { id: 100 + round, kind: "bomb", x: clamp(lead.px + 1, 1, PAINT_COLS - 1), y: clamp(lead.py + 1, 1, PAINT_ROWS - 1) },
+        { id: 200 + round, kind: "wide", x: clamp(lead.px - 1, 1, PAINT_COLS - 1), y: clamp(lead.py - 1, 1, PAINT_ROWS - 1) }
+      ];
+    }
+    const from = arcade.paintClock;
+    const view = JSON.parse(JSON.stringify(arcade));
+    const inputs = new Map();
+    while (arcade.paintClock < from + 480) {
+      players.forEach((player) => { if (rand() < 0.4) steer(player); });
+      const before = arcade.paintClock;
+      run();
+      for (let t = before; t < arcade.paintClock; t += 30) {
+        players.forEach((player) => inputs.set(`${player.id}:${t}`, { x: arcade.players[player.id].dirX, y: arcade.players[player.id].dirY }));
+      }
+    }
+    const to = arcade.paintClock;
+    if (to > from + 600) continue;
+    const guess = forecastPaint(view, {
+      from,
+      to,
+      ids: arcade.order,
+      inputAt: (id, t) => inputs.get(`${id}:${t}`) || { x: view.players[id].dirX, y: view.players[id].dirY }
+    });
+    players.forEach((player) => {
+      const real = arcade.players[player.id];
+      const mine = guess.entries.get(player.id);
+      assert.ok(Math.abs(mine.px - real.px) < 1e-6 && Math.abs(mine.py - real.py) < 1e-6,
+        `Runde ${round}, ${player.id}: Gerät ${mine.px.toFixed(3)}/${mine.py.toFixed(3)}, Server ${real.px.toFixed(3)}/${real.py.toFixed(3)}`);
+      assert.ok(Math.abs(mine.heading - real.heading) < 1e-6, `Runde ${round}, ${player.id}: Blickrichtung`);
+      assert.equal(mine.wide, Boolean(real.wide), `Runde ${round}, ${player.id}: breite Walze`);
+    });
+    assert.deepEqual([...guess.cells], arcade.cells, `Runde ${round}: dieselben Felder`);
+    assert.deepEqual(guess.pickups.map((pickup) => pickup.id), arcade.pickups.map((pickup) => pickup.id), `Runde ${round}: dieselben Extras`);
+    happened += guess.events.length;
+    compared += 1;
+  }
+  assert.ok(compared >= 20, `${compared} Vergleiche`);
+  assert.ok(happened > 0, "gerempelt oder aufgehoben wurde auch");
 });
 
 test("paint: a loop back into your colour fills nothing extra", () => {

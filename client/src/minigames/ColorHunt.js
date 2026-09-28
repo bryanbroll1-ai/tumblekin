@@ -5,6 +5,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin200";
 
 // Farbenjagd: jeder schiebt eine Farbwalze über eine grosse Leinwand. Was die
 // Walze überrollt, hat sofort seine Farbe, auch fremde. Auf der eigenen Farbe
@@ -17,6 +18,13 @@ import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 //
 // Das Feld ist fein (12 x 26) und darum EIN InstancedMesh: 312 Kacheln in
 // einem Zeichenaufruf, jede mit eigener Farbe und eigenem kleinen Aufploppen.
+//
+// Gezeigt wird das Feld so, wie es beim Server steht, wenn ein JETZT
+// geschickter Stick dort ankommt: alle Walzen und ihre Farbe vorausgerechnet
+// (Farbwalze.js). Vorher fuhr die eigene Figur dem Daumen eine Rundreise
+// hinterher, und die Farbe erschien noch später.
+const STICK_GAP_MS = 40;         // so dicht folgen Stickmeldungen höchstens
+const TICK_LEAD_MS = 45;         // halber Servertick (90 ms), siehe stickAt
 const TILE = 0.225;
 const KIN_SCALE = 0.62;
 const BOARD_TOP = 0.06;
@@ -44,6 +52,12 @@ export class ColorHunt extends MinigameScene {
     this.slotColors = [];
     this.flash = null;
     this.labelY = 0.95;
+    this.roundTrip = 0;
+    this.stickLog = [];          // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
+    this.stickWanted = null;
+    this.stickSent = { x: 0, y: 0, clock: -1e9 };
+    this.view = null;            // das vorausgerechnete Feld
+    this.shownPickups = new Set();
   }
 
   stage() {
@@ -83,6 +97,7 @@ export class ColorHunt extends MinigameScene {
     this.order = order;
     this.slotColors = order.map((id) => new THREE.Color(players.find((player) => player.id === id)?.color || "#bbbbbb"));
 
+    this.rules = paintRules(arcade);
     this.buildPlaza(order, players);
     this.buildBoard();
     this.buildCells();
@@ -99,7 +114,7 @@ export class ColorHunt extends MinigameScene {
       });
       this.rollers.set(player.id, this.addRoller(kin, player.color));
     });
-    if (arcade) this.syncCells(arcade, 0, true);
+    if (arcade) this.syncCells(parseCells(arcade.paint, this.cols * this.rows), 0, true);
   }
 
   // Ein Graffiti-Hinterhof: Asphalt voller Farbkleckse, hinten eine
@@ -377,7 +392,7 @@ export class ColorHunt extends MinigameScene {
       label: "Farbenjagd: Walze lenken",
       intervalMs: 70,
       feedback: this.feedback,
-      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => {
         this.feedback?.sound("move");
         this.feedback?.vibrate(10);
@@ -392,21 +407,124 @@ export class ColorHunt extends MinigameScene {
     this.popping.clear();
   }
 
+  // Der Stick meldet sich alle 70 ms und bei jedem Richtungswechsel — dazu
+  // liest das Bild ihn in jedem Frame. Geschickt wird, was sich geändert hat,
+  // höchstens alle 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung
+  // weiss, ab wann der Server sie hat. Der Server nimmt sie ohne Sperrzeit an:
+  // mit 55 ms konnte das Loslassen direkt hinter einer Lenkbewegung
+  // verschluckt werden, und die Walze fuhr allein weiter bis an den Rand.
+  queueStick(x, y) {
+    this.stickWanted = { x, y };
+    this.flushStick();
+  }
+
+  flushStick() {
+    const want = this.stickWanted;
+    const minigame = this.update || this.minigame;
+    if (!want || !minigame || minigame.finaleAt) return;
+    const clock = performance.now();
+    const same = Math.abs(want.x - this.stickSent.x) < 0.02 && Math.abs(want.y - this.stickSent.y) < 0.02;
+    if (same && clock - this.stickSent.clock < 400) return;
+    if (clock - this.stickSent.clock < STICK_GAP_MS) return;
+    this.stickSent = { x: want.x, y: want.y, clock };
+    const at = this.now();
+    this.stickLog.push({ at, x: want.x, y: want.y });
+    while (this.stickLog.length > 2 && this.stickLog[1].at < at - 3000) this.stickLog.shift();
+    this.sendInput({ action: "steer", x: want.x, y: want.y })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => {});
+  }
+
+  // Ohne Stick keine Antworten, also keine Laufzeit: dann misst ein Ping.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.stickSent.clock < 1000 || clock - (this.lastPingAt || 0) < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Welchen Stick der Server für den Schritt ab Serverzeit `at` hat: was dieses
+  // Gerät eine Rundreise vorher geschickt hat — der Server liest ihn einmal je
+  // Tick und rechnet damit alle Schritte seit dem letzten, also im Schnitt
+  // einen halben Tick vor der Ankunft. Kam die Meldung vor dem Serverstand an,
+  // steht sie schon in ihm.
+  stickAt(at, from, entry) {
+    const lands = (sent) => sent.at + this.roundTrip - TICK_LEAD_MS;
+    let pick = null;
+    for (const sent of this.stickLog) {
+      if (lands(sent) <= at) pick = sent;
+      else break;
+    }
+    if (!pick || lands(pick) <= from) return { x: entry.dirX || 0, y: entry.dirY || 0 };
+    return pick;
+  }
+
+  // Das ganze Feld zu der Serverzeit, zu der ein jetzt geschickter Stick
+  // ankommt.
+  forecast(f) {
+    const { arcade, minigame, players, controlledId } = f;
+    if (arcade.paint !== this.baseText) {
+      this.baseText = arcade.paint;
+      this.baseCells = parseCells(arcade.paint, this.cols * this.rows);
+    }
+    const from = arcade.paintClock || minigame.sentAt || f.now;
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const to = minigame.finaleAt ? from : Math.min(Math.max(from, f.now + this.roundTrip), Math.max(from, endAt));
+    const present = new Set(players.map((player) => player.id));
+    const ids = (arcade.order || []).filter((id) => present.has(id) && arcade.players[id]);
+    this.view = forecastPaint(arcade, {
+      from,
+      to,
+      ids,
+      cells: this.baseCells,
+      inputAt: (id, at) => {
+        const entry = arcade.players[id];
+        return id === controlledId ? this.stickAt(at, from, entry) : { x: entry.dirX || 0, y: entry.dirY || 0 };
+      }
+    });
+  }
+
   tick(f) {
-    const { now, dt, arcade, players, controlledId, finale } = f;
+    const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
-    this.syncCells(arcade, now, false);
+    if (this.joystick && this.joystick.pointerId !== null) this.queueStick(this.joystick.vecX, this.joystick.vecY);
+    else this.flushStick();
+    this.pingIfIdle(minigame);
+    this.forecast(f);
+    this.syncCells(this.view.cells, now, false);
     this.stepCells(now);
-    this.syncPickups(arcade, now);
+    this.syncPickups(this.view.pickups, now);
+    // Ein Extra, das die eigene Walze in der Vorausrechnung schon hat: jetzt
+    // feiern, nicht eine Rundreise später.
+    if (!finale) {
+      this.view.events.forEach((event) => {
+        if (event.kind !== "pickup" || event.id !== controlledId || this.shownPickups.has(event.pickup)) return;
+        this.shownPickups.add(event.pickup);
+        const player = players.find((candidate) => candidate.id === controlledId);
+        const kin = this.kins.get(controlledId);
+        const animator = this.animators.get(controlledId);
+        if (player && kin && animator) this.celebratePickup(player, { lastPickupKind: event.what }, kin, animator, controlledId, now);
+      });
+    }
 
     players.forEach((player) => {
-      const entry = arcade.players[player.id];
+      const entry = this.view.entries.get(player.id) || arcade.players[player.id];
+      const served = arcade.players[player.id];
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       const roller = this.rollers.get(player.id);
       if (!entry || !kin || !animator) return;
-      // Die eigene Figur folgt enger: sie ist die, deren Walze man verfolgt.
-      const follow = player.id === controlledId ? 0.55 : 0.4;
+      // Die eigene Figur folgt der Vorausrechnung fast ohne Verzug — sie IST
+      // schon die Antwort auf den Stick.
+      const follow = player.id === controlledId ? 0.7 : 0.45;
       kin.position.x += (this.worldX(entry.px) - kin.position.x) * frameLerp(follow, dt);
       kin.position.z += (this.worldZ(entry.py) - kin.position.z) * frameLerp(follow, dt);
 
@@ -443,11 +561,18 @@ export class ColorHunt extends MinigameScene {
           at.y = BOARD_TOP + 0.12;
           this.burst(at, ["#ffffff", player.color], { count: 1, speed: 0.3, up: 0.2, size: 0.05, life: 0.3, gravity: 0 });
         }
+        // Über fremder Farbe zieht die Walze schwer: graue Wölkchen an der
+        // Rolle — man sieht, warum es gerade langsamer geht.
+        if (!finale && entry.ground === "rival" && speed > 1 && Math.random() < frameChance(0.5, dt)) {
+          const at = roller.localToWorld(u.axle.clone());
+          at.y = BOARD_TOP + 0.08;
+          this.burst(at, ["#8a8f98", "#c9ccd2"], { count: 1, speed: 0.25, up: 0.35, size: 0.05, life: 0.4, gravity: 0 });
+        }
       }
 
       const bumpSeen = this.seenBump.get(player.id) || 0;
-      if (entry.lastBumpAt && entry.lastBumpAt !== bumpSeen) {
-        this.seenBump.set(player.id, entry.lastBumpAt);
+      if (served.lastBumpAt && served.lastBumpAt !== bumpSeen) {
+        this.seenBump.set(player.id, served.lastBumpAt);
         if (bumpSeen) {
           animator.trigger("flinch");
           animator.expression("surprised", 400);
@@ -461,9 +586,12 @@ export class ColorHunt extends MinigameScene {
       }
 
       const pickupSeen = this.seenPickup.get(player.id) || 0;
-      if (entry.lastPickupAt && entry.lastPickupAt !== pickupSeen) {
-        this.seenPickup.set(player.id, entry.lastPickupAt);
-        this.celebratePickup(player, entry, kin, animator, controlledId, now);
+      if (served.lastPickupAt && served.lastPickupAt !== pickupSeen) {
+        this.seenPickup.set(player.id, served.lastPickupAt);
+        // Die eigene Walze hat es meist schon gefeiert (oben).
+        const already = player.id === controlledId && this.shownPickups.has(served.lastPickupId);
+        if (player.id === controlledId) this.shownPickups.add(served.lastPickupId);
+        if (!already) this.celebratePickup(player, served, kin, animator, controlledId, now);
       }
       if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
     });
@@ -489,7 +617,9 @@ export class ColorHunt extends MinigameScene {
     const at = new THREE.Vector3(kin.position.x, BOARD_TOP + 0.05, kin.position.z);
     if (entry.lastPickupKind === "bomb") {
       // Der Klecks: ein Ring über die ganze Bombenfläche und viel Farbe.
-      this.bursts.ring(at, player.color, { radius: 1.6, life: 0.55, opacity: 0.8, y: BOARD_TOP + 0.06 });
+      // So gross wie der Klecks, den der Server malt — vorher 1,6 statt 0,54:
+      // der Ring zeigte die dreifache Fläche und ragte über die Leinwand.
+      this.bursts.ring(at, player.color, { radius: (this.rules?.bomb ?? 2.4) * TILE, life: 0.55, opacity: 0.8, y: BOARD_TOP + 0.06 });
       this.burst(at.clone().setY(0.35), [player.color, "#ffffff"], { count: 18, speed: 1.8, up: 1.9, size: 0.07, life: 0.8 });
       if (own) {
         this.pop(new THREE.Vector3(kin.position.x, 1.05, kin.position.z), "FARBBOMBE!", { color: "#ffffff", size: 0.3, life: 0.9 });
@@ -508,15 +638,12 @@ export class ColorHunt extends MinigameScene {
     }
   }
 
-  // Das Feld kommt als Zeichenkette ("." frei, "0".."3" Platz in arcade.order).
+  // Das Feld (vorausgerechnet, je Kachel der Platz in arcade.order oder -1).
   // Neue Farbe erscheint sofort, jede Kachel mit einem kleinen Hüpfer.
-  syncCells(arcade, now, instant) {
-    const text = arcade.paint;
-    if (!text || text === this.lastPaint || !this.want) return;
-    this.lastPaint = text;
-    for (let at = 0; at < text.length && at < this.want.length; at += 1) {
-      const code = text.charCodeAt(at);
-      const slot = code === 46 ? -1 : code - 48;
+  syncCells(cells, now, instant) {
+    if (!cells || !this.want) return;
+    for (let at = 0; at < cells.length && at < this.want.length; at += 1) {
+      const slot = cells[at];
       if (slot === this.want[at]) continue;
       this.want[at] = slot;
       this.due[at] = now;
@@ -554,9 +681,9 @@ export class ColorHunt extends MinigameScene {
   // Extras: die breite Walze als goldene Rolle, die Farbbombe als Kugel mit
   // Lunte. Darunter ein pulsierender Ring, damit man sie auch auf bunter
   // Fläche sofort findet.
-  syncPickups(arcade, now) {
+  syncPickups(pickups, now) {
     const live = new Set();
-    (arcade.pickups || []).forEach((pickup) => {
+    (pickups || []).forEach((pickup) => {
       live.add(pickup.id);
       let mesh = this.pickupMeshes.get(pickup.id);
       if (!mesh) {
@@ -641,14 +768,23 @@ export class ColorHunt extends MinigameScene {
     const { arcade, state, now, minigame } = f;
     if (!arcade) return;
     const ownId = this.getControlledPlayerId();
-    const own = arcade.players[ownId];
-    const total = (arcade.paint || "").length || 1;
+    const own = this.view?.entries.get(ownId) || arcade.players[ownId];
+    // Die Fläche aus dem vorausgerechneten Feld — dieselbe, die man sieht.
+    const counts = new Map();
+    const cells = this.view?.cells;
+    if (cells) {
+      const perSlot = (arcade.order || []).map(() => 0);
+      for (const slot of cells) if (slot >= 0 && slot < perSlot.length) perSlot[slot] += 1;
+      (arcade.order || []).forEach((id, slot) => counts.set(id, perSlot[slot]));
+    }
+    const ownedOf = (id) => counts.get(id) ?? arcade.players[id]?.owned ?? 0;
+    const total = cells?.length || (arcade.paint || "").length || 1;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = String(Math.max(0, Math.round(own?.owned || 0)));
+    this.scoreNode.textContent = String(Math.max(0, Math.round(ownedOf(ownId))));
     const share = this.hud.querySelector("[data-paint-share]");
     if (share) {
       share.innerHTML = state.players.map((player) => {
-        const owned = arcade.players[player.id]?.owned || 0;
+        const owned = ownedOf(player.id);
         const percent = Math.max(owned > 0 ? 6 : 0, Math.round((owned / total) * 100));
         const isOwn = player.id === ownId;
         // Die Zahl nur, wo sie hineinpasst — sonst schoben sich die Ziffern
@@ -662,7 +798,7 @@ export class ColorHunt extends MinigameScene {
     if (!banner) return;
     const remaining = Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000));
     const ranking = state.players
-      .map((player) => ({ player, owned: arcade.players[player.id]?.owned || 0 }))
+      .map((player) => ({ player, owned: ownedOf(player.id) }))
       .sort((a, b) => b.owned - a.owned);
     const leader = ranking[0];
     const show = (text, background, color) => {
