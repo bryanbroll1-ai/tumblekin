@@ -198,7 +198,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🚩 Rot oder Blau tippen
 
-- **Flaggen hoch:** Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand.
+- **Flaggen hoch:** Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle — wer dann stillhält, hat richtig. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand.
 
 ### 👆🍎 Eins oder zwei pflücken
 

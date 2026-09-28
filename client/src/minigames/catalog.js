@@ -60,7 +60,7 @@ export const MINIGAME_CATALOG = [
   { type: "augenmass", title: "Augenmaß", family: "estimate", gesture: "estimate", help: "Ein Schwarm Glühkäfer blitzt gut zwei Sekunden auf — dann sind sie weg und du schätzt, wie viele es waren. Zieh den Regler auf deine Zahl, solange der grüne Balken läuft. Vier Durchgänge, und der Schwarm wird jedes Mal grösser: zählen klappt am Anfang noch, später nicht mehr. Je näher an der echten Zahl, desto mehr Punkte." },
   { type: "tauziehen", title: "Tauziehen", family: "tug", gesture: "taps", help: "Zwei Teams, ein Seil, dazwischen die Schlammgrube. Jeder Tipp zieht — aber jeder Zug kostet Griffkraft (der Balken im Knopf), und die wächst nur langsam nach. Der Knopf sagt dir, wie du ziehen sollst: wer wild hämmert, rutscht ab und schenkt den anderen einen Ruck (LANGSAM!), wer zu zaghaft zieht, verschenkt Kraft (SCHNELLER!), und kurz vor Schluss heisst es ALLES! Zieht ihr fast gleichzeitig, gibt es ein HAU-RUCK. Wer zuerst zwei Runden holt, gewinnt — die anderen landen im Schlamm." },
   { type: "grimassen", title: "Grimassen", family: "face", gesture: "sculpt", help: "Oben hängt ein verzogenes Gesicht, vor dir eine Gummimaske. Zieh die sechs gelben Punkte — Brauen, Nase, Mundwinkel, Kinn —, bis deine Maske genauso aussieht. Nach neun Sekunden wird verglichen: je näher jeder Punkt am Vorbild liegt, desto mehr Punkte. Drei Gesichter, jedes schiefer als das vorige." },
-  { type: "flaggenhoch", title: "Flaggen hoch", family: "flags", gesture: "flags", help: "Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand." },
+  { type: "flaggenhoch", title: "Flaggen hoch", family: "flags", gesture: "flags", help: "Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle — wer dann stillhält, hat richtig. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand." },
   { type: "honigwabe", title: "Honigwabe", family: "honey", gesture: "pick", help: "Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und lässt vier Früchte fallen. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Einmal im Spiel darfst du deinen Zug ganz weiterschieben. Goldene Äpfel zählen drei. Wer am Ende die meisten Früchte hat, gewinnt." },
   { type: "schneeball", title: "Schneeballhang", family: "snow", gesture: "stickThrow", help: "Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1 bis 3 Punkte, je grösser die Kugel war. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild." },
   { type: "luftpuck", title: "Luftpuck", family: "hockey", gesture: "joystick", help: "Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte; lenk sie mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende." },
@@ -105,7 +105,8 @@ export const REWORKED = new Set([
   "spuersinn",
   "augenmass",
   "tauziehen",
-  "grimassen"
+  "grimassen",
+  "flaggenhoch"
 ]);
 
 export const ARCADE_TYPES = new Set(

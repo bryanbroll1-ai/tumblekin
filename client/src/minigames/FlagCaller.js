@@ -10,8 +10,13 @@ import { kiste, lambert, viele, streuer, wolken, himmel } from "./Kulisse.js?v=t
 // Kommandos kommen immer schneller, drei Fehler und man sitzt an Deck.
 //
 // Rot ist für alle auf der LINKEN Bildseite, Blau rechts — beim Käpt'n, bei
-// den Matrosen und auf den Knöpfen. Wer nachdenken muss, welche Hand, hat
-// schon verloren.
+// den Matrosen, auf den Knöpfen und im Ton. Wer nachdenken muss, welche Hand,
+// hat schon verloren.
+//
+// Gewertet wird, wann ein Druck beim Server ankommt. Das Kommando erscheint
+// darum um die gemessene Rundreise früher (wie in Blitzreflex): wer es sieht
+// und drückt, kommt so an, als gäbe es kein Netz. Ob ein Druck richtig war,
+// sagt das Gerät sofort selbst; der Server bestätigt oder berichtigt.
 const DECK_Y = 0.35;
 const BRIDGE_Y = 1.25;
 const CAPTAIN_SCALE = 1.35;
@@ -26,9 +31,14 @@ export class FlagCaller extends MinigameScene {
     super(ctx);
     this.flagsOf = new Map();       // playerId → { red, blue, raise: { red, blue }, until: { red, blue } }
     this.seenRaised = new Map();
-    this.seenAnswers = new Map();
+    this.seenAnswers = new Map();   // playerId → Set der schon gezeigten Kommandonummern
     this.seenOut = new Set();
     this.shownCommand = -1;
+    this.roundTrip = 0;
+    this.measured = false;
+    this.lastPingAt = 0;
+    this.local = new Map();         // Kommandonummer → { result } — eigene Antworten, sofort beurteilt
+    this.localPressed = new Map();  // Kommandonummer → { red, blue } bei BEIDE!
     this.labelY = 0.78;
     this.gulls = [];
     this.caps = null;
@@ -47,7 +57,7 @@ export class FlagCaller extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="hud-chips" data-flag-lives></div>
-      <div class="flag-call" data-flag-call hidden><small>Käpt'n sagt:</small><b></b></div>`;
+      <div class="flag-call" data-flag-call hidden><small>Käpt'n sagt:</small><b></b><i class="flag-timer"><span></span></i></div>`;
   }
 
   build() {
@@ -269,8 +279,8 @@ export class FlagCaller extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 1.4, -0.4],
-      frame: { w: 4.8, h: 4.0 },
+      look: [0, 1.3, -0.45],
+      frame: { w: 4.7, h: 3.9 },
       pitch: 0.2,
       fov: 38,
       intro: { yaw: 0.6, pitch: 0.28, zoom: 1.5 },
@@ -293,23 +303,121 @@ export class FlagCaller extends MinigameScene {
         event.preventDefault();
         const minigame = this.update || this.minigame;
         if (!minigame || minigame.finaleAt) return;
+        const id = this.getControlledPlayerId();
+        const entry = minigame.arcade?.players?.[id];
+        if (!entry || entry.outAt || this.ownView(entry).lives <= 0) return;
         const flag = button.dataset.flag;
-        this.feedback?.sound("tap");
+        this.feedback?.sound("tap", { pan: flag === "red" ? -0.5 : 0.5 });
         this.feedback?.vibrate(8);
         // Sofort heben — nicht auf den Server warten.
-        const own = this.flagsOf.get(this.getControlledPlayerId());
+        const own = this.flagsOf.get(id);
         if (own) own.until[flag] = performance.now() + RAISE_MS;
-        this.sendInput({ action: "flag", flag }).catch(() => {});
+        const sentAt = performance.now();
+        this.sendInput({ action: "flag", flag }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+        this.judgeLocal(minigame, entry, flag);
       });
     });
+  }
+
+  // Wie lange ein Druck zum Server und zurück braucht, geglättet und bei
+  // 250 ms gedeckelt. Die erste Messung gilt sofort.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.measured ? this.roundTrip * 0.7 + clamped * 0.3 : clamped;
+    this.measured = true;
+  }
+
+  // Zwischen den Kommandos ein ping pro Sekunde (bis zur ersten Messung
+  // öfter): er ändert nichts und hält die Messung frisch.
+  pingIfIdle(minigame, state, arrival) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastPingAt < (this.measured ? 1000 : 300)) return;
+    const busy = state.commands.some((c) => arrival >= c.at - 300 && arrival <= c.at + c.window + 250);
+    if (busy) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Die Zeit, zu der ein jetzt abgeschickter Druck beim Server ankommt.
+  arrival(minigame) {
+    return this.now() + this.roundTrip - minigame.startedAt;
+  }
+
+  // Den eigenen Druck gleich hier beurteilen — mit denselben Regeln wie der
+  // Server, zur geschätzten Ankunftszeit.
+  judgeLocal(minigame, entry, flag) {
+    const state = minigame.arcade?.flags;
+    if (!state) return;
+    const command = activeCommand(state.commands, this.arrival(minigame), state.graceMs ?? 120);
+    if (!command?.kind || this.local.has(command.index) || entry.answers?.[command.index]) return;
+    let result = null;
+    if (command.kind === "fake") result = "fooled";
+    else if (command.kind === "both") {
+      const pressed = this.localPressed.get(command.index) || { red: false, blue: false };
+      pressed[flag] = true;
+      this.localPressed.set(command.index, pressed);
+      if (pressed.red && pressed.blue) result = "ok";
+    } else result = flag === command.kind ? "ok" : "wrong";
+    if (result) this.showOwn(command, result);
+  }
+
+  showOwn(command, result) {
+    this.local.set(command.index, { result });
+    this.popAnswer(this.getControlledPlayerId(), result, true, command.kind);
+  }
+
+  // Eigener Stand: was der Server schon weiss, plus was das Gerät schon
+  // beurteilt hat. So stimmen Punkte und Herzen sofort.
+  ownView(entry) {
+    const merged = { ...(entry?.answers || {}) };
+    this.local.forEach((answer, index) => { if (!merged[index]) merged[index] = answer; });
+    let correct = 0;
+    let mistakes = 0;
+    Object.values(merged).forEach((answer) => {
+      if (answer.result === "ok") correct += 1;
+      else if (answer.result !== "out") mistakes += 1;
+    });
+    const lives = this.update?.arcade?.flags?.lives ?? this.minigame?.arcade?.flags?.lives ?? 3;
+    return { correct, lives: entry?.outAt ? 0 : Math.max(0, lives - mistakes) };
+  }
+
+  // Häkchen oder Kreuz über dem Kopf.
+  popAnswer(playerId, result, isOwn, kind) {
+    const kin = this.kins.get(playerId);
+    const animator = this.animators.get(playerId);
+    if (!kin || !animator || result === "out") return;
+    const head = kin.position.clone().add(new THREE.Vector3(0, 1.05, 0));
+    if (result === "ok") {
+      if (isOwn) {
+        this.pop(head, kind === "fake" ? "Standhaft!" : "✓", { color: "#6dff9a", size: kind === "fake" ? 0.36 : 0.5, life: 0.7 });
+        this.feedback?.sound("coin");
+      }
+      animator.expression("happy", 500);
+      return;
+    }
+    const text = result === "fooled" ? "Reingelegt!" : result === "late" ? "Zu spät!" : "Falsch!";
+    this.pop(head, text, { color: "#ffb3bd", size: 0.34, life: 1 });
+    animator.trigger("flinch");
+    animator.expression("surprised", 900);
+    if (result === "fooled") this.captainAnimator?.expression("smug", 900);
+    if (isOwn) {
+      this.feedback?.sound("error");
+      this.feedback?.vibrate([30, 40, 30]);
+      this.rig.shake(0.3);
+    }
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.flags;
     if (!state) return;
-    const elapsed = now - minigame.startedAt;
+    // Alles, was ein Kommando zeigt, läuft nach der Ankunftszeit (siehe oben).
+    const elapsed = now + this.roundTrip - minigame.startedAt;
+    const grace = state.graceMs ?? 120;
     const nowP = performance.now();
+    this.pingIfIdle(minigame, state, elapsed);
 
     // Meer, Möwen, Wimpel.
     if (this.caps) {
@@ -356,8 +464,10 @@ export class FlagCaller extends MinigameScene {
       if (u < 0.5) d.userData.splashed = false;
     });
 
-    // Der Käpt'n: hebt, was er ruft — bei der Falle genauso.
-    const command = activeCommand(state.commands, elapsed);
+    // Der Käpt'n: hebt, was er ruft — bei der Falle genauso. Kennt das Gerät
+    // die Art noch nicht (sehr langsames Netz), wartet er.
+    const live = activeCommand(state.commands, elapsed);
+    const command = live?.kind ? live : null;
     const capTarget = { red: 0, blue: 0 };
     if (command) {
       const hold = elapsed - command.at < command.window * 0.85;
@@ -372,11 +482,19 @@ export class FlagCaller extends MinigameScene {
     if (command && command.index !== this.shownCommand) {
       this.shownCommand = command.index;
       this.captainAnimator.trigger("nod");
-      this.feedback?.sound(command.kind === "fake" ? "whoosh" : "countdown");
+      // Derselbe Ruf für echte Kommandos und Fallen — sonst verriete der Ton,
+      // was man lesen soll. Er kommt aber von der Seite der Flagge.
+      const color = command.kind === "fake" ? command.side : command.kind;
+      this.feedback?.sound("swish", { pan: color === "red" ? -0.6 : color === "blue" ? 0.6 : 0 });
     }
     this.captainAnimator.set(command ? "focus" : "idle");
-    this.captainAnimator.expression(command?.kind === "fake" ? "smug" : "focus", 200);
+    // Auch das Gesicht verrät nichts: grinsen darf er erst, wenn jemand
+    // reingefallen ist (popAnswer).
+    if (command) this.captainAnimator.expression("focus", 200);
     this.captainAnimator.update(now);
+
+    // „Zu spät!" und „Standhaft!" sagt der Server: ob kurz vor Schluss noch
+    // ein Druck ankam (etwa aus der Nachfrist), weiss nur er.
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -392,37 +510,33 @@ export class FlagCaller extends MinigameScene {
         this.seenRaised.set(player.id, key);
         flags.until[raised.flag] = Math.max(flags.until[raised.flag], nowP + RAISE_MS);
       }
-      const out = Boolean(entry.outAt);
+      // Wer sein drittes Herz verloren hat, setzt sich gleich — beim eigenen
+      // Matrosen schon nach dem Urteil des Geräts.
+      const out = Boolean(entry.outAt) || (isOwn && this.ownView(entry).lives <= 0);
       ["red", "blue"].forEach((flag) => {
         const want = !out && nowP < flags.until[flag] ? 1 : 0;
         flags.raise[flag] += (want - flags.raise[flag]) * frameLerp(0.45, dt);
       });
 
-      // Antworten: Häkchen oder Kreuz über dem Kopf.
+      // Antworten vom Server. Die eigenen hat das Gerät meist schon gezeigt —
+      // nur wenn der Server anders entschieden hat, kommt die Berichtigung.
       const answers = entry.answers || {};
-      const count = Object.keys(answers).length;
-      if (count > (this.seenAnswers.get(player.id) ?? count)) {
-        const newest = Object.values(answers).reduce((a, b) => ((b.at || 0) >= (a?.at || 0) ? b : a), null);
-        const head = kin.position.clone().add(new THREE.Vector3(0, 1.05, 0));
-        if (newest?.result === "ok") {
-          if (isOwn) {
-            this.pop(head, "✓", { color: "#6dff9a", size: 0.5, life: 0.7 });
-            this.feedback?.sound("coin");
-          }
-          animator.expression("happy", 500);
-        } else if (newest && newest.result !== "out") {
-          const text = newest.result === "fooled" ? "Reingelegt!" : newest.result === "late" ? "Zu spät!" : "Falsch!";
-          this.pop(head, text, { color: "#ffb3bd", size: 0.34, life: 1 });
-          animator.trigger("flinch");
-          animator.expression("surprised", 900);
-          if (isOwn) {
-            this.feedback?.sound("error");
-            this.feedback?.vibrate([30, 40, 30]);
-            this.rig.shake(0.3);
-          }
-        }
+      let seen = this.seenAnswers.get(player.id);
+      if (!seen) {
+        seen = new Set(Object.keys(answers));
+        this.seenAnswers.set(player.id, seen);
       }
-      this.seenAnswers.set(player.id, count);
+      Object.entries(answers).forEach(([key, answer]) => {
+        if (seen.has(key)) return;
+        seen.add(key);
+        const index = Number(key);
+        if (isOwn) {
+          const local = this.local.get(index);
+          if (local?.result === answer.result) return;
+          this.local.set(index, { result: answer.result });
+        }
+        this.popAnswer(player.id, answer.result, isOwn, state.commands[index]?.kind);
+      });
       if (out && !this.seenOut.has(player.id)) {
         this.seenOut.add(player.id);
         this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.6, 0)), ["#9aa7b4", "#ffffff"], { count: 10, speed: 1.2, up: 1.2, size: 0.06, life: 0.7 });
@@ -466,7 +580,8 @@ export class FlagCaller extends MinigameScene {
     this.kins.forEach((kin, id) => {
       const flags = this.flagsOf.get(id);
       const entry = f.arcade?.players?.[id];
-      if (flags) place(kin, flags, 1, Boolean(entry?.outAt) && !f.finale);
+      const out = Boolean(entry?.outAt) || (id === f.controlledId && entry && this.ownView(entry).lives <= 0);
+      if (flags) place(kin, flags, 1, out && !f.finale);
     });
   }
 
@@ -475,15 +590,18 @@ export class FlagCaller extends MinigameScene {
     const state = arcade?.flags;
     if (!state) return;
     const own = arcade.players[controlledId];
+    const view = own ? this.ownView(own) : { correct: 0, lives: 0 };
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    const text = String(own?.correct || 0);
+    const text = String(view.correct);
     if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
     const lives = this.hud.querySelector("[data-flag-lives]");
     if (lives) {
       const html = room.players.map((player) => {
         const entry = arcade.players[player.id];
-        const hearts = "❤".repeat(entry?.lives || 0) + "·".repeat(Math.max(0, state.lives - (entry?.lives || 0)));
-        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${entry?.outAt ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${hearts}</span>`;
+        const isOwn = player.id === controlledId;
+        const left = isOwn ? view.lives : (entry?.lives || 0);
+        const hearts = "❤".repeat(left) + "·".repeat(Math.max(0, state.lives - left));
+        return `<span class="hud-chip${isOwn ? " is-own" : ""}${entry?.outAt || (isOwn && left <= 0) ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${hearts}</span>`;
       }).join("");
       if (html !== this.livesHtml) {
         this.livesHtml = html;
@@ -491,9 +609,12 @@ export class FlagCaller extends MinigameScene {
       }
     }
     // Das Kommando: gross die Farbe, darüber „Käpt'n sagt:" — oder eben nicht.
+    // Es steht so lange da, wie ein Druck noch rechtzeitig ankommt; der
+    // Balken darunter zeigt, wie lange noch.
     const call = this.hud.querySelector("[data-flag-call]");
-    const elapsed = now - minigame.startedAt;
-    const command = activeCommand(state.commands, elapsed);
+    const elapsed = now + this.roundTrip - minigame.startedAt;
+    const live = activeCommand(state.commands, elapsed);
+    const command = live?.kind ? live : null;
     if (call) {
       if (!command || minigame.finaleAt) {
         call.hidden = true;
@@ -505,19 +626,34 @@ export class FlagCaller extends MinigameScene {
         call.classList.toggle("is-fake", command.kind === "fake");
         const b = call.querySelector("b");
         if (b.textContent !== word) b.textContent = word;
+        // Beim Wechsel von einem Kommando zum nächsten die Einblendung neu starten.
+        if (call.dataset.index !== String(command.index)) {
+          call.dataset.index = String(command.index);
+          call.style.animation = "none";
+          void call.offsetWidth;
+          call.style.animation = "";
+        }
+        this.timerNode ||= call.querySelector(".flag-timer span");
+        const left = clamp01(1 - (elapsed - command.at) / command.window);
+        this.timerNode.style.transform = `scaleX(${left.toFixed(3)})`;
       }
     }
-    const out = Boolean(own?.outAt);
+    const out = Boolean(own?.outAt) || view.lives <= 0;
     this.controls.querySelectorAll("[data-flag]").forEach((button) => { button.disabled = out || Boolean(minigame.finaleAt); });
   }
 }
 
-function activeCommand(commands, elapsed) {
+// Wie activeFlagCommand auf dem Server (partyGames.js).
+function activeCommand(commands, elapsed, grace = 0) {
   for (let i = commands.length - 1; i >= 0; i -= 1) {
     const c = commands[i];
-    if (elapsed >= c.at) return elapsed <= c.at + c.window ? c : null;
+    if (elapsed >= c.at) return elapsed <= c.at + c.window + grace ? c : null;
   }
   return null;
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
 }
 
 // Signalflagge: Stock mit Tuch. Der Ursprung ist die Hand; der Stock zeigt

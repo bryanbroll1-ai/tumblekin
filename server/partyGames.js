@@ -494,22 +494,36 @@ const face = {
 // --- Flaggen hoch ----------------------------------------------------------
 //
 // Der Fahnenmeister hebt Rot, Blau oder beide Fahnen — alle machen es nach,
-// so schnell sie können. Manchmal zuckt er nur an und lässt die Fahne wieder
-// sinken: wer dann drückt, ist reingefallen. Die Kommandos kommen immer
-// schneller, das Antwortfenster wird enger. Drei Fehler, und man ist raus.
+// so schnell sie können — aber nur, wenn er „Käpt'n sagt:" ruft. Ruft er bloss
+// die Farbe, ist es eine Falle: wer dann drückt, ist reingefallen. Die
+// Kommandos kommen immer schneller, das Antwortfenster wird enger. Drei
+// Fehler, und man ist raus.
 //
 // Gewertet werden die richtigen Antworten; wer ausscheidet, sammelt eben
 // nicht weiter. Bei Gleichstand zählt die schnellere Hand.
+//
+// Der Fahrplan (wann, welche Farbe, Falle oder nicht) liegt in
+// arcade.secret. Die Geräte sehen nur die Zeiten; die Art eines Kommandos
+// erfahren sie FLAG_PUBLISH_LEAD_MS vor seinem Start — genug, damit ein Gerät
+// es um seine Rundreise früher zeigen kann (siehe FlagCaller.js), aber kein
+// Blick auf die ganze Runde im Voraus.
 const FLAG_LEAD_MS = 1800;
 const FLAG_GAP_START = 1900;
 const FLAG_GAP_END = 950;
 const FLAG_WINDOW_START = 1500;
-const FLAG_WINDOW_END = 700;
+const FLAG_WINDOW_END = 620;
 const FLAG_DURATION_MS = 36000;
 const FLAG_LIVES = 3;
 const FLAG_FAKE_SHARE = 0.2;
 const FLAG_BOTH_SHARE = 0.16;
+// Entprellt wird je Flagge: bei BEIDE! drücken zwei Daumen oft innerhalb
+// weniger Millisekunden, und der zweite darf nicht verloren gehen.
 const FLAG_MIN_PRESS_MS = 35;
+// Was kurz nach dem Fenster ankommt, gilt noch: das Gerät schliesst das
+// Fenster zur geschätzten Ankunftszeit, und die Schätzung zittert.
+const FLAG_GRACE_MS = 120;
+// Rundreise (bis 250 ms, wie das Gerät sie deckelt) plus ein Servertakt (90 ms).
+const FLAG_PUBLISH_LEAD_MS = 350;
 
 function buildFlagCommands(seed, durationMs = FLAG_DURATION_MS) {
   // Erst die Zeiten, dann die Arten. Gewürfelt je Kommando kam mal eine
@@ -551,12 +565,39 @@ function buildFlagCommands(seed, durationMs = FLAG_DURATION_MS) {
   });
 }
 
-function activeFlagCommand(commands, elapsed) {
+function activeFlagCommand(commands, elapsed, grace = 0) {
   for (let i = commands.length - 1; i >= 0; i -= 1) {
     const c = commands[i];
-    if (elapsed >= c.at) return elapsed <= c.at + c.window ? c : null;
+    if (elapsed >= c.at) return elapsed <= c.at + c.window + grace ? c : null;
   }
   return null;
+}
+
+// Was die Geräte vom Fahrplan sehen: Zeiten immer, die Art erst kurz vorher.
+function publishFlagCommands(arcade, elapsed) {
+  const full = arcade.secret.flagCommands;
+  arcade.flags.commands.forEach((shown, i) => {
+    if (shown.kind || elapsed < shown.at - FLAG_PUBLISH_LEAD_MS) return;
+    shown.kind = full[i].kind;
+    shown.side = full[i].side;
+  });
+}
+
+// Ein Mensch am Knopf: die Farbe erkennt er nach `rt`, ob „Käpt'n sagt:"
+// dasteht, weiss er erst nach `check`. Wer nicht abwartet, drückt bei einer
+// Falle meistens mit. So spielen auch die Bots — schneller oder langsamer,
+// aber mit denselben Grenzen.
+const FLAG_BOT_HAND = {
+  easy: { rt: 610, spread: 110, check: 665, rush: 0.2 },
+  normal: { rt: 530, spread: 90, check: 585, rush: 0.1 },
+  hard: { rt: 455, spread: 75, check: 505, rush: 0.05 }
+};
+const FLAG_BOT_TICK_MS = 75;       // halber Bot-Takt: so viel später drückt er im Mittel
+
+function flagGauss() {
+  let sum = 0;
+  for (let i = 0; i < 6; i += 1) sum += Math.random();
+  return (sum - 3) / Math.sqrt(0.5);
 }
 
 function flagMistake(entry, command, elapsed, why) {
@@ -582,10 +623,14 @@ const flags = {
   cooldown: 0,
   fastHand: true,
   create(arcade) {
+    const commands = buildFlagCommands(arcade.seed);
+    arcade.secret = { ...(arcade.secret || {}), flagCommands: commands };
     arcade.flags = {
-      commands: buildFlagCommands(arcade.seed),
-      lives: FLAG_LIVES
+      commands: commands.map(({ index, at, window }) => ({ index, at, window, kind: null, side: null })),
+      lives: FLAG_LIVES,
+      graceMs: FLAG_GRACE_MS
     };
+    publishFlagCommands(arcade, 0);
     Object.values(arcade.players).forEach((entry) => {
       entry.lives = FLAG_LIVES;
       entry.correct = 0;
@@ -594,7 +639,7 @@ const flags = {
       entry.answers = {};              // Kommandonummer → { result, at, reaction }
       entry.pressed = {};              // Kommandonummer → { red, blue }
       entry.outAt = null;
-      entry.lastPressAt = 0;
+      entry.lastPressAt = { red: 0, blue: 0 };
       entry.lastMistakeAt = -1;
       entry.raised = null;             // zuletzt gehobene Fahne, fürs Bild
       entry.score = 0;
@@ -603,10 +648,10 @@ const flags = {
   input(ctx, player, entry, input) {
     if (input.action !== "flag" || !["red", "blue"].includes(input.flag)) return { ok: false, error: "Rot oder Blau?" };
     if (entry.outAt) return { ok: true };
-    if (ctx.now - entry.lastPressAt < FLAG_MIN_PRESS_MS) return { ok: true };
-    entry.lastPressAt = ctx.now;
+    if (ctx.now - (entry.lastPressAt[input.flag] || 0) < FLAG_MIN_PRESS_MS) return { ok: true };
+    entry.lastPressAt[input.flag] = ctx.now;
     entry.raised = { flag: input.flag, at: ctx.elapsed };
-    const command = activeFlagCommand(ctx.arcade.flags.commands, ctx.elapsed);
+    const command = activeFlagCommand(ctx.arcade.secret.flagCommands, ctx.elapsed, FLAG_GRACE_MS);
     // Ausserhalb eines Fensters passiert nichts — Fahne hoch ist erlaubt,
     // es zählt nur eben nicht.
     if (!command || entry.answers[command.index]) return { ok: true };
@@ -626,10 +671,11 @@ const flags = {
   },
   update(ctx) {
     const { arcade, elapsed } = ctx;
-    // Abgelaufene Fenster abrechnen: echte Kommandos ohne Antwort sind zu spät,
-    // Täuschungen ohne Druck sind richtig.
-    arcade.flags.commands.forEach((command) => {
-      if (elapsed <= command.at + command.window) return;
+    publishFlagCommands(arcade, elapsed);
+    // Abgelaufene Fenster abrechnen (nach der Nachfrist): echte Kommandos ohne
+    // Antwort sind zu spät, Täuschungen ohne Druck sind richtig.
+    arcade.secret.flagCommands.forEach((command) => {
+      if (elapsed <= command.at + command.window + FLAG_GRACE_MS) return;
       Object.values(arcade.players).forEach((entry) => {
         if (entry.answers[command.index]) return;
         if (entry.outAt && entry.outAt <= command.at + command.window) {
@@ -644,20 +690,24 @@ const flags = {
   bot(ctx, player, entry) {
     const { arcade, elapsed } = ctx;
     if (entry.outAt) return null;
-    const command = activeFlagCommand(arcade.flags.commands, elapsed);
+    // Dieselbe Annahmezeit wie für Menschen, Nachfrist eingeschlossen.
+    const command = activeFlagCommand(arcade.secret.flagCommands, elapsed, FLAG_GRACE_MS);
     if (!command || entry.answers[command.index]) return null;
     if (entry.botCommand !== command.index) {
       entry.botCommand = command.index;
-      const profile = entry.botProfile || { level: "normal", reactionMs: 550, spreadMs: 340, mistake: 0.16 };
-      entry.botReactAt = command.at + Math.max(180, (profile.reactionMs || 550) * 0.8 + (Math.random() - 0.3) * (profile.spreadMs || 300));
-      const r = Math.random();
-      const fooled = byLevel(entry, 0.5, 0.25, 0.08);
-      const wrong = byLevel(entry, 0.12, 0.05, 0.015);
+      const hand = FLAG_BOT_HAND[level(entry)] || FLAG_BOT_HAND.normal;
+      const rt = Math.max(230, hand.rt + flagGauss() * hand.spread);
+      const check = Math.max(260, hand.check + flagGauss() * 80);
+      const press = Math.random() < hand.rush ? rt : Math.max(rt, check + 40);
+      const checked = check <= press;
+      entry.botReactAt = command.at + Math.max(150, press - FLAG_BOT_TICK_MS);
+      const wrong = Math.random() < (press < hand.rt ? 0.07 : 0.02);
+      const fooled = Math.random() < (checked ? 0.03 : 0.85);
       entry.botPlan = command.kind === "fake"
-        ? (r < fooled ? [command.side] : [])
+        ? (fooled ? [command.side] : [])
         : command.kind === "both"
-          ? ["red", "blue"]
-          : [r < wrong ? (command.kind === "red" ? "blue" : "red") : command.kind];
+          ? (Math.random() < 0.5 ? ["red", "blue"] : ["blue", "red"])
+          : [wrong ? (command.kind === "red" ? "blue" : "red") : command.kind];
     }
     if (elapsed < entry.botReactAt || !entry.botPlan.length) return null;
     return { action: "flag", flag: entry.botPlan.shift() };
@@ -674,9 +724,9 @@ const flags = {
   },
   done(ctx) {
     const { room, arcade, elapsed } = ctx;
-    const commands = arcade.flags.commands;
+    const commands = arcade.secret.flagCommands;
     const last = commands[commands.length - 1];
-    if (last && elapsed > last.at + last.window + 600) return true;
+    if (last && elapsed > last.at + last.window + FLAG_GRACE_MS + 600) return true;
     const entries = room.players.map((player) => arcade.players[player.id]).filter(Boolean);
     const alive = entries.filter((entry) => !entry.outAt);
     if (alive.length === 0) return true;
@@ -2536,7 +2586,7 @@ module.exports = {
     TUG_LEAD_MS, TUG_ROUND_MS, TUG_SHOW_MS, TUG_ROUNDS, TUG_WINS, TUG_DURATION_MS,
     TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS, FACE_GRACE_MS,
-    FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS,
+    FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS, FLAG_GRACE_MS, FLAG_PUBLISH_LEAD_MS, FLAG_MIN_PRESS_MS,
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS,

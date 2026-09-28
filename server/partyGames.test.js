@@ -236,19 +236,19 @@ test("Flaggen hoch: jede Runde hat Täuschungen und Doppelkommandos, nie zwei Fa
 test("Flaggen hoch: richtig, falsch, zu spät und reingefallen", () => {
   const g = setup("flaggenhoch", 3);
   const [a, b, c] = g.players;
-  const commands = g.arcade.flags.commands;
+  const commands = g.arcade.secret.flagCommands;
   const first = commands[0];
   g.run(0, first.at + 100, 30);
   g.input(a, { action: "flag", flag: first.kind });
   g.input(b, { action: "flag", flag: first.kind === "red" ? "blue" : "red" });
-  g.run(first.at + 130, first.at + first.window + 60, 30);
+  g.run(first.at + 130, first.at + first.window + C.FLAG_GRACE_MS + 60, 30);
   assert.equal(g.arcade.players[a.id].answers[0].result, "ok");
   assert.equal(g.arcade.players[b.id].answers[0].result, "wrong");
   assert.equal(g.arcade.players[c.id].answers[0].result, "late", "wer nichts tut, ist zu spät");
   assert.equal(g.arcade.players[b.id].lives, C.FLAG_LIVES - 1);
   // Eine Falle: wer drückt, fällt rein; wer stillhält, hat richtig.
   const fake = commands.find((command) => command.kind === "fake");
-  g.run(first.at + first.window + 90, fake.at + 50, 30);
+  g.run(first.at + first.window + C.FLAG_GRACE_MS + 90, fake.at + 50, 30);
   g.input(a, { action: "flag", flag: fake.side });
   g.run(fake.at + 80, fake.at + fake.window + 60, 30);
   assert.equal(g.arcade.players[a.id].answers[fake.index].result, "fooled");
@@ -258,7 +258,7 @@ test("Flaggen hoch: richtig, falsch, zu spät und reingefallen", () => {
 test("Flaggen hoch: bei BEIDE zählt es erst, wenn beide Flaggen oben sind", () => {
   const g = setup("flaggenhoch", 2);
   const [p] = g.players;
-  const commands = g.arcade.flags.commands;
+  const commands = g.arcade.secret.flagCommands;
   const both = commands.find((command) => command.kind === "both");
   // Bis dahin alles richtig beantworten, damit niemand vorher rausfliegt.
   g.run(0, both.at + 50, 20, (t) => {
@@ -275,6 +275,105 @@ test("Flaggen hoch: bei BEIDE zählt es erst, wenn beide Flaggen oben sind", () 
   assert.equal(g.arcade.players[p.id].answers[both.index].result, "ok");
   assert.equal(g.arcade.players[p.id].correct, vorher + 1);
   g.restore();
+});
+
+// Alle beantworten jedes echte Kommando richtig — damit niemand vorzeitig
+// ausscheidet und die Runde lange genug läuft.
+function flagPerfect(g) {
+  const commands = g.arcade.secret.flagCommands;
+  return (t) => {
+    const active = party.activeFlagCommand(commands, t);
+    if (!active || active.kind === "fake" || t < active.at + 100) return;
+    g.players.forEach((p) => {
+      if (g.arcade.players[p.id].answers[active.index]) return;
+      if (active.kind === "both") {
+        g.input(p, { action: "flag", flag: "red" });
+        g.input(p, { action: "flag", flag: "blue" });
+      } else g.input(p, { action: "flag", flag: active.kind });
+    });
+  };
+}
+
+test("Flaggen hoch: der Fahrplan bleibt geheim, bis ein Kommando kurz bevorsteht", () => {
+  const g = setup("flaggenhoch", 2);
+  const commands = g.arcade.secret.flagCommands;
+  const shown = () => JSON.parse(JSON.stringify(publicArcade(g.arcade)));
+  assert.ok(!JSON.stringify(shown()).includes("flagCommands"), "kein Geheimfach im Paket");
+  // Die Zeiten sehen alle — das Gerät braucht sie für den Takt.
+  assert.deepEqual(shown().flags.commands.map((c) => c.at), commands.map((c) => c.at));
+  const later = commands[6];
+  g.run(0, later.at - C.FLAG_PUBLISH_LEAD_MS - 40, 30, flagPerfect(g));
+  assert.equal(shown().flags.commands[6].kind, null, "zu früh: die Art ist noch geheim");
+  assert.ok(shown().flags.commands.slice(7).every((c) => c.kind === null), "und alle späteren erst recht");
+  g.run(later.at - C.FLAG_PUBLISH_LEAD_MS, later.at - C.FLAG_PUBLISH_LEAD_MS + 30, 30);
+  assert.equal(shown().flags.commands[6].kind, later.kind, "kurz vorher: jetzt darf das Gerät es wissen");
+  if (later.kind === "fake") assert.equal(shown().flags.commands[6].side, later.side);
+  g.restore();
+});
+
+test("Flaggen hoch: bei BEIDE! zählen zwei Daumen im selben Augenblick", () => {
+  const g = setup("flaggenhoch", 2);
+  const [p] = g.players;
+  const both = g.arcade.secret.flagCommands.find((command) => command.kind === "both");
+  g.run(0, both.at - 60, 30, flagPerfect(g));
+  g.at(both.at + 300);
+  g.input(p, { action: "flag", flag: "red" });
+  g.input(p, { action: "flag", flag: "blue" });
+  assert.equal(g.arcade.players[p.id].answers[both.index]?.result, "ok", "der zweite Daumen ging verloren");
+  // Dieselbe Flagge doppelt bleibt entprellt.
+  const q = g.players[1];
+  g.input(q, { action: "flag", flag: "red" });
+  g.input(q, { action: "flag", flag: "red" });
+  assert.equal(g.arcade.players[q.id].answers[both.index], undefined, "zweimal Rot ist nicht BEIDE");
+  g.restore();
+});
+
+test("Flaggen hoch: ein Druck kurz nach dem Fenster zählt noch, einer nach der Nachfrist nicht", () => {
+  const g = setup("flaggenhoch", 3);
+  const [a, b, c] = g.players;
+  const commands = g.arcade.secret.flagCommands;
+  const target = commands.slice(3).find((command) => command.kind === "red" || command.kind === "blue");
+  g.run(0, target.at - 60, 30, flagPerfect(g));
+  const end = target.at + target.window;
+  g.at(end + C.FLAG_GRACE_MS - 20);
+  g.input(a, { action: "flag", flag: target.kind });
+  g.tick();
+  g.at(end + C.FLAG_GRACE_MS + 20);
+  g.input(b, { action: "flag", flag: target.kind });
+  g.tick();
+  assert.equal(g.arcade.players[a.id].answers[target.index]?.result, "ok", "innerhalb der Nachfrist angekommen");
+  assert.equal(g.arcade.players[b.id].answers[target.index]?.result, "late", "nach der Nachfrist ist es zu spät");
+  assert.equal(g.arcade.players[c.id].answers[target.index]?.result, "late");
+  g.restore();
+});
+
+test("Flaggen hoch: die Bots sind gestaffelt wie Menschen, nicht übermenschlich", () => {
+  const sums = { easy: 0, normal: 0, hard: 0 };
+  const outs = { easy: 0, normal: 0, hard: 0 };
+  const speed = { hard: 0, n: 0 };
+  const runs = 24;
+  for (let r = 0; r < runs; r += 1) {
+    const g = setup("flaggenhoch", 3, { bots: true });
+    const levels = ["easy", "normal", "hard"];
+    g.players.forEach((p, i) => {
+      g.arcade.players[p.id].botProfile = { level: levels[i], reactionMs: 500, spreadMs: 200, mistake: 0.1 };
+    });
+    for (let t = 0; t <= g.minigame.duration + 1000; t += 150) {
+      g.at(t);
+      g.players.forEach((p) => arcadeBotStep(g.room, p));
+      g.tick();
+    }
+    g.players.forEach((p, i) => {
+      const entry = g.arcade.players[p.id];
+      sums[levels[i]] += entry.correct;
+      outs[levels[i]] += entry.outAt ? 1 : 0;
+      if (levels[i] === "hard" && entry.correct) { speed.hard += entry.reactionSum / entry.correct; speed.n += 1; }
+    });
+    g.restore();
+  }
+  assert.ok(sums.hard > sums.normal && sums.normal > sums.easy, JSON.stringify(sums));
+  assert.ok(outs.easy < runs, "auch der leichte Bot hält manchmal bis zum Schluss durch");
+  assert.ok(speed.hard / speed.n > 380, `der schwere Bot reagiert wie ein guter Mensch, nicht schneller (Ø ${Math.round(speed.hard / speed.n)} ms)`);
 });
 
 test("Flaggen hoch: drei Fehler, und man ist raus", () => {
