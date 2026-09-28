@@ -1495,6 +1495,62 @@ test("blitzreflex: Best of 3 — die beste Einzelzeit zählt, Fehlstarts nicht",
   assert.equal(arcadeResultDetail(arcade2, arcade2.players.r3).value, null);
 });
 
+// Blitzreflex mit Uhr: `tap(round, offset)` tippt `offset` ms nach dem Grün
+// dieses Versuchs, `tick(ms)` lässt den Server bei dieser Spielzeit rechnen.
+function reactRoom() {
+  const me = player({ id: "b1", name: "B1", color: "#fff" });
+  const startedAt = Date.now() - 60000;
+  const arcade = createArcadeState("blitzreflex", [me], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 19000, finishing: false };
+  const room = { currentMinigame: minigame, players: [me] };
+  const at = (ms, fn) => {
+    const realNow = Date.now;
+    Date.now = () => startedAt + ms;
+    try { return fn(); } finally { Date.now = realNow; }
+  };
+  const tap = (roundIndex, offsetMs) => at(arcade.rounds[roundIndex].greenAt + offsetMs, () => {
+    arcade.players.b1.lastInputAt = 0;
+    return handleArcadeInput(room, me, { action: "tap" });
+  });
+  const tick = (ms) => at(ms, () => { arcade.lastUpdateAt = startedAt + ms - 90; updateArcade(room); });
+  return { arcade, entry: arcade.players.b1, room, me, tap, tick, at };
+}
+
+test("blitzreflex: skipping a round does not shift the ones after it", () => {
+  // Vorher galt der n-te Tipp dem n-ten Versuch: wer den ersten ausliess,
+  // dessen Tipp im zweiten wurde gegen die ERSTE Ampel gemessen — zu spät —,
+  // und der dritte gegen die zweite.
+  const { entry, tap, tick, arcade } = reactRoom();
+  tick(arcade.rounds[1].armFrom + 10);
+  assert.deepEqual(entry.times, [2200], "der ausgelassene Versuch gilt als verpasst");
+  tap(1, 260);
+  tap(2, 240);
+  assert.deepEqual(entry.times, [2200, 260, 240]);
+  assert.equal(testRules.reactBest(entry), 240);
+});
+
+test("blitzreflex: a tap arriving between two rounds belongs to the right one", () => {
+  const { entry, tap, arcade, at, room, me } = reactRoom();
+  tap(0, 300);
+  // Noch vor dem Scharfwerden von Versuch 2 ein zweiter Tipp: er zählt nicht.
+  at(arcade.rounds[1].armFrom - 100, () => { entry.lastInputAt = 0; return handleArcadeInput(room, me, { action: "tap" }); });
+  assert.deepEqual(entry.times, [300]);
+  tap(1, -300);
+  assert.deepEqual(entry.fouls, [false, true], "vor Grün im zweiten Versuch ist ein Fehlstart");
+});
+
+test("blitzreflex: a ping measures the line and never eats the real tap", () => {
+  // Das Gerät misst mit `ping` die Laufzeit vor dem ersten Versuch. Löste er
+  // den Cooldown aus, ginge ein Tipp direkt danach verloren.
+  const { entry, arcade, at, room, me } = reactRoom();
+  at(arcade.rounds[0].greenAt + 250, () => {
+    entry.lastInputAt = 0;
+    assert.equal(handleArcadeInput(room, me, { action: "ping" }).ok, true);
+    return handleArcadeInput(room, me, { action: "tap" });
+  });
+  assert.deepEqual(entry.times, [250]);
+});
+
 test("sortierband: jedes Symbol gehört zu genau einer Kategorie, Verwechsler erst später", () => {
   const owner = new Map();
   for (let seed = 1; seed < 40; seed += 1) {

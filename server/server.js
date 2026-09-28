@@ -2035,7 +2035,9 @@ function scheduleBotMinigameInputs(room) {
       // vom Kurs ab — mehr als die lichte Weite eines spaeten Tores.
       // pump ebenso: ein Mensch schafft im Wechsel sechs bis zehn Stösse pro
       // Sekunde, ein Bot im langsamen Takt kam nie über drei.
-      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel", "pump", "dive"].includes(minigame.arcade.family)
+      // react ebenfalls: der Bot soll seine gewählte Reaktionszeit treffen und
+      // nicht den nächsten freien Schritt 400 ms später.
+      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel", "pump", "dive", "react"].includes(minigame.arcade.family)
         || Boolean(PARTY_FAMILIES[minigame.arcade.family]?.fastHand);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
@@ -3919,6 +3921,37 @@ function buildReactRounds(seed) {
   }));
 }
 
+// Der Versuch, dem ein Tipp zu dieser Zeit gilt: der letzte, der schon scharf
+// ist. Vor dem ersten gibt es keinen.
+function reactRoundAt(arcade, elapsed) {
+  let found = null;
+  for (const round of arcade.rounds || []) {
+    if (elapsed >= round.armFrom) found = round;
+  }
+  return found;
+}
+
+// Wann ein Versuch ohne Tipp als verpasst gilt: nach dem Fenster, spätestens
+// wenn der nächste scharf wird.
+function reactRoundCloses(arcade, round) {
+  const next = arcade.rounds[round.index + 1];
+  const windowEnd = round.greenAt + REACT_WINDOW_MS;
+  return next ? Math.min(windowEnd, next.armFrom) : windowEnd;
+}
+
+// Versuche, deren Zeit abgelaufen ist, als verpasst eintragen — der Reihe
+// nach, damit `times[i]` immer zu Versuch i gehört.
+function fillReactMisses(arcade, entry, elapsed) {
+  entry.times ||= [];
+  entry.fouls ||= [];
+  while (entry.times.length < arcade.rounds.length) {
+    const round = arcade.rounds[entry.times.length];
+    if (elapsed < reactRoundCloses(arcade, round)) break;
+    entry.times.push(REACT_WINDOW_MS);
+    entry.fouls.push(false);
+  }
+}
+
 // Grün, Drehung, Rot — und ab und zu eine Finte: er dreht an und wieder weg.
 // Deterministisch je Startwert, für alle gleich. Index 0 ist Grün.
 function buildRedlightPhases(seed, totalMs) {
@@ -4182,6 +4215,11 @@ function handleArcadeInput(room, player, rawInput) {
   // und sie folgt der letzten Zugposition im Abstand von Millisekunden. Vom
   // Cooldown geschluckt hielte der Server den Strich für weiterhin unten — der
   // nächste Fingeraufsatz gälte dann als Abrutscher statt als Wiedereinstieg.
+  // `ping` ist ebenfalls keine Spielaktion: das Gerät misst damit die
+  // Laufzeit, bevor es etwas zu tippen gibt (Blitzreflex — dort ist der erste
+  // Tipp schon der erste gewertete Versuch). Er ändert nichts und darf keinen
+  // Cooldown auslösen, sonst schluckte er den echten Tipp danach.
+  if (input.action === "ping") return { ok: true };
   const exempt = input.action === "lift";
   const party = PARTY_FAMILIES[arcade.family];
   const cooldown = exempt ? 0 : (cooldowns[arcade.family] ?? party?.cooldown ?? 100);
@@ -4417,11 +4455,15 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "react") {
     if (input.action !== "tap") return { ok: false, error: "Tippe, sobald es grün wird." };
-    const roundIndex = arcadePlayer.times.length;
-    if (roundIndex >= arcade.rounds.length) return { ok: true };
-    const round = arcade.rounds[roundIndex];
     const elapsed = now - room.currentMinigame.startedAt;
-    if (elapsed < round.armFrom) return { ok: true };
+    // Welcher Versuch das ist, sagt die UHR, nicht die Zahl der bisherigen
+    // Tipps. Vorher galt der n-te Tipp dem n-ten Versuch: wer einen ausliess,
+    // dessen nächster Tipp wurde gegen die alte Ampel gemessen — zu spät —,
+    // und alle weiteren verrutschten mit.
+    const round = reactRoundAt(arcade, elapsed);
+    if (!round) return { ok: true };
+    fillReactMisses(arcade, arcadePlayer, elapsed);
+    if (arcadePlayer.times.length !== round.index) return { ok: true };   // schon gewertet
     arcadePlayer.fouls ||= [];
     if (elapsed < round.greenAt) {
       // Fehlstart: dieser Versuch ist verloren.
@@ -5412,6 +5454,17 @@ function updateArcade(room) {
 
   if (arcade.family === "simon") {
     updateSimon(room, minigame, arcade, now);
+  }
+
+  if (arcade.family === "react") {
+    const elapsed = now - minigame.startedAt;
+    room.players.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const before = entry.times.length;
+      fillReactMisses(arcade, entry, elapsed);
+      if (entry.times.length !== before) syncArcadeScore(minigame, player, entry);
+    });
   }
 
   const party = PARTY_FAMILIES[arcade.family];
@@ -7740,16 +7793,29 @@ function arcadeBotStep(room, bot) {
   if (arcade.family === "react") {
     const now = Date.now();
     const profile = botProfile(player);
-    const roundIndex = player.times.length;
-    if (roundIndex >= arcade.rounds.length) return;
-    const round = arcade.rounds[roundIndex];
     const elapsed = now - minigame.startedAt;
-    // Rare false start, otherwise react with profile delay.
-    if (Math.random() < profile.mistake * 0.02 && elapsed > round.armFrom + 400 && elapsed < round.greenAt) {
+    const round = reactRoundAt(arcade, elapsed);
+    if (!round || player.times.length !== round.index) return;
+    // EINMAL je Versuch entscheiden: wie schnell er diesmal ist und ob er zu
+    // früh zuckt. Vorher hing seine Zeit am Takt seiner Schritte (alle 260 bis
+    // 410 ms): der starke Bot kam so auf 165 ms plus Zufall, und der Fehlstart
+    // wurde bei jedem Schritt neu gewürfelt. Jetzt eine Reaktionszeit wie ein
+    // Mensch sie hat — der starke Bot etwas besser als ein guter Mensch am
+    // Handy, der schwache deutlich langsamer.
+    if (player.botReactRound !== round.index) {
+      player.botReactRound = round.index;
+      const [mean, spread, foul] = byBotLevel(profile, [375, 70, 0.1], [295, 45, 0.06], [232, 30, 0.03]);
+      const bell = (Math.random() + Math.random() + Math.random() - 1.5) * 2;
+      player.botReactMs = Math.max(140, mean + bell * spread);
+      player.botFoulAt = Math.random() < foul
+        ? round.armFrom + 500 + Math.random() * Math.max(0, round.greenAt - round.armFrom - 600)
+        : null;
+    }
+    if (player.botFoulAt !== null && elapsed >= player.botFoulAt && elapsed < round.greenAt) {
       handleArcadeInput(room, bot, { action: "tap" });
       return;
     }
-    if (elapsed >= round.greenAt + profile.reactionMs * 0.55) {
+    if (elapsed + BOT_TICK_LEAD_MS * 0.5 >= round.greenAt + player.botReactMs) {
       handleArcadeInput(room, bot, { action: "tap" });
     }
     return;

@@ -96,7 +96,8 @@ export const REWORKED = new Set([
   "spurmaler",
   "sortierband",
   "angelduell",
-  "leuchtfolge"
+  "leuchtfolge",
+  "blitzreflex"
 ]);
 
 export const ARCADE_TYPES = new Set(

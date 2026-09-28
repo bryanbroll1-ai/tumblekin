@@ -27,6 +27,9 @@ export class FlashReflex extends MinigameScene {
     this.greenSeen = -1;
     this.lampPulse = 0;
     this.labelY = 0.74;
+    this.roundTrip = 0;
+    this.lastPingAt = 0;
+    this.ownDashRound = -1;    // Versuch, für den der eigene Sprint schon beim Tipp losging
   }
 
   stage() {
@@ -190,6 +193,16 @@ export class FlashReflex extends MinigameScene {
     box.position.set(0, LAMP_Y, LAMP_Z - 0.1);
     box.castShadow = true;
     this.scene.add(box);
+    // Die Ecken des Ampelkastens: die Kamera hält sie im Bild (keepInView).
+    // Vorher lief die Ampel ab dem zweiten Versuch — die Figuren rücken je
+    // Versuch vor — halb aus dem rechten Rand, dabei ist sie das Einzige,
+    // worauf es hier ankommt.
+    this.lampCorners = [[-0.6, 1.35], [0.6, 1.35], [-0.6, -1.35], [0.6, -1.35]].map(([dx, dy]) => {
+      const corner = new THREE.Object3D();
+      corner.position.set(dx, LAMP_Y + dy, LAMP_Z);
+      this.scene.add(corner);
+      return corner;
+    });
 
     this.lamps = [];
     for (let i = 0; i < 3; i += 1) {
@@ -214,9 +227,13 @@ export class FlashReflex extends MinigameScene {
     this.scene.add(this.halo);
   }
 
+  keepInView() {
+    return [...this.kins.values(), ...(this.lampCorners || [])];
+  }
+
   shot() {
     return {
-      look: [0, 1.25, -0.4],
+      look: [0, 1.5, -1.3],
       frame: { w: 4.2, h: 3.9 },
       yaw: 0.62,
       pitch: 0.2,
@@ -233,8 +250,48 @@ export class FlashReflex extends MinigameScene {
       const minigame = this.update || this.minigame;
       if (!minigame || minigame.finaleAt) return;
       this.feedback?.sound("tap");
-      this.sendInput({ action: "tap" }).catch(() => {});
+      const sentAt = performance.now();
+      this.sendInput({ action: "tap" }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+      // Tipp bei Grün: der Sprint geht sofort los, die Zeit kommt vom Server.
+      const own = minigame.arcade?.players?.[this.getControlledPlayerId()];
+      const elapsed = this.now() + this.roundTrip - minigame.startedAt;
+      const round = roundAt(minigame.arcade, elapsed);
+      if (own && round && elapsed >= round.greenAt && (own.times || []).length === round.index && this.ownDashRound !== round.index) {
+        this.ownDashRound = round.index;
+        this.dash.set(this.getControlledPlayerId(), this.now());
+      }
     });
+  }
+
+  // Wie lange eine Eingabe zum Server und zurück braucht, geglättet.
+  //
+  // Hier IST die Zeit die Wertung: der Server misst vom Umspringen der Ampel
+  // bis zur Ankunft des Tipps. Das Bild auf dem Gerät ist um die einfache
+  // Laufzeit alt, der Tipp braucht noch einmal so lange — ohne Ausgleich
+  // steckte die ganze Rundreise in der Reaktionszeit, gegen Bots, die gar
+  // keine haben. Darum schaltet die Ampel auf dem Gerät genau um diese
+  // Rundreise früher. Gemessen wird schon vor dem ersten Versuch (ping), denn
+  // der erste Tipp ist bereits gewertet.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    // Die erste Messung gilt sofort: vor dem ersten Versuch bleibt nur Zeit
+    // für zwei, drei Pings.
+    this.roundTrip = this.measured ? this.roundTrip * 0.7 + clamped * 0.3 : clamped;
+    this.measured = true;
+  }
+
+  // Zwischen den Versuchen (nicht während die Ampel scharf ist) ein ping pro
+  // Sekunde: er ändert auf dem Server nichts und hält die Messung frisch.
+  pingIfIdle(minigame, arcade, elapsed) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastPingAt < 1000) return;
+    const round = roundAt(arcade, elapsed);
+    const live = round && elapsed < round.greenAt + 1200;
+    if (live) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
   }
 
   unbind() {
@@ -244,10 +301,12 @@ export class FlashReflex extends MinigameScene {
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    // Die Zeitleiste der Ampel läuft um die Rundreise voraus (noteRoundTrip).
+    const elapsed = Math.max(0, now + this.roundTrip - minigame.startedAt);
     const own = arcade.players[controlledId];
-    const ownRound = own ? Math.min((own.times || []).length, arcade.rounds.length - 1) : 0;
-    this.paintLamp(arcade.rounds[ownRound], elapsed, dt, own);
+    this.pingIfIdle(minigame, arcade, elapsed);
+    const live = roundAt(arcade, elapsed);
+    this.paintLamp(live, elapsed, dt, own);
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -256,7 +315,9 @@ export class FlashReflex extends MinigameScene {
       if (!entry || !kin || !animator) return;
       const times = entry.times || [];
       const done = times.length >= arcade.rounds.length;
-      const round = arcade.rounds[Math.min(times.length, arcade.rounds.length - 1)];
+      // Der Versuch, der gerade läuft — nach der Uhr. Hat diese Person ihn
+      // schon hinter sich, ist sie für ihn fertig.
+      const round = live && times.length === live.index ? live : null;
       const isOwn = player.id === controlledId;
 
       if (times.length > (this.lastCount.get(player.id) || 0)) {
@@ -276,7 +337,8 @@ export class FlashReflex extends MinigameScene {
             this.rig.shake(0.4);
           }
         } else {
-          this.dash.set(player.id, now);
+          // Der eigene Sprint lief womöglich schon beim Tipp los.
+          if (!(isOwn && this.ownDashRound === times.length - 1)) this.dash.set(player.id, now);
           animator.expression(last < 260 ? "joy" : "happy", 900);
           this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.1, 0.2)), ["#c9b79a", "#ffffff"], { count: 8, speed: 1.2, up: 0.6, size: 0.06, life: 0.4 });
           if (isOwn) {
@@ -313,9 +375,10 @@ export class FlashReflex extends MinigameScene {
 
   paintLamp(round, elapsed, dt, own) {
     if (!this.lamps) return;
-    const done = own ? (own.times || []).length >= (this.update || this.minigame).arcade.rounds.length : false;
-    const armed = Boolean(round) && elapsed >= round.armFrom && elapsed < round.greenAt;
-    const green = Boolean(round) && elapsed >= round.greenAt && !done;
+    // Für diesen Versuch schon getippt (oder verpasst): die Ampel ist aus.
+    const done = Boolean(round) && own ? (own.times || []).length > round.index : false;
+    const armed = Boolean(round) && !done && elapsed >= round.armFrom && elapsed < round.greenAt;
+    const green = Boolean(round) && elapsed >= round.greenAt && elapsed < round.greenAt + WINDOW_MS && !done;
 
     // Die beiden oberen Lampen zeigen an, dass der Lauf scharf ist. Sie gehen
     // NACHEINANDER an — daran sieht man, dass gleich etwas passiert, ohne zu
@@ -342,9 +405,10 @@ export class FlashReflex extends MinigameScene {
     const { arcade, minigame, now, controlledId } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    const elapsed = Math.max(0, now + this.roundTrip - minigame.startedAt);
     const times = own?.times || [];
-    const round = arcade.rounds[Math.min(times.length, arcade.rounds.length - 1)];
+    const live = roundAt(arcade, elapsed);
+    const round = live && times.length === live.index ? live : null;
     const best = own ? bestOf(own) : null;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = best === null ? "BEST —" : `BEST ${best} ms`;
@@ -371,12 +435,14 @@ export class FlashReflex extends MinigameScene {
     const banner = this.hud.querySelector("[data-react-banner]");
     if (!banner) return;
     const done = times.length >= arcade.rounds.length;
+    this.hintNode ||= this.controls.querySelector(".trace-hint");
+    if (this.hintNode) this.hintNode.hidden = Boolean(f.finale) || done;
     if (done) {
       banner.hidden = false;
       banner.textContent = best === null ? "Kein gültiger Versuch" : `BEST: ${best} ms`;
       banner.style.background = best === null ? "#ff6b7f" : "#ffd15c";
       banner.style.color = best === null ? "#42101a" : "#4a3400";
-    } else if (round && elapsed >= round.greenAt) {
+    } else if (round && elapsed >= round.greenAt && elapsed < round.greenAt + WINDOW_MS) {
       banner.hidden = false;
       banner.textContent = "JETZT!";
       banner.style.background = "#4dff7a";
@@ -401,6 +467,16 @@ function isFoul(entry, index) {
   const fouls = entry?.fouls;
   if (Array.isArray(fouls) && fouls[index] !== undefined) return Boolean(fouls[index]);
   return (entry?.times?.[index] ?? 0) === PENALTY_MS;
+}
+
+// Der Versuch, der nach der Uhr gerade läuft: der letzte, der schon scharf
+// ist (wie reactRoundAt auf dem Server).
+function roundAt(arcade, elapsed) {
+  let found = null;
+  for (const round of arcade?.rounds || []) {
+    if (elapsed >= round.armFrom) found = round;
+  }
+  return found;
 }
 
 function bestOf(entry, upTo = Infinity) {
