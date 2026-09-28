@@ -48,6 +48,9 @@ const {
   buildDiveCoins,
   diveJellyAt,
   diveO2Rate,
+  diveAirToSurface,
+  DIVE_SURFACE_Y,
+  buildDiveJellies,
   diveCoinValue,
   GLIDE_VY_MAX,
   GLIDE_STALL_MS,
@@ -2427,6 +2430,9 @@ test("result: only everyone together can skip the result table", () => {
 function diveRoom() {
   const players = [{ id: "d1", name: "Taucher", isBot: false }];
   const startedAt = Date.now();
+  // Eine eigene Uhr: der Server rechnet in festen Schritten auf arcade.diveClock
+  // und braucht dafür eine Zeit, die wirklich vergeht.
+  let clock = startedAt;
   const arcade = createArcadeState("tiefenrausch", players, startedAt);
   const minigame = { id: 1, type: "tiefenrausch", startedAt, duration: DIVE_DURATION_MS, arcade, scores: {}, lastInputAt: {} };
   const room = { currentMinigame: minigame, players };
@@ -2434,14 +2440,19 @@ function diveRoom() {
   const entry = arcade.players[me.id];
   // Quallen weit weg, solange ein Test sie nicht ausdrücklich braucht.
   arcade.jellies.forEach((jelly) => { jelly.span = 0; jelly.y = 999; });
-  const steer = (x, y) => { entry.lastInputAt = 0; return handleArcadeInput(room, me, { action: "steer", x, y }); };
+  const at = (fn) => {
+    const real = Date.now;
+    Date.now = () => clock;
+    try { return fn(); } finally { Date.now = real; }
+  };
+  const steer = (x, y) => { entry.lastInputAt = 0; return at(() => handleArcadeInput(room, me, { action: "steer", x, y })); };
   const run = (ms, stepMs = 90) => {
     for (let left = ms; left > 0; left -= stepMs) {
-      arcade.lastUpdateAt = Date.now() - stepMs;
-      updateArcade(room);
+      clock += Math.min(stepMs, left);
+      at(() => updateArcade(room));
     }
   };
-  return { room, me, arcade, entry, minigame, steer, run };
+  return { room, me, arcade, entry, minigame, steer, run, now: () => clock };
 }
 
 test("dive: the stick moves the diver, and swimming down goes deeper", () => {
@@ -2465,14 +2476,95 @@ test("dive: air runs out faster the deeper you are", () => {
   assert.ok(entry.o2 < 100 && entry.o2 > 85, `Luft nach einer Sekunde auf 30 m: ${entry.o2.toFixed(1)}`);
 });
 
-test("dive: a straight trip to the chest and back is just possible", () => {
-  // Die Truhe ist die Gierfrage: erreichbar, aber nur ohne Umweg.
-  const down = (DIVE_DEPTH - 1.1) / DIVE_SWIM_SPEED;
-  let o2 = 100;
-  const step = 0.05;
-  for (let t = 0; t < down; t += step) o2 -= diveO2Rate((t / down) * DIVE_DEPTH) * step;
-  for (let t = 0; t < down; t += step) o2 -= diveO2Rate((1 - t / down) * DIVE_DEPTH) * step;
-  assert.ok(o2 > 0 && o2 < 30, `Luft nach dem direkten Weg: ${o2.toFixed(1)} %`);
+// Der alte Test rechnete mit 7,2 m/s — geschwommen wurde mit 5,0, und der
+// gerade Weg zur Truhe endete in Wahrheit kurz vor der Oberfläche in Ohnmacht.
+// Jetzt taucht der Test wirklich: senkrecht zur Truhe und zurück.
+test("dive: a straight trip to the chest and back works, with room for about one sting", () => {
+  const { arcade, entry, steer, run } = diveRoom();
+  arcade.coins = arcade.coins.filter((coin) => coin.chest);
+  const chest = arcade.coins[0];
+  entry.x = chest.x;
+  steer(0, 1);
+  let low = 100;
+  for (let i = 0; i < 400 && entry.carried === 0; i += 1) { run(30, 30); low = Math.min(low, entry.o2); }
+  assert.equal(entry.carried, DIVE_CHEST_VALUE, "unten an der Truhe");
+  steer(0, -1);
+  for (let i = 0; i < 400 && entry.y > DIVE_SURFACE_Y; i += 1) { run(30, 30); low = Math.min(low, entry.o2); }
+  run(90);
+  assert.equal(entry.faints, 0, "ohne Umweg kommt man zurück");
+  assert.equal(entry.banked, DIVE_CHEST_VALUE);
+  const used = 100 - low;
+  assert.ok(used > 65 && used < 85, `der gerade Weg kostet ${used.toFixed(1)} % Luft — genug für einen Stich (${DIVE_STING_O2}), nicht für zwei`);
+});
+
+test("dive: swimming does not depend on how often the server ticks", () => {
+  const fine = diveRoom();
+  const coarse = diveRoom();
+  fine.steer(0.2, 0.98);
+  coarse.steer(0.2, 0.98);
+  fine.run(1800, 45);
+  coarse.run(1800, 150);
+  assert.ok(Math.abs(fine.entry.y - coarse.entry.y) < 1e-9 && Math.abs(fine.entry.x - coarse.entry.x) < 1e-9,
+    `gleicher Weg: ${fine.entry.y.toFixed(3)} gegen ${coarse.entry.y.toFixed(3)}`);
+  assert.ok(Math.hypot(fine.entry.vx, fine.entry.vy) > 6.5, "volles Reisetempo erreicht");
+});
+
+// Die Marke im Luftbalken ist die Zahl, nach der man entscheidet. Sie muss
+// stimmen: wer mit etwas mehr als ihr umkehrt, kommt an; wer mit deutlich
+// weniger umkehrt, nicht.
+test("dive: the return mark in the air bar is honest", () => {
+  for (const depth of [12, 28, 44]) {
+    for (const [share, survives] of [[1.08, true], [0.88, false]]) {
+      const { entry, steer, run } = diveRoom();
+      entry.y = depth;
+      entry.o2 = diveAirToSurface(depth) * share;
+      steer(0, -1);
+      for (let i = 0; i < 300 && entry.y > DIVE_SURFACE_Y && !entry.fainted; i += 1) run(30, 30);
+      assert.equal(entry.faints === 0, survives, `aus ${depth} m mit ${Math.round(share * 100)} % der Marke`);
+    }
+  }
+});
+
+// Das Gerät zeigt den eigenen Taucher dort, wo der Server ihn hat, wenn eine
+// jetzt geschickte Eingabe ankommt (Tauchgang.js). Dafür muss es genauso
+// rechnen — Schub, Wände, Luft, Münzen und Quallen, im selben Raster.
+test("dive: the device forecasts the diver exactly like the server", async () => {
+  const { forecastDiver, airToSurface } = await import("../client/src/minigames/Tauchgang.js");
+  const { arcade, entry, steer, run, minigame } = diveRoom();
+  arcade.jellies = buildDiveJellies(arcade.seed);
+  let seed = 7;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const wiggle = () => steer(rand() * 2 - 1, rand() * 1.6 - 0.5);
+  for (let i = 0; i < 40; i += 1) { wiggle(); run(40 + Math.floor(rand() * 11) * 10); }
+  let compared = 0;
+  let happened = 0;
+  for (let round = 0; round < 25; round += 1) {
+    const from = arcade.diveClock;
+    const snapshot = JSON.parse(JSON.stringify(entry));
+    const view = { ...JSON.parse(JSON.stringify(arcade)), players: {} };
+    const inputs = new Map();
+    while (arcade.diveClock < from + 480) {
+      if (rand() < 0.5) wiggle();
+      const before = arcade.diveClock;
+      run(40 + Math.floor(rand() * 11) * 10);
+      for (let at = before; at < arcade.diveClock; at += 30) inputs.set(at, { x: entry.inX, y: entry.inY });
+    }
+    const to = arcade.diveClock;
+    if (to > from + 600) continue;
+    const inputAt = (at) => inputs.get(at) || { x: snapshot.inX, y: snapshot.inY };
+    const guess = forecastDiver(snapshot, view, { from, to, startedAt: minigame.startedAt, inputAt });
+    assert.ok(Math.abs(guess.x - entry.x) < 1e-6 && Math.abs(guess.y - entry.y) < 1e-6,
+      `Runde ${round}: Gerät ${guess.x.toFixed(3)}/${guess.y.toFixed(3)}, Server ${entry.x.toFixed(3)}/${entry.y.toFixed(3)}`);
+    assert.ok(Math.abs(guess.o2 - entry.o2) < 1e-6, `Runde ${round}: Luft ${guess.o2} gegen ${entry.o2}`);
+    assert.equal(guess.carried, entry.carried, `Runde ${round}: Gold`);
+    happened += guess.events.length;
+    compared += 1;
+  }
+  assert.ok(compared >= 20, `${compared} Vergleiche`);
+  assert.ok(happened > 0, "unterwegs passiert auch etwas");
+  for (const depth of [0, 1.2, 6, 23.5, 47.3]) {
+    assert.ok(Math.abs(airToSurface(arcade, depth) - diveAirToSurface(depth)) < 1e-9, `Rückweg-Luft aus ${depth} m`);
+  }
 });
 
 test("dive: gold is carried until you surface, then it is banked", () => {
@@ -2502,13 +2594,13 @@ test("dive: deeper gold is worth more, and the chest most", () => {
 });
 
 test("dive: a jellyfish stings — it costs air and some gold, never the game", () => {
-  const { arcade, entry, run, minigame } = diveRoom();
+  const { arcade, entry, run, minigame, now } = diveRoom();
   const jelly = arcade.jellies[0];
   jelly.y = 20;
   jelly.span = 0;
   entry.carried = 100;
   entry.o2 = 80;
-  const at = diveJellyAt(jelly, Date.now() - minigame.startedAt);
+  const at = diveJellyAt(jelly, now() + 30 - minigame.startedAt);
   entry.x = at.x;
   entry.y = at.y;
   run(90);

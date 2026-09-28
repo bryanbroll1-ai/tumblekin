@@ -828,11 +828,30 @@
 }
 
 .dive-air-bar {
+  position: relative;
   flex: 1;
   height: 12px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
+}
+
+/* Die Rückweg-Marke: so viel Luft kostet der direkte Weg nach oben. Liegt die
+   Füllung links davon, reicht es nicht mehr — vorher musste man das schätzen,
+   und die Warnung kam erst, wenn es schon eng war. */
+.dive-air-bar > b {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1.5px #08304a;
+}
+
+.dive-air-bar > b[hidden] {
+  display: none;
 }
 
 .dive-air-bar > i {
@@ -841,7 +860,6 @@
   width: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #5fe0a8, #8ff5d8);
-  transition: width 90ms linear;
 }
 
 .dive-air[data-level="mid"] .dive-air-bar > i {

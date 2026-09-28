@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
+import { airToSurface, forecastDiver, jellyAt, timeToSurface } from "./Tauchgang.js?v=tumblekin200";
 
 // Tiefenrausch: tauchen mit dem Stick. Gold liegt im ganzen Schacht, je tiefer
 // desto wertvoller, ganz unten eine Truhe. Die Luft sinkt — unten schneller —,
@@ -15,7 +16,16 @@ import { frameChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 // Gefahr kommen und entscheidet mit Blick auf die Luftanzeige, wie gierig man
 // ist. Alle tauchen im selben Schacht, man sieht die anderen um dieselbe
 // Truhe schwimmen.
+//
+// Gezeigt wird der Schacht so, wie er beim Server steht, wenn eine JETZT
+// geschickte Stickbewegung dort ankommt: die eigene Figur vorausgerechnet
+// (Tauchgang.js), die Quallen zur selben Zeit. Vorher hing die Figur dem Stick
+// eine Rundreise hinterher, und die Quallen eine halbe — bei 200 ms wich man
+// sichtbar aus und wurde doch gestochen.
 const S = 0.36;                  // Welteinheiten je Meter
+const STICK_GAP_MS = 40;         // so dicht folgen Stickmeldungen höchstens
+const PICK_GRACE_MS = 700;       // so lange wartet eine Münze auf den Server
+const TICK_LEAD_MS = 45;         // halber Servertick (90 ms)
 const WALL = 1.2;                // Dicke der Felswände (Welt)
 const SURFACE_COLOR = new THREE.Color("#63c7ec");
 const DEEP_COLOR = new THREE.Color("#0c2748");
@@ -25,15 +35,6 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-// Muss der Serverfunktion diveJellyAt entsprechen.
-function jellyAt(jelly, width, elapsedMs) {
-  const t = elapsedMs / 1000;
-  return {
-    x: width / 2 + Math.sin(t * jelly.speed + jelly.phase) * jelly.span,
-    y: jelly.y + Math.sin(t * 1.7 + jelly.phase * 2) * 0.6
-  };
-}
-
 export class DeepDig extends MinigameScene {
   constructor(ctx) {
     super(ctx);
@@ -41,6 +42,13 @@ export class DeepDig extends MinigameScene {
     this.jellyMeshes = [];
     this.seen = new Map();       // je Spieler: zuletzt gesehene Ereignisse
     this.labelY = 0.72;
+    this.roundTrip = 0;
+    this.stickLog = [];          // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
+    this.stickWanted = null;
+    this.stickSent = { x: 0, y: 0, clock: -1e9 };
+    this.views = new Map();      // je Spieler: der vorausgerechnete Taucher
+    this.viewAt = 0;             // Serverzeit, für die das Bild gilt
+    this.shown = [];             // eigene Ereignisse, die das Gerät schon gezeigt hat
   }
 
   stage() {
@@ -56,7 +64,7 @@ export class DeepDig extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="dive-panel">
-        <div class="dive-air" data-dive-air><span class="dive-air-label">LUFT</span><span class="dive-air-bar"><i data-dive-air-fill></i></span></div>
+        <div class="dive-air" data-dive-air><span class="dive-air-label">LUFT</span><span class="dive-air-bar"><i data-dive-air-fill></i><b data-dive-air-mark hidden></b></span></div>
         <div class="dive-info"><span data-dive-depth>0 m</span><span data-dive-carried>🪙 0 dabei</span></div>
       </div>
       <div class="dig-chips" data-dig-chips></div>
@@ -101,9 +109,13 @@ export class DeepDig extends MinigameScene {
     for (let d = 0; d < this.depth + 2; d += 3) {
       const u = d / this.depth;
       [-1, 1].forEach((side) => {
-        const bulge = 0.15 + ((d * 7 + (side > 0 ? 3 : 0)) % 5) * 0.08;
-        const rock = new THREE.Mesh(new THREE.BoxGeometry(WALL + bulge, 3 * S + 0.02, 2.4), rockMat(u));
-        rock.position.set(side * (halfW + WALL / 2 - bulge / 2 + 0.02), this.wy(d + 1.5), -0.4);
+        // Die Felsnasen bleiben schmaler als der Rand, den der Server den
+        // Tauchern lässt (0,6 m), und die Felsen enden knapp vor der Ebene der
+        // Figuren. Vorher ragten sie 0,8 weit nach vorn und bis zu 0,47 in den
+        // Schacht — Münzen und Quallen am Rand steckten halb im Stein.
+        const bulge = 0.06 + ((d * 7 + (side > 0 ? 3 : 0)) % 5) * 0.035;
+        const rock = new THREE.Mesh(new THREE.BoxGeometry(WALL + bulge, 3 * S + 0.02, 1.7), rockMat(u));
+        rock.position.set(side * (halfW + WALL / 2 - bulge / 2 + 0.02), this.wy(d + 1.5), -0.75);
         scene.add(rock);
       });
     }
@@ -111,6 +123,11 @@ export class DeepDig extends MinigameScene {
     const sand = new THREE.Mesh(new THREE.BoxGeometry(halfW * 2 + WALL * 2, 0.5, 2.4), new THREE.MeshLambertMaterial({ color: "#c9a46a" }));
     sand.position.set(0, bottom - 0.25, -0.4);
     scene.add(sand);
+    // Darunter Fels. Am Grund schaut die Kamera tiefer, damit die Truhe über
+    // dem Stick liegt — unter dem Sand war dort sonst leerer Himmel zu sehen.
+    const bedrock = new THREE.Mesh(new THREE.BoxGeometry(halfW * 2 + WALL * 2 + 3, 8, 2.4), new THREE.MeshLambertMaterial({ color: "#3b3430" }));
+    bedrock.position.set(0, bottom - 0.5 - 4, -0.4);
+    scene.add(bedrock);
     this.weeds = [];
     for (let i = 0; i < 9; i += 1) {
       const x = -halfW + 0.3 + (i / 8) * (halfW * 2 - 0.6);
@@ -262,7 +279,7 @@ export class DeepDig extends MinigameScene {
       label: "Tiefenrausch: tauchen",
       intervalMs: 70,
       feedback: this.feedback,
-      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
     });
   }
@@ -274,11 +291,113 @@ export class DeepDig extends MinigameScene {
     this.jellyMeshes.length = 0;
   }
 
-  // Die Kamera folgt der eigenen Figur in die Tiefe.
+  // Der Stick meldet sich alle 70 ms und bei jedem Richtungswechsel — dazu
+  // liest das Bild ihn in jedem Frame. Geschickt wird, was sich geändert hat,
+  // höchstens alle 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung
+  // weiss, ab wann der Server sie hat.
+  queueStick(x, y) {
+    this.stickWanted = { x, y };
+    this.flushStick();
+  }
+
+  flushStick() {
+    const want = this.stickWanted;
+    const minigame = this.update || this.minigame;
+    if (!want || !minigame || minigame.finaleAt) return;
+    const clock = performance.now();
+    const same = Math.abs(want.x - this.stickSent.x) < 0.02 && Math.abs(want.y - this.stickSent.y) < 0.02;
+    // Unverändert nur ab und zu — als Lebenszeichen und zum Messen der Laufzeit.
+    if (same && clock - this.stickSent.clock < 400) return;
+    if (clock - this.stickSent.clock < STICK_GAP_MS) return;
+    this.stickSent = { x: want.x, y: want.y, clock };
+    const at = this.now();
+    this.stickLog.push({ at, x: want.x, y: want.y });
+    while (this.stickLog.length > 2 && this.stickLog[1].at < at - 3000) this.stickLog.shift();
+    this.sendInput({ action: "steer", x: want.x, y: want.y })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => {});
+  }
+
+  // Ohne Stick keine Antworten, also keine Laufzeit: dann misst ein Ping.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.stickSent.clock < 1000 || clock - (this.lastPingAt || 0) < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Welchen Stick der Server für den Schritt ab Serverzeit `at` hat: was dieses
+  // Gerät eine Rundreise vorher geschickt hat (Geräteuhr = Serverzeit minus
+  // einfache Laufzeit, dazu die Laufzeit hin). Kam die Meldung schon vor dem
+  // Serverstand an, steht sie in ihm — dann gilt der.
+  //
+  // Der Server liest den Stick einmal je Tick und rechnet damit alle Schritte
+  // seit dem letzten Tick — eine Meldung wirkt dort also im Schnitt einen
+  // halben Tick VOR ihrer Ankunft. So rechnet es hier auch.
+  stickAt(at, from, entry) {
+    const lands = (sent) => sent.at + this.roundTrip - TICK_LEAD_MS;
+    let pick = null;
+    for (const sent of this.stickLog) {
+      if (lands(sent) <= at) pick = sent;
+      else break;
+    }
+    if (!pick || lands(pick) <= from) return { x: entry.inX || 0, y: entry.inY || 0 };
+    return pick;
+  }
+
+  // Alle Taucher zu der Serverzeit, zu der eine jetzt geschickte Eingabe
+  // ankommt. Die eigene Figur mit dem eigenen Stick, die anderen mit dem, den
+  // der Server gerade von ihnen hat.
+  forecast(f) {
+    const { arcade, minigame, players } = f;
+    const startedAt = minigame.startedAt || 0;
+    const from = arcade.diveClock || minigame.sentAt || f.now;
+    const endAt = startedAt + (minigame.duration || 0);
+    const to = minigame.finaleAt ? from : clamp(f.now + this.roundTrip, from, Math.max(from, endAt));
+    this.views.clear();
+    this.pickedAhead = new Set();
+    // Erst die anderen: wer von ihnen eine Münze früher erreicht, dem gehört
+    // sie auch in der eigenen Rechnung. Sonst zeigte das Gerät „+32“ für eine
+    // Münze, die ein Bot eine Zehntelsekunde vorher schnappt — und gleich
+    // darauf „weg!“.
+    const claims = new Map();
+    const order = [...players].sort((a, b) => (a.id === f.controlledId) - (b.id === f.controlledId));
+    order.forEach((player) => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      const own = player.id === f.controlledId;
+      const view = forecastDiver(entry, arcade, {
+        from,
+        to,
+        startedAt,
+        claims: own ? claims : null,
+        inputAt: own ? (at) => this.stickAt(at, from, entry) : () => ({ x: entry.inX || 0, y: entry.inY || 0 })
+      });
+      if (!own) view.pickedAt.forEach((at, id) => claims.set(id, Math.min(at, claims.get(id) ?? Infinity)));
+      view.picked.forEach((id) => this.pickedAhead.add(id));
+      this.views.set(player.id, view);
+    });
+    this.viewAt = this.views.values().next().value?.at ?? from;
+  }
+
+  // Die Kamera folgt der eigenen Figur in die Tiefe — und hält sie über dem
+  // Stick: der deckt das untere Viertel ab, und genau dorthin schaut man beim
+  // Abtauchen. Wer nach unten schwimmt, sieht mehr unter sich, wer aufsteigt,
+  // mehr über sich.
   rigOptions(f) {
-    const own = f.arcade?.players?.[f.controlledId];
+    const own = this.views.get(f.controlledId) || f.arcade?.players?.[f.controlledId];
     if (!own) return {};
-    const y = clamp(this.wy(own.y) - 0.6, this.wy(this.depth) + 2.2, -1.4);
+    const heading = clamp((own.vy || 0) / 6.8, -1, 1);
+    this.camLead = (this.camLead ?? 1.2) + ((1.2 + heading * 0.9) - (this.camLead ?? 1.2)) * frameLerp(0.04, f.dt);
+    const y = clamp(this.wy(own.y) - this.camLead, this.wy(this.depth) + 3.4, -1.4);
     return { look: [0, y, 0] };
   }
 
@@ -290,11 +409,16 @@ export class DeepDig extends MinigameScene {
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade?.coins) return;
-    const elapsed = Math.max(0, now - (minigame?.startedAt || now));
+    if (this.joystick && this.joystick.pointerId !== null) this.queueStick(this.joystick.vecX, this.joystick.vecY);
+    else this.flushStick();
+    this.pingIfIdle(minigame);
+    this.forecast(f);
+    const viewAt = this.viewAt;
+    const elapsed = Math.max(0, viewAt - (minigame?.startedAt || viewAt));
 
     // Farbe des Wassers nach der Tiefe der Kamera.
-    const own = arcade.players[controlledId];
-    const camDepth = clamp((own?.y || 0) / this.depth, 0, 1);
+    const ownView = this.views.get(controlledId);
+    const camDepth = clamp((ownView?.y || 0) / this.depth, 0, 1);
     _c.copy(SURFACE_COLOR).lerp(DEEP_COLOR, camDepth);
     if (this.scene.background?.isColor) this.scene.background.copy(_c);
     if (this.scene.fog) this.scene.fog.color.copy(_c);
@@ -304,20 +428,23 @@ export class DeepDig extends MinigameScene {
     this.weeds?.forEach((weed) => { weed.rotation.z = Math.sin(now / 700 + weed.userData.phase) * 0.18; });
     this.surface.position.y = 0.02 + Math.sin(now / 500) * 0.02;
 
-    // Münzen: drehen, wippen, verschwinden, wenn geholt.
-    const serverNow = now;
+    // Münzen: drehen und wippen. Eine geholte bleibt als blasser Schemen
+    // stehen und wächst wieder heran — so sieht man, wann sie zurückkommt,
+    // statt an eine leere Stelle zu schwimmen.
     (arcade.coins || []).forEach((coin) => {
       const mesh = this.coinMeshes.get(coin.id);
       if (!mesh) return;
-      const taken = coin.takenUntil && serverNow < coin.takenUntil;
-      mesh.visible = !taken;
-      if (taken) return;
-      mesh.position.y = mesh.userData.base + Math.sin(now / 400 + coin.id) * 0.05;
+      const serverGone = Boolean(coin.takenUntil && viewAt < coin.takenUntil);
+      const gone = serverGone || this.pickedAhead?.has(coin.id);
+      const wait = coin.chest ? (arcade.chestRespawnMs || 9000) : (arcade.respawnMs || 6500);
+      const back = serverGone ? clamp(1 - (coin.takenUntil - viewAt) / wait, 0, 1) : 0;
+      this.ghostCoin(mesh, gone ? back : null);
+      mesh.position.y = mesh.userData.base + (gone ? 0 : Math.sin(now / 400 + coin.id) * 0.05);
       if (coin.chest) mesh.rotation.y = Math.sin(now / 800) * 0.3;
-      else mesh.rotation.z = now / 300 + coin.id;
+      else if (!gone) mesh.rotation.z = now / 300 + coin.id;
     });
 
-    // Quallen: dieselbe Bahn wie auf dem Server.
+    // Quallen: dieselbe Bahn wie auf dem Server, zur selben Zeit wie die Figur.
     (arcade.jellies || []).forEach((jelly, i) => {
       const mesh = this.jellyMeshes[i];
       if (!mesh) return;
@@ -330,25 +457,29 @@ export class DeepDig extends MinigameScene {
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];
+      const view = this.views.get(player.id) || entry;
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const isOwn = player.id === controlledId;
-      const tx = this.wx(entry.x);
-      const ty = this.wy(entry.y) - 0.3;
-      kin.position.x += (tx - kin.position.x) * frameLerp(0.35, dt);
+      const tx = this.wx(view.x);
+      const ty = this.wy(view.y) - 0.3;
+      // Die eigene Figur folgt der Vorausrechnung fast ohne Verzug — sie IST
+      // schon die Antwort auf den Stick. Die anderen dürfen weicher gleiten.
+      const follow = frameLerp(isOwn ? 0.6 : 0.35, dt);
+      kin.position.x += (tx - kin.position.x) * follow;
       kin.position.z = 0.15;
-      animator.groundY = kin.position.y + (ty - kin.position.y) * frameLerp(0.35, dt);
+      animator.groundY = kin.position.y + (ty - kin.position.y) * follow;
 
       // Kopf voran in Schwimmrichtung; ohne Tempo aufrecht.
-      const speed = Math.hypot(entry.vx || 0, entry.vy || 0);
+      const speed = Math.hypot(view.vx || 0, view.vy || 0);
       let wantZ = 0;
-      if (entry.fainted) wantZ = Math.PI * 0.5;
-      else if (speed > 1.2) wantZ = -Math.atan2(entry.vx || 0, -(entry.vy || 0));
+      if (view.fainted) wantZ = Math.PI * 0.5;
+      else if (speed > 1.2) wantZ = -Math.atan2(view.vx || 0, -(view.vy || 0));
       const diff = Math.atan2(Math.sin(wantZ - kin.rotation.z), Math.cos(wantZ - kin.rotation.z));
       if (!finale) kin.rotation.z += diff * frameLerp(0.15, dt);
       if (!finale) {
-        if (entry.fainted) {
+        if (view.fainted) {
           animator.set("float");
           animator.expression("ko", 150);
         } else if (speed > 1.2) {
@@ -357,123 +488,218 @@ export class DeepDig extends MinigameScene {
         } else {
           animator.set("float");
         }
-        if (!entry.fainted && entry.o2 < 25 && entry.y > 1.5) animator.expression("scared", 150);
+        if (!view.fainted && view.y > 1.5 && view.o2 < airToSurface(arcade, view.y) * 1.25 + 4) animator.expression("scared", 150);
       }
       // Unverwundbar nach einem Stich: kurz blinken.
-      kin.visible = !(now < (entry.safeUntil || 0) && !entry.fainted && Math.floor(now / 110) % 2 === 0);
+      kin.visible = !(viewAt < (view.safeUntil || 0) && !view.fainted && Math.floor(now / 110) % 2 === 0);
       // Luftblasen, mehr wenn man hektisch ist.
-      if (entry.y > 1.3 && Math.random() < frameChance(speed > 1.2 ? 2.2 : 0.9, dt)) {
+      if (view.y > 1.3 && Math.random() < frameChance(speed > 1.2 ? 2.2 : 0.9, dt)) {
         this.burst(new THREE.Vector3(kin.position.x, kin.position.y + 0.55, 0.3), ["#dff6ff", "#ffffff"], { count: 1, speed: 0.2, up: 1.2, size: 0.05, life: 0.9, gravity: -1.2, drag: 1.0 });
       }
-      this.react(player, entry, kin, animator, isOwn, now);
+      if (isOwn && !finale) (view.events || []).forEach((event) => this.showOwn(event, player, kin, animator));
+      this.react(player, entry, kin, animator, isOwn);
+    });
+    this.checkLapsed();
+  }
+
+  // Blass und klein, solange die Münze fehlt; `back` 0…1 ist, wie weit sie
+  // schon wieder da ist. null = ganz da.
+  ghostCoin(mesh, back) {
+    const ghost = back !== null;
+    const scale = mesh.userData.scale ?? (mesh.userData.scale = mesh.scale.x);
+    mesh.scale.setScalar(ghost ? scale * (0.35 + back * 0.35) : scale);
+    if (!ghost && !mesh.userData.ghost) return;
+    mesh.userData.ghost = ghost;
+    mesh.traverse((part) => {
+      const material = part.material;
+      if (!material) return;
+      const base = material.userData.base ?? (material.userData.base = { transparent: material.transparent, opacity: material.opacity });
+      const transparent = ghost || base.transparent;
+      if (material.transparent !== transparent) {
+        material.transparent = transparent;
+        material.needsUpdate = true;
+      }
+      material.opacity = ghost ? Math.min(base.opacity, 0.16 + back * 0.2) : base.opacity;
     });
   }
 
-  react(player, entry, kin, animator, isOwn, now) {
-    const seen = this.seen.get(player.id) || {};
+  // Ein Ereignis der eigenen Figur, sobald die Vorausrechnung es hat — also in
+  // dem Moment, in dem man die Münze berührt, nicht eine Rundreise später.
+  showOwn(event, player, kin, animator) {
+    const window = event.kind === "pick" ? 1500 : 450;
+    if (this.shown.some((done) => done.kind === event.kind && (event.kind !== "pick" || done.id === event.id) && Math.abs(done.at - event.at) <= window)) return;
+    this.shown.push({ ...event, clock: performance.now(), confirmed: false });
+    if (this.shown.length > 24) this.shown.splice(0, this.shown.length - 24);
+    this.showEvent(event, player, kin, animator, true);
+  }
+
+  // Die Serverantwort zu einem eigenen Ereignis, das schon gezeigt wurde?
+  confirmOwn(event) {
+    const window = event.kind === "pick" ? 1500 : 600;
+    const done = this.shown.find((candidate) => candidate.kind === event.kind && (event.kind !== "pick" || candidate.id === event.id) && Math.abs(candidate.at - event.at) <= window);
+    if (!done) return false;
+    done.confirmed = true;
+    return true;
+  }
+
+  // Eine Münze, die das Gerät schon gezählt hat, die der Server aber jemand
+  // anderem gab: das wird gesagt, statt dass der Betrag stumm verschwindet.
+  checkLapsed() {
+    const clock = performance.now();
+    this.shown.forEach((done) => {
+      if (done.kind !== "pick" || done.confirmed || done.lapsed) return;
+      if (clock - done.clock < this.roundTrip + PICK_GRACE_MS) return;
+      done.lapsed = true;
+      const mesh = this.coinMeshes.get(done.id);
+      if (mesh) this.pop(mesh.position.clone().add(new THREE.Vector3(0, 0.4, 0)), "weg!", { color: "#c9d6df", size: 0.26, life: 0.8 });
+    });
+  }
+
+  showEvent(event, player, kin, animator, isOwn) {
     const at = () => kin.position.clone().add(new THREE.Vector3(0, 0.9, 0.3));
-    if (entry.lastPick && entry.lastPick.at !== seen.pick) {
-      seen.pick = entry.lastPick.at;
-      if (isOwn) {
-        const mesh = this.coinMeshes.get(entry.lastPick.id);
-        const p = mesh ? mesh.position.clone() : at();
-        this.burst(p, ["#ffe36b", "#ffffff"], { count: Math.round((entry.lastPick.chest ? 30 : 10) * fxScale()), speed: 1.6, up: 1.2, size: 0.06, life: 0.5, gravity: 0 });
-        this.pop(p.add(new THREE.Vector3(0, 0.4, 0)), entry.lastPick.chest ? `TRUHE! +${entry.lastPick.value}` : `+${entry.lastPick.value}`, { color: "#ffe36b", size: entry.lastPick.chest ? 0.42 : 0.28, life: 0.7 });
-        this.feedback?.sound(entry.lastPick.chest ? "win" : "coin");
-        this.feedback?.vibrate(entry.lastPick.chest ? [12, 20, 12] : 6);
-      }
-    }
-    if (entry.lastSting && entry.lastSting.at !== seen.sting) {
-      seen.sting = entry.lastSting.at;
+    if (event.kind === "pick") {
+      if (!isOwn) return;
+      const mesh = this.coinMeshes.get(event.id);
+      const p = mesh ? mesh.position.clone() : at();
+      this.burst(p, ["#ffe36b", "#ffffff"], { count: Math.round((event.chest ? 30 : 10) * fxScale()), speed: 1.6, up: 1.2, size: 0.06, life: 0.5, gravity: 0 });
+      this.pop(p.add(new THREE.Vector3(0, 0.4, 0)), event.chest ? `TRUHE! +${event.value}` : `+${event.value}`, { color: "#ffe36b", size: event.chest ? 0.42 : 0.28, life: 0.7 });
+      this.feedback?.sound(event.chest ? "win" : "coin");
+      this.feedback?.vibrate(event.chest ? [12, 20, 12] : 6);
+    } else if (event.kind === "sting") {
       animator.trigger("flinch");
       animator.expression("surprised", 800);
       this.burst(at(), ["#ff8fd0", "#ffffff"], { count: 14, speed: 2.0, up: 0.6, size: 0.06, life: 0.5, gravity: 0 });
-      const text = entry.lastSting.gold > 0 ? `AUA! −${entry.lastSting.o2} % Luft · −${entry.lastSting.gold} 🪙` : `AUA! −${entry.lastSting.o2} % Luft`;
+      const text = event.gold > 0 ? `AUA! −${event.o2} % Luft · −${event.gold} 🪙` : `AUA! −${event.o2} % Luft`;
       this.pop(at(), isOwn ? text : "AUA!", { color: "#ff9ad0", size: isOwn ? 0.3 : 0.24, life: 0.9 });
       if (isOwn) {
         this.rig.shake(0.6);
         this.feedback?.sound("error");
         this.feedback?.vibrate([30, 30, 30]);
       }
-    }
-    if (entry.lastBank && entry.lastBank.at !== seen.bank) {
-      seen.bank = entry.lastBank.at;
+    } else if (event.kind === "bank") {
       animator.trigger("celebrate");
       animator.expression("joy", 900);
       const p = this.bank.position.clone().add(new THREE.Vector3(0, 0.5, 0.4));
       this.burst(p, ["#ffe36b", player.color, "#ffffff"], { count: Math.round(18 * fxScale()), speed: 1.8, up: 2.2, size: 0.07, life: 0.7 });
       if (isOwn) {
-        this.pop(p.add(new THREE.Vector3(0, 0.3, 0)), `+${entry.lastBank.gold} 🪙 sicher!`, { color: "#ffe36b", size: 0.38, life: 1.0 });
+        this.pop(p.add(new THREE.Vector3(0, 0.3, 0)), `+${event.gold} 🪙 sicher!`, { color: "#ffe36b", size: 0.38, life: 1.0 });
         this.feedback?.sound("perfect");
         this.feedback?.vibrate([10, 14, 18]);
       }
-    }
-    if (entry.lastFaintAt && entry.lastFaintAt !== seen.faint) {
-      seen.faint = entry.lastFaintAt;
+    } else if (event.kind === "faint") {
       animator.trigger("hit");
-      this.pop(at(), isOwn ? `OHNMÄCHTIG! −${entry.lastFaint?.gold || 0} 🪙` : "OHNMÄCHTIG!", { color: "#ff9aa8", size: isOwn ? 0.34 : 0.24, life: 1.1 });
+      this.pop(at(), isOwn ? `OHNMÄCHTIG! −${event.gold || 0} 🪙` : "OHNMÄCHTIG!", { color: "#ff9aa8", size: isOwn ? 0.34 : 0.24, life: 1.1 });
       if (isOwn) {
         this.rig.shake(0.8);
         this.feedback?.sound("fall");
         this.feedback?.vibrate([40, 40, 60]);
       }
     }
+  }
+
+  // Was der Server meldet. Für die eigene Figur meist schon gezeigt — dann nur
+  // abhaken; die anderen sieht man, wie der Server sie meldet.
+  react(player, entry, kin, animator, isOwn) {
+    const seen = this.seen.get(player.id) || {};
+    const events = [];
+    // Münzen zeigt ohnehin nur die eigene Figur; abgehakt wird jede aus der
+    // Liste der letzten Funde, nicht nur die jüngste.
+    if (isOwn) {
+      (entry.recentPicks || (entry.lastPick ? [entry.lastPick] : [])).forEach((pick) => {
+        if (pick.at <= (seen.pick || 0)) return;
+        seen.pick = pick.at;
+        events.push({ kind: "pick", ...pick });
+      });
+    }
+    if (entry.lastSting && entry.lastSting.at !== seen.sting) {
+      seen.sting = entry.lastSting.at;
+      events.push({ kind: "sting", ...entry.lastSting });
+    }
+    if (entry.lastBank && entry.lastBank.at !== seen.bank) {
+      seen.bank = entry.lastBank.at;
+      events.push({ kind: "bank", ...entry.lastBank });
+    }
+    if (entry.lastFaintAt && entry.lastFaintAt !== seen.faint) {
+      seen.faint = entry.lastFaintAt;
+      events.push({ kind: "faint", gold: entry.lastFaint?.gold || 0, at: entry.lastFaintAt });
+    }
     this.seen.set(player.id, seen);
-    void now;
+    events.forEach((event) => {
+      if (isOwn && this.confirmOwn(event)) return;
+      if (isOwn) this.shown.push({ ...event, clock: performance.now(), confirmed: true });
+      this.showEvent(event, player, kin, animator, isOwn);
+    });
   }
 
   drawHud(f) {
-    const { arcade, state } = f;
+    const { arcade, state, minigame } = f;
     if (!arcade?.coins) return;
-    const own = arcade.players[f.controlledId];
+    const entry = arcade.players[f.controlledId];
+    const own = this.views.get(f.controlledId) || entry;
+    // Eingezahlt ist, was der Server hat, plus was die Vorausrechnung gerade
+    // an der Oberfläche abliefert — sonst stünde der Jubel eine Rundreise vor
+    // der Zahl.
+    const banked = (id) => (arcade.players[id]?.banked || 0)
+      + (this.views.get(id)?.events || []).reduce((sum, event) => sum + (event.kind === "bank" ? event.gold : 0), 0);
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = String(own?.banked || 0);
+    this.scoreNode.textContent = String(entry ? banked(f.controlledId) : 0);
+    const surface = arcade.surfaceY ?? 1.2;
+    const y = own?.y || 0;
+    const o2 = clamp(own?.o2 ?? 100, 0, 100);
+    // Die Marke: so viel Luft kostet der direkte Weg nach oben. Liegt die
+    // Füllung links davon, reicht es nicht mehr.
+    const need = y > surface ? airToSurface(arcade, y) : 0;
     const fill = this.hud.querySelector("[data-dive-air-fill]");
     const air = this.hud.querySelector("[data-dive-air]");
+    const mark = this.hud.querySelector("[data-dive-air-mark]");
     if (fill && own) {
-      const o2 = clamp(own.o2 ?? 100, 0, 100);
       fill.style.width = `${o2}%`;
-      const level = o2 < 25 ? "low" : o2 < 50 ? "mid" : "ok";
+      const level = y <= surface ? (o2 < 60 ? "mid" : "ok")
+        : o2 < need * 1.25 + 4 ? "low" : o2 < need * 1.7 + 12 ? "mid" : "ok";
       if (air.dataset.level !== level) air.dataset.level = level;
     }
+    if (mark) {
+      mark.hidden = !own || need < 0.5;
+      if (!mark.hidden) mark.style.left = `${Math.min(100, need)}%`;
+    }
     const depth = this.hud.querySelector("[data-dive-depth]");
-    if (depth && own) depth.textContent = `${Math.max(0, Math.round(own.y || 0))} m`;
+    if (depth && own) depth.textContent = `${Math.max(0, Math.round(y))} m`;
     const carried = this.hud.querySelector("[data-dive-carried]");
     if (carried && own) carried.textContent = `🪙 ${own.carried || 0} dabei`;
 
     const chips = this.hud.querySelector("[data-dig-chips]");
     if (chips) {
       const html = state.players.map((player) => {
-        const entry = arcade.players[player.id];
         const isOwn = player.id === f.controlledId;
-        return `<span class="dig-chip${isOwn ? " is-own" : ""}" style="--chip:${player.color}">${entry?.banked || 0}</span>`;
+        return `<span class="dig-chip${isOwn ? " is-own" : ""}" style="--chip:${player.color}">${banked(player.id)}</span>`;
       }).join("");
       if (chips.innerHTML !== html) chips.innerHTML = html;
     }
 
     const banner = this.hud.querySelector("[data-dig-banner]");
     if (!banner || !own) return;
-    // Wie viel Luft der direkte Weg nach oben kostet — so warnt die Anzeige,
-    // BEVOR es zu spät ist, nicht erst bei null.
-    const rate = (arcade.o2Base || 2.6) + (arcade.o2Depth || 8.4) * clamp((own.y || 0) / 2 / this.depth, 0, 1);
-    const need = ((own.y || 0) / 6.2 + 0.5) * rate;
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const leftMs = endAt - (this.viewAt || f.now);
+    const upMs = timeToSurface(arcade, y) * 1000;
     let text = "";
     let bg = "";
     let fg = "#ffffff";
-    if (own.fainted) {
+    if (f.finale) {
+      text = "";
+    } else if (own.fainted) {
       text = "Ohnmächtig — du treibst nach oben";
       bg = "#ff6b7f";
-    } else if ((own.y || 0) > 1.5 && own.o2 < need * 1.25) {
+    } else if (y > surface + 0.3 && o2 < need * 1.25 + 4) {
       text = "LUFT KNAPP — AUFTAUCHEN!";
       bg = "#ff4d5e";
-    } else if ((own.y || 0) <= 1.3 && (own.o2 ?? 100) < 99) {
+    } else if ((own.carried || 0) > 0 && f.started && leftMs < upMs + 2500) {
+      text = `Noch ${Math.max(0, Math.ceil(leftMs / 1000))} s — hoch, sonst ist dein Gold weg!`;
+      bg = "#ffd15c";
+      fg = "#4a3405";
+    } else if (y <= surface + 0.1 && o2 < 99 && f.started) {
       text = "Luft holen …";
       bg = "#7fd8ff";
       fg = "#08304a";
-    } else if (f.remaining <= 4 && (own.carried || 0) > 0 && f.started) {
-      text = `Noch ${f.remaining} s — hoch, sonst ist dein Gold weg!`;
-      bg = "#ffd15c";
-      fg = "#4a3405";
     }
     banner.hidden = !text;
     if (text && banner.textContent !== text) banner.textContent = text;

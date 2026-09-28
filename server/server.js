@@ -1199,13 +1199,20 @@ function cannonPoints(distance, target) {
 // die Truhe, oder jetzt hoch?
 const DIVE_WIDTH = 12;                 // Meter von Wand zu Wand
 const DIVE_DEPTH = 48;                 // Meter bis zum Grund
-const DIVE_SWIM_SPEED = 7.2;           // m/s mit vollem Stick
-const DIVE_ACCEL = 20;                 // m/s² — man ist schnell auf Tempo
+const DIVE_SWIM_SPEED = 7.2;           // m/s, Obergrenze (auch für den Stoss einer Qualle)
+// Schub und Widerstand ergeben das Reisetempo: 23 / 3,4 = 6,8 m/s. Vorher
+// waren es 20 und die schrittabhängige Rechnung, zusammen 5,0 m/s — und mit
+// 2,6 + 8,4 %/s Luft kam selbst ein gerader Tauchgang ohne Umweg nicht mit der
+// Truhe zurück (gemessen: ohnmächtig kurz vor der Oberfläche). Jetzt kostet
+// er gut drei Viertel der Luft: machbar, aber ein Stich am Grund und es wird
+// eng. Tief bringt so etwa das 1,3-Fache von mittlerer Tiefe — wer Luft und
+// Quallen im Griff hat, holt mehr, flach bleibt die sichere, schwächere Wahl.
+const DIVE_ACCEL = 23;                 // m/s²
 const DIVE_DRAG = 3.4;                 // Wasser bremst, ohne Stick treibt man aus
 const DIVE_BUOYANCY = 1.1;             // ohne Stick steigt man langsam (m/s²)
 const DIVE_SURFACE_Y = 1.2;            // bis hierhin gilt man als aufgetaucht
-const DIVE_O2_BASE = 2.6;              // Luftverbrauch nahe der Oberfläche (%/s)
-const DIVE_O2_DEPTH = 8.4;             // zusätzlich am Grund (%/s)
+const DIVE_O2_BASE = 2.0;              // Luftverbrauch nahe der Oberfläche (%/s)
+const DIVE_O2_DEPTH = 7.0;             // zusätzlich am Grund (%/s)
 const DIVE_O2_REFILL = 80;             // an der Oberfläche (%/s)
 const DIVE_STING_O2 = 20;              // eine Qualle kostet so viel Luft …
 const DIVE_STING_DROP = 0.3;           // … und so viel vom getragenen Gold
@@ -1218,6 +1225,8 @@ const DIVE_RESPAWN_MS = 6500;          // wann eine Münze wiederkommt
 const DIVE_CHEST_VALUE = 120;
 const DIVE_CHEST_RESPAWN_MS = 9000;
 const DIVE_JELLIES = 7;
+const DIVE_STEP_MS = 30;               // Rechenschritt, wie STEP_MS in Tauchgang.js
+const DIVE_CATCHUP_MS = 250;           // hängt der Server, holt er höchstens so viel nach
 
 const SIMON_ROUNDS = 5;
 const SIMON_SETTLE_MS = 450;          // Nachklang, bevor die naechste Folge laeuft
@@ -3596,8 +3605,22 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.surfaceY = DIVE_SURFACE_Y;
     arcade.coins = buildDiveCoins(arcade.seed);
     arcade.jellies = buildDiveJellies(arcade.seed);
+    // Die Uhr der festen Rechenschritte (updateArcade). Sie steht bis zum
+    // Start: im Countdown schwimmt niemand.
+    arcade.diveClock = startedAt;
     arcade.o2Base = DIVE_O2_BASE;
     arcade.o2Depth = DIVE_O2_DEPTH;
+    // Alles, was das Gerät braucht, um den eigenen Taucher bis zur Ankunft
+    // einer Eingabe vorauszurechnen (Tauchgang.js) — dieselben Zahlen wie hier.
+    arcade.swim = {
+      speed: DIVE_SWIM_SPEED, accel: DIVE_ACCEL, drag: DIVE_DRAG, buoyancy: DIVE_BUOYANCY,
+      refill: DIVE_O2_REFILL, stingO2: DIVE_STING_O2, stingDrop: DIVE_STING_DROP,
+      stunMs: DIVE_STING_STUN_MS, safeMs: DIVE_SAFE_MS, faintRise: DIVE_FAINT_RISE,
+      pickRadius: DIVE_PICK_RADIUS, jellyRadius: DIVE_JELLY_RADIUS
+    };
+    // Damit das Gerät eine geholte Münze wieder heranwachsen lassen kann.
+    arcade.respawnMs = DIVE_RESPAWN_MS;
+    arcade.chestRespawnMs = DIVE_CHEST_RESPAWN_MS;
     const count = Math.max(1, players.length);
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
@@ -3620,6 +3643,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.lastBank = null;           // { gold, at }
       entry.lastSting = null;          // { o2, gold, at }
       entry.lastPick = null;           // { id, value, at }
+      entry.recentPicks = [];          // die letzten vier davon
       entry.lastFaintAt = 0;
     });
   }
@@ -5294,19 +5318,31 @@ function updateArcade(room) {
   }
 
   if (arcade.family === "dive") {
-    const dt = Math.min(0.2, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    // Feste Schritte auf einer eigenen Uhr: `diveClock` ist die Serverzeit, zu
+    // der der Stand gilt. Das Gerät rechnet von dort in denselben Schritten
+    // weiter (Tauchgang.js) und prüft Münzen und Quallen damit an genau
+    // denselben Zeitpunkten wie hier. Mit dem Tick als Schritt — 90 ms, bei
+    // Last mehr — sprang ein schneller Taucher 60 cm weit und konnte am Rand
+    // einer Münze vorbeischwimmen, die das Gerät schon eingesammelt zeigte.
     arcade.lastUpdateAt = now;
-    const elapsed = now - minigame.startedAt;
+    if (!arcade.diveClock) arcade.diveClock = now;
+    if (now - arcade.diveClock > DIVE_CATCHUP_MS) arcade.diveClock = now - DIVE_CATCHUP_MS;
     const entries = room.players.map((player) => arcade.players[player.id]).filter(Boolean);
+    while (arcade.diveClock + DIVE_STEP_MS <= now) {
+      const at = arcade.diveClock + DIVE_STEP_MS;
+      arcade.diveClock = at;
+      room.players.forEach((player) => {
+        const entry = arcade.players[player.id];
+        if (entry) updateDiveEntry(arcade, entry, DIVE_STEP_MS / 1000, at, at - minigame.startedAt, entries);
+      });
+      // Münzen und Truhe kommen wieder.
+      arcade.coins.forEach((coin) => {
+        if (coin.takenUntil && at >= coin.takenUntil) coin.takenUntil = 0;
+      });
+    }
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
-      if (!entry) return;
-      updateDiveEntry(arcade, entry, dt, now, elapsed, entries);
-      syncArcadeScore(minigame, player, entry);
-    });
-    // Münzen und Truhe kommen wieder.
-    arcade.coins.forEach((coin) => {
-      if (coin.takenUntil && now >= coin.takenUntil) coin.takenUntil = 0;
+      if (entry) syncArcadeScore(minigame, player, entry);
     });
     return;
   }
@@ -7010,6 +7046,30 @@ function diveO2Rate(depth) {
   return DIVE_O2_BASE + DIVE_O2_DEPTH * clamp(depth / DIVE_DEPTH, 0, 1);
 }
 
+// So viel Luft kostet der direkte Weg nach oben aus dieser Tiefe, samt Anlauf.
+// Das Gerät zeigt genau diese Zahl als Marke im Luftbalken (Tauchgang.js,
+// airToSurface), und die Bots planen damit. Vorher schätzten beide getrennt,
+// und keiner rechnete mit dem echten Tempo.
+const DIVE_CRUISE = Math.min(DIVE_SWIM_SPEED, DIVE_ACCEL / DIVE_DRAG);
+const DIVE_TURN_S = 0.35;
+function diveAirToSurface(depth) {
+  const rise = Math.max(0, depth - DIVE_SURFACE_Y);
+  if (rise <= 0) return 0;
+  return (rise / DIVE_CRUISE + DIVE_TURN_S) * diveO2Rate((depth + DIVE_SURFACE_Y) / 2);
+}
+
+// Ein Stück Weg unter gleichbleibendem Schub gegen den Wasserwiderstand,
+// geschlossen gelöst (dv/dt = a − k·v). Die alte Fassung rechnete
+// v += a·dt; v *= e^(−k·dt) und hing damit an der Ticklänge: bei 90-ms-Ticks
+// schwamm man 5,0 statt 5,9 m/s, bei längeren Ticks noch langsamer. So ist
+// es gleich, in welchen Schritten gerechnet wird — auch das Gerät, das in
+// eigenen Schritten vorausrechnet (Tauchgang.js), kommt am selben Punkt an.
+function diveGlide(v, a, dt) {
+  const cruise = a / DIVE_DRAG;
+  const fade = Math.exp(-DIVE_DRAG * dt);
+  return { v: cruise + (v - cruise) * fade, d: cruise * dt + (v - cruise) * (1 - fade) / DIVE_DRAG };
+}
+
 // Ein Tick für einen Taucher.
 function updateDiveEntry(arcade, entry, dt, now, elapsed, entries) {
   if (entry.fainted) {
@@ -7026,18 +7086,17 @@ function updateDiveEntry(arcade, entry, dt, now, elapsed, entries) {
   const stunned = now < entry.stunUntil;
   const ix = stunned ? 0 : entry.inX;
   const iy = stunned ? 0 : entry.inY;
-  entry.vx += ix * DIVE_ACCEL * dt;
-  entry.vy += (iy * DIVE_ACCEL - (Math.hypot(ix, iy) < 0.1 ? DIVE_BUOYANCY : 0)) * dt;
-  const damp = Math.exp(-DIVE_DRAG * dt);
-  entry.vx *= damp;
-  entry.vy *= damp;
+  const gx = diveGlide(entry.vx, ix * DIVE_ACCEL, dt);
+  const gy = diveGlide(entry.vy, iy * DIVE_ACCEL - (Math.hypot(ix, iy) < 0.1 ? DIVE_BUOYANCY : 0), dt);
+  entry.vx = gx.v;
+  entry.vy = gy.v;
+  entry.x += gx.d;
+  entry.y += gy.d;
   const speed = Math.hypot(entry.vx, entry.vy);
   if (speed > DIVE_SWIM_SPEED) {
     entry.vx *= DIVE_SWIM_SPEED / speed;
     entry.vy *= DIVE_SWIM_SPEED / speed;
   }
-  entry.x += entry.vx * dt;
-  entry.y += entry.vy * dt;
   if (entry.x < 0.6 || entry.x > DIVE_WIDTH - 0.6) { entry.x = clamp(entry.x, 0.6, DIVE_WIDTH - 0.6); entry.vx = 0; }
   if (entry.y < 0.4 || entry.y > DIVE_DEPTH - 0.7) { entry.y = clamp(entry.y, 0.4, DIVE_DEPTH - 0.7); entry.vy = 0; }
   // Taucher weichen einander sanft aus, statt ineinander zu stecken.
@@ -7087,6 +7146,9 @@ function updateDiveEntry(arcade, entry, dt, now, elapsed, entries) {
     coin.takenUntil = now + (coin.chest ? DIVE_CHEST_RESPAWN_MS : DIVE_RESPAWN_MS);
     entry.carried += coin.value;
     entry.lastPick = { id: coin.id, value: coin.value, chest: Boolean(coin.chest), at: now };
+    // Die letzten Funde als Liste: zwei Münzen im selben Tick überschrieben
+    // sich in lastPick, und das Gerät hielt die erste für verloren.
+    entry.recentPicks = [...(entry.recentPicks || []).slice(-3), entry.lastPick];
   });
 
   // Quallen: nicht tödlich, aber teuer.
@@ -8208,50 +8270,63 @@ function arcadeBotStep(room, bot) {
     const profile = botProfile(player);
     const elapsed = now - minigame.startedAt;
     const left = minigame.startedAt + minigame.duration - now;
-    // Wie viel Luft der Weg nach oben kostet — mit Reserve. Die Reserve ist die
-    // Spielstärke: der schwache verschätzt sich und wird öfter ohnmächtig.
-    const margin = profile.level === "hard" ? 1.35 : profile.level === "normal" ? 1.15 : 0.9;
-    const up = player.y / (DIVE_SWIM_SPEED * 0.85) + 0.4;
-    const needed = diveO2Rate(player.y * 0.5) * up * margin + 4;
-    const goUp = player.y > DIVE_SURFACE_Y && (player.o2 < needed
-      || (player.carried > 0 && left < up * 1000 * margin + 600)
-      || (profile.level !== "easy" && player.carried >= (profile.level === "hard" ? 160 : 220)));
+    // Die Spielstärke steckt in vier Dingen: wie tief er sich traut, wie viel
+    // Luft er für den Rückweg übrig lässt, wie weit er Quallen vorausahnt und
+    // wie ruhig er steuert. Vorher schätzte er den Rückweg mit einem Tempo, das
+    // es nicht gab, und liess für einen Stich nichts übrig — gemessen wurde
+    // selbst der normale Bot fast jede Runde einmal ohnmächtig.
+    const [maxDepth, margin, reserve, ahead, wobble, bankAt, refillTo] = byBotLevel(profile,
+      [18, 1.2, 4, 0.3, 0.35, 60, 75],
+      [28, 1.4, 10, 0.4, 0.2, 100, 90],
+      [40, 1.35, 16, 0.5, 0.1, 150, 95]);
+    const upAir = diveAirToSurface(player.y);
+    const upMs = (Math.max(0, player.y - DIVE_SURFACE_Y) / DIVE_CRUISE + DIVE_TURN_S) * 1000;
+    const atSurface = player.y <= DIVE_SURFACE_Y;
+    const goUp = !atSurface && (player.o2 < upAir * margin + reserve
+      || player.carried >= bankAt
+      || (player.carried > 0 && left < upMs * 1.2 + 700));
     let tx = player.x;
     let ty = 0;
-    if (!goUp) {
-      // Die lohnendste Münze in erreichbarer Tiefe: Wert gegen Weg und Luft.
+    if (atSurface && player.o2 < refillTo) {
+      // Erst Luft holen — mit halber Flasche lohnt nur das Kleingeld oben.
+      ty = 0.4;
+    } else if (!goUp) {
+      // Die lohnendste Münze, die er sich zutraut: Wert gegen Weg, und der
+      // Rückweg von dort muss noch drin sein.
       let best = null;
       arcade.coins.forEach((coin) => {
-        if (coin.takenUntil) return;
+        if (coin.takenUntil || coin.y > maxDepth) return;
         const dist = Math.hypot(coin.x - player.x, coin.y - player.y);
-        const trip = (dist + coin.y) / (DIVE_SWIM_SPEED * 0.85);
-        const cost = diveO2Rate(coin.y * 0.7) * trip * margin;
-        if (cost > player.o2 - 6) return;
-        const greed = profile.level === "easy" ? 1.35 : 1;
-        const worth = Math.pow(coin.value, greed) / (dist + 2.5);
+        const cost = (dist / DIVE_CRUISE) * diveO2Rate((coin.y + player.y) / 2) + diveAirToSurface(coin.y) * margin + reserve;
+        if (cost > player.o2) return;
+        const worth = coin.value / (dist + 2);
         if (!best || worth > best.worth) best = { coin, worth };
       });
       if (best) { tx = best.coin.x; ty = best.coin.y; }
-      else { ty = 0; }
+      else if (atSurface) ty = 0.4;
     }
     let dx = tx - player.x;
     let dy = ty - player.y;
     const len = Math.hypot(dx, dy) || 1;
     dx /= len;
     dy /= len;
-    // Quallen ausweichen — der starke früh und entschlossen, der schwache kaum.
-    const watch = profile.level === "hard" ? 3.2 : profile.level === "normal" ? 2.3 : 1.3;
+    // Quallen: die eigene Bahn ein Stück vorausdenken und dort ausweichen, wo
+    // es am engsten wird. Der starke schaut weit voraus, der schwache kaum.
     arcade.jellies.forEach((jelly) => {
-      const at = diveJellyAt(jelly, elapsed + 250);
-      const ox = player.x - at.x;
-      const oy = player.y - at.y;
-      const d = Math.hypot(ox, oy);
-      if (d > watch || d < 0.001) return;
-      const push = (watch - d) / watch * 1.8;
-      dx += (ox / d) * push;
-      dy += (oy / d) * push;
+      let worst = null;
+      for (let tau = 0; tau <= ahead + 0.001; tau += 0.1) {
+        const px = player.x + (player.vx * 0.4 + dx * DIVE_CRUISE * 0.6) * tau;
+        const py = player.y + (player.vy * 0.4 + dy * DIVE_CRUISE * 0.6) * tau;
+        const at = diveJellyAt(jelly, elapsed + 90 + tau * 1000);
+        const d = Math.hypot(px - at.x, py - at.y);
+        if (!worst || d < worst.d) worst = { d, ox: px - at.x, oy: py - at.y, tau };
+      }
+      if (!worst || worst.d > 1.9) return;
+      const l = Math.hypot(worst.ox, worst.oy) || 1;
+      const push = (1.9 - worst.d) / 1.9 * 3 * (1 - worst.tau / (ahead + 0.1));
+      dx += (worst.ox / l) * push;
+      dy += (worst.oy / l) * push;
     });
-    const wobble = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.15 : 0.3;
     dx += (Math.random() - 0.5) * wobble;
     dy += (Math.random() - 0.5) * wobble;
     handleArcadeInput(room, bot, { action: "steer", x: dx, y: dy });
@@ -8896,6 +8971,8 @@ module.exports = {
     buildDiveJellies,
     diveJellyAt,
     diveO2Rate,
+    diveAirToSurface,
+    DIVE_STEP_MS,
     diveCoinValue,
     GLIDE_GRAVITY,
     GLIDE_LIFT,
