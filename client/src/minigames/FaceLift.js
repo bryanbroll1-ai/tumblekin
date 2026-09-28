@@ -43,6 +43,9 @@ export class FaceLift extends MinigameScene {
     this.localRound = -1;
     this.lastSentAt = 0;
     this.seenScored = -1;
+    this.roundTrip = 0;
+    this.sentKey = "";           // was zuletzt geschickt wurde
+    this.openRound = -1;         // Runde, deren Formfenster (nach Ankunftszeit) offen ist
     this.labelY = 0.74;
     this.bulbs = null;
   }
@@ -311,6 +314,7 @@ export class FaceLift extends MinigameScene {
       const grabbed = new THREE.Vector3();
       this.handleWorld(mask, best, this.localShape, grabbed);
       this.drag = { index: best, pointerId: event.pointerId, offX: grabbed.x - hit.x, offY: grabbed.y - hit.y };
+      this.touchedRound = this.localRound;
       this.webglCanvas.setPointerCapture?.(event.pointerId);
       this.feedback?.sound("select");
       this.feedback?.vibrate(8);
@@ -329,15 +333,12 @@ export class FaceLift extends MinigameScene {
       this.localShape[this.drag.index * 2] = Math.round(ox * 100) / 100;
       this.localShape[this.drag.index * 2 + 1] = Math.round(oy * 100) / 100;
       const nowP = performance.now();
-      if (nowP - this.lastSentAt > SEND_EVERY_MS) {
-        this.lastSentAt = nowP;
-        this.sendInput({ action: "shape", h: this.localShape }).catch(() => {});
-      }
+      if (nowP - this.lastSentAt > SEND_EVERY_MS) this.sendShape(false);
     });
     const release = (event) => {
       if (!this.drag || event.pointerId !== this.drag.pointerId) return;
       this.drag = null;
-      if (this.canShape()) this.sendInput({ action: "shape", h: this.localShape, final: true }).catch(() => {});
+      if (this.canShape()) this.sendShape(true);
     };
     this.on(this.webglCanvas, "pointerup", release);
     this.on(this.webglCanvas, "pointercancel", release);
@@ -345,6 +346,40 @@ export class FaceLift extends MinigameScene {
 
   unbind() {
     this.controls.style.pointerEvents = "";
+  }
+
+  sendShape(final) {
+    const clock = performance.now();
+    this.lastSentAt = clock;
+    this.sentKey = this.localShape.join(",");
+    const input = { action: "shape", h: [...this.localShape] };
+    if (final) input.final = true;
+    this.sendInput(input).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Wer gerade nicht zieht, schickt nichts — dann misst ein Ping die Laufzeit.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastSentAt < 1000 || clock - (this.lastPingAt || 0) < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Die Phase zu dem Moment, in dem ein JETZT geschickter Zug ankommt.
+  // Danach richtet sich, ob die Maske noch zu formen ist: vorher blieb sie
+  // bis zum Ende nach Geräteuhr offen, und was man in der letzten Rundreise
+  // zog oder losliess, kam zu spät und zählte nicht.
+  arrivalPhase(f) {
+    const now = (f?.now ?? this.now()) + this.roundTrip;
+    return this.phaseOf({ ...(f || {}), now });
   }
 
   phaseOf(f) {
@@ -365,13 +400,34 @@ export class FaceLift extends MinigameScene {
 
   canShape() {
     const minigame = this.update || this.minigame;
-    return Boolean(minigame && !minigame.finaleAt && this.phaseOf().phase === "shape" && this.localShape);
+    return Boolean(minigame && !minigame.finaleAt && this.arrivalPhase().phase === "shape" && this.localShape);
+  }
+
+  // Schliesst das Formfenster (nach Ankunftszeit), geht der letzte Stand noch
+  // hinaus — auch mitten im Ziehen. Er kommt zum Ende an, in der Schonfrist
+  // des Servers.
+  syncWindow(f) {
+    const arrival = this.arrivalPhase(f);
+    const open = arrival.phase === "shape" && !f.finale;
+    if (open) {
+      this.openRound = arrival.round;
+      return;
+    }
+    if (this.openRound < 0) return;
+    const round = this.openRound;
+    this.openRound = -1;
+    this.drag = null;
+    // Nur wer in diesem Durchgang selbst gezogen hat — sonst überschriebe
+    // eine unberührte Maske, was ein anderes Gerät für diese Figur geformt hat.
+    if (this.touchedRound === round && this.localShape && this.localShape.join(",") !== this.sentKey) this.sendShape(true);
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId } = f;
     const face = arcade?.face;
     if (!face) return;
+    this.syncWindow(f);
+    this.pingIfIdle(f.minigame);
     const { phase, round, since } = this.phaseOf(f);
 
     // Neue Runde: eigene Maske zurück auf neutral.
@@ -484,14 +540,17 @@ export class FaceLift extends MinigameScene {
     const text = String(Math.round(own?.score || 0));
     if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
     const banner = this.hud.querySelector("[data-face-banner]");
-    const { phase, round, since, left } = this.phaseOf(f);
+    const { phase, round, since } = this.phaseOf(f);
+    // Wie lange ein Zug noch zählt — gerechnet bis zu seiner Ankunft.
+    const arrival = this.arrivalPhase(f);
+    const left = arrival.phase === "shape" ? arrival.left : 0;
     let message = null;
     let tone = "#12aaff";
     if (phase === "lead") message = "Gleich hängt das Vorbild …";
     else if (phase === "show") { message = `Gesicht ${round + 1}/${face.rounds}: Merk es dir!`; tone = "#b57bff"; }
     else if (phase === "shape") {
       const secs = Math.ceil((left || 0) / 1000);
-      message = since < 1400 ? "Zieh die Maske zurecht!" : secs <= 3 ? `Noch ${secs} …` : null;
+      message = since < 1400 ? "Zieh die Maske zurecht!" : secs <= 0 ? "Stopp!" : secs <= 3 ? `Noch ${secs} …` : null;
       tone = secs <= 3 ? "#ff5d73" : "#1fbf5b";
     } else if (phase === "reveal") {
       const points = own?.results?.[round]?.points;

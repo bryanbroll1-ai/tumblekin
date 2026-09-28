@@ -104,7 +104,8 @@ export const REWORKED = new Set([
   "farbenjagd",
   "spuersinn",
   "augenmass",
-  "tauziehen"
+  "tauziehen",
+  "grimassen"
 ]);
 
 export const ARCADE_TYPES = new Set(

@@ -168,6 +168,38 @@ test("Grimassen: geformt wird nur in der Formphase, gewertet für alle gleichzei
   g.restore();
 });
 
+// Genauigkeit muss zählen. Vorher brachte es schon zwei Drittel der Punkte,
+// jeden verzogenen Punkt einfach halb zum Ziel zu ziehen.
+test("Grimassen: halb getroffen ist nur ein Viertel wert", () => {
+  for (let round = 0; round < C.FACE_ROUNDS; round += 1) {
+    const target = party.faceTarget(823456, round);
+    const half = target.map((v) => v / 2);
+    const points = party.facePoints(party.faceError(half, target), target);
+    assert.ok(points >= 20 && points <= 30, `Runde ${round + 1}: halb getroffen ${points}`);
+  }
+});
+
+// Was man in der letzten Rundreise vor dem Ende noch zieht, kommt erst danach
+// an. Innerhalb der Schonfrist zählt es; gewertet wird erst hinter ihr.
+test("Grimassen: ein Zug kurz nach dem Ende zählt noch, einer nach der Schonfrist nicht", () => {
+  const g = setup("grimassen", 2);
+  const [a] = g.players;
+  const target = g.arcade.face.targets[0];
+  const shapeEnd = C.FACE_LEAD_MS + C.FACE_SHOW_MS + C.FACE_SHAPE_MS;
+  g.run(0, shapeEnd - 100, 50);
+  g.input(a, { action: "shape", h: target.map((v) => v / 2), final: true });
+  g.run(shapeEnd - 50, shapeEnd + 50, 50);
+  assert.equal(g.arcade.players[a.id].results.length, 0, "noch nicht gewertet — die Frist läuft");
+  g.at(shapeEnd + C.FACE_GRACE_MS - 40);
+  g.input(a, { action: "shape", h: target, final: true });
+  g.run(shapeEnd + C.FACE_GRACE_MS + 10, shapeEnd + C.FACE_GRACE_MS + 100, 50);
+  assert.equal(g.arcade.players[a.id].results[0].points, 100, "in der Frist angekommen, also gezählt");
+  g.at(shapeEnd + C.FACE_GRACE_MS + 150);
+  g.input(a, { action: "shape", h: new Array(12).fill(0), final: true });
+  assert.equal(g.arcade.players[a.id].results[0].points, 100, "nach der Wertung ändert nichts mehr etwas");
+  g.restore();
+});
+
 test("Grimassen: der starke Bot trifft besser als der schwache", () => {
   const scores = { easy: 0, hard: 0 };
   for (let run = 0; run < 6; run += 1) {

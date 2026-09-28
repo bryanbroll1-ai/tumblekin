@@ -314,6 +314,12 @@ const FACE_DURATION_MS = FACE_LEAD_MS + FACE_ROUNDS * FACE_CYCLE_MS + 400;
 const FACE_MAX_POINTS = 100;
 const FACE_MIN_NEUTRAL = 0.3;         // so weit liegt ein Vorbild mindestens von neutral
 const FACE_MIN_INPUT_MS = 40;
+// Schonfrist nach dem Formen. Das Gerät sperrt die Maske, sobald ein Zug
+// nicht mehr rechtzeitig ankäme (Laufzeit mitgerechnet), und schickt dann
+// den letzten Stand; die Frist fängt ab, dass die Laufzeitmessung schwankt.
+// Gewertet wird erst danach. Vorher zählte, was in der letzten Rundreise
+// gezogen oder losgelassen wurde, nicht mehr.
+const FACE_GRACE_MS = 150;
 
 // Das Vorbild eines Durchgangs: in Runde 1 sind drei Punkte verzogen, in
 // Runde 2 vier, in Runde 3 alle sechs. Nicht verzogene Punkte bleiben nahe 0 —
@@ -346,10 +352,15 @@ function faceError(shape, target) {
 // wer das Vorbild genau trifft, alles. Ein fester Nullpunkt hätte in der
 // ersten Runde, in der nur drei Punkte verzogen sind, fürs Nichtstun schon
 // zwei Drittel der Punkte verschenkt.
+//
+// Quadratisch statt fast linear (Exponent 1,15): nachgerechnet holte grobes
+// Ziehen in die richtige Richtung (Streuung 0,25) schon 250 von 300 Punkten,
+// sorgfältiges (0,12) nur 26 mehr, und jeden Punkt einfach halb zum Ziel zu
+// ziehen brachte 135. Jetzt sind es 218, 259 und 75 — Genauigkeit zählt.
 function facePoints(error, target) {
   const neutral = Math.max(FACE_MIN_NEUTRAL, faceError(new Array(FACE_HANDLES.length * 2).fill(0), target));
   const share = clamp(1 - error / neutral, 0, 1);
-  return Math.round(FACE_MAX_POINTS * Math.pow(share, 1.15));
+  return Math.round(FACE_MAX_POINTS * share * share);
 }
 
 function facePhase(elapsed) {
@@ -374,6 +385,7 @@ const face = {
       showMs: FACE_SHOW_MS,
       shapeMs: FACE_SHAPE_MS,
       revealMs: FACE_REVEAL_MS,
+      graceMs: FACE_GRACE_MS,
       targets: Array.from({ length: FACE_ROUNDS }, (_, round) => faceTarget(arcade.seed, round)),
       scored: -1                        // bis zu welcher Runde gewertet ist
     };
@@ -387,8 +399,11 @@ const face = {
   },
   input(ctx, player, entry, input) {
     if (input.action !== "shape") return { ok: false, error: "Zieh die Maske zurecht." };
-    const { phase } = facePhase(ctx.elapsed);
-    if (phase !== "shape") return { ok: true };
+    // Zählt, solange die Runde noch nicht gewertet ist — also auch in der
+    // Schonfrist direkt nach dem Formen.
+    const { phase, round } = facePhase(ctx.elapsed - FACE_GRACE_MS);
+    const now = facePhase(ctx.elapsed);
+    if (now.phase !== "shape" && !(phase === "shape" && now.round === round)) return { ok: true };
     if (!input.final && ctx.now - entry.lastShapeAt < FACE_MIN_INPUT_MS) return { ok: true };
     const h = Array.isArray(input.h) ? input.h : null;
     if (!h || h.length !== FACE_HANDLES.length * 2) return { ok: false, error: "Ungültige Form." };
@@ -402,8 +417,10 @@ const face = {
     const { arcade, elapsed } = ctx;
     const state = arcade.face;
     const { phase, round } = facePhase(elapsed);
-    // Gewertet wird genau beim Übergang ins Auflösen — für alle gleichzeitig.
-    const due = phase === "reveal" || phase === "over" ? round : round - 1;
+    // Gewertet wird nach der Schonfrist hinter dem Formen — für alle
+    // gleichzeitig.
+    const graced = facePhase(elapsed - FACE_GRACE_MS);
+    const due = graced.phase === "reveal" || graced.phase === "over" ? graced.round : graced.round - 1;
     while (state.scored < due) {
       state.scored += 1;
       const target = state.targets[state.scored];
@@ -428,8 +445,17 @@ const face = {
     if (entry.botRound !== round) {
       entry.botRound = round;
       // Wie genau der Bot hinschaut: je Punkt ein fester Fehler für die Runde.
-      const miss = byLevel(entry, 0.42, 0.24, 0.1);
-      entry.botAim = arcade.face.targets[round].map((value) => clamp(value + (Math.random() * 2 - 1) * miss, -1, 1));
+      // Punkte, die im Vorbild neutral bleiben, lässt er liegen — wie ein
+      // Mensch. Vorher verzog er auch die, und damit schlug ihn schon grobes
+      // menschliches Ziehen; nur der schwache stösst ab und zu einen an.
+      const miss = byLevel(entry, 0.36, 0.24, 0.13);
+      const target = arcade.face.targets[round];
+      entry.botAim = target.map((value, i) => {
+        const handle = Math.floor(i / 2);
+        const moved = target[handle * 2] || target[handle * 2 + 1];
+        if (!moved) return level(entry) === "easy" && Math.random() < 0.3 ? (Math.random() * 2 - 1) * 0.2 : 0;
+        return clamp(value + (Math.random() * 2 - 1) * miss, -1, 1);
+      });
       entry.botStartAt = byLevel(entry, 1600, 1000, 600) + Math.random() * 600;
       entry.botNextAt = 0;
     }
@@ -2509,7 +2535,7 @@ module.exports = {
   constants: {
     TUG_LEAD_MS, TUG_ROUND_MS, TUG_SHOW_MS, TUG_ROUNDS, TUG_WINS, TUG_DURATION_MS,
     TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
-    FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS,
+    FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS, FACE_GRACE_MS,
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS,
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R,
