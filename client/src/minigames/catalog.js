@@ -97,7 +97,8 @@ export const REWORKED = new Set([
   "sortierband",
   "angelduell",
   "leuchtfolge",
-  "blitzreflex"
+  "blitzreflex",
+  "nagelbrett"
 ]);
 
 export const ARCADE_TYPES = new Set(

@@ -3,6 +3,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
+import { landingX } from "./Nagelbahn.js?v=tumblekin200";
 
 // Eine Kugel-Form für alle Kugeln: vorher bekam jede Kugel eigene Geometrie,
 // und beim Landen wurde sie nur aus der Szene genommen, nie freigegeben.
@@ -71,6 +72,8 @@ export class PegBoard extends MinigameScene {
     this.boardPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -0.12);
     // Schild über der hochgehaltenen Kugel.
     this.labelY = 1.12;
+    this.roundTrip = 0;
+    this.lastPingAt = 0;
   }
 
   worldX(x) { return (x - 0.5) * BOARD_W; }
@@ -194,6 +197,24 @@ export class PegBoard extends MinigameScene {
     scene.add(jackpot);
     this.jackpot = jackpot;
     this.jackpotGlow = glow;
+
+    // Stups-Vorschau: zwei Pfeile über den Töpfen zeigen, wo die eigene Kugel
+    // landet, wenn man JETZT nach links bzw. rechts stupst (nudgePreview).
+    // Vorher war der Stups geraten — wie weit er trägt, hängt davon ab, wie
+    // viel Weg die Kugel noch hat, und das sah man nirgends.
+    const ownColour = this.getState()?.players?.find((player) => player.id === this.getControlledPlayerId())?.color || "#ffffff";
+    // Dazu ein heller Punkt: wo sie ohne Stups landet.
+    this.previewMarks = [-1, 0, 1].map((dir) => {
+      const mark = new THREE.Mesh(
+        dir ? new THREE.ConeGeometry(0.14, 0.3, 4) : new THREE.SphereGeometry(0.09, 10, 8),
+        new THREE.MeshBasicMaterial({ color: dir ? ownColour : "#ffffff", transparent: true, opacity: dir ? 0.9 : 0.7, depthWrite: false, toneMapped: false })
+      );
+      if (dir) mark.rotation.x = Math.PI;
+      mark.visible = false;
+      mark.userData.isFx = true;
+      scene.add(mark);
+      return { dir, mark };
+    });
 
 
 
@@ -359,11 +380,58 @@ export class PegBoard extends MinigameScene {
       const ballShare = this.nachlauf.wo(mine.id, this.now())?.x ?? mine.x;
       this.feedback?.sound("whoosh");
       this.feedback?.vibrate(12);
-      this.sendInput({ action: "nudge", dir: share < ballShare ? -1 : 1 }).catch(() => {});
+      const sentAt = performance.now();
+      this.sendInput({ action: "nudge", dir: share < ballShare ? -1 : 1 }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
       return;
     }
     this.feedback?.sound("tap");
-    this.sendInput({ action: "drop", x: clamp(share, 0.06, 0.94) }).catch(() => {});
+    const sentAt = performance.now();
+    this.sendInput({ action: "drop", x: clamp(share, 0.06, 0.94) }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+  }
+
+  // Wie lange eine Eingabe zum Server und zurück braucht, geglättet. Der
+  // Stups wirkt erst, wenn er ankommt — bis dahin ist die Kugel ein gutes
+  // Stück weiter gefallen, und die Vorschau muss das mitrechnen.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.measured ? this.roundTrip * 0.7 + clamped * 0.3 : clamped;
+    this.measured = true;
+  }
+
+  // Ohne eigene Kugel in der Luft ab und zu messen (`ping` ändert nichts).
+  pingIfIdle(minigame, arcade) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastPingAt < 1500) return;
+    if ((arcade.balls || []).some((ball) => ball.playerId === this.getControlledPlayerId())) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Wo landet die eigene Kugel, wenn JETZT gestupst wird — nach links, nach
+  // rechts oder gar nicht? Gerechnet wie auf dem Server (Nagelbahn.js), ab dem
+  // letzten Serverbild bis zur Ankunft des Stupses, dann mit dem Stups bis zum
+  // Boden. Wo der Jackpot bis dahin steht, muss man weiterhin selbst
+  // vorausdenken.
+  nudgePreview(arcade, f) {
+    const marks = this.previewMarks || [];
+    const hide = () => marks.forEach(({ mark }) => { mark.visible = false; });
+    const own = (arcade.balls || []).find((ball) => ball.playerId === f.controlledId);
+    if (!own || own.nudged || f.finale || !arcade.pegs?.length) return hide();
+    const floorY = arcade.floorY || 1.3;
+    const rules = { seed: arcade.seed, pegs: arcade.pegs, gravity: arcade.gravity ?? 1.9, sideDrag: arcade.sideDrag ?? 1.4 };
+    const from = f.minigame?.sentAt || f.now;
+    const leadS = Math.max(0, Math.min(0.6, (f.now + this.roundTrip - from) / 1000));
+    const push = arcade.nudgePower ?? 0.85;
+    const y = this.worldY(floorY, floorY) + 0.32;
+    for (const { dir, mark } of marks) {
+      const x = landingX(own, rules, { leadS, nudge: dir, push, floorY });
+      // Kommt der Stups erst an, wenn sie schon unten ist, gibt es nichts zu zeigen.
+      if (x === null) return hide();
+      mark.visible = true;
+      mark.position.set(this.worldX(x), y + (dir ? Math.sin(f.now / 140) * 0.04 : -0.1), 0.2);
+    }
   }
 
   ensureBall(ball, colour) {
@@ -399,11 +467,16 @@ export class PegBoard extends MinigameScene {
     const floorY = arcade.floorY || 1.3;
     if (this.jackpot && arcade.jackpotPeriod) {
       const slots = (arcade.slots || []).length || 7;
-      const x = jackpotX(Math.max(0, now - minigame.startedAt), arcade.jackpotPeriod, slots);
+      // Auf derselben Zeitleiste wie die Kugeln (Nachlauf), sonst stand der
+      // Jackpot eine gute Zehntelsekunde weiter als die Kugel, die gerade
+      // landet — sie fiel sichtbar hinein und bekam ihn nicht, oder umgekehrt.
+      const x = jackpotX(Math.max(0, this.nachlauf.zeichenzeit(now) - minigame.startedAt), arcade.jackpotPeriod, slots);
       this.jackpot.position.x = this.worldX(x);
       this.jackpotGlow.material.opacity = 0.28 + Math.sin(now / 160) * 0.1;
       this.jackpot.visible = !finale;
     }
+    this.pingIfIdle(minigame, arcade);
+    this.nudgePreview(arcade, f);
     const colourOf = (id) => state.players.find((player) => player.id === id)?.color || "#ffffff";
     const alive = new Set();
     const ballOf = new Map();

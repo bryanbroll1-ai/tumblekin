@@ -3058,6 +3058,11 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.balls = [];
     arcade.nextBallId = 1;
     arcade.nudgePower = PLINKO_NUDGE;
+    // Für die Stups-Vorschau auf dem Gerät: unter der letzten Nagelreihe fällt
+    // die Kugel nur noch mit diesen beiden Zahlen, und der Landepunkt lässt
+    // sich genau vorausrechnen.
+    arcade.gravity = PLINKO_GRAVITY;
+    arcade.sideDrag = PLINKO_SIDE_DRAG;
     arcade.jackpot = PLINKO_JACKPOT;
     arcade.jackpotPeriod = PLINKO_JACKPOT_PERIOD_MS;
     arcade.ballsPerPlayer = PLINKO_BALLS;
@@ -6019,9 +6024,20 @@ function updatePlinko(room, minigame, arcade, dt, now) {
   // hindurchspringen, und wo sie auf ihn traf, entschied der Takt statt der
   // Bahn. Mit Schritten von höchstens 10 ms bewegt sie sich je Schritt um
   // weniger als ihren eigenen Radius.
-  const steps = Math.max(1, Math.ceil(dt / PLINKO_STEP_S));
-  const h = dt / steps;
-  for (let step = 0; step < steps; step += 1) plinkoStep(arcade, h, now);
+  //
+  // Die Schritte sind FEST 10 ms lang, der Rest wandert in den nächsten Takt.
+  // Vorher wurde jeder Takt in gleich grosse Stücke geteilt — und weil die
+  // Takte um ein paar Millisekunden schwanken, schwankte die Schrittweite
+  // mit. An einem Nagel entscheidet so eine Winzigkeit, zu welcher Seite die
+  // Kugel springt: dieselbe Kugel nahm je nach Serverlast eine andere Bahn, und
+  // die Stups-Vorschau auf dem Gerät (Nagelbahn.js) konnte sie nicht
+  // nachrechnen. Jeder Schritt kennt ausserdem seine eigene Uhrzeit — so lässt
+  // sich festhalten, WANN eine Kugel den Boden erreicht.
+  const total = dt + (arcade.plinkoCarry || 0);
+  const steps = Math.floor(total / PLINKO_STEP_S + 1e-9);
+  arcade.plinkoCarry = total - steps * PLINKO_STEP_S;
+  const from = now - total * 1000;
+  for (let step = 0; step < steps; step += 1) plinkoStep(arcade, PLINKO_STEP_S, from + (step + 1) * PLINKO_STEP_S * 1000);
   plinkoSettle(room, minigame, arcade, now);
 }
 
@@ -6033,6 +6049,16 @@ function plinkoStep(arcade, dt, now) {
     ball.vx *= Math.exp(-PLINKO_SIDE_DRAG * dt);
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
+    // Der Jackpot zählt dort, wo er beim AUFPRALL stand. Gewertet wurde bisher
+    // zur Tickzeit danach — bis zu 90 ms später, in denen er ein Sechstel Topf
+    // weiterwandert. Auf dem Gerät, das die Kugel fliessend zeichnet, landete
+    // sie dann sichtbar im Jackpot und bekam ihn nicht.
+    // Ebenso die Stelle: der Takt rechnet nach dem Aufprall noch weiter, und am
+    // Taktende war die Kugel bis zu ein Fünftel Topf weitergerollt.
+    if (ball.landAt === undefined && ball.y >= arcade.floorY - 0.03) {
+      ball.landAt = now;
+      ball.landX = ball.x;
+    }
 
     if (ball.x < 0.035) {
       ball.x = 0.035;
@@ -6140,8 +6166,8 @@ function plinkoSettle(room, minigame, arcade, now) {
 
   const landed = arcade.balls.filter((ball) => ball.y >= arcade.floorY - 0.03);
   landed.forEach((ball) => {
-    const slot = clamp(Math.floor(ball.x * arcade.slots.length), 0, arcade.slots.length - 1);
-    const jackpot = slot === plinkoJackpotSlot(now - minigame.startedAt, arcade.slots.length);
+    const slot = clamp(Math.floor((ball.landX ?? ball.x) * arcade.slots.length), 0, arcade.slots.length - 1);
+    const jackpot = slot === plinkoJackpotSlot((ball.landAt ?? now) - minigame.startedAt, arcade.slots.length);
     const points = arcade.slots[slot] + (jackpot ? PLINKO_JACKPOT : 0);
     const owner = arcade.players[ball.playerId];
     if (owner) {
@@ -7323,13 +7349,35 @@ function arcadeBotStep(room, bot) {
       player.botNudgeRight = Math.random() < reads;
       player.botNudgeAt = profile.level === "hard" ? 0.62 : profile.level === "normal" ? 0.5 : 0.34;
     }
+    // Der starke Bot stupst wie ein geübter Mensch: dann, wenn der Weg, den der
+    // Stups noch trägt, gerade der nötigen Korrektur entspricht. Vorher
+    // stupste er wie der mittlere an einer festen Höhe — mit voller Wucht
+    // auch dort, wo nur ein halber Topf fehlte — und lag gemessen gleichauf
+    // mit ihm (43,7 gegen 43,6 Punkte).
+    // Der mittlere macht es ebenso, verschätzt sich aber deutlich mehr und
+    // jagt den Jackpot nur jedes zweite Mal.
+    if (profile.level !== "easy") {
+      const height = Math.max(0, arcade.floorY - 0.03 - mine.y);
+      const vy = Math.max(0.05, mine.vy);
+      const fall = (-vy + Math.sqrt(vy * vy + 2 * PLINKO_GRAVITY * height)) / PLINKO_GRAVITY;
+      if (player.botCarryError === undefined || player.botCarryBall !== mine.id) {
+        player.botCarryBall = mine.id;
+        player.botCarryError = (Math.random() - 0.5) * (profile.level === "hard" ? 0.06 : 0.2);
+        player.botChasesJackpot = profile.level === "hard" || Math.random() < 0.5;
+      }
+      const aim = player.botChasesJackpot ? slotX(plinkoJackpotSlot(elapsed + fall * 1000, slots)) : (player.botTargetX ?? 0.5);
+      const need = aim - mine.x;
+      const carry = PLINKO_NUDGE / PLINKO_SIDE_DRAG * (1 - Math.exp(-PLINKO_SIDE_DRAG * fall));
+      if (Math.abs(need) < 0.04) return;
+      if (carry > Math.abs(need) + 0.02 + player.botCarryError) return;
+      const wanted = need > 0 ? 1 : -1;
+      handleArcadeInput(room, bot, { action: "nudge", dir: player.botNudgeRight ? wanted : -wanted });
+      return;
+    }
+    // Der schwache stupst an fester Höhe zur Mitte, egal wie weit es noch ist.
     const share = mine.y / Math.max(0.001, arcade.floorY);
     if (share < player.botNudgeAt) return;
-    // Beim Stups weiss man schon viel genauer, wo der Jackpot beim Aufprall
-    // steht — der starke zielt dann dorthin, der schwache stupst zur Mitte.
-    const left = ((arcade.floorY - mine.y) / Math.max(0.6, mine.vy)) * 1000;
-    const late = profile.level === "hard" ? 0.95 : profile.level === "normal" ? 0.55 : 0;
-    const aim = Math.random() < late ? slotX(plinkoJackpotSlot(elapsed + left, slots)) : (player.botTargetX ?? 0.5);
+    const aim = player.botTargetX ?? 0.5;
     if (Math.abs(mine.x - aim) < 0.05) return;
     const wanted = mine.x < aim ? 1 : -1;
     handleArcadeInput(room, bot, { action: "nudge", dir: player.botNudgeRight ? wanted : -wanted });

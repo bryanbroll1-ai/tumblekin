@@ -4444,7 +4444,9 @@ test("nagelbrett: der Jackpot wandert über alle Töpfe und bringt +15", () => {
   assert.equal(seen.size, 7, "er kommt an jedem Topf vorbei");
 
   const p = player({ id: "nj", name: "NJ", color: "#fff" });
-  const startedAt = Date.now() - 1000;
+  // 1300 ms: der Jackpot steht mitten über einem Topf. Bei 1000 ms lag er
+  // genau auf einer Topfgrenze, und das Ergebnis hing an Millisekunden.
+  const startedAt = Date.now() - 1300;
   const arcade = createArcadeState("nagelbrett", [p], startedAt);
   const minigame = { arcade, scores: {}, startedAt, duration: 28000, finishing: false };
   const room = { currentMinigame: minigame, players: [p] };
@@ -4456,6 +4458,62 @@ test("nagelbrett: der Jackpot wandert über alle Töpfe und bringt +15", () => {
   const entry = arcade.players[p.id];
   assert.equal(entry.lastSlot.jackpot, true);
   assert.equal(entry.score, arcade.slots[slot] + testRules.PLINKO_JACKPOT);
+});
+
+test("nagelbrett: der Jackpot zählt zum Aufprall, nicht zum nächsten Takt", () => {
+  // Gewertet wurde zur Tickzeit NACH der Landung — bis zu 90 ms später, in
+  // denen der Jackpot ein Stück weiterwandert.
+  const p = player({ id: "nk", name: "NK", color: "#fff" });
+  // Eine Uhrzeit suchen, zu der der Jackpot-Topf in den nächsten 90 ms wechselt.
+  let edge = 1000;
+  while (testRules.plinkoJackpotSlot(edge, 7) === testRules.plinkoJackpotSlot(edge + 90, 7)) edge += 5;
+  const slot = testRules.plinkoJackpotSlot(edge, 7);
+  const startedAt = Date.now() - (edge + 90);
+  const arcade = createArcadeState("nagelbrett", [p], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 28000, finishing: false };
+  const room = { currentMinigame: minigame, players: [p] };
+  // Die Kugel erreicht den Boden gleich im ersten Rechenschritt des Takts,
+  // also noch, als der Jackpot über ihrem Topf stand.
+  arcade.balls = [{ id: 98, playerId: p.id, x: (slot + 0.5) / 7, y: arcade.floorY - 0.031, vx: 0, vy: 1.5, plinks: 0, nudged: true }];
+  arcade.lastUpdateAt = Date.now() - 90;
+  updateArcade(room);
+  const entry = arcade.players[p.id];
+  assert.equal(entry.lastSlot.slot, slot);
+  assert.equal(entry.lastSlot.jackpot, true, "beim Aufprall stand der Jackpot hier");
+});
+
+test("nagelbrett: die Stups-Vorschau landet dort, wo der Server die Kugel landen lässt", async () => {
+  // Nagelbahn.js rechnet die Bahn einer Kugel auf dem Gerät nach. Weicht sie
+  // ab, zeigt die Vorschau einen anderen Topf als den, der gewertet wird.
+  const { landingX } = await import("../client/src/minigames/Nagelbahn.js");
+  const p = player({ id: "nv", name: "NV", color: "#fff" });
+  let checked = 0;
+  for (let r = 0; r < 12; r += 1) {
+    const startedAt = Date.now() - 1300;
+    const arcade = createArcadeState("nagelbrett", [p], startedAt, { seed: 500 + r * 13 });
+    const minigame = { arcade, scores: {}, startedAt, duration: 28000, finishing: false };
+    const room = { currentMinigame: minigame, players: [p] };
+    arcade.balls = [{ id: 7 + r, playerId: p.id, x: 0.2 + (r % 6) * 0.12, y: 0.05, vx: 0.01, vy: 0.05, plinks: 0, nudged: false }];
+    const rules = { seed: arcade.seed, pegs: arcade.pegs, gravity: arcade.gravity, sideDrag: arcade.sideDrag };
+    const nudgeAfter = 4 + (r % 5) * 2;        // so viele Takte, dann stupsen (oder nicht)
+    const dir = [-1, 0, 1][r % 3];
+    let predicted = null;
+    for (let tick = 0; tick < 60 && arcade.balls.length; tick += 1) {
+      if (tick === nudgeAfter) {
+        predicted = landingX(arcade.balls[0], rules, { nudge: dir, push: arcade.nudgePower, floorY: arcade.floorY });
+        if (dir) { arcade.balls[0].vx = dir * arcade.nudgePower; arcade.balls[0].nudged = true; }
+      }
+      // Die Takte schwanken wie auf einem echten Server (85 bis 97 ms) — die
+      // Bahn darf davon nicht abhängen.
+      arcade.lastUpdateAt = Date.now() - (85 + ((tick * 7 + r * 3) % 13));
+      updateArcade(room);
+    }
+    if (predicted === null) continue;
+    const entry = arcade.players[p.id];
+    assert.equal(entry.lastSlot.slot, Math.floor(predicted * 7), `Kugel ${r}: Vorschau ${predicted.toFixed(3)}`);
+    checked += 1;
+  }
+  assert.ok(checked >= 8, `nur ${checked} Vergleiche`);
 });
 
 test("nagelbrett: die Landung hängt am Abwurf, nicht nur am Zufall", () => {
