@@ -3078,6 +3078,12 @@ function createArcadeState(type, players, startedAt, options = {}) {
     // Logical sheet is 1 wide and CURLING_SHEET_Y tall (uniform scale, see plinko).
     arcade.house = { x: 0.5, y: 0.3 };
     arcade.sheetY = CURLING_SHEET_Y;
+    // Für die Knopf-Marke am Kraftbalken: mit derselben Reibung rechnet das
+    // Gerät aus, wie viel Kraft bis zum Knopf trägt.
+    arcade.friction = CURLING_FRICTION;
+    arcade.glideFriction = CURLING_GLIDE_FRICTION;
+    // Damit das Gerät die Steine genau so gross zeichnet, wie sie stossen.
+    arcade.stoneRadius = CURLING_STONE_RADIUS;
     arcade.rings = CURLING_RINGS.map((ring) => ({ ...ring }));
     arcade.stones = [];
     arcade.nextStoneId = 1;

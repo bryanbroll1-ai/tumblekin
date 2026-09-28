@@ -12,7 +12,14 @@ import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
 // Ausfallschritt an, schauen ihm hinterher und freuen sich, wenn er im Haus
 // liegen bleibt — oder zucken mit den Schultern.
 const SHEET_W = 4.2;
-const SHEET_LEN = 9.5;
+// Der Server rechnet auf einem Blatt von 1 × 1,3 (CURLING_SHEET_Y), in BEIDEN
+// Richtungen im selben Mass. Gezeichnet war es 4,2 breit und 9,5 lang — eine
+// Einheit war quer 4,2 und längs 7,3 Weltmasse lang. Die Folgen sah man im
+// Haus: die Ringe waren Kreise, gewertet wurde aber ein längs um das 1,74-fache
+// gestrecktes Oval — ein Stein, der sichtbar hinter dem Ring lag, zählte noch.
+// Und die Steine überlappten seitlich, weil sie quer schon bei 0,27 anstossen,
+// aber mit 0,24 Radius gezeichnet waren. Jetzt gilt ein Massstab.
+const SHEET_LEN = SHEET_W * 1.3;
 // Wurf: Richtung = wohin der Finger auf dem EIS zeigt (Strahl vom Bildschirm
 // auf die Eisfläche), Kraft = Länge des Wischs. Vorher wurde die Seite durch
 // die Bildbreite und die Länge durch die Bildhöhe geteilt — je nach Gerät
@@ -46,6 +53,9 @@ export class IceStock extends MinigameScene {
     this.ruhig = new Set();
     this.letzterGleitTon = 0;
     this.labelY = 0.74;
+    // Im Finale nicht auf die Siegerfigur am Abwurf fahren: entschieden wird
+    // im Haus, und dort zeigt der goldene Ring, wer vorne liegt (rigOptions).
+    this.finaleFocus = false;
   }
 
   worldX(x) { return (x - 0.5) * SHEET_W; }
@@ -66,7 +76,7 @@ export class IceStock extends MinigameScene {
       <div class="stock-left" data-stock-left>3 Steine</div>
       <div class="stock-chips" data-stock-chips></div>
       <div class="color-banner stock-banner" data-stock-banner hidden></div>
-      <div class="stock-power" data-stock-power hidden><span data-stock-power-fill></span><b data-stock-power-text>0%</b></div>`;
+      <div class="stock-power" data-stock-power hidden><em class="stock-power-track"><span data-stock-power-fill></span><i data-stock-power-mark hidden></i></em><b data-stock-power-text>0%</b></div>`;
   }
 
   build() {
@@ -101,7 +111,10 @@ export class IceStock extends MinigameScene {
 
     // Das Haus: konzentrische Ringe. Die Farben sind die Punktwerte — von aussen
     // nach innen wird es heller, damit man den Wert sieht statt ihn zu lernen.
-    const shades = ["#8fb6cc", "#4bb8ff", "#ffffff", "#ff5d73"];
+    // Der äussere Ring war blass graublau (#8fb6cc) und auf dem hellen Eis
+    // kaum vom Rest zu unterscheiden — ob ein Stein noch im Haus lag, musste
+    // man raten. Jetzt ein kräftiges Blau aussen, dann hell, dann weiss.
+    const shades = ["#2f6fc8", "#6fc3ff", "#ffffff", "#ff5d73"];
     const rings = [...(arcade.rings || [])].sort((a, b) => b.radius - a.radius);
     rings.forEach((ring, index) => {
       const disc = new THREE.Mesh(
@@ -122,6 +135,19 @@ export class IceStock extends MinigameScene {
     knopf.rotation.x = -Math.PI / 2;
     knopf.position.set(this.worldX(arcade.house.x), 0.06 + rings.length * 0.004, this.worldZ(arcade.house.y, sheetY));
     scene.add(knopf);
+
+    // Der Stein, der am nächsten am Knopf liegt, bekommt einen goldenen Ring.
+    // Zwölf Steine im Haus sehen von hinten alle gleich aus; wer vorne liegt,
+    // war nur an den Zahlen oben abzulesen.
+    const stoneR = (arcade.stoneRadius ?? 0.032) * SHEET_W;
+    this.leaderRing = new THREE.Mesh(
+      new THREE.RingGeometry(stoneR * 1.15, stoneR * 1.75, 28),
+      new THREE.MeshBasicMaterial({ color: "#ffd24a", transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false })
+    );
+    this.leaderRing.rotation.x = -Math.PI / 2;
+    this.leaderRing.visible = false;
+    this.leaderRing.userData.isFx = true;
+    scene.add(this.leaderRing);
 
     // Abwurflinie: von hier starten alle Steine.
     const line = new THREE.Mesh(
@@ -301,14 +327,17 @@ export class IceStock extends MinigameScene {
 
   shot() {
     const sheetY = this.minigame.arcade.sheetY || 1.3;
+    // Mit dem richtigen Massstab ist das Blatt kürzer; der Blick liegt
+    // deshalb weiter vorn und etwas steiler, sonst blieb unter den Werfern
+    // fast die halbe Bildhöhe leerer Schnee.
     return {
-      look: [0, 0.2, this.worldZ(sheetY * 0.52, sheetY)],
-      frame: { w: SHEET_W + 0.4, h: 4.6 },
+      look: [0, 0.2, this.worldZ(sheetY * 0.39, sheetY)],
+      frame: { w: SHEET_W + 0.4, h: 4.2 },
       // Gerade von hinten: schräg gesehen zeigte "senkrecht nach oben
       // wischen" auf dem Eis leicht zur Seite, und die Bahn lief im Bild
       // schief nach rechts oben.
       yaw: 0,
-      pitch: 0.5,
+      pitch: 0.62,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.25, zoom: 1.3 }
     };
@@ -412,23 +441,29 @@ export class IceStock extends MinigameScene {
     this.on(window, "pointercancel", this.onCancel);
   }
 
+  // Radius eines Steins im Bild: genau so gross, wie er auf dem Server stösst.
+  stoneWorldRadius() {
+    return ((this.update || this.minigame)?.arcade?.stoneRadius ?? 0.032) * SHEET_W;
+  }
+
   ensureStone(stone, colour) {
     if (this.stoneMeshes.has(stone.id)) return this.stoneMeshes.get(stone.id);
+    const r = this.stoneWorldRadius();
     const group = new THREE.Group();
     const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.22, 0.24, 0.16, 16),
+      new THREE.CylinderGeometry(r * 0.92, r, 0.13, 16),
       new THREE.MeshLambertMaterial({ color: "#5e6b78" })
     );
-    body.position.y = 0.08;
+    body.position.y = 0.065;
     body.castShadow = true;
     group.add(body);
     // Der Griff trägt die Spielerfarbe — der Stein selbst bleibt Granit, sonst
     // sieht das Haus aus wie ein Farbklecks.
     const handle = new THREE.Mesh(
-      new THREE.TorusGeometry(0.1, 0.035, 6, 14),
+      new THREE.TorusGeometry(r * 0.5, r * 0.18, 6, 14),
       new THREE.MeshLambertMaterial({ color: colour })
     );
-    handle.position.y = 0.2;
+    handle.position.y = 0.16;
     handle.rotation.x = Math.PI / 2;
     group.add(handle);
     this.scene.add(group);
@@ -449,7 +484,45 @@ export class IceStock extends MinigameScene {
     const text = bar.querySelector("[data-stock-power-text]");
     if (fill) fill.style.width = `${Math.round(anteil * 100)}%`;
     if (text) text.textContent = aim.valid || aim.len < MIN_SWIPE ? `${Math.round(anteil * 100)}%` : "nach vorne!";
+    // Die Marke: so viel Kraft trägt den Stein von hier geradewegs zum Knopf.
+    // Ohne sie war der erste Stein geraten — wie weit ein Prozentwert trägt,
+    // wusste niemand, und der Pfeil wächst gleichmässig, die Gleitstrecke aber
+    // nicht. Treffen, zielen und schieben muss man weiterhin selbst.
+    const mark = bar.querySelector("[data-stock-power-mark]");
+    const house = this.housePower();
+    if (mark) {
+      mark.hidden = house === null;
+      if (house !== null) mark.style.left = `${(house * 100).toFixed(1)}%`;
+    }
     this.updateArrow(aim);
+  }
+
+  // Die Kraft, die den eigenen Stein geradewegs zum Knopf trägt — mit der
+  // Reibung des Servers (curlingSpeedFor) und derselben Umrechnung von Kraft
+  // und Richtung in Tempo wie beim Loslassen.
+  housePower() {
+    const arcade = (this.update || this.minigame)?.arcade;
+    const own = arcade?.players?.[this.getControlledPlayerId()];
+    if (!arcade || !own || !arcade.house || !arcade.glideFriction) return null;
+    const sheetY = arcade.sheetY || 1.3;
+    const dx = arcade.house.x - (own.startX ?? 0.5);
+    const dy = arcade.house.y - (sheetY - 0.14);
+    const distance = Math.hypot(dx, dy);
+    const mu = arcade.glideFriction;
+    const k = arcade.friction;
+    const glide = (v) => v / k - (mu / (k * k)) * Math.log(1 + (k * v) / mu);
+    let low = 0;
+    let high = 4;
+    for (let i = 0; i < 40; i += 1) {
+      const mid = (low + high) / 2;
+      if (glide(mid) < distance) low = mid;
+      else high = mid;
+    }
+    const speed = (low + high) / 2;
+    const vx = speed * dx / distance;
+    const vy = speed * dy / distance;
+    const gainX = GAIN_Z * (SHEET_LEN / sheetY) / GAIN_X;
+    return clamp(Math.hypot(vx / 1.35 / gainX, vy / 1.7), 0, 1);
   }
 
   hidePower() {
@@ -569,6 +642,7 @@ export class IceStock extends MinigameScene {
       this.scene.remove(visual.group);
       this.stoneMeshes.delete(id);
     });
+    this.markLeader(arcade, now);
     if ((arcade.clacks || 0) > this.lastClacks) {
       this.lastClacks = arcade.clacks;
       this.feedback?.sound("clack");
@@ -626,6 +700,51 @@ export class IceStock extends MinigameScene {
     });
   }
 
+  // Goldener Ring unter dem Stein, der dem Knopf am nächsten liegt — nur
+  // unter liegenden Steinen im Haus.
+  markLeader(arcade, now) {
+    if (!this.leaderRing) return;
+    const house = arcade.house || { x: 0.5, y: 0.3 };
+    const outer = Math.max(...(arcade.rings || [{ radius: 0.25 }]).map((ring) => ring.radius));
+    let best = null;
+    (arcade.stones || []).forEach((stone) => {
+      if (Math.hypot(stone.vx || 0, stone.vy || 0) > 0.02) return;
+      const d = Math.hypot(stone.x - house.x, stone.y - house.y);
+      if (d > outer) return;
+      if (!best || d < best.d) best = { stone, d };
+    });
+    const visual = best ? this.stoneMeshes.get(best.stone.id) : null;
+    this.leaderRing.visible = Boolean(visual);
+    if (!visual) return;
+    this.leaderRing.position.set(visual.group.position.x, 0.085, visual.group.position.z);
+    this.leaderRing.scale.setScalar(1 + Math.sin(now / 220) * 0.06);
+  }
+
+  // Sind die eigenen Steine alle draussen und liegen, gibt es am Abwurf
+  // nichts mehr zu tun — dann fährt die Kamera ans Haus, wo es entschieden
+  // wird. Im Finale ebenso: dort zeigt der goldene Ring, wer vorne liegt, die
+  // Figuren jubeln danach auf dem Treppchen.
+  rigOptions(f) {
+    const arcade = f.arcade;
+    if (!arcade) return null;
+    const own = arcade.players?.[f.controlledId];
+    if (!f.finale) {
+      if (!own || (own.stonesLeft ?? 0) > 0) return null;
+      const ownMoving = (arcade.stones || []).some((stone) => stone.playerId === f.controlledId && Math.hypot(stone.vx || 0, stone.vy || 0) > 0.02);
+      if (ownMoving) return null;
+    }
+    const sheetY = arcade.sheetY || 1.3;
+    const house = arcade.house || { x: 0.5, y: 0.3 };
+    return {
+      // Steil von oben: flacher stehen die Werfer zwischen Kamera und Haus.
+      look: [this.worldX(house.x), 0.1, this.worldZ(house.y, sheetY) + 0.2],
+      frame: { w: SHEET_W * 0.72, h: 3.2 },
+      pitch: 0.85,
+      keep: [],
+      own: null
+    };
+  }
+
   drawHud(f) {
     const { arcade, state, controlledId } = f;
     if (!arcade) return;
@@ -647,9 +766,14 @@ export class IceStock extends MinigameScene {
       }).join("");
     }
 
+    // Wer nichts mehr zu werfen hat, braucht den Wisch-Hinweis nicht.
+    this.hintNode ||= this.controls.querySelector(".trace-hint");
+    if (this.hintNode) this.hintNode.hidden = Boolean(f.finale) || (own?.stonesLeft ?? 0) <= 0;
     const banner = this.hud.querySelector("[data-stock-banner]");
     if (!banner) return;
-    if ((own?.stonesLeft ?? 0) <= 0) {
+    if (f.finale) {
+      banner.hidden = true;
+    } else if ((own?.stonesLeft ?? 0) <= 0) {
       banner.hidden = false;
       banner.textContent = "Alle Steine draussen — jetzt zählt, was liegen bleibt";
       banner.style.background = "#4bb8ff";

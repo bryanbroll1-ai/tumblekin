@@ -1733,6 +1733,13 @@
   background: rgba(18, 40, 56, 0.72);
 }
 
+/* Die Spur hält Füllung und Knopf-Marke im selben Massstab. */
+.stock-power-track {
+  position: relative;
+  flex: 1;
+  height: 12px;
+}
+
 .stock-power span {
   display: block;
   height: 12px;
@@ -1741,6 +1748,20 @@
   background: linear-gradient(90deg, #7fe06f, #ffd15c, #ff5d73);
   transition: width 60ms linear;
 }
+
+/* So viel Kraft trägt den Stein geradewegs zum Knopf. */
+.stock-power-track i {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px #ff5d73;
+}
+
+.stock-power-track i[hidden] { display: none; }
 
 .stock-power b {
   flex: none;
