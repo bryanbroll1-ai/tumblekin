@@ -97,6 +97,12 @@ for (const game of liste) {
       // Animation gerade läuft. Ein Hüpfer dauert knapp eine Sekunde; 1.3 s
       // decken auch die langsameren.
       const tiefsteSohle = new Map();
+      // Und WO die Figur dabei stand. Gemessen wurde der Boden bisher an der
+      // Stelle vom Ende der Messung: wer in der Zeit legitim die Höhe wechselt
+      // — beim Tauziehen von der Wiese aufs weisse Brett —, stand mit seiner
+      // tiefsten Sohle auf der Wiese, verglichen wurde aber mit dem Brett, und
+      // die Figur galt als "im Boden".
+      const tiefsteStelle = new Map();
       const sohleJetzt = (kin) => {
         let s = Infinity;
         (kin.userData.legs || kin.userData.feet || []).forEach((foot) => {
@@ -130,7 +136,10 @@ for (const game of liste) {
           // eine Spielerfigur trotzdem, darum nur für den Boden.
           if (!kin.visible) versteckt.add(index);
           const s = sohleJetzt(kin);
-          if (Number.isFinite(s)) tiefsteSohle.set(index, Math.min(tiefsteSohle.get(index) ?? Infinity, s));
+          if (Number.isFinite(s) && s < (tiefsteSohle.get(index) ?? Infinity)) {
+            tiefsteSohle.set(index, s);
+            tiefsteStelle.set(index, kin.getWorldPosition(new THREE.Vector3()));
+          }
         });
       }
 
@@ -155,8 +164,7 @@ for (const game of liste) {
         //
         // Die Sohle ist die einzige Grösse, die beides überlebt: sie ist der
         // Punkt, der den Boden berühren soll.
-        const stand = new THREE.Vector3();
-        kin.getWorldPosition(stand);
+        const stand = tiefsteStelle.get(index) || kin.getWorldPosition(new THREE.Vector3());
         const füsse = tiefsteSohle.get(index);
         if (!Number.isFinite(füsse)) return;
         // Der Strahl startet auf KNIEHÖHE, nicht über dem Kopf.

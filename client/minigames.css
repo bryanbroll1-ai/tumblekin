@@ -2370,11 +2370,31 @@ canvas.is-stunned {
   height: 100%;
   border-radius: inherit;
   background: #6dff9a;
-  transition: width 90ms linear, background 160ms ease;
+  transition: background 160ms ease;
 }
 
 .tug-button[data-grip="mid"] .tug-grip i { background: #ffd84a; }
 .tug-button[data-grip="low"] .tug-grip i { background: #ff5d73; }
+
+/* Was die Griffkraft gerade sagt, als Wort im Knopf: voll = schneller
+   ziehen, fast leer = langsamer, kurz vor Schluss = alles geben. */
+.tug-button[data-coach="faster"] .tug-label,
+.tug-button[data-coach="all"] .tug-label {
+  color: #fff6b0;
+}
+
+.tug-button[data-coach="slower"] .tug-label {
+  color: #ffd0d6;
+}
+
+.tug-button[data-coach="all"] {
+  animation: tug-pulse 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes tug-pulse {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.25); }
+}
 
 .tug-button.is-slipping {
   background: linear-gradient(180deg, #8b98a8, #5b6674);

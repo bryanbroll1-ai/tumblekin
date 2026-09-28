@@ -135,7 +135,12 @@ const tug = {
       rounds: TUG_ROUNDS,
       roundMs: TUG_ROUND_MS,
       showMs: TUG_SHOW_MS,
-      leadMs: TUG_LEAD_MS
+      leadMs: TUG_LEAD_MS,
+      // Damit das Gerät die Griffkraft bis zur Ankunft des nächsten Zugs
+      // vorausrechnen kann — samt der eigenen Züge, die noch unterwegs sind.
+      gripCost: TUG_GRIP_COST,
+      gripRegen: TUG_GRIP_REGEN,
+      slipMs: TUG_SLIP_MS
     };
   },
   input(ctx, player, entry, input) {
@@ -245,13 +250,27 @@ const tug = {
     if (now < entry.botNextAt && !(mateJustPulled && now > entry.botNextAt - 90)) return null;
     // Takt und Übermut je Stufe: der starke hält knapp unter der Grenze und
     // wartet, wenn die Kraft knapp wird; der schwache hämmert gern drauflos.
-    const rest = byLevel(entry, 0, 0.18, 0.22);
+    // In den letzten Sekunden eines Durchgangs gibt der starke alles, was an
+    // Griffkraft übrig ist — so, wie es ein geübter Mensch tut. Gemessen gegen
+    // einen Menschen mit sauberem Takt verlor er vorher 99 % der Partien,
+    // der mittlere gegen einen menschlich schwankenden Takt 91 %.
+    const roundLeft = arcade.tug.roundStartAt + TUG_ROUND_MS - elapsed;
+    // Nicht in jedem Durchgang — wie ein Mensch, der manchmal daran denkt.
+    // Mit Endspurt in jeder Runde gewann er gegen einen guten Menschen 85 %,
+    // ohne 36 %: der Seilstand summiert den Zug über den ganzen Durchgang,
+    // und schon kleine Unterschiede entscheiden.
+    if (entry.botSprintRound !== arcade.tug.round) {
+      entry.botSprintRound = arcade.tug.round;
+      entry.botSprints = level(entry) === "hard" && Math.random() < 0.5;
+    }
+    const sprint = entry.botSprints && roundLeft < 1500;
+    const rest = sprint ? 0.1 : byLevel(entry, 0, 0.18, 0.22);
     if (entry.grip < rest) {
       entry.botNextAt = now + 180;
       return null;
     }
     const mash = Math.random() < byLevel(entry, 0.5, 0.2, 0.04);
-    const base = mash ? 110 : byLevel(entry, 300, 235, 206);
+    const base = sprint ? 150 : mash ? 110 : byLevel(entry, 300, 215, 206);
     // Vom geplanten Zeitpunkt aus weiterzählen, nicht von jetzt: der Bot wird
     // nur alle 120 bis 180 ms gefragt, und von jetzt an gezählt fiele jeder
     // Zug um einen halben Takt zu spät — der ruhige Takt des starken Bots

@@ -35,6 +35,11 @@ export class TugOfWar extends MinigameScene {
     this.seenResults = 0;
     this.labelY = 0.8;
     this.bubbles = [];
+    this.roundTrip = 0;
+    this.pressLog = [];          // { at }: wann (Geräteuhr) dieses Gerät gezogen hat
+    this.lastPressClock = -1e9;
+    this.waste = 0;              // wie oft die Griffkraft zuletzt voll war (0…1)
+    this.coach = "ZIEH!";
   }
 
   stage() {
@@ -255,12 +260,22 @@ export class TugOfWar extends MinigameScene {
       </button>`;
     this.pullButton = this.controls.querySelector("[data-tug-pull]");
     this.gripBar = this.controls.querySelector("[data-tug-grip]");
+    this.label = this.controls.querySelector(".tug-label");
     const press = (event) => {
       event.preventDefault();
       const minigame = this.update || this.minigame;
       if (!minigame || minigame.finaleAt) return;
       this.feedback?.vibrate(8);
-      this.sendInput({ action: "pull" }).catch(() => {});
+      const clock = performance.now();
+      const at = this.now();
+      this.lastPressClock = clock;
+      this.pressLog.push({ at });
+      while (this.pressLog.length && this.pressLog[0].at < at - 3000) this.pressLog.shift();
+      // Die eigene Figur reisst sofort am Seil — nicht erst, wenn der Server
+      // den Zug eine Rundreise später bestätigt.
+      const own = this.getControlledPlayerId();
+      if (own) this.jerk.set(own, 0.13);
+      this.sendInput({ action: "pull" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
     };
     this.on(this.pullButton, "pointerdown", press);
     this.on(this.webglCanvas, "pointerdown", press);
@@ -270,11 +285,49 @@ export class TugOfWar extends MinigameScene {
     this.lastServerAt = performance.now();
   }
 
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Wer nicht zieht, schickt nichts — dann misst ein Ping die Laufzeit.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastPressClock < 1000 || clock - (this.lastPingAt || 0) < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Die eigene Griffkraft zu dem Moment, in dem ein JETZT geschickter Zug beim
+  // Server ankommt: der letzte Serverstand, dazu die Erholung bis dahin, minus
+  // die Züge, die schon unterwegs sind. Vorher zeigte der Balken den Stand von
+  // vor einer Rundreise — beim Takt von fünf Zügen je Sekunde hing er einen
+  // Zug hinterher, und wer nach ihm zog, rutschte ab.
+  forecastGrip(f) {
+    const { arcade, minigame } = f;
+    const state = arcade.tug;
+    const own = arcade.players[f.controlledId];
+    if (!own) return 1;
+    const snapAt = arcade.lastUpdateAt || minigame.sentAt || f.now;
+    const arrive = f.now + this.roundTrip;
+    const cost = state.gripCost ?? 0.085;
+    const regen = state.gripRegen ?? 0.42;
+    const pending = this.pressLog.filter((press) => press.at + this.roundTrip > snapAt).length;
+    const from = Math.max(snapAt, own.slipUntil || 0);
+    const grip = (own.grip ?? 1) + (regen * Math.max(0, arrive - from)) / 1000 - cost * pending;
+    return Math.max(0, Math.min(1, grip));
+  }
+
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.tug;
     if (!state) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
+    this.pingIfIdle(minigame);
+    this.grip = this.forecastGrip(f);
     const age = Math.min(0.15, (performance.now() - this.lastServerAt) / 1000);
     const pulling = state.phase === "pull" && elapsed >= state.leadMs;
     const target = pulling ? Math.max(-1, Math.min(1, state.pos + state.vel * age)) : state.pos;
@@ -350,9 +403,10 @@ export class TugOfWar extends MinigameScene {
       const dir = seat.side === 0 ? -1 : 1;
       const isOwn = player.id === controlledId;
 
-      // Jeder Zug reisst die Figur kurz nach hinten.
+      // Jeder Zug reisst die Figur kurz nach hinten — die eigene schon beim
+      // Tippen (bind), die anderen, sobald der Server ihren Zug meldet.
       const taps = entry.taps || 0;
-      if (taps > (this.seenTaps.get(player.id) ?? taps)) this.jerk.set(player.id, 0.13);
+      if (!isOwn && taps > (this.seenTaps.get(player.id) ?? taps)) this.jerk.set(player.id, 0.13);
       this.seenTaps.set(player.id, taps);
       const jerk = (this.jerk.get(player.id) || 0) * Math.exp(-dt * 11);
       this.jerk.set(player.id, jerk);
@@ -505,11 +559,29 @@ export class TugOfWar extends MinigameScene {
     }
 
     if (this.pullButton) {
-      const grip = Math.max(0, Math.min(1, own?.grip ?? 1));
+      const grip = this.grip ?? Math.max(0, Math.min(1, own?.grip ?? 1));
       this.gripBar.style.width = `${Math.round(grip * 100)}%`;
       this.pullButton.dataset.grip = grip < 0.25 ? "low" : grip < 0.55 ? "mid" : "high";
-      this.pullButton.classList.toggle("is-slipping", Boolean(own && now < (own.slipUntil || 0)));
+      const slipping = Boolean(own && now < (own.slipUntil || 0));
+      this.pullButton.classList.toggle("is-slipping", slipping);
       this.pullButton.disabled = Boolean(minigame.finaleAt);
+      // Der Knopf sagt, was die Griffkraft sagt. Ist sie voll, wird Kraft
+      // verschenkt — sie wächst nicht über voll hinaus; ist sie fast leer,
+      // rutscht man gleich ab. Kurz vor Schluss lohnt es, alles zu geben, was
+      // noch da ist.
+      const pulling = state.phase === "pull" && elapsed >= state.leadMs;
+      this.waste += ((grip >= 0.985 ? 1 : 0) - this.waste) * Math.min(1, f.dt * 2.2);
+      const left = state.roundStartAt + (state.roundMs || 11000) - (elapsed + this.roundTrip);
+      let coach = "ZIEH!";
+      if (pulling && slipping) coach = "HALT!";
+      else if (pulling && left < 2600 && grip > 0.3) coach = "ALLES!";
+      else if (pulling && grip < 0.22) coach = "LANGSAM!";
+      else if (pulling && this.waste > 0.55) coach = "SCHNELLER!";
+      if (coach !== this.coach && this.label) {
+        this.coach = coach;
+        this.label.textContent = coach;
+        this.pullButton.dataset.coach = coach === "ZIEH!" ? "" : coach === "ALLES!" ? "all" : coach === "SCHNELLER!" ? "faster" : "slower";
+      }
     }
   }
 }
