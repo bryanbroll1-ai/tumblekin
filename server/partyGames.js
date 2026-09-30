@@ -773,6 +773,10 @@ const HONEY_VINE = 14;
 const HONEY_GOLD = 3;
 const HONEY_STING_COST = 4;            // so viele Früchte fallen beim Stich herunter
 const HONEY_PASSES = 1;                // so oft darf jeder seinen Zug weiterschieben
+// Das Gerät zeigt die Bedenkzeit nach der Ankunftszeit beim Server (siehe
+// HoneyVine.js). Was trotzdem knapp danach ankommt, zählt noch: erst nach
+// dieser Frist pflückt der Server von selbst.
+const HONEY_GRACE_MS = 150;
 
 function buildHoneyVine(seed, number) {
   const items = [];
@@ -922,7 +926,9 @@ const honey = {
       last: null,
       leadMs: HONEY_LEAD_MS,
       gold: HONEY_GOLD,
-      turnMs: HONEY_TURN_MS
+      turnMs: HONEY_TURN_MS,
+      graceMs: HONEY_GRACE_MS,
+      stingCost: HONEY_STING_COST
     };
     Object.values(arcade.players).forEach((entry) => {
       entry.fruits = 0;
@@ -957,7 +963,7 @@ const honey = {
       honeyNextTurn(ctx, null, 0, true);
     }
     const turn = state.turn;
-    if (turn && elapsed >= turn.until) {
+    if (turn && elapsed >= turn.until + HONEY_GRACE_MS) {
       // Zeit um: eine wird gepflückt, ob man will oder nicht.
       const player = room.players.find((p) => p.id === turn.playerId);
       const entry = player && arcade.players[player.id];
@@ -2587,7 +2593,7 @@ module.exports = {
     TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS, FACE_GRACE_MS,
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS, FLAG_GRACE_MS, FLAG_PUBLISH_LEAD_MS, FLAG_MIN_PRESS_MS,
-    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST,
+    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST, HONEY_GRACE_MS,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS,
     BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS,

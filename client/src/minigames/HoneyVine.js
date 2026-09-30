@@ -16,7 +16,8 @@ const VINE_BOTTOM = 1.0;
 const SPACING = 0.34;
 const BRANCH_Y = 5.75;
 const PICK_SPOT = new THREE.Vector3(0.42, 0, 0.62);
-const RING_R = 1.75;
+const SLOT_INNER = 1.0;            // innerster Platz, weit genug neben dem Pflückplatz
+const SLOT_GAP = 0.65;             // Abstand der Plätze, von der Ranke nach aussen
 const FLY_MS = 520;
 
 export class HoneyVine extends MinigameScene {
@@ -31,6 +32,12 @@ export class HoneyVine extends MinigameScene {
     this.chase = new Map();       // playerId → bis wann die Bienen jagen
     this.labelY = 0.78;
     this.bees = [];
+    this.roundTrip = 0;
+    this.measured = false;
+    this.lastPingAt = 0;
+    // Der eigene Zug, schon gezeigt, aber vom Server noch nicht bestätigt:
+    // { number, count, passed, at }.
+    this.pending = null;
   }
 
   stage() {
@@ -58,11 +65,14 @@ export class HoneyVine extends MinigameScene {
 
     const players = this.getState()?.players || [];
     const n = Math.max(1, players.length);
+    const left = Math.ceil(n / 2);
     players.forEach((player, index) => {
-      // Im Halbkreis vor der Ranke, mit Blick zu ihr.
-      const a = n === 1 ? 0 : -0.95 + (1.9 * index) / (n - 1);
-      const x = Math.sin(a) * RING_R;
-      const z = VINE_Z + Math.cos(a) * RING_R * 0.8 + 0.2;
+      // Links und rechts der Ranke, mit einer Lücke in der Mitte. Im
+      // Halbkreis standen die beiden inneren genau zwischen Kamera und
+      // Pflückplatz — wer gerade dran war, verschwand hinter dem Nachbarn.
+      const outward = index < left ? left - 1 - index : index - left;
+      const x = (n === 1 ? 1 : index < left ? -1 : 1) * (SLOT_INNER + outward * SLOT_GAP);
+      const z = 1.5 - Math.abs(x) * 0.15;
       const home = new THREE.Vector3(x, 0, z);
       this.homes.set(player.id, home);
       this.addKin(player, index, { x, ground: 0, z, facing: Math.atan2(VINE_X - x, VINE_Z - z) });
@@ -78,8 +88,9 @@ export class HoneyVine extends MinigameScene {
       korb.add(henkel);
       const pile = new THREE.Group();
       korb.add(pile);
+      // Der Korb steht vorn neben den Füssen — seitlich fiel er aussen aus dem Bild.
       const side = x >= 0 ? 1 : -1;
-      korb.position.set(x + side * 0.42, 0, z + 0.2);
+      korb.position.set(x + side * 0.22, 0, z + 0.42);
       scene.add(korb);
       this.baskets.set(player.id, { group: korb, pile, shown: -1 });
     });
@@ -93,7 +104,7 @@ export class HoneyVine extends MinigameScene {
     // Zahlen neben den beiden untersten Früchten, wenn man selbst dran ist.
     this.tags = ["1", "2"].map((text) => {
       const tag = createNameLabel(text, "#ffd15c");
-      tag.scale.multiplyScalar(0.6);
+      tag.scale.multiplyScalar(0.85);
       tag.visible = false;
       scene.add(tag);
       return tag;
@@ -237,14 +248,17 @@ export class HoneyVine extends MinigameScene {
   makeItem(kind) {
     const g = new THREE.Group();
     if (kind === "comb") {
-      const wabe = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.13, 6), new THREE.MeshLambertMaterial({ color: "#f5a524", emissive: "#f59e1b", emissiveIntensity: 0.15 }));
+      // Dunkler Bernstein mit fast schwarzen Zellen: auf dem Handy muss die
+      // Wabe auf einen Blick anders aussehen als ein goldener Apfel — vorher
+      // waren beide gelb-orange.
+      const wabe = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.13, 6), new THREE.MeshLambertMaterial({ color: "#d9820a", emissive: "#a85a00", emissiveIntensity: 0.12 }));
       wabe.rotation.x = Math.PI / 2;
       wabe.rotation.y = Math.PI / 6;
       wabe.castShadow = true;
       g.add(wabe);
       // Zellen als dunklere Sechsecke auf der Vorderseite.
       [[0, 0], [0.09, 0.05], [-0.09, 0.05], [0.09, -0.05], [-0.09, -0.05], [0, 0.1], [0, -0.1]].forEach(([x, y]) => {
-        const zelle = new THREE.Mesh(new THREE.CircleGeometry(0.04, 6), lambert("#c9760f"));
+        const zelle = new THREE.Mesh(new THREE.CircleGeometry(0.045, 6), lambert("#4a2604"));
         zelle.position.set(x, y, 0.068);
         g.add(zelle);
       });
@@ -254,7 +268,7 @@ export class HoneyVine extends MinigameScene {
       g.add(tropfen);
     } else {
       const gold = kind === "gold";
-      const apfel = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 9), new THREE.MeshLambertMaterial({ color: gold ? "#ffcf33" : "#e0343c", emissive: gold ? "#ffb300" : "#000000", emissiveIntensity: gold ? 0.45 : 0 }));
+      const apfel = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 9), new THREE.MeshLambertMaterial({ color: gold ? "#ffe02e" : "#e0343c", emissive: gold ? "#fff09a" : "#000000", emissiveIntensity: gold ? 0.32 : 0 }));
       apfel.scale.y = 0.92;
       apfel.castShadow = true;
       g.add(apfel);
@@ -262,7 +276,7 @@ export class HoneyVine extends MinigameScene {
       const blatt = kiste(g, 0.09, 0.015, 0.05, "#4f9b4a", [0.05, 0.16, 0], { schatten: false });
       blatt.rotation.z = -0.4;
       if (gold) {
-        const glanz = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.24, 20), new THREE.MeshBasicMaterial({ color: "#fff3b0", transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+        const glanz = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.225, 20), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
         g.add(glanz);
         g.userData.glanz = glanz;
       }
@@ -284,7 +298,7 @@ export class HoneyVine extends MinigameScene {
   shot() {
     return {
       look: [0, 1.55, 0.55],
-      frame: { w: 4.1, h: 3.6 },
+      frame: { w: 4.3, h: 3.6 },
       pitch: 0.3,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.28, zoom: 1.4 },
@@ -304,19 +318,120 @@ export class HoneyVine extends MinigameScene {
     this.on(pass, "pointerdown", (event) => {
       event.preventDefault();
       if (pass.disabled) return;
-      this.feedback?.sound("select");
       this.feedback?.vibrate(10);
-      this.sendInput({ action: "pass" }).catch(() => {});
+      this.play({ action: "pass" });
     });
     this.controls.querySelectorAll("[data-honey-take]").forEach((button) => {
       this.on(button, "pointerdown", (event) => {
         event.preventDefault();
         if (button.disabled) return;
-        this.feedback?.sound("select");
         this.feedback?.vibrate(10);
-        this.sendInput({ action: "take", count: Number(button.dataset.honeyTake) }).catch(() => {});
+        this.play({ action: "take", count: Number(button.dataset.honeyTake) });
       });
     });
+  }
+
+  // Den eigenen Zug sofort zeigen: was gepflückt wird, steht ja fest — die
+  // untersten Früchte der Ranke. Der Server bestätigt ihn nur noch; kommt
+  // etwas anderes zurück (etwa der automatische Griff), gilt das.
+  play(input) {
+    const minigame = this.update || this.minigame;
+    const state = minigame?.arcade?.honey;
+    const id = this.getControlledPlayerId();
+    const entry = minigame?.arcade?.players?.[id];
+    if (!state || !entry || !this.canPlay(minigame, state, id)) return;
+    const sentAt = performance.now();
+    this.sendInput(input).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+    if (input.action === "pass") {
+      this.pending = { number: state.picks, passed: true, at: sentAt };
+      this.showPick({ playerId: id, taken: [], passed: true }, true);
+      return;
+    }
+    const taken = state.vine.slice(0, input.count);
+    const stung = taken.includes("comb");
+    const gained = stung ? 0 : taken.reduce((sum, item) => sum + (item === "gold" ? (state.gold || 3) : item === "fruit" ? 1 : 0), 0);
+    const dropped = stung ? Math.min(entry.fruits || 0, state.stingCost ?? 4) : 0;
+    this.pending = { number: state.picks, count: input.count, passed: false, at: sentAt };
+    this.showPick({ playerId: id, taken, stung, gained, dropped, passed: false }, true);
+  }
+
+  // Bin ich dran — gemessen daran, wann ein Druck jetzt beim Server ankäme?
+  canPlay(minigame, state, id) {
+    const turn = state.turn;
+    if (!turn || turn.playerId !== id || minigame.finaleAt || this.pending) return false;
+    const arrival = this.now() + this.roundTrip - minigame.startedAt;
+    return arrival >= turn.from && arrival <= turn.until + (state.graceMs ?? 150);
+  }
+
+  // Wie lange ein Zug zum Server und zurück braucht, geglättet und bei
+  // 250 ms gedeckelt. Die erste Messung gilt sofort.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.measured ? this.roundTrip * 0.7 + clamped * 0.3 : clamped;
+    this.measured = true;
+  }
+
+  // Solange man nicht selbst dran ist, ein ping pro Sekunde (bis zur ersten
+  // Messung öfter): er ändert nichts und hält die Messung frisch.
+  pingIfIdle(minigame, state, id) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastPingAt < (this.measured ? 1000 : 300)) return;
+    if (state.turn?.playerId === id || this.pending) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Ein Zug im Bild: Früchte fliegen in den Korb (oder die Wabe platzt),
+  // dazu Zahl, Ton und Figur. `fly: false`, wenn die Ranke schon neu steht.
+  showPick(last, isOwn, fly = true) {
+    const basket = this.baskets.get(last.playerId);
+    const kin = this.kins.get(last.playerId);
+    const animator = this.animators.get(last.playerId);
+    if (fly && basket) {
+      const count = Math.min(last.taken.length, this.items.length);
+      const gone = this.items.splice(0, count);
+      gone.forEach((item, i) => {
+        const to = item.userData.kind === "comb"
+          ? (kin ? kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)) : item.position.clone())
+          : basket.group.position.clone().add(new THREE.Vector3(0, 0.35, 0));
+        this.flying.push({ item, from: item.position.clone(), to, at: performance.now() + i * 90, comb: item.userData.kind === "comb" });
+      });
+    }
+    if (animator && !last.passed) animator.trigger(last.stung ? "panic" : "reach");
+    if (last.passed) {
+      // Geschoben: nichts gepflückt, der Nächste steht vor derselben Ranke.
+      if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), "GESCHOBEN!", { color: "#b8e4ff", size: 0.36, life: 1.1 });
+      if (animator) animator.trigger("shrug");
+      if (isOwn) this.feedback?.sound("whoosh");
+    } else if (last.stung) {
+      this.chase.set(last.playerId, performance.now() + 2600);
+      if (kin) {
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), last.dropped ? `AUA! −${last.dropped}` : "AUA!", { color: "#ffb3bd", size: 0.42, life: 1.3 });
+        if (basket) this.burst(basket.group.position.clone().add(new THREE.Vector3(0, 0.3, 0)), ["#e0343c", "#ffcf33", "#e0343c"], { count: Math.min(20, 4 + (last.dropped || 0) * 2), speed: 1.6, up: 2, size: 0.09, life: 0.9 });
+      }
+      if (animator) {
+        animator.set("panic");
+        animator.expression("scared", 2400);
+      }
+      if (isOwn) {
+        this.feedback?.sound("fall");
+        this.feedback?.vibrate([40, 30, 40, 30, 60]);
+        this.rig.shake(0.55);
+      } else {
+        this.feedback?.sound("pop");
+      }
+    } else {
+      if (kin && last.gained) {
+        const gold = last.taken.includes("gold");
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), `+${last.gained}`, { color: gold ? "#ffe36b" : "#ffffff", size: gold ? 0.46 : 0.36 });
+      }
+      if (isOwn) {
+        this.feedback?.sound(last.taken.includes("gold") ? "sparkle" : "coin");
+        this.feedback?.vibrate(12);
+      }
+    }
   }
 
   tick(f) {
@@ -331,62 +446,35 @@ export class HoneyVine extends MinigameScene {
       this.rebuildVine(state.vine);
     }
 
+    this.pingIfIdle(minigame, state, controlledId);
     // Gepflückt: die untersten fliegen in den Korb (oder platzen als Wabe).
+    // Den eigenen Zug hat das Gerät schon gezeigt (play) — kommt er so
+    // zurück, ist nichts mehr zu tun.
     if (state.picks > this.seenPicks && state.last) {
       this.seenPicks = state.picks;
       const last = state.last;
       const isOwn = last.playerId === controlledId;
-      const basket = this.baskets.get(last.playerId);
-      const kin = this.kins.get(last.playerId);
-      const animator = this.animators.get(last.playerId);
-      const count = Math.min(last.taken.length, this.items.length);
-      const gone = this.items.splice(0, count);
-      gone.forEach((item, i) => {
-        const to = item.userData.kind === "comb"
-          ? (kin ? kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)) : item.position.clone())
-          : basket.group.position.clone().add(new THREE.Vector3(0, 0.35, 0));
-        this.flying.push({ item, from: item.position.clone(), to, at: performance.now() + i * 90, comb: item.userData.kind === "comb" });
-      });
-      if (animator && !last.passed) animator.trigger(last.stung ? "panic" : "reach");
-      if (last.passed) {
-        // Geschoben: nichts gepflückt, der Nächste steht vor derselben Ranke.
-        if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), "GESCHOBEN!", { color: "#b8e4ff", size: 0.36, life: 1.1 });
-        if (animator) animator.trigger("shrug");
-        if (isOwn) this.feedback?.sound("whoosh");
-      } else if (last.stung) {
-        this.chase.set(last.playerId, performance.now() + 2600);
-        if (kin) {
-          this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), last.dropped ? `AUA! −${last.dropped}` : "AUA!", { color: "#ffb3bd", size: 0.42, life: 1.3 });
-          this.burst(basket.group.position.clone().add(new THREE.Vector3(0, 0.3, 0)), ["#e0343c", "#ffcf33", "#e0343c"], { count: Math.min(20, 4 + (last.dropped || 0) * 2), speed: 1.6, up: 2, size: 0.09, life: 0.9 });
-        }
-        if (animator) {
-          animator.set("panic");
-          animator.expression("scared", 2400);
-        }
-        if (isOwn) {
-          this.feedback?.sound("fall");
-          this.feedback?.vibrate([40, 30, 40, 30, 60]);
-          this.rig.shake(0.55);
-        } else {
-          this.feedback?.sound("pop");
-        }
-      } else {
-        if (kin && last.gained) {
-          const gold = last.taken.includes("gold");
-          this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), `+${last.gained}`, { color: gold ? "#ffe36b" : "#ffffff", size: gold ? 0.46 : 0.36 });
-        }
-        if (isOwn) {
-          this.feedback?.sound(last.taken.includes("gold") ? "sparkle" : "coin");
-          this.feedback?.vibrate(12);
-        }
+      const mine = this.pending;
+      const confirmed = mine && isOwn && !last.auto && last.number === mine.number
+        && (mine.passed ? last.passed : !last.passed && last.taken.length === mine.count);
+      this.pending = null;
+      if (!confirmed) {
+        // Anders als vorhergesagt: die Ranke steht schon verschoben da, also
+        // nur Zahl, Ton und Figur — die Ranke richtet sich unten nach dem Server.
+        if (mine) this.rebuildVine(state.vine);
+        this.showPick(last, isOwn, !mine);
       }
+    } else if (this.pending && performance.now() - this.pending.at > 2500) {
+      // Keine Antwort: zurück auf den Stand des Servers.
+      this.pending = null;
+      this.rebuildVine(state.vine);
     }
     // Neue Ranke wächst nach.
     if (state.vineNumber !== this.vineNumber) {
       this.vineNumber = state.vineNumber;
       this.rebuildVine(state.vine, BRANCH_Y);
       this.pop(new THREE.Vector3(VINE_X, BRANCH_Y - 0.6, VINE_Z + 0.4), "Neue Ranke!", { color: "#b8ffb0", size: 0.34 });
-    } else if (this.items.length !== state.vine.length) {
+    } else if (!this.pending && this.items.length !== state.vine.length) {
       this.rebuildVine(state.vine);
     }
 
@@ -445,11 +533,14 @@ export class HoneyVine extends MinigameScene {
       this.turnRing.position.z = turnKin.position.z;
       this.turnRing.material.opacity = 0.6 + Math.sin(now / 150) * 0.3;
     }
-    const ownTurn = turn && turn.playerId === controlledId && elapsed >= turn.from && !f.finale;
+    const ownTurn = !f.finale && this.canPlay(minigame, state, controlledId);
     this.tags.forEach((tag, i) => {
       const item = this.items[i];
       tag.visible = Boolean(ownTurn && item);
-      if (tag.visible) tag.position.set(VINE_X - 0.42, VINE_BOTTOM + i * SPACING, VINE_Z + 0.1);
+      // Auf der Seite der Ranke, auf der man NICHT steht — sonst sass die
+      // Zahl genau über dem eigenen Namensschild.
+      const side = (this.homes.get(controlledId)?.x ?? -1) >= 0 ? -1 : 1;
+      if (tag.visible) tag.position.set(VINE_X + side * 0.42, VINE_BOTTOM + i * SPACING, VINE_Z + 0.1);
     });
 
     // Figuren: wer dran ist, tritt an die Ranke; wer gestochen wurde, rennt.
@@ -538,25 +629,32 @@ export class HoneyVine extends MinigameScene {
     }
     const elapsed = now - minigame.startedAt;
     const turn = state.turn;
-    const ownTurn = Boolean(turn && turn.playerId === controlledId && elapsed >= turn.from);
+    // Ob man dran ist und wie viel Bedenkzeit bleibt, gilt für die Ankunft
+    // beim Server — der Balken ist leer, wenn ein Druck nicht mehr ankäme.
+    const arrival = elapsed + this.roundTrip;
+    const ownTurn = this.canPlay(minigame, state, controlledId);
     const banner = this.hud.querySelector("[data-honey-banner]");
     let message = null;
     let tone = "#12aaff";
+    const lastWho = state.last ? room.players.find((p) => p.id === state.last.playerId) : null;
     if (elapsed < state.leadMs) message = "Schau dir die Ranke an …";
-    else if (state.last && elapsed - state.last.at < 1300 && state.last.stung) {
-      const who = room.players.find((p) => p.id === state.last.playerId);
-      message = state.last.playerId === controlledId ? "Gestochen! 🐝" : `${escapeName(who?.name)} wurde gestochen! 🐝`;
+    else if (ownTurn) {
+      // Der eigene Zug geht vor: wer dran ist, muss es sofort sehen — auch
+      // wenn der Vorgänger eben erst geschoben hat.
+      // Kurz, damit es in eine Zeile passt: die Knöpfe zeigen die Wahl.
+      message = state.last?.passed && elapsed - state.last.at < 1100 && state.last.playerId !== controlledId
+        ? `${escapeName(lastWho?.name)} schiebt zu dir!`
+        : "Du bist dran!";
+      tone = "#1fbf5b";
+    } else if (state.last && elapsed - state.last.at < 1300 && state.last.stung) {
+      message = state.last.playerId === controlledId ? "Gestochen! 🐝" : `${escapeName(lastWho?.name)} wurde gestochen! 🐝`;
       tone = "#ff5d73";
     } else if (state.last && elapsed - state.last.at < 1100 && state.last.passed) {
-      const who = room.players.find((p) => p.id === state.last.playerId);
-      message = state.last.playerId === controlledId ? "Geschoben!" : `${escapeName(who?.name)} schiebt weiter!`;
+      message = state.last.playerId === controlledId ? "Geschoben!" : `${escapeName(lastWho?.name)} schiebt weiter!`;
       tone = "#3d8fd6";
-    } else if (ownTurn) {
-      message = (own?.passes || 0) > 0 ? "Du bist dran — 1, 2 oder schieben?" : "Du bist dran — 1 oder 2?";
-      tone = "#1fbf5b";
-    } else if (turn) {
+    } else if (turn && !(turn.playerId === controlledId && this.pending)) {
       const who = room.players.find((p) => p.id === turn.playerId);
-      message = `${escapeName(who?.name)} ist dran …`;
+      message = turn.playerId === controlledId ? "Gleich bist du dran …" : `${escapeName(who?.name)} ist dran …`;
       tone = "#8a6238";
     }
     if (banner) {
@@ -568,18 +666,18 @@ export class HoneyVine extends MinigameScene {
     if (timer) {
       timer.hidden = !ownTurn || Boolean(minigame.finaleAt);
       if (ownTurn) {
-        const share = Math.max(0, Math.min(1, (turn.until - elapsed) / Math.max(1, turn.until - turn.from)));
+        const share = Math.max(0, Math.min(1, (turn.until - arrival) / Math.max(1, turn.until - turn.from)));
         timer.firstElementChild.style.width = `${Math.round(share * 100)}%`;
       }
     }
     this.controls.querySelectorAll("[data-honey-take]").forEach((button) => {
       const count = Number(button.dataset.honeyTake);
-      button.disabled = !ownTurn || state.vine.length < count || Boolean(minigame.finaleAt);
+      button.disabled = !ownTurn || state.vine.length < count;
     });
     const pass = this.controls.querySelector("[data-honey-pass]");
     if (pass) {
       const left = own?.passes || 0;
-      pass.disabled = !ownTurn || left <= 0 || room.players.length < 2 || Boolean(minigame.finaleAt);
+      pass.disabled = !ownTurn || left <= 0 || room.players.length < 2;
       pass.classList.toggle("is-used", left <= 0);
     }
   }

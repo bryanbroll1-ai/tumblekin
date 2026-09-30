@@ -446,9 +446,26 @@ test("Honigwabe: wer zu lange zögert, pflückt automatisch eine", () => {
   const g = setup("honigwabe", 2);
   g.run(0, C.HONEY_LEAD_MS + 50, 30);
   const first = g.arcade.honey.turn;
-  g.run(C.HONEY_LEAD_MS + 80, first.until + 60, 30);
+  g.run(C.HONEY_LEAD_MS + 80, first.until + C.HONEY_GRACE_MS + 60, 30);
   assert.equal(g.arcade.honey.last.auto, true);
   assert.notEqual(g.arcade.honey.turn.playerId, first.playerId, "danach ist der Nächste dran");
+  g.restore();
+});
+
+test("Honigwabe: ein Zug, der knapp nach der Bedenkzeit ankommt, zählt noch", () => {
+  const g = setup("honigwabe", 2);
+  g.run(0, C.HONEY_LEAD_MS + 50, 30);
+  const state = g.arcade.honey;
+  const first = state.turn;
+  const current = g.players.find((p) => p.id === first.playerId);
+  state.vine = ["fruit", "gold", "fruit", "comb", "fruit"];
+  // Der Server tickt über das Ende der Bedenkzeit, dann kommt der Zug an.
+  g.run(first.until - 20, first.until + C.HONEY_GRACE_MS - 40, 30);
+  assert.equal(state.turn.number, first.number, "innerhalb der Frist pflückt der Server nicht von selbst");
+  g.at(first.until + C.HONEY_GRACE_MS - 30);
+  assert.equal(g.input(current, { action: "take", count: 2 }).ok, true);
+  assert.equal(state.last.auto, false, "der eigene Zug zählt, nicht der automatische");
+  assert.equal(g.arcade.players[current.id].fruits, 1 + C.HONEY_GOLD);
   g.restore();
 });
 

@@ -106,7 +106,8 @@ export const REWORKED = new Set([
   "augenmass",
   "tauziehen",
   "grimassen",
-  "flaggenhoch"
+  "flaggenhoch",
+  "honigwabe"
 ]);
 
 export const ARCADE_TYPES = new Set(
