@@ -33,6 +33,11 @@ export class PipeMaze extends MinigameScene {
     this.labelY = 0.74;
     this.gauges = [];
     this.steam = [];
+    this.localPicks = {};           // Runde → Ventil: eigene Wahl, schon bevor der Server sie bestätigt
+    this.roundTrip = 0;
+    this.lastPingAt = 0;
+    this.lagSamples = [];           // { clock, sample }: sentAt − Empfangszeit je Bild
+    this.lagOffset = null;
   }
 
   stage() {
@@ -46,7 +51,7 @@ export class PipeMaze extends MinigameScene {
 
   hudHtml() {
     return `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="kinetic-scorebar"><span data-pipe-round>1/5</span><strong data-kinetic-score>0</strong></div>
       <div class="hud-chips" data-pipe-chips></div>
       <div class="color-banner" data-pipe-banner hidden></div>`;
   }
@@ -302,38 +307,85 @@ export class PipeMaze extends MinigameScene {
       event.preventDefault();
       this.feedback?.sound("select");
       this.feedback?.vibrate(12);
-      this.picked = Number(button.dataset.valve);
-      this.sendInput({ action: "pick", valve: this.picked }).catch(() => {});
+      const valve = Number(button.dataset.valve);
+      this.localPicks[this.currentRound] = valve;
+      const clock = performance.now();
+      this.sendInput({ action: "pick", valve }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
     });
   }
 
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Getippt wird selten — die Laufzeit misst darum ein Ping, jede Sekunde.
+  pingIfIdle(minigame) {
+    if (!minigame || minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastPingAt < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Wie weit die Bilder hinter dem Server liegen: am genauesten sagt es das
+  // am wenigsten verspätete der letzten Sekunden (wie in Kippboot).
+  onUpdate(update) {
+    if (!Number.isFinite(update?.sentAt)) return;
+    const clock = performance.now();
+    this.lagSamples.push({ clock, sample: update.sentAt - Date.now() });
+    while (this.lagSamples.length > 1 && this.lagSamples[0].clock < clock - 4000) this.lagSamples.shift();
+    this.lagOffset = Math.max(...this.lagSamples.map((item) => item.sample));
+  }
+
+  // Spielzeit, zu der ein JETZT geschickter Tipp beim Server ankommt. Danach
+  // richtet sich alles: das Gewirr erscheint, wenn die Runde für einen Tipp
+  // beginnt, der Countdown läuft bis zu dem Augenblick, bis zu dem ein Tipp
+  // noch ankommt — und der Zeitbonus zählt ab dem Moment, in dem man das
+  // Gewirr sah. Vorher kostete jede Millisekunde Laufzeit Bonus, und ein
+  // Tipp in der letzten Sekunde kam zu spät an.
+  arrival(minigame) {
+    const seen = this.lagOffset === null ? this.now() : Date.now() + this.lagOffset;
+    if (!minigame) return 0;
+    if (minigame.finaleAt) return seen - minigame.startedAt;
+    return seen + this.roundTrip - minigame.startedAt;
+  }
+
+  // Die Phase nach dem Zeitplan des Servers (startAt/endAt je Runde; endet
+  // eine Runde früher, weil alle gewählt haben, rückt alles nach).
   phaseOf(f) {
     const pipes = f.arcade.pipes;
-    let t = f.now - f.minigame.startedAt - pipes.leadMs;
-    if (t < 0) return { phase: "lead", round: 0, since: t };
-    for (let round = 0; round < pipes.rounds.length; round += 1) {
-      const answer = pipes.answerMs[round];
-      if (t < answer) return { phase: "answer", round, since: t, left: answer - t };
-      t -= answer;
-      if (t < pipes.revealMs) return { phase: "reveal", round, since: t };
-      t -= pipes.revealMs;
+    const t = this.arrival(f.minigame);
+    const rounds = pipes.rounds;
+    if (t < rounds[0].startAt) return { phase: "lead", round: 0, since: t };
+    for (let round = 0; round < rounds.length; round += 1) {
+      const { startAt, endAt } = rounds[round];
+      if (t < endAt) return { phase: "answer", round, since: t - startAt, left: endAt - t };
+      if (t < endAt + pipes.revealMs) return { phase: "reveal", round, since: t - endAt };
     }
-    return { phase: "over", round: pipes.rounds.length - 1, since: t };
+    return { phase: "over", round: rounds.length - 1, since: t };
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId } = f;
     const pipes = arcade?.pipes;
     if (!pipes) return;
+    this.pingIfIdle(f.minigame);
     const { phase, round, since } = this.phaseOf(f);
-    if (round !== this.mazeRound) {
+    this.currentRound = round;
+    // Das Gewirr kennt das Gerät kurz vor der Runde — gezeigt wird es erst,
+    // wenn sie für einen Tipp beginnt. Wer schneller verbunden ist, sähe es
+    // sonst ein paar hundert Millisekunden früher als die anderen.
+    if (round !== this.mazeRound && phase !== "lead" && pipes.rounds[round]?.rungs) {
       this.mazeRound = round;
       this.wheels = [];
       this.buildMaze(pipes.rounds[round], pipes.levels);
-      this.picked = null;
       this.flows.forEach((flow) => {
         this.scene.remove(flow.dot);
         this.scene.remove(flow.line);
+        flow.line.geometry.dispose();
       });
       this.flows = [];
       this.buttonsFor = -1;
@@ -341,7 +393,7 @@ export class PipeMaze extends MinigameScene {
 
     // Eigenes Ventil dreht sich, sobald gewählt.
     const own = arcade.players[controlledId];
-    const ownPick = own?.picks?.[round]?.valve ?? this.picked;
+    const ownPick = this.localPicks[round] ?? own?.results?.[round]?.valve;
     (this.wheels || []).forEach((rad, c) => {
       if (!rad) return;
       const turning = ownPick === c;
@@ -350,20 +402,28 @@ export class PipeMaze extends MinigameScene {
     });
 
     // Auflösung: Wasser fliesst durch alle gewählten Rohre.
-    if (pipes.scored >= round && phase !== "answer" && this.flows.length === 0 && pipes.scored === round) {
+    const answer = pipes.rounds[round]?.answer;
+    if (pipes.scored >= round && phase !== "answer" && this.flows.length === 0 && pipes.scored === round && answer !== null && answer !== undefined && this.mazeRound === round) {
       const chosen = new Map();
       players.forEach((player) => {
         const pick = arcade.players[player.id]?.results?.[round];
         if (pick && pick.valve !== null && pick.valve !== undefined) chosen.set(pick.valve, [...(chosen.get(pick.valve) || []), player]);
       });
-      if (!chosen.has(this.maze.answer)) chosen.set(this.maze.answer, []);
+      if (!chosen.has(answer)) chosen.set(answer, []);
       chosen.forEach((who, valve) => {
         const path = this.pathFor(valve);
-        const correct = valve === this.maze.answer;
+        const correct = valve === answer;
         const dot = new THREE.Mesh(new THREE.SphereGeometry(correct ? 0.13 : 0.1, 12, 8), new THREE.MeshBasicMaterial({ color: correct ? "#ffe25c" : "#6cc6ff" }));
         dot.userData.isFx = true;
         this.scene.add(dot);
-        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(path), new THREE.LineBasicMaterial({ color: correct ? "#ffe25c" : "#6cc6ff", transparent: true, opacity: 0.9 }));
+        // Das Wasser als dicker Schlauch, der mitwächst: eine Linie ist in
+        // WebGL immer ein Pixel breit — auf dem Handy war der Weg kaum zu sehen.
+        const kurve = new THREE.CurvePath();
+        for (let i = 1; i < path.length; i += 1) kurve.add(new THREE.LineCurve3(path[i - 1], path[i]));
+        const segments = Math.max(16, Math.round(kurve.getLength() * 14));
+        const line = new THREE.Mesh(new THREE.TubeGeometry(kurve, segments, correct ? 0.075 : 0.055, 6, false), new THREE.MeshBasicMaterial({ color: correct ? "#ffe25c" : "#6cc6ff", transparent: true, opacity: 0.92 }));
+        line.userData.isFx = true;
+        line.userData.segments = segments;
         line.geometry.setDrawRange(0, 0);
         this.scene.add(line);
         this.flows.push({ dot, line, path, correct, who, at: performance.now(), done: false });
@@ -374,7 +434,7 @@ export class PipeMaze extends MinigameScene {
       const u = Math.min(1, (nowP - flow.at) / FLOW_MS);
       const at = pointAlong(flow.path, u);
       flow.dot.position.copy(at);
-      flow.line.geometry.setDrawRange(0, Math.max(2, Math.ceil(u * flow.path.length) + 1));
+      flow.line.geometry.setDrawRange(0, Math.ceil(u * flow.line.userData.segments) * 6 * 6);
       if (Math.random() < frameLerp(0.3, dt)) this.burst(at, [flow.correct ? "#ffe25c" : "#bfe6ff"], { count: 1, speed: 0.3, up: 0.3, size: 0.05, life: 0.3, gravity: 1 });
       if (u >= 1 && !flow.done) {
         flow.done = true;
@@ -441,7 +501,7 @@ export class PipeMaze extends MinigameScene {
       const entry = arcade.players[player.id];
       if (!animator || !entry) return;
       if (phase === "answer") {
-        animator.set(entry.picks?.[round] ? "ready" : "think");
+        animator.set(entry.picked?.[round] ? "ready" : "think");
         animator.lookAt(new THREE.Vector3(0, 3 + Math.sin(now / 600 + since / 900) * 1.2, 0));
       } else {
         animator.set("idle");
@@ -459,11 +519,14 @@ export class PipeMaze extends MinigameScene {
     const text = String(Math.round(own?.score || 0));
     if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
     const { phase, round, left } = this.phaseOf(f);
+    const roundNode = this.hud.querySelector("[data-pipe-round]");
+    const roundText = `${round + 1}/${pipes.rounds.length}`;
+    if (roundNode && roundNode.textContent !== roundText) roundNode.textContent = roundText;
     const chips = this.hud.querySelector("[data-pipe-chips]");
     if (chips) {
       const html = room.players.map((player) => {
         const entry = arcade.players[player.id];
-        const done = Boolean(entry?.picks?.[round]) && phase === "answer";
+        const done = (Boolean(entry?.picked?.[round]) || (player.id === controlledId && this.localPicks[round] !== undefined)) && phase === "answer";
         return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${done ? "✓ " : ""}${Math.round(entry?.score || 0)}</span>`;
       }).join("");
       if (html !== this.chipsHtml) {
@@ -477,7 +540,7 @@ export class PipeMaze extends MinigameScene {
       this.buttonsFor = round;
       this.buttonRow.innerHTML = [...Array(maze.cols).keys()].map((c) => `<button type="button" data-valve="${c}" style="--valve:${VALVE_COLORS[c]}">${LETTERS[c]}</button>`).join("");
     }
-    const pick = own?.picks?.[round]?.valve ?? this.picked;
+    const pick = this.localPicks[round] ?? own?.results?.[round]?.valve ?? (own?.picked?.[round] ? -1 : null);
     this.buttonRow?.querySelectorAll("[data-valve]").forEach((button) => {
       const c = Number(button.dataset.valve);
       button.disabled = phase !== "answer" || pick !== null && pick !== undefined || Boolean(minigame.finaleAt);
@@ -489,7 +552,7 @@ export class PipeMaze extends MinigameScene {
     if (phase === "lead") message = "Welches Ventil führt zur Truhe?";
     else if (phase === "answer") {
       const secs = Math.ceil((left || 0) / 1000);
-      message = pick !== null && pick !== undefined ? `Ventil ${LETTERS[pick]} — mal sehen …` : `Rohr ${round + 1}/${pipes.rounds.length}: Folge den Rohren! ${secs}s`;
+      message = pick !== null && pick !== undefined ? (pick >= 0 ? `Ventil ${LETTERS[pick]} — mal sehen …` : "Gewählt — mal sehen …") : `Welches Ventil? ${secs}s`;
       tone = secs <= 2 && (pick === null || pick === undefined) ? "#ff5d73" : "#c8783a";
     } else if (phase === "reveal") {
       const result = own?.results?.[round];

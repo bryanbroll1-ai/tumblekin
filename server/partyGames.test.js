@@ -1337,20 +1337,102 @@ test("Rohrsalat: jedes Rohrnetz ist eine Vertauschung mit genau einer richtigen 
 test("Rohrsalat: richtig und schnell bringt am meisten, falsch nichts, eine Wahl je Runde", () => {
   const g = setup("rohrsalat", 3);
   const [fast, slow, wrong] = g.players;
-  const maze = g.arcade.pipes.rounds[0];
+  const maze = g.arcade.secret.pipeRounds[0];
   g.run(0, C.PIPE_LEAD_MS + 500, 50);
   g.input(fast, { action: "pick", valve: maze.answer });
   g.input(fast, { action: "pick", valve: (maze.answer + 1) % maze.cols });
   g.input(wrong, { action: "pick", valve: (maze.answer + 1) % maze.cols });
   g.run(C.PIPE_LEAD_MS + 550, C.PIPE_LEAD_MS + 6000, 50);
   g.input(slow, { action: "pick", valve: maze.answer });
-  g.run(C.PIPE_LEAD_MS + 6050, C.PIPE_LEAD_MS + C.PIPE_ANSWER_MS[0] + 200, 50);
+  g.run(C.PIPE_LEAD_MS + 6050, C.PIPE_LEAD_MS + C.PIPE_ANSWER_MS[0] + 400, 50);
   const r = (p) => g.arcade.players[p.id].results[0];
   assert.equal(r(fast).valve, maze.answer, "die erste Wahl zählt");
   assert.ok(r(fast).correct && r(slow).correct && !r(wrong).correct);
   assert.ok(r(fast).points > r(slow).points && r(slow).points >= C.PIPE_POINTS);
   assert.equal(r(wrong).points, 0);
   g.restore();
+});
+
+test("Rohrsalat: Lösung, spätere Rohre und fremde Wahl bleiben geheim bis zur Auflösung", () => {
+  const g = setup("rohrsalat", 2);
+  const [a, b] = g.players;
+  const full = g.arcade.secret.pipeRounds;
+  const shown = () => JSON.parse(JSON.stringify(publicArcade(g.arcade)));
+  assert.ok(!JSON.stringify(shown()).includes("pipePicks") && !JSON.stringify(shown()).includes("pipeRounds"), "kein Geheimfach im Paket");
+  assert.ok(shown().pipes.rounds.every((r) => r.answer === null), "keine Lösung vorab");
+  assert.ok(shown().pipes.rounds.every((r) => r.rungs === null), "kein Gewirr vorab");
+  g.run(0, full[0].startAt - C.PIPE_PUBLISH_LEAD_MS + 30, 30);
+  assert.deepEqual(shown().pipes.rounds[0].rungs, full[0].rungs, "kurz vor der Runde: jetzt das Gewirr");
+  assert.equal(shown().pipes.rounds[1].rungs, null, "die nächste Runde noch nicht");
+  g.run(full[0].startAt, full[0].startAt + 600, 30);
+  g.input(a, { action: "pick", valve: full[0].answer });
+  const seen = shown();
+  assert.equal(seen.players[a.id].picked[0], true, "dass a gewählt hat, sieht man");
+  assert.ok(!JSON.stringify(seen.players[a.id]).includes('"valve"'), "welches Ventil, nicht");
+  assert.equal(seen.pipes.rounds[0].answer, null, "die Lösung auch nicht");
+  g.input(b, { action: "pick", valve: (full[0].answer + 1) % full[0].cols });
+  g.run(full[0].startAt + 630, full[0].endAt + C.PIPE_GRACE_MS + 60, 30);
+  assert.equal(shown().pipes.rounds[0].answer, full[0].answer, "nach der Wertung: die Lösung");
+  assert.equal(shown().players[b.id].results[0].valve, (full[0].answer + 1) % full[0].cols, "und wer was gewählt hat");
+  g.restore();
+});
+
+test("Rohrsalat: haben alle gewählt, beginnt die Auflösung gleich — und alles rückt nach", () => {
+  const g = setup("rohrsalat", 2);
+  const [a, b] = g.players;
+  const full = g.arcade.secret.pipeRounds;
+  const later = full[1].startAt;
+  g.run(0, full[0].startAt + 1000, 30);
+  g.input(a, { action: "pick", valve: 0 });
+  assert.equal(full[0].endAt, full[0].startAt + C.PIPE_ANSWER_MS[0], "einer fehlt noch: die Zeit läuft weiter");
+  g.input(b, { action: "pick", valve: 1 });
+  const t = g.now - g.minigame.startedAt;
+  assert.equal(full[0].endAt, t + C.PIPE_ALL_IN_MS, "beide haben: gleich zur Auflösung");
+  assert.ok(full[1].startAt < later, "die nächste Runde kommt früher");
+  assert.equal(g.arcade.pipes.rounds[1].startAt, full[1].startAt, "und das Gerät weiss es");
+  g.restore();
+});
+
+test("Rohrsalat: knapp nach Ablauf zählt der Tipp noch, danach nicht", () => {
+  const g = setup("rohrsalat", 3);
+  const [a, b] = g.players;
+  const full = g.arcade.secret.pipeRounds;
+  g.run(0, full[0].endAt - 30, 30);
+  g.at(full[0].endAt + C.PIPE_GRACE_MS - 40);
+  g.input(a, { action: "pick", valve: full[0].answer });
+  g.at(full[0].endAt + C.PIPE_GRACE_MS + 40);
+  g.input(b, { action: "pick", valve: full[0].answer });
+  g.tick();
+  const r = (p) => g.arcade.players[p.id].results[0];
+  assert.ok(r(a).correct, "in der Nachfrist angekommen");
+  assert.equal(r(b).valve, null, "danach ist es zu spät");
+  assert.ok(r(a).points >= C.PIPE_POINTS, "mit den vollen Grundpunkten");
+  g.restore();
+});
+
+test("Rohrsalat: die Bots sind gestaffelt und folgen den Rohren wie Menschen", () => {
+  const wins = { easy: 0, normal: 0, hard: 0 };
+  const firstPick = [];
+  for (let r = 0; r < 120; r += 1) {
+    const g = setup("rohrsalat", 3, { bots: true });
+    const levels = ["easy", "normal", "hard"];
+    g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
+    for (let t = 0; t <= g.minigame.duration; t += 50) {
+      g.at(t);
+      if (t % 300 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
+      g.tick();
+    }
+    const hard = g.arcade.players[g.players[2].id];
+    hard.results.forEach((res) => { if (res.ms !== null) firstPick.push(res.ms); });
+    const scores = g.players.map((p) => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
+    const best = Math.max(...scores);
+    scores.forEach((score, i) => { if (score === best) wins[levels[i]] += 1; });
+    g.restore();
+  }
+  assert.ok(wins.hard > wins.normal && wins.normal > wins.easy, JSON.stringify(wins));
+  firstPick.sort((x, y) => x - y);
+  const median = firstPick[Math.floor(firstPick.length / 2)];
+  assert.ok(median >= 2000, `der starke braucht so lange wie ein guter Mensch (Median ${median} ms)`);
 });
 
 // --- Robustheit --------------------------------------------------------------

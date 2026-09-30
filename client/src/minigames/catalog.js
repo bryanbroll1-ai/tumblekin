@@ -67,7 +67,7 @@ export const MINIGAME_CATALOG = [
   { type: "buecherwurm", title: "Bücherwurm", family: "book", gesture: "joystick", help: "Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten." },
   { type: "schnappschuss", title: "Schnappschuss", family: "photo", gesture: "stickShove", help: "Premiere auf dem roten Teppich! Der Fotograf zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10 — der Stern zeigt, wer es gerade wäre), und wer ganz allein drauf ist, bekommt noch 5. Wer zuerst in der Mitte steht, hält sie im Gedränge. Herausholen kann ihn nur SCHUBS: du schnellst nach vorn, und wen du rammst, der fliegt aus dem Bild." },
   { type: "kippboot", title: "Kippboot", family: "boat", gesture: "tap", help: "Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker: der Streifen an der Bordwand zeigt, wo er sicher landet (grün) und wo das Boot kentern würde (rot). Wer es zum Kentern bringt, verliert 30 Punkte. Gespielt wird in Runden — jeder ist einmal dran, alle mit demselben Tier, vom Küken bis zum Schwein. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu." },
-  { type: "rohrsalat", title: "Rohrsalat", family: "pipes", gesture: "follow", help: "Im Kesselhaus hängt ein Gewirr aus Kupferrohren: oben Ventile, unten Ausgänge, nur einer führt in die Schatztruhe. Folge einem Rohr mit den Augen nach unten und bieg an jedem Querrohr ab — dann tipp das richtige Ventil an. Richtig bringt 100 Punkte plus bis zu 60 fürs Tempo, falsch eine Ladung Russ. Vier Runden, jedes Mal mehr Rohre." }
+  { type: "rohrsalat", title: "Rohrsalat", family: "pipes", gesture: "follow", help: "Im Kesselhaus hängt ein Gewirr aus Kupferrohren: oben Ventile, unten Ausgänge, nur einer führt in die Schatztruhe. Folge einem Rohr mit den Augen nach unten und bieg an jedem Querrohr ab — dann tipp das richtige Ventil an. Tipp: von der Truhe aus nach oben geht es schneller. Richtig bringt 100 Punkte plus bis zu 60 fürs Tempo, falsch eine Ladung Russ. Fünf Runden, jedes Mal mehr Rohre und etwas mehr Zeit — haben alle gewählt, wird gleich aufgelöst." }
 ];
 
 // Spiele, die den vollständigen Qualitäts- und Polish-Durchgang hinter sich
@@ -112,7 +112,8 @@ export const REWORKED = new Set([
   "luftpuck",
   "buecherwurm",
   "schnappschuss",
-  "kippboot"
+  "kippboot",
+  "rohrsalat"
 ]);
 
 export const ARCADE_TYPES = new Set(

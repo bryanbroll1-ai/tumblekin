@@ -2942,15 +2942,29 @@ const boat = {
 // einem Rohr nach unten und biegt bei jedem Querrohr ab — wie bei einer
 // Leiterlotterie. Wer richtig liegt, bekommt Punkte, und zwar umso mehr, je
 // schneller er war. Wer falsch liegt, bekommt eine Ladung Russ.
-const PIPE_ROUNDS = 4;
+//
+// Vorher stand die Lösung jeder Runde von Anfang an im Netzverkehr, ebenso
+// die Rohre aller späteren Runden und die Wahl der anderen — man konnte beim
+// schnellsten abschreiben. Jetzt sieht ein Gerät das Gewirr erst kurz vor der
+// Runde, die Lösung und die Wahl der anderen erst bei der Auflösung.
+//
+// Die Antwortzeit wächst mit dem Gewirr (vorher schrumpfte sie: wer gründlich
+// folgte, kam in der letzten Runde oft gar nicht mehr zum Tippen). Haben alle
+// gewählt, beginnt die Auflösung sofort.
+const PIPE_ROUNDS = 5;
 const PIPE_LEAD_MS = 1200;
-const PIPE_ANSWER_MS = [8500, 8000, 7500, 7000];
+const PIPE_ANSWER_MS = [9000, 9500, 10000, 10500, 11000];
 const PIPE_REVEAL_MS = 2600;
+const PIPE_ALL_IN_MS = 500;            // haben alle gewählt: so lange noch, dann Auflösung
+const PIPE_GRACE_MS = 150;             // was knapp nach Ablauf ankommt, zählt noch
+// Das Gewirr einer Runde sieht das Gerät erst so kurz vorher: Rundreise (bis
+// 250 ms, wie das Gerät sie deckelt) plus ein Servertakt.
+const PIPE_PUBLISH_LEAD_MS = 350;
 const PIPE_LEVELS = 12;
 const PIPE_POINTS = 100;
 const PIPE_SPEED_BONUS = 60;
-const PIPE_COLS = [4, 5, 5, 6];
-const PIPE_RUNGS = [7, 10, 12, 15];
+const PIPE_COLS = [4, 5, 5, 6, 6];
+const PIPE_RUNGS = [7, 9, 11, 13, 15];
 
 function buildPipeRound(seed, round) {
   const cols = PIPE_COLS[round];
@@ -2983,81 +2997,136 @@ function pipeTrace(rungs, start) {
   return col;
 }
 
-function pipePhase(elapsed) {
-  let t = elapsed - PIPE_LEAD_MS;
-  if (t < 0) return { phase: "lead", round: 0, since: elapsed };
-  for (let round = 0; round < PIPE_ROUNDS; round += 1) {
-    const answer = PIPE_ANSWER_MS[round];
-    if (t < answer) return { phase: "answer", round, since: t, left: answer - t };
-    t -= answer;
-    if (t < PIPE_REVEAL_MS) return { phase: "reveal", round, since: t };
-    t -= PIPE_REVEAL_MS;
+// Der Zeitplan: jede Runde hat startAt und endAt (Spielzeit). Endet eine
+// Runde früher, rücken alle späteren nach.
+function pipeSchedule(rounds, from = 0) {
+  for (let r = Math.max(1, from); r < rounds.length; r += 1) {
+    rounds[r].startAt = rounds[r - 1].endAt + PIPE_REVEAL_MS;
+    rounds[r].endAt = rounds[r].startAt + PIPE_ANSWER_MS[r];
   }
-  return { phase: "over", round: PIPE_ROUNDS - 1, since: t };
 }
 
+// In welcher Phase ist das Spiel zur Spielzeit `elapsed`? `rounds` mit
+// startAt/endAt — die öffentlichen oder die geheimen, beide tragen die Zeiten.
+function pipePhase(rounds, elapsed) {
+  if (elapsed < rounds[0].startAt) return { phase: "lead", round: 0, since: elapsed };
+  for (let round = 0; round < rounds.length; round += 1) {
+    const { startAt, endAt } = rounds[round];
+    if (elapsed < endAt) return { phase: "answer", round, since: elapsed - startAt, left: endAt - elapsed };
+    if (elapsed < endAt + PIPE_REVEAL_MS) return { phase: "reveal", round, since: elapsed - endAt };
+  }
+  const last = rounds[rounds.length - 1];
+  return { phase: "over", round: rounds.length - 1, since: elapsed - last.endAt - PIPE_REVEAL_MS };
+}
+
+// So lange dauert es höchstens: jede Runde bis zum Ablauf.
 const PIPE_DURATION_MS = PIPE_LEAD_MS + PIPE_ANSWER_MS.reduce((a, b) => a + b, 0) + PIPE_ROUNDS * PIPE_REVEAL_MS + 400;
+
+// Was die Geräte sehen: Zeiten immer, das Gewirr kurz vor der Runde, die
+// Lösung erst, wenn die Runde gewertet ist.
+function pipePublish(arcade, elapsed) {
+  const full = arcade.secret.pipeRounds;
+  arcade.pipes.rounds.forEach((shown, r) => {
+    shown.startAt = full[r].startAt;
+    shown.endAt = full[r].endAt;
+    if (!shown.rungs && elapsed >= full[r].startAt - PIPE_PUBLISH_LEAD_MS) {
+      shown.rungs = full[r].rungs.map((rung) => ({ ...rung }));
+      shown.target = full[r].target;
+    }
+    if (shown.answer === null && arcade.pipes.scored >= r) shown.answer = full[r].answer;
+  });
+}
+
+function pipeGauss() {
+  let sum = 0;
+  for (let i = 0; i < 6; i += 1) sum += Math.random();
+  return (sum - 3) / Math.sqrt(0.5);
+}
 
 const pipes = {
   cooldown: 150,
   fastHand: false,
   create(arcade) {
+    const rounds = Array.from({ length: PIPE_ROUNDS }, (_, round) => buildPipeRound(arcade.seed, round));
+    rounds[0].startAt = PIPE_LEAD_MS;
+    rounds[0].endAt = PIPE_LEAD_MS + PIPE_ANSWER_MS[0];
+    pipeSchedule(rounds, 1);
+    arcade.secret = { ...(arcade.secret || {}), pipeRounds: rounds, pipePicks: {} };
     arcade.pipes = {
-      rounds: Array.from({ length: PIPE_ROUNDS }, (_, round) => buildPipeRound(arcade.seed, round)),
+      rounds: rounds.map(({ round, cols, startAt, endAt }) => ({ round, cols, startAt, endAt, rungs: null, target: null, answer: null })),
       levels: PIPE_LEVELS,
       leadMs: PIPE_LEAD_MS,
       answerMs: PIPE_ANSWER_MS,
       revealMs: PIPE_REVEAL_MS,
+      points: PIPE_POINTS,
+      speedBonus: PIPE_SPEED_BONUS,
       scored: -1
     };
-    Object.values(arcade.players).forEach((entry) => {
-      entry.picks = [];                // je Runde { valve, ms }
-      entry.results = [];              // je Runde { correct, points }
+    Object.entries(arcade.players).forEach(([id, entry]) => {
+      arcade.secret.pipePicks[id] = [];   // je Runde { valve, ms } — geheim bis zur Auflösung
+      entry.picked = [];               // je Runde: hat gewählt (ohne welches Ventil)
+      entry.results = [];              // je Runde { correct, points, valve }
       entry.correct = 0;
       entry.score = 0;
     });
+    pipePublish(arcade, 0);
   },
   input(ctx, player, entry, input) {
     if (input.action !== "pick") return { ok: false, error: "Tippe ein Ventil an." };
-    const { phase, round, since } = pipePhase(ctx.elapsed);
-    if (phase !== "answer") return { ok: true };
-    if (entry.picks[round]) return { ok: true };
-    const maze = ctx.arcade.pipes.rounds[round];
+    const { arcade, elapsed } = ctx;
+    const rounds = arcade.secret.pipeRounds;
+    // Welche Runde ist offen? Knapp nach Ablauf zählt der Tipp noch.
+    const round = rounds.findIndex((r) => elapsed >= r.startAt && elapsed < r.endAt + PIPE_GRACE_MS);
+    if (round < 0 || round <= arcade.pipes.scored) return { ok: true };
+    const picks = arcade.secret.pipePicks[player.id] || (arcade.secret.pipePicks[player.id] = []);
+    if (picks[round]) return { ok: true };
+    const maze = rounds[round];
     const valve = inputNumber(input.valve);
     if (!Number.isInteger(valve) || valve < 0 || valve >= maze.cols) return { ok: false, error: "Dieses Ventil gibt es nicht." };
-    entry.picks[round] = { valve, ms: Math.round(since) };
+    picks[round] = { valve, ms: Math.round(clamp(elapsed - maze.startAt, 0, PIPE_ANSWER_MS[round])) };
+    entry.picked[round] = true;
+    // Haben alle gewählt? Dann gleich zur Auflösung.
+    const ids = ctx.room.players.map((p) => p.id).filter((id) => arcade.players[id]);
+    if (elapsed < maze.endAt && ids.every((id) => arcade.secret.pipePicks[id]?.[round])) {
+      maze.endAt = Math.max(elapsed, Math.min(maze.endAt, elapsed + PIPE_ALL_IN_MS));
+      pipeSchedule(rounds, round + 1);
+      pipePublish(arcade, elapsed);
+    }
     return { ok: true };
   },
   update(ctx) {
     const { arcade, elapsed } = ctx;
     const state = arcade.pipes;
-    const { phase, round } = pipePhase(elapsed);
-    const due = phase === "reveal" || phase === "over" ? round : round - 1;
-    while (state.scored < due) {
+    const rounds = arcade.secret.pipeRounds;
+    while (state.scored + 1 < rounds.length && elapsed >= rounds[state.scored + 1].endAt + PIPE_GRACE_MS) {
       state.scored += 1;
-      const maze = state.rounds[state.scored];
+      const maze = rounds[state.scored];
       const answerMs = PIPE_ANSWER_MS[state.scored];
-      Object.values(arcade.players).forEach((entry) => {
-        const pick = entry.picks[state.scored];
+      Object.entries(arcade.players).forEach(([id, entry]) => {
+        const pick = arcade.secret.pipePicks[id]?.[state.scored];
         const correct = Boolean(pick && pick.valve === maze.answer);
         const points = correct ? PIPE_POINTS + Math.round(PIPE_SPEED_BONUS * Math.max(0, 1 - pick.ms / answerMs)) : 0;
-        entry.results[state.scored] = { correct, points, valve: pick ? pick.valve : null };
+        entry.results[state.scored] = { correct, points, valve: pick ? pick.valve : null, ms: pick ? pick.ms : null };
         if (correct) entry.correct += 1;
         entry.score += points;
       });
     }
+    pipePublish(arcade, elapsed);
   },
   bot(ctx, player, entry) {
     const { arcade, elapsed } = ctx;
-    const { phase, round, since } = pipePhase(elapsed);
-    if (phase !== "answer" || entry.picks[round]) return null;
-    const maze = arcade.pipes.rounds[round];
+    const rounds = arcade.secret.pipeRounds;
+    const { phase, round, since } = pipePhase(rounds, elapsed);
+    if (phase !== "answer" || arcade.secret.pipePicks[player.id]?.[round]) return null;
+    const maze = rounds[round];
     if (entry.botRound !== round) {
       entry.botRound = round;
-      // Wie lange der Bot „mit den Augen folgt" und wie oft er sich verzählt.
-      const think = byLevel(entry, 5200, 3800, 2500) + maze.rungs.length * byLevel(entry, 60, 40, 25);
-      entry.botAt = Math.min(PIPE_ANSWER_MS[round] - 300, think * (0.8 + Math.random() * 0.4));
-      const right = byLevel(entry, 0.4, 0.68, 0.9) - maze.rungs.length * 0.008;
+      // Wie lange der Bot „mit den Augen folgt“ und wie oft er sich verzählt
+      // — wie ein Mensch: gemessen an Spielern, die den Rohren folgen.
+      const n = maze.rungs.length;
+      const think = (byLevel(entry, 3800, 2700, 1800) + n * byLevel(entry, 180, 150, 100)) * (0.8 + Math.random() * 0.4);
+      entry.botAt = Math.min(PIPE_ANSWER_MS[round] - 400, think + pipeGauss() * 150);
+      const right = byLevel(entry, 0.8, 0.92, 0.96) - n * byLevel(entry, 0.018, 0.013, 0.008);
       entry.botValve = Math.random() < right
         ? maze.answer
         : (maze.answer + 1 + Math.floor(Math.random() * (maze.cols - 1))) % maze.cols;
@@ -3069,10 +3138,11 @@ const pipes = {
     return Math.max(0, Math.round(entry.score || 0)) * 10 + (entry.correct || 0);
   },
   detail(arcade, entry) {
-    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte" };
+    const correct = entry.correct || 0;
+    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte", extra: `${correct}/${PIPE_ROUNDS} richtig` };
   },
   done(ctx) {
-    return pipePhase(ctx.elapsed).phase === "over";
+    return pipePhase(ctx.arcade.secret.pipeRounds, ctx.elapsed).phase === "over";
   }
 };
 
@@ -3121,7 +3191,8 @@ module.exports = {
     PHOTO_SHOVE_STUN_MS, PHOTO_DASH_MS,
     BOAT_LEAD_MS, BOAT_REACH, BOAT_TORQUE_MAX, BOAT_CAPACITY, BOAT_CAPSIZE_COST, BOAT_DEPART_BONUS, BOAT_DURATION_MS, BOAT_END_MS,
     BOAT_TURN_MS, BOAT_TURN_MIN_MS, BOAT_SPLASH_MS,
-    PIPE_ROUNDS, PIPE_LEAD_MS, PIPE_ANSWER_MS, PIPE_REVEAL_MS, PIPE_LEVELS, PIPE_POINTS, PIPE_SPEED_BONUS
+    PIPE_ROUNDS, PIPE_LEAD_MS, PIPE_ANSWER_MS, PIPE_REVEAL_MS, PIPE_LEVELS, PIPE_POINTS, PIPE_SPEED_BONUS,
+    PIPE_GRACE_MS, PIPE_ALL_IN_MS, PIPE_PUBLISH_LEAD_MS, PIPE_DURATION_MS
   },
   buildPipeRound,
   pipeTrace,

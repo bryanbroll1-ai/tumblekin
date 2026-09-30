@@ -214,7 +214,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👀👆 Mit den Augen folgen, dann tippen
 
-- **Rohrsalat:** Im Kesselhaus hängt ein Gewirr aus Kupferrohren: oben Ventile, unten Ausgänge, nur einer führt in die Schatztruhe. Folge einem Rohr mit den Augen nach unten und bieg an jedem Querrohr ab — dann tipp das richtige Ventil an. Richtig bringt 100 Punkte plus bis zu 60 fürs Tempo, falsch eine Ladung Russ. Vier Runden, jedes Mal mehr Rohre.
+- **Rohrsalat:** Im Kesselhaus hängt ein Gewirr aus Kupferrohren: oben Ventile, unten Ausgänge, nur einer führt in die Schatztruhe. Folge einem Rohr mit den Augen nach unten und bieg an jedem Querrohr ab — dann tipp das richtige Ventil an. Tipp: von der Truhe aus nach oben geht es schneller. Richtig bringt 100 Punkte plus bis zu 60 fürs Tempo, falsch eine Ladung Russ. Fünf Runden, jedes Mal mehr Rohre und etwas mehr Zeit — haben alle gewählt, wird gleich aufgelöst.
 
 ## Sandbox
 
