@@ -1175,13 +1175,20 @@ test("Kippboot: abgesetzt wird, wo der Haken gerade hängt — aussen gibt es me
   const current = g.players.find((p) => p.id === turn.playerId);
   const other = g.players.find((p) => p.id !== turn.playerId);
   assert.equal(g.input(other, { action: "drop" }).ok, false, "wer nicht dran ist, darf nicht");
-  g.at(turn.from + 400);
-  const x = party.boatSwingX(turn, turn.from + 400);
+  // Ein Augenblick, in dem der Haken sicher über dem Boot hängt. Vorher war
+  // es fest +400 ms: hing dort ein Schwein weit aussen, kenterte schon das
+  // leere Boot — und die Punkte kamen aus dem ungerundeten statt dem
+  // abgesetzten x, was an einer Rundungsgrenze ab und zu um eins danebenlag.
+  let t = 300;
+  while (Math.abs(party.boatSwingX(turn, turn.from + t)) > 0.9 && t < 3000) t += 10;
+  g.at(turn.from + t);
+  const x = party.boatSwingX(turn, turn.from + t);
   g.input(current, { action: "drop" });
   assert.equal(state.passengers.length, 1);
-  assert.ok(Math.abs(state.passengers[0].x - x) < 0.02, "dort, wo der Haken war");
-  assert.equal(g.arcade.players[current.id].score, party.boatPoints(turn.w, x));
-  assert.ok(party.boatPoints(2, C.BOAT_REACH) === 6 && party.boatPoints(2, 0) === 2, "Rand dreifach, Mitte einfach");
+  const placed = state.passengers[0];
+  assert.ok(Math.abs(placed.x - x) < 0.006, "dort, wo der Haken war");
+  assert.equal(g.arcade.players[current.id].score, party.boatPoints(turn.w, placed.x));
+  assert.ok(party.boatPoints(2, C.BOAT_REACH) === 3 * party.boatPoints(2, 0), "Rand dreifach, Mitte einfach");
   g.restore();
 });
 
@@ -1222,6 +1229,92 @@ test("Kippboot: ein volles Boot legt ab, und alle Lader bekommen die Zugabe", ()
   assert.ok(g.arcade.players[a.id].score >= before.a + C.BOAT_DEPART_BONUS);
   assert.ok(g.arcade.players[b.id].score >= before.b + C.BOAT_DEPART_BONUS);
   g.restore();
+});
+
+test("Kippboot: jeder ist gleich oft dran, und in jeder Runde bekommen alle dasselbe Tier", () => {
+  // Vorher mischte jedes neue Boot die Reihenfolge neu, und die Tiere kamen
+  // nach Zufall: einer hatte drei Züge, ein anderer sechs, und unter gleich
+  // guten Spielern gewann meist, wer die schwersten Tiere bekam.
+  for (const n of [2, 3, 4]) {
+    const g = setup("kippboot", n, { bots: true });
+    const seen = [];
+    let lastTurn = -1;
+    for (let t = 0; t <= g.minigame.duration; t += 30) {
+      g.at(t);
+      if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
+      g.tick();
+      const turn = g.arcade.boat.turn;
+      if (turn && turn.number !== lastTurn) {
+        lastTurn = turn.number;
+        seen.push(turn);
+      }
+      if (g.arcade.boat.finishedAt !== null && t > g.arcade.boat.finishedAt + C.BOAT_END_MS) break;
+    }
+    const rounds = party.boatRounds(n);
+    const drops = g.players.map((p) => g.arcade.players[p.id].drops);
+    assert.ok(drops.every((d) => d === rounds), `${n} Spieler: je ${rounds} Züge, nicht ${drops}`);
+    for (let r = 0; r < rounds; r += 1) {
+      const kinds = new Set(seen.filter((turn) => turn.round === r).map((turn) => turn.kind));
+      const omegas = new Set(seen.filter((turn) => turn.round === r).map((turn) => turn.omega));
+      assert.equal(kinds.size, 1, `Runde ${r + 1}: ein Tier für alle`);
+      assert.equal(omegas.size, 1, `Runde ${r + 1}: gleich schneller Haken für alle`);
+    }
+    assert.equal(seen[0].kind, "kueken", "es beginnt mit dem Küken");
+    assert.equal(seen[seen.length - 1].kind, "schwein", "und endet mit dem Schwein");
+    g.restore();
+  }
+});
+
+test("Kippboot: auch wenn keiner tippt, passen alle Runden in die Zeit", () => {
+  const g = setup("kippboot", 4);
+  let end = null;
+  for (let t = 0; t <= g.minigame.duration; t += 30) {
+    g.at(t);
+    g.tick();
+    if (g.arcade.boat.finishedAt !== null && end === null) end = g.arcade.boat.finishedAt;
+  }
+  const drops = g.players.map((p) => g.arcade.players[p.id].drops);
+  assert.ok(drops.every((d) => d === party.boatRounds(4)), `alle gleich oft: ${drops}`);
+  assert.ok(end !== null && end + C.BOAT_END_MS <= g.minigame.duration, `fertig vor der Obergrenze (${end} ms)`);
+  g.restore();
+});
+
+test("Kippboot: nur Bots dürfen einen geplanten Augenblick mitschicken", () => {
+  const g = setup("kippboot", 2);
+  g.run(0, C.BOAT_LEAD_MS + 50, 30);
+  const turn = g.arcade.boat.turn;
+  const current = g.players.find((p) => p.id === turn.playerId);
+  // Ein Augenblick, der sich lohnen würde — und einer, in dem der Tipp ankommt.
+  let t = 600;
+  while (Math.abs(party.boatSwingX(turn, turn.from + t) - party.boatSwingX(turn, turn.from + 300)) < 0.5 && t < 3000) t += 10;
+  g.at(turn.from + t);
+  g.input(current, { action: "drop", botAt: turn.from + 300 });
+  const x = g.arcade.boat.passengers[0]?.x ?? g.arcade.boat.last.x;
+  assert.ok(Math.abs(x - party.boatSwingX(turn, turn.from + t)) < 0.006, "ein Gerät kann keine Zeit mitschicken");
+  g.restore();
+});
+
+test("Kippboot: die Bots sind gestaffelt", () => {
+  // Gezählt wird, wer gewinnt — die Punkte liegen eng beieinander (der
+  // starke trifft nur etwas genauer), darum 400 Partien; sie kosten
+  // zusammen eine Fünftelsekunde.
+  const wins = { easy: 0, normal: 0, hard: 0 };
+  for (let r = 0; r < 400; r += 1) {
+    const g = setup("kippboot", 3, { bots: true });
+    const levels = ["easy", "normal", "hard"];
+    g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
+    for (let t = 0; t <= g.minigame.duration; t += 30) {
+      g.at(t);
+      if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
+      g.tick();
+      if (g.arcade.boat.finishedAt !== null && t > g.arcade.boat.finishedAt + C.BOAT_END_MS) break;
+    }
+    const scores = g.players.map((p) => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
+    const best = Math.max(...scores);
+    scores.forEach((score, i) => { if (score === best) wins[levels[i]] += 1; });
+    g.restore();
+  }
+  assert.ok(wins.hard > wins.normal && wins.normal > wins.easy, JSON.stringify(wins));
 });
 
 // --- Rohrsalat -------------------------------------------------------------

@@ -19,6 +19,7 @@ const BEAM_Y = 3.5;
 const HOOK_Y = 2.35;
 const PIER_X = 3.4;
 const WOBBLE = 0.06;
+const BAND_Z = 0.74;             // Sicherheitsleiste an der vorderen Bordwand
 
 export class BalanceBoat extends MinigameScene {
   constructor(ctx) {
@@ -31,6 +32,13 @@ export class BalanceBoat extends MinigameScene {
     this.leaving = null;
     this.arriveAt = 0;
     this.labelY = 0.78;
+    this.roundTrip = 0;
+    this.lastPingAt = 0;
+    this.pendingDrop = null;        // { turn, x, at, vy } — eigener Tipp, noch ohne Antwort
+    this.roundSeen = -1;
+    this.roundBannerUntil = 0;
+    this.lagSamples = [];           // { clock, sample }: sentAt − Empfangszeit je Bild
+    this.lagOffset = null;
   }
 
   stage() {
@@ -44,7 +52,7 @@ export class BalanceBoat extends MinigameScene {
 
   hudHtml() {
     return `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
+      <div class="kinetic-scorebar"><span data-boat-round>1/4</span><strong data-kinetic-score>0</strong></div>
       <div class="hud-chips" data-boat-chips></div>
       <div class="boat-level" data-boat-level><i></i></div>
       <div class="color-banner" data-boat-banner hidden></div>`;
@@ -244,7 +252,31 @@ export class BalanceBoat extends MinigameScene {
     const segel = kiste(boot, 0.04, 1.1, 1.0, "#fffaf0", [0.1, DECK_Y + 1.0, -0.55], { schatten: false });
     mast.visible = false;
     segel.visible = false;
-    boot.userData = { mast, segel };
+    // Auf der vorderen Bordwand: wo der Passagier sicher landet (grün) und wo
+    // das Boot kentern würde (rot), dazu ein Stift, wo er jetzt landen würde.
+    // Als dicke Leiste über der Kante — ein flacher Streifen oben auf der
+    // Bordwand war von der Kamera aus nur ein Strich.
+    const streifen = (farbe) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.14, 0.14), new THREE.MeshBasicMaterial({ color: farbe }));
+      m.position.set(0, 0.4, BAND_Z);
+      m.userData.isFx = true;
+      boot.add(m);
+      return m;
+    };
+    const band = { safe: streifen("#2fe070"), left: streifen("#ff2244"), right: streifen("#ff2244") };
+    const marke = new THREE.Group();
+    const stift = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.42, 0.1), new THREE.MeshBasicMaterial({ color: "#ffffff" }));
+    stift.position.y = 0.21;
+    const kappe = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.2), stift.material);
+    kappe.position.y = 0.44;
+    marke.add(stift, kappe);
+    marke.position.set(0, 0.47, BAND_Z);
+    marke.userData.isFx = true;
+    marke.userData.material = stift.material;
+    boot.add(marke);
+    Object.values(band).forEach((m) => { m.visible = false; });
+    marke.visible = false;
+    boot.userData = { mast, segel, band, marke };
     boot.position.set(0, BOAT_Y, -0.9);
     return boot;
   }
@@ -337,17 +369,76 @@ export class BalanceBoat extends MinigameScene {
       if (this.dropButton.disabled) return;
       this.feedback?.sound("move");
       this.feedback?.vibrate(12);
-      this.sendInput({ action: "drop" }).catch(() => {});
+      // Der Server setzt ab, wo der Haken hängt, wenn der Tipp ankommt — genau
+      // dort zeigt ihn das Bild (siehe arrival). Also fällt der Passagier sofort,
+      // nicht erst eine Rundreise später.
+      const minigame = this.update || this.minigame;
+      const state = minigame?.arcade?.boat;
+      const turn = state?.turn;
+      const at = this.arrival(minigame);
+      if (turn && turn.playerId === this.getControlledPlayerId() && at >= turn.from && at < turn.until && this.pendingDrop?.turn !== turn.number) {
+        this.pendingDrop = { turn: turn.number, x: swingX(turn, at, state.reach), at: performance.now(), vy: 0 };
+      }
+      const clock = performance.now();
+      this.sendInput({ action: "drop" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
     };
     this.on(this.dropButton, "pointerdown", press);
     this.on(this.webglCanvas, "pointerdown", press);
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Getippt wird selten — die Laufzeit misst darum ein Ping, jede Sekunde.
+  pingIfIdle(minigame) {
+    if (!minigame || minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastPingAt < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Jedes Bild trägt die Serverzeit, zu der es abging (sentAt). Das am
+  // wenigsten verspätete der letzten Sekunden sagt am genauesten, wie weit
+  // die Geräteuhr hinter dem Server liegt: die allgemeine Uhr gleicht sich nur
+  // mit den seltenen vollen Raumständen ab, und jede Verzögerung beim Empfang
+  // (ein langes Bild auf dem Hauptfaden) verschob sie — gemessen um 50 ms, bei
+  // schnellem Haken ein Drittel Bootsbreite.
+  onUpdate(update) {
+    if (!Number.isFinite(update?.sentAt)) return;
+    const clock = performance.now();
+    this.lagSamples.push({ clock, sample: update.sentAt - Date.now() });
+    while (this.lagSamples.length > 1 && this.lagSamples[0].clock < clock - 4000) this.lagSamples.shift();
+    this.lagOffset = Math.max(...this.lagSamples.map((item) => item.sample));
+  }
+
+  // Serverzeit, um den Hinweg verspätet — wie die Bilder sie zeigen.
+  serverSeen() {
+    return this.lagOffset === null ? this.now() : Date.now() + this.lagOffset;
+  }
+
+  // Spielzeit, zu der ein JETZT geschickter Tipp beim Server ankommt. Die
+  // Bilder zeigen die Serverzeit um den Hinweg verspätet, der Tipp braucht
+  // noch einmal so lange — und der Server setzt sofort ab, nicht erst im
+  // nächsten Takt. Vorher zeigte das Bild den Haken eine Rundreise zu früh:
+  // bei 100 ms und schnellem Haken landete der Passagier bis zu 0,8 daneben.
+  arrival(minigame) {
+    if (!minigame) return 0;
+    if (minigame.finaleAt) return this.now() - minigame.startedAt;
+    return this.serverSeen() + this.roundTrip - minigame.startedAt;
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.boat;
     if (!state) return;
+    this.pingIfIdle(minigame);
     const elapsed = now - minigame.startedAt;
+    const hookAt = this.arrival(minigame);
     const nowP = performance.now();
 
     // Wellen.
@@ -386,6 +477,11 @@ export class BalanceBoat extends MinigameScene {
       this.seenEvents = state.events;
       const last = state.last;
       const isOwn = last.playerId === controlledId;
+      // Der eigene Passagier fiel schon; jetzt übernimmt ihn das Boot.
+      if (this.pendingDrop && this.pendingDrop.turn === last.turn) {
+        this.pendingDrop = null;
+        if (this.hanging) this.hanging.visible = false;
+      }
       const kin = this.kins.get(last.playerId);
       if (last.kind === "place") {
         this.syncRiders(state.passengers);
@@ -409,7 +505,7 @@ export class BalanceBoat extends MinigameScene {
         this.riders = [];
         this.leaving = { kind: "capsize", at: nowP, side: last.side || 1 };
         this.burst(new THREE.Vector3(last.side * 1.5, 0.3, -0.9), ["#ffffff", "#bfe6ff", "#35c3d6"], { count: 30, speed: 3, up: 3, size: 0.1, life: 1 });
-        if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "PLATSCH! −10", { color: "#bfe6ff", size: 0.4, life: 1.3 });
+        if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "PLATSCH! −30", { color: "#bfe6ff", size: 0.4, life: 1.3 });
         this.animators.get(last.playerId)?.trigger("facepalm");
         this.rig.shake(0.6);
         this.feedback?.sound(isOwn ? "fall" : "impact");
@@ -421,7 +517,7 @@ export class BalanceBoat extends MinigameScene {
         this.boat.userData.segel.visible = true;
         (last.loaders || []).forEach((id) => {
           const k = this.kins.get(id);
-          if (k) this.pop(k.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "+2 ⛵", { color: "#b8ffb0", size: 0.34 });
+          if (k) this.pop(k.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "+5 ⛵", { color: "#b8ffb0", size: 0.34 });
           this.animators.get(id)?.trigger("wave");
         });
         this.feedback?.sound("win");
@@ -499,9 +595,11 @@ export class BalanceBoat extends MinigameScene {
 
     // Kran: Laufkatze und Passagier am Haken.
     const turn = state.turn;
-    const active = turn && elapsed >= turn.from && !f.finale;
+    const pending = this.pendingDrop;
+    if (pending && nowP - pending.at > 1500) this.pendingDrop = null;
+    const active = turn && hookAt >= turn.from && !f.finale;
     if (active) {
-      const x = swingX(turn, elapsed, state.reach);
+      const x = pending?.turn === turn.number ? pending.x : swingX(turn, hookAt, state.reach);
       this.trolley.position.x = x;
       const rope = BEAM_Y - 0.25 - HOOK_Y;
       this.rope.scale.y = rope;
@@ -514,12 +612,20 @@ export class BalanceBoat extends MinigameScene {
         this.scene.add(this.hanging);
       }
       this.hanging.visible = true;
-      this.hanging.position.set(x, HOOK_Y - 0.75, -0.9);
-      this.hanging.rotation.z = Math.sin(now / 160) * 0.1;
-      // Wo würde er landen? Ein Schatten auf dem Boot zeigt es.
+      if (pending?.turn === turn.number) {
+        // Losgelassen: er fällt, bis das Boot ihn übernimmt.
+        pending.vy += 9 * dt;
+        const floor = BOAT_Y + DECK_Y - 0.04;
+        this.hanging.position.set(x, Math.max(floor, this.hanging.position.y - pending.vy * dt), -0.9);
+        this.hanging.rotation.z *= 0.8;
+      } else {
+        this.hanging.position.set(x, HOOK_Y - 0.75, -0.9);
+        this.hanging.rotation.z = Math.sin(now / 160) * 0.1;
+      }
     } else if (this.hanging) {
       this.hanging.visible = false;
     }
+    this.drawSafeBand(state, active && !this.leaving ? turn : null, hookAt);
     if (!active) {
       this.rope.scale.y = 0.6;
       this.rope.position.y = -0.3;
@@ -555,10 +661,37 @@ export class BalanceBoat extends MinigameScene {
         animator.lookAt(this.boat.position.clone().add(new THREE.Vector3(0, 0.6, 0)));
       }
     });
-    const pulled = state.last && elapsed - state.last.at < 400;
+    const pulled = (state.last && elapsed - state.last.at < 400) || (this.pendingDrop && nowP - this.pendingDrop.at < 400);
     this.lever.rotation.x = pulled ? 0.6 : 0;
     this.leverKnob.position.z = -2.25 + (pulled ? 0.18 : 0);
     this.leverKnob.position.y = pulled ? 1.35 : 1.42;
+  }
+
+  // Der Streifen auf der Bordwand: grün, wo der Passagier sicher landet, rot,
+  // wo das Boot kentern würde — und eine Marke, wo er JETZT landen würde.
+  drawSafeBand(state, turn, hookAt) {
+    const { band, marke } = this.boat.userData;
+    const show = Boolean(turn);
+    Object.values(band).forEach((m) => { m.visible = show; });
+    marke.visible = show;
+    if (!show) return;
+    const reach = state.reach;
+    const limit = state.torqueMax;
+    const torque = state.torque;
+    const lo = Math.max(-reach, (-limit - torque) / turn.w);
+    const hi = Math.min(reach, (limit - torque) / turn.w);
+    const setSpan = (m, a, b) => {
+      m.visible = b - a > 0.01;
+      m.scale.x = Math.max(0.01, b - a);
+      m.position.x = (a + b) / 2;
+    };
+    setSpan(band.safe, Math.min(lo, hi), Math.max(lo, hi));
+    setSpan(band.left, -reach, Math.min(lo, reach));
+    setSpan(band.right, Math.max(hi, -reach), reach);
+    const x = this.pendingDrop?.turn === turn.number ? this.pendingDrop.x : swingX(turn, hookAt, reach);
+    marke.position.x = x;
+    const safe = x >= lo && x <= hi;
+    marke.userData.material.color.set(safe ? "#ffffff" : "#ff2244");
   }
 
   drawHud(f) {
@@ -589,8 +722,16 @@ export class BalanceBoat extends MinigameScene {
       level.dataset.risk = Math.abs(share) > 0.75 ? "high" : Math.abs(share) > 0.45 ? "mid" : "low";
     }
     const elapsed = now - minigame.startedAt;
+    const hookAt = this.arrival(minigame);
     const turn = state.turn;
-    const ownTurn = Boolean(turn && turn.playerId === controlledId && elapsed >= turn.from);
+    const ownTurn = Boolean(turn && turn.playerId === controlledId && hookAt >= turn.from && this.pendingDrop?.turn !== turn.number);
+    const roundNode = this.hud.querySelector("[data-boat-round]");
+    const roundText = `${Math.max(1, (state.round ?? 0) + 1)}/${state.rounds || 4}`;
+    if (roundNode && roundNode.textContent !== roundText) roundNode.textContent = roundText;
+    if (turn && turn.round !== this.roundSeen) {
+      this.roundSeen = turn.round;
+      this.roundBannerUntil = performance.now() + 1700;
+    }
     const banner = this.hud.querySelector("[data-boat-banner]");
     let message = null;
     let tone = "#12aaff";
@@ -598,8 +739,11 @@ export class BalanceBoat extends MinigameScene {
     if (elapsed < state.leadMs) message = "Gleich kommt der erste Passagier …";
     else if (last && elapsed - last.at < 1400 && last.kind === "capsize") {
       const who = room.players.find((p) => p.id === last.playerId);
-      message = last.playerId === controlledId ? "Gekentert! −10" : `${escapeName(who?.name)} hat's gekippt!`;
+      message = last.playerId === controlledId ? "Gekentert! −30" : `${escapeName(who?.name)} hat's gekippt!`;
       tone = "#ff5d73";
+    } else if (turn && performance.now() < this.roundBannerUntil) {
+      message = `Runde ${turn.round + 1}/${state.rounds}: ${animalName(turn.kind, true)}!`;
+      tone = "#b57bff";
     } else if (last && elapsed - last.at < 1400 && last.kind === "depart") {
       message = "Boot voll — ablegen! ⛵";
       tone = "#1fbf5b";
@@ -625,7 +769,8 @@ function swingX(turn, elapsed, reach) {
   return reach * Math.sin(turn.omega * t + turn.phase);
 }
 
-function animalName(kind) {
+function animalName(kind, plural = false) {
+  if (plural) return { kueken: "Küken", pinguin: "Pinguine", schaf: "Schafe", schwein: "Schweine" }[kind] || "Passagiere";
   return { kueken: "Küken", pinguin: "Pinguin", schaf: "Schaf", schwein: "Schwein" }[kind] || "Passagier";
 }
 

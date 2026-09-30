@@ -2810,8 +2810,17 @@ canvas.is-stunned {
   transition: left 160ms ease-out;
 }
 
+/* Eigenes Zittern: das aus Tauziehen setzt transform auf translateX(0) und
+   hob damit die Zentrierung auf — bei starker Neigung sprang die Waage um
+   ihre halbe Breite nach rechts aus dem Bild. */
 .boat-level[data-risk="high"] {
-  animation: tug-shake 0.25s linear infinite;
+  animation: boat-level-shake 0.25s linear infinite;
+}
+
+@keyframes boat-level-shake {
+  0%, 100% { transform: translateX(-50%); }
+  25% { transform: translateX(calc(-50% - 4px)); }
+  75% { transform: translateX(calc(-50% + 4px)); }
 }
 
 .kinetic-hud .boat-level ~ .color-banner {
