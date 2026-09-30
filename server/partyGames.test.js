@@ -348,10 +348,15 @@ test("Flaggen hoch: ein Druck kurz nach dem Fenster zählt noch, einer nach der 
 });
 
 test("Flaggen hoch: die Bots sind gestaffelt wie Menschen, nicht übermenschlich", () => {
+  // Gezählt wird, wer gewinnt — mit der Wertung des Spiels. Richtige allein
+  // taugen dafür nicht: normal und schwer liegen beide bei 96–97 %, den
+  // Ausschlag gibt die schnellere Hand. Mit 24 Runden kippte die Reihenfolge
+  // der Richtigen darum jedes fünfte Mal; 200 Runden kosten eine Zehntelsekunde.
   const sums = { easy: 0, normal: 0, hard: 0 };
   const outs = { easy: 0, normal: 0, hard: 0 };
+  const wins = { easy: 0, normal: 0, hard: 0 };
   const speed = { hard: 0, n: 0 };
-  const runs = 24;
+  const runs = 200;
   for (let r = 0; r < runs; r += 1) {
     const g = setup("flaggenhoch", 3, { bots: true });
     const levels = ["easy", "normal", "hard"];
@@ -369,9 +374,13 @@ test("Flaggen hoch: die Bots sind gestaffelt wie Menschen, nicht übermenschlich
       outs[levels[i]] += entry.outAt ? 1 : 0;
       if (levels[i] === "hard" && entry.correct) { speed.hard += entry.reactionSum / entry.correct; speed.n += 1; }
     });
+    const scores = g.players.map((p) => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
+    const best = Math.max(...scores);
+    scores.forEach((score, i) => { if (score === best) wins[levels[i]] += 1; });
     g.restore();
   }
-  assert.ok(sums.hard > sums.normal && sums.normal > sums.easy, JSON.stringify(sums));
+  assert.ok(wins.hard > wins.normal && wins.normal > wins.easy, `Siege ${JSON.stringify(wins)}`);
+  assert.ok(sums.hard > sums.easy && sums.normal > sums.easy, `Richtige ${JSON.stringify(sums)}`);
   assert.ok(outs.easy < runs, "auch der leichte Bot hält manchmal bis zum Schluss durch");
   assert.ok(speed.hard / speed.n > 380, `der schwere Bot reagiert wie ein guter Mensch, nicht schneller (Ø ${Math.round(speed.hard / speed.n)} ms)`);
 });
@@ -852,7 +861,7 @@ test("Bücherwurm: Seiten mit Löchern, die weniger werden, und Löcher liegen i
 test("Bücherwurm: wer im Loch steht, übersteht die Seite — wer nicht, wird platt", () => {
   const g = setup("buecherwurm", 2);
   const [a, b] = g.players;
-  const page = g.arcade.book.pages[0];
+  const page = g.arcade.secret.bookPages[0];
   const hole = page.holes[0];
   Object.assign(g.arcade.players[a.id], { x: hole.x, z: hole.z });
   // b steht sicher ausserhalb aller Löcher: in einer Ecke, die kein Loch trifft.
@@ -871,13 +880,86 @@ test("Bücherwurm: drei Mal platt, und man ist raus", () => {
   const [, b] = g.players;
   g.run(0, g.minigame.duration, 40, () => {
     // b rennt immer in die Ecke, die gerade kein Loch hat.
-    const page = g.arcade.book.pages.find((p) => p.index > g.arcade.book.slammed);
+    const page = g.arcade.secret.bookPages.find((p) => p.index > g.arcade.book.slammed);
     if (!page) return;
     const free = [[-2.6, -3.4], [2.6, -3.4], [-2.6, 3.4], [2.6, 3.4]].find(([x, z]) => !party.bookInHole(page, x, z));
     if (free) Object.assign(g.arcade.players[b.id], { x: free[0], z: free[1] });
   });
   assert.ok(g.arcade.players[b.id].outAt, "nach drei Seiten ist b raus");
   assert.equal(g.arcade.players[b.id].lives, 0);
+  g.restore();
+});
+
+test("Bücherwurm: die Löcher einer Seite sieht das Gerät erst kurz vorher", () => {
+  const g = setup("buecherwurm", 2);
+  const pages = g.arcade.secret.bookPages;
+  const shown = () => JSON.parse(JSON.stringify(publicArcade(g.arcade)));
+  assert.ok(!JSON.stringify(shown()).includes("bookPages"), "kein Geheimfach im Paket");
+  assert.deepEqual(shown().book.pages.map((p) => p.slamAt), pages.map((p) => p.slamAt), "die Zeiten sehen alle");
+  // Seite 1: bis sie kommt, kann noch niemand ausgeschieden sein (drei
+  // Leben) — bei einer späteren wäre das Spiel mit zwei Stillstehenden
+  // womöglich schon vorbei.
+  const later = pages[1];
+  assert.equal(shown().book.pages[2].holes, null, "spätere Seiten sind geheim");
+  g.run(0, later.at - C.BOOK_PUBLISH_LEAD_MS - 40, 30);
+  assert.equal(shown().book.pages[1].holes, null, "zu früh: die Löcher sind noch geheim");
+  g.run(later.at - C.BOOK_PUBLISH_LEAD_MS, later.at - C.BOOK_PUBLISH_LEAD_MS + 30, 30);
+  assert.deepEqual(shown().book.pages[1].holes, later.holes, "kurz vorher: jetzt darf das Gerät sie kennen");
+  g.restore();
+});
+
+test("Bücherwurm: gleich schnell, egal wie lang der Servertakt ist", () => {
+  const pos = (every) => {
+    const g = setup("buecherwurm", 2);
+    const [a] = g.players;
+    g.input(a, { action: "steer", x: 0.7, y: -0.6 });
+    g.run(0, 1440, every);                // 1440 ist ein Vielfaches von 30 und 90
+    const e = g.arcade.players[a.id];
+    const out = { x: e.x, z: e.z };
+    g.restore();
+    return out;
+  };
+  const fine = pos(30);
+  const coarse = pos(90);
+  assert.ok(Math.abs(fine.x - coarse.x) < 1e-9 && Math.abs(fine.z - coarse.z) < 1e-9, JSON.stringify({ fine, coarse }));
+});
+
+// Das Gerät rechnet das Buch bis zur Ankunft seines Sticks voraus
+// (Buchseite.js). Dafür muss es Schritt für Schritt genauso rechnen.
+test("Bücherwurm: Gerät und Server rechnen Schritt für Schritt gleich", async () => {
+  const { stepBook, bookRules } = await import("../client/src/minigames/Buchseite.js");
+  const g = setup("buecherwurm", 4);
+  const arcade = g.arcade;
+  const rules = bookRules(arcade);
+  const pages = arcade.secret.bookPages;
+  let seed = 3;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const server = arcade.order.map((id) => ({ id, entry: arcade.players[id] }));
+  const device = JSON.parse(JSON.stringify(server));
+  const devState = { slammed: arcade.book.slammed, lastHits: null };
+  let now = arcade.startedAt;
+  const steps = Math.ceil((pages[pages.length - 1].slamAt + 200) / C.BOOK_STEP_MS);
+  for (let k = 0; k < steps; k += 1) {
+    if (k % 7 === 0) {
+      server.forEach(({ entry }, i) => {
+        // Meist auf ein Loch der kommenden Seite zu, damit manche überleben.
+        const page = pages.find((p) => p.index > arcade.book.slammed) || pages[0];
+        const hole = page.holes[Math.floor(rnd() * page.holes.length)];
+        const a = rnd() < 0.75 ? Math.atan2(hole.x - entry.x, hole.z - entry.z) : rnd() * Math.PI * 2;
+        const m = rnd();
+        [entry, device[i].entry].forEach((e) => { e.dirX = Math.sin(a) * m; e.dirZ = Math.cos(a) * m; });
+      });
+    }
+    now += C.BOOK_STEP_MS;
+    party.bookStep(arcade.book, pages, server, C.BOOK_STEP_MS / 1000, now, arcade.startedAt);
+    stepBook(rules, devState, pages, device, C.BOOK_STEP_MS / 1000, now, arcade.startedAt, []);
+  }
+  const keys = ["x", "z", "vx", "vz", "lives", "flatUntil", "survived", "squashed", "safeMs"];
+  server.forEach(({ entry }, i) => keys.forEach((key) => assert.ok(Math.abs((entry[key] || 0) - (device[i].entry[key] || 0)) < 1e-6, `${key}: ${entry[key]} gegen ${device[i].entry[key]}`)));
+  assert.equal(devState.slammed, arcade.book.slammed);
+  const survived = server.reduce((sum, { entry }) => sum + entry.survived, 0);
+  const squashed = server.reduce((sum, { entry }) => sum + entry.squashed, 0);
+  assert.ok(survived > 0 && squashed > 0, `es gab Überstandene (${survived}) und Platte (${squashed})`);
   g.restore();
 });
 

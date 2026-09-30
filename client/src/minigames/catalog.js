@@ -109,7 +109,8 @@ export const REWORKED = new Set([
   "flaggenhoch",
   "honigwabe",
   "schneeball",
-  "luftpuck"
+  "luftpuck",
+  "buecherwurm"
 ]);
 
 export const ARCADE_TYPES = new Set(

@@ -4,6 +4,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { forecastBook } from "./Buchseite.js?v=tumblekin200";
 
 // Bücherwurm — alle stehen auf der aufgeschlagenen Seite eines Riesenbuchs,
 // das auf einem Schreibtisch liegt. Hinten richtet sich die nächste Seite
@@ -20,12 +21,19 @@ const PAGE_Y = 0.02;
 const RETURN_MS = 520;
 const HOLD_MS = 650;
 const PAGE_LIFT = 1.4;         // so hoch hebt die Seite ab, bevor sie zurückklappt
+const STICK_GAP_MS = 40;       // Stick höchstens so oft schicken
+const TICK_LEAD_MS = 45;       // halber Servertakt (90 ms), siehe stickAt
 
 export class BookSquirm extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.lastServerAt = performance.now();
     this.pages = new Map();         // Seitennummer → { pivot, shadow }
+    this.roundTrip = 0;
+    this.stickLog = [];             // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
+    this.stickWanted = null;
+    this.stickSent = { x: 0, y: 0, clock: 0 };
+    this.lastPingAt = 0;
+    this.view = null;               // Vorausrechnung zur Ankunftszeit (forecastBook)
     this.flat = new Map();
     this.seenSlam = -1;
     this.labelY = 0.78;
@@ -315,8 +323,84 @@ export class BookSquirm extends MinigameScene {
       label: "Bücherwurm: laufen",
       intervalMs: 60,
       feedback: this.feedback,
-      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
+    });
+  }
+
+  // Der Stick meldet sich alle 60 ms und bei jedem Richtungswechsel — dazu
+  // liest das Bild ihn in jedem Frame. Geschickt wird, was sich geändert hat,
+  // höchstens alle 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung
+  // weiss, ab wann der Server sie hat (wie in Farbenjagd).
+  queueStick(x, y) {
+    this.stickWanted = { x, y };
+    this.flushStick();
+  }
+
+  flushStick() {
+    const want = this.stickWanted;
+    const minigame = this.update || this.minigame;
+    if (!want || !minigame || minigame.finaleAt) return;
+    const clock = performance.now();
+    const same = Math.abs(want.x - this.stickSent.x) < 0.02 && Math.abs(want.y - this.stickSent.y) < 0.02;
+    if (same && clock - this.stickSent.clock < 400) return;
+    if (clock - this.stickSent.clock < STICK_GAP_MS) return;
+    this.stickSent = { x: want.x, y: want.y, clock };
+    const at = this.now();
+    this.stickLog.push({ at, x: want.x, y: want.y });
+    while (this.stickLog.length > 2 && this.stickLog[1].at < at - 3000) this.stickLog.shift();
+    this.sendInput({ action: "steer", x: want.x, y: want.y })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => {});
+  }
+
+  // Ohne Stick keine Antworten, also keine Laufzeit: dann misst ein Ping.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.stickSent.clock < 1000 || clock - this.lastPingAt < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Welchen Stick der Server für den Schritt ab Serverzeit `at` hat: was dieses
+  // Gerät eine Rundreise vorher geschickt hat, abzüglich eines halben Takts.
+  // Kam die Meldung vor dem Serverstand an, steht sie schon in ihm.
+  stickAt(at, from, entry) {
+    const lands = (sent) => sent.at + this.roundTrip - TICK_LEAD_MS;
+    let pick = null;
+    for (const sent of this.stickLog) {
+      if (lands(sent) <= at) pick = sent;
+      else break;
+    }
+    if (!pick || lands(pick) <= from) return { x: entry.dirX || 0, y: entry.dirZ || 0 };
+    return pick;
+  }
+
+  // Das Buch zu der Serverzeit, zu der ein jetzt geschickter Stick ankommt.
+  forecast(f) {
+    const { arcade, minigame, players, controlledId } = f;
+    const from = arcade.bookClock || minigame.sentAt || f.now;
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const to = minigame.finaleAt ? from : Math.min(Math.max(from, f.now + this.roundTrip), Math.max(from, endAt));
+    const present = new Set(players.map((player) => player.id));
+    const ids = (arcade.order || players.map((player) => player.id)).filter((id) => present.has(id) && arcade.players[id]);
+    this.view = forecastBook(arcade, {
+      from,
+      to,
+      ids,
+      startedAt: minigame.startedAt,
+      inputAt: (id, at) => {
+        const entry = arcade.players[id];
+        return id === controlledId ? this.stickAt(at, from, entry) : { x: entry.dirX || 0, y: entry.dirZ || 0 };
+      }
     });
   }
 
@@ -327,16 +411,19 @@ export class BookSquirm extends MinigameScene {
     this.pages.clear();
   }
 
-  onUpdate() {
-    this.lastServerAt = performance.now();
-  }
-
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.book;
     if (!state) return;
-    const elapsed = now - minigame.startedAt;
-    const age = Math.min(0.12, (performance.now() - this.lastServerAt) / 1000);
+    if (this.joystick && this.joystick.pointerId !== null) this.queueStick(this.joystick.vecX, this.joystick.vecY);
+    else this.flushStick();
+    this.pingIfIdle(minigame);
+    this.forecast(f);
+    const view = this.view;
+    // Alles läuft nach der Ankunftszeit: die Seite klappt so heran, wie sie
+    // beim Server steht, wenn ein jetzt geschickter Stick dort ankommt — und
+    // die Figuren stehen, wo sie dann stehen.
+    const elapsed = minigame.finaleAt ? now - minigame.startedAt : now + this.roundTrip - minigame.startedAt;
 
     // Seiten: anlegen, wenn sie beginnen; heranklappen; liegen lassen;
     // zurückblättern und entfernen.
@@ -344,7 +431,7 @@ export class BookSquirm extends MinigameScene {
       const started = elapsed >= page.at - 200;
       const over = elapsed > page.slamAt + HOLD_MS + RETURN_MS + 100;
       let entry = this.pages.get(page.index);
-      if (started && !over && !entry) {
+      if (started && !over && !entry && page.holes) {
         entry = this.makePage(page);
         this.pages.set(page.index, entry);
         if (arcade.players[controlledId] && !arcade.players[controlledId].outAt) this.feedback?.sound("whoosh");
@@ -387,34 +474,35 @@ export class BookSquirm extends MinigameScene {
       });
     });
 
-    // Aufschlag.
-    if (state.slammed > this.seenSlam) {
-      this.seenSlam = state.slammed;
-      const page = state.pages[state.slammed];
+    // Aufschlag — wenn die Vorausrechnung ihn sieht, also zugleich mit der
+    // Seite im Bild. Ob man selbst platt ist, sagt dieselbe Rechnung.
+    const slammed = Math.max(view.state.slammed, state.slammed);
+    if (slammed > this.seenSlam) {
+      this.seenSlam = slammed;
+      const hits = view.state.lastHits?.page === slammed ? view.state.lastHits.ids : state.lastHits?.page === slammed ? state.lastHits.ids : [];
       this.rig.shake(0.55);
       this.feedback?.sound("impact");
       this.burst(new THREE.Vector3(0, 0.3, 0), ["#efe6d0", "#ffffff", "#d9ceb2"], { count: 24, speed: 3.2, up: 1.2, size: 0.1, life: 0.9 });
-      const own = arcade.players[controlledId];
-      if (own && page?.hits?.includes(controlledId)) {
+      const own = view.entries.get(controlledId) || arcade.players[controlledId];
+      if (own && hits.includes(controlledId)) {
         this.feedback?.vibrate([60, 40, 60]);
-      } else if (own && !own.outAt) {
+      } else if (own && own.outAt === null) {
         this.feedback?.sound("coin");
         this.feedback?.vibrate(12);
       }
     }
 
     players.forEach((player) => {
-      const entry = arcade.players[player.id];
+      const entry = view.entries.get(player.id) || arcade.players[player.id];
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
-      // Vorausgerechnet, aber nie über den Seitenrand hinaus — dort steht der
-      // Server still, und die Figur schwebte sonst neben dem Buch.
-      const tx = Math.max(-this.W / 2 + 0.3, Math.min(this.W / 2 - 0.3, entry.x + (entry.vx || 0) * age));
-      const tz = Math.max(-this.D / 2 + 0.3, Math.min(this.D / 2 - 0.3, entry.z + (entry.vz || 0) * age));
+      // Die eigene Figur folgt der Vorausrechnung fast ohne Verzug — sie IST
+      // schon die Antwort auf den Stick.
+      const follow = player.id === controlledId ? 0.7 : 0.45;
       const before = kin.position.clone();
-      kin.position.x += (tx - kin.position.x) * frameLerp(0.4, dt);
-      kin.position.z += (tz - kin.position.z) * frameLerp(0.4, dt);
+      kin.position.x += (entry.x - kin.position.x) * frameLerp(follow, dt);
+      kin.position.z += (entry.z - kin.position.z) * frameLerp(follow, dt);
       const mx = kin.position.x - before.x;
       const mz = kin.position.z - before.z;
       const moving = Math.hypot(mx, mz) > 0.004;
@@ -423,7 +511,7 @@ export class BookSquirm extends MinigameScene {
         kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.3, dt);
       }
       // Platt gedrückt: flach wie Papier, dann ploppt man wieder auf.
-      const flat = entry.outAt || now < (entry.flatUntil || 0);
+      const flat = (entry.outAt !== null && entry.outAt !== undefined) || view.at < (entry.flatUntil || 0);
       const was = this.flat.get(player.id) || false;
       if (flat && !was) {
         this.pop(kin.position.clone().add(new THREE.Vector3(0, 0.7, 0)), "PLATT!", { color: "#ffb3bd", size: 0.42 });
@@ -448,7 +536,7 @@ export class BookSquirm extends MinigameScene {
       if (flat) animator.set("dizzy");
       else if (moving) animator.set("run");
       else {
-        const coming = state.pages.find((p) => p.index > state.slammed && elapsed >= p.at);
+        const coming = state.pages.find((p) => p.index > slammed && elapsed >= p.at);
         animator.set(coming ? "cower" : "idle");
         animator.lookAt(coming ? new THREE.Vector3(kin.position.x, 3, -this.D / 2) : null);
       }
@@ -468,14 +556,16 @@ export class BookSquirm extends MinigameScene {
     const { arcade, state: room, controlledId, minigame, now } = f;
     const state = arcade?.book;
     if (!state) return;
-    const own = arcade.players[controlledId];
+    // Alles zur Ankunftszeit, wie das Bild (siehe tick).
+    const view = this.view;
+    const own = view?.entries.get(controlledId) || arcade.players[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     const text = String(own?.survived || 0);
     if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
     const chips = this.hud.querySelector("[data-book-chips]");
     if (chips) {
       const html = room.players.map((player) => {
-        const entry = arcade.players[player.id];
+        const entry = view?.entries.get(player.id) || arcade.players[player.id];
         const hearts = "❤".repeat(Math.max(0, entry?.lives || 0)) + "·".repeat(Math.max(0, state.lives - (entry?.lives || 0)));
         return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${entry?.outAt ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${hearts}</span>`;
       }).join("");
@@ -484,13 +574,14 @@ export class BookSquirm extends MinigameScene {
         chips.innerHTML = html;
       }
     }
-    const elapsed = now - minigame.startedAt;
-    const coming = state.pages.find((p) => p.index > state.slammed && elapsed >= p.at);
+    const elapsed = now + this.roundTrip - minigame.startedAt;
+    const slammed = Math.max(view?.state.slammed ?? -1, state.slammed);
+    const coming = state.pages.find((p) => p.index > slammed && elapsed >= p.at && p.holes);
     const banner = this.hud.querySelector("[data-book-banner]");
     let message = null;
     let tone = "#12aaff";
     if (own?.outAt) { message = "Platt wie ein Lesezeichen …"; tone = "#8a6238"; }
-    else if (own && now < (own.flatUntil || 0)) { message = "PLATT! Gleich geht's weiter"; tone = "#ff5d73"; }
+    else if (own && (view?.at ?? now) < (own.flatUntil || 0)) { message = "PLATT! Gleich geht's weiter"; tone = "#ff5d73"; }
     else if (coming) { message = coming.holes.length === 1 ? "Nur EIN Loch! 😱" : "Seite kommt — ab ins Loch!"; tone = "#1fbf5b"; }
     else if (elapsed < 2000) message = "Achtung, gleich wird geblättert …";
     if (banner) {

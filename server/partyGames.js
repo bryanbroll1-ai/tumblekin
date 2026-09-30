@@ -1943,6 +1943,13 @@ const hockey = {
 // gedrückt und verliert ein Leben. Die Löcher werden weniger und kleiner, die
 // Seiten kommen schneller. Drei Leben; gewertet werden die überstandenen
 // Seiten.
+//
+// Gerechnet wird in festen Schritten auf einer eigenen Uhr (bookClock), und
+// das Anlaufen ist exakt gelöst: so rechnet das Gerät genau dasselbe voraus
+// (Buchseite.js) und zeigt Figur und Seite zu der Zeit, zu der ein jetzt
+// geschickter Stick ankommt — was man im Moment des Aufschlags sieht, ist
+// das, was der Server wertet. Die Löcher einer Seite kennt das Gerät erst
+// kurz vorher (arcade.secret), nicht die ganze Runde im Voraus.
 const BOOK_W = 6;
 const BOOK_D = 7.6;
 const BOOK_DURATION_MS = 42000;
@@ -1958,6 +1965,16 @@ const BOOK_ACCEL = 14;
 const BOOK_BODY = 0.3;
 const BOOK_BUMP = 0.64;
 const BOOK_INSIDE = 0.1;               // so weit muss die Mitte im Loch liegen
+const BOOK_STEP_MS = 30;               // Rechenschritt, wie STEP_MS in Buchseite.js
+const BOOK_CATCHUP_MS = 250;           // hängt der Server, holt er höchstens so viel nach
+// Rundreise (bis 250 ms, wie das Gerät sie deckelt) plus ein Servertakt.
+const BOOK_PUBLISH_LEAD_MS = 350;
+
+// Die Regeln, wie das Gerät sie braucht (Buchseite.js liest arcade.bookRules).
+const BOOK_RULES = {
+  w: BOOK_W, d: BOOK_D, speed: BOOK_SPEED, accel: BOOK_ACCEL, body: BOOK_BODY, bump: BOOK_BUMP,
+  inside: BOOK_INSIDE, flatMs: BOOK_FLAT_MS, stepMs: BOOK_STEP_MS
+};
 
 function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
   const pages = [];
@@ -1993,25 +2010,131 @@ function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
 }
 
 function bookInHole(page, x, z) {
-  return page.holes.some((h) => Math.abs(x - h.x) <= h.w / 2 - BOOK_INSIDE && Math.abs(z - h.z) <= h.d / 2 - BOOK_INSIDE);
+  return (page.holes || []).some((h) => Math.abs(x - h.x) <= h.w / 2 - BOOK_INSIDE && Math.abs(z - h.z) <= h.d / 2 - BOOK_INSIDE);
 }
 
 function bookSpawn(index) {
   return [[-1.4, 1.6], [1.4, 1.6], [-1.4, -1.2], [1.4, -1.2]][index % 4];
 }
 
+// Was die Geräte vom Blätterplan sehen: Zeiten immer, die Löcher erst kurz
+// bevor die Seite sich aufrichtet.
+function bookPublish(arcade, elapsed) {
+  const full = arcade.secret.bookPages;
+  arcade.book.pages.forEach((shown, i) => {
+    if (shown.holes || elapsed < shown.at - BOOK_PUBLISH_LEAD_MS) return;
+    shown.holes = full[i].holes.map((hole) => ({ ...hole }));
+  });
+}
+
+// Anlaufen exakt gelöst (wie snowEase): unabhängig davon, wie der Schritt
+// zerlegt wird.
+function bookEase(v, target, rate, dt) {
+  const fade = Math.exp(-rate * dt);
+  return { v: target + (v - target) * fade, d: target * dt + (v - target) * (1 - fade) / rate };
+}
+
+// Ein Rechenschritt. `pages`: der ganze Blätterplan (mit Löchern), `entries`:
+// [{ id, entry }] in der Reihenfolge arcade.order, `now` die Serverzeit am Ende
+// des Schritts. Genau so in Buchseite.js (stepBook) — ein Test hält beide
+// gleich.
+function bookStep(state, pages, entries, dt, now, startedAt) {
+  const halfW = BOOK_W / 2 - BOOK_BODY;
+  const halfD = BOOK_D / 2 - BOOK_BODY;
+  const elapsed = now - startedAt;
+  entries.forEach(({ entry }) => {
+    const stuck = entry.outAt || now < entry.flatUntil;
+    const gx = bookEase(entry.vx, stuck ? 0 : entry.dirX * BOOK_SPEED, BOOK_ACCEL, dt);
+    const gz = bookEase(entry.vz, stuck ? 0 : entry.dirZ * BOOK_SPEED, BOOK_ACCEL, dt);
+    entry.vx = gx.v;
+    entry.vz = gz.v;
+    const x = entry.x + gx.d;
+    const z = entry.z + gz.d;
+    entry.x = clamp(x, -halfW, halfW);
+    entry.z = clamp(z, -halfD, halfD);
+    if (x !== entry.x) entry.vx = 0;
+    if (z !== entry.z) entry.vz = 0;
+  });
+  // Rempeln: wer im Loch steht, kann hinausgeschoben werden.
+  for (let a = 0; a < entries.length; a += 1) {
+    for (let b = a + 1; b < entries.length; b += 1) {
+      const one = entries[a].entry;
+      const two = entries[b].entry;
+      if (one.outAt || two.outAt) continue;
+      const dx = two.x - one.x;
+      const dz = two.z - one.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= BOOK_BUMP || dist < 1e-6) continue;
+      const push = (BOOK_BUMP - dist) / 2;
+      one.x = clamp(one.x - (dx / dist) * push, -halfW, halfW);
+      one.z = clamp(one.z - (dz / dist) * push, -halfD, halfD);
+      two.x = clamp(two.x + (dx / dist) * push, -halfW, halfW);
+      two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
+    }
+  }
+  // Seit wann steht man im Loch der Seite, die gerade herankommt? Das ist
+  // die Feinwertung: wer gleich viele Seiten übersteht, den ordnet, wer
+  // schneller in Deckung war. Vorher teilten sich in vier von zehn Runden
+  // zwei den Sieg.
+  const coming = pages.find((page) => page.index > state.slammed);
+  if (coming && elapsed >= coming.at) {
+    entries.forEach(({ entry }) => {
+      if (entry.outAt) return;
+      if (bookInHole(coming, entry.x, entry.z)) {
+        if (entry.safeSince === null || entry.safeSince === undefined) entry.safeSince = elapsed;
+      } else {
+        entry.safeSince = null;
+      }
+    });
+  }
+  // Seiten schlagen auf.
+  pages.forEach((page) => {
+    if (page.index <= state.slammed || elapsed < page.slamAt) return;
+    state.slammed = page.index;
+    const hits = [];
+    entries.forEach(({ id, entry }) => {
+      if (entry.outAt) return;
+      if (bookInHole(page, entry.x, entry.z)) {
+        const since = entry.safeSince ?? page.slamAt;
+        entry.safeMs = (entry.safeMs || 0) + clamp(since - page.at, 0, page.flip);
+        entry.survived += 1;
+      } else {
+        entry.lives -= 1;
+        entry.squashed += 1;
+        entry.flatUntil = now + BOOK_FLAT_MS;
+        hits.push(id);
+        if (entry.lives <= 0) {
+          entry.outAt = elapsed;
+          entry.outMs = elapsed;
+        }
+      }
+      entry.lastPage = page.index;
+      entry.safeSince = null;
+      entry.score = entry.survived;
+    });
+    state.lastHits = { page: page.index, ids: hits };
+  });
+}
+
 const book = {
   cooldown: 0,
   fastHand: true,
   create(arcade, players) {
+    const pages = buildBookPages(arcade.seed);
+    arcade.secret = { ...(arcade.secret || {}), bookPages: pages };
     arcade.book = {
       w: BOOK_W,
       d: BOOK_D,
-      pages: buildBookPages(arcade.seed),
+      pages: pages.map(({ index, at, slamAt, flip }) => ({ index, at, slamAt, flip, holes: null })),
       slammed: -1,                     // letzte ausgewertete Seite
+      lastHits: null,                  // { page, ids } — wer bei ihr platt wurde
       lives: BOOK_LIVES,
       flatMs: BOOK_FLAT_MS
     };
+    arcade.bookRules = { ...BOOK_RULES };
+    arcade.order = players.map((player) => player.id);
+    arcade.bookClock = arcade.startedAt || 0;
+    bookPublish(arcade, 0);
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
       const [x, z] = bookSpawn(index);
@@ -2030,92 +2153,54 @@ const book = {
     return { ok: true };
   },
   update(ctx) {
-    const { arcade, room, now, elapsed } = ctx;
+    const { arcade, room, now, minigame } = ctx;
     const state = arcade.book;
-    const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    const startedAt = minigame?.startedAt ?? arcade.startedAt ?? 0;
     arcade.lastUpdateAt = now;
-    const entries = room.players.map((player) => arcade.players[player.id]).filter(Boolean);
-    const halfW = BOOK_W / 2 - BOOK_BODY;
-    const halfD = BOOK_D / 2 - BOOK_BODY;
-    entries.forEach((entry) => {
-      const stuck = entry.outAt || now < entry.flatUntil;
-      const dx = stuck ? 0 : entry.dirX;
-      const dz = stuck ? 0 : entry.dirZ;
-      entry.vx += (dx * BOOK_SPEED - entry.vx) * Math.min(1, BOOK_ACCEL * dt);
-      entry.vz += (dz * BOOK_SPEED - entry.vz) * Math.min(1, BOOK_ACCEL * dt);
-      entry.x = clamp(entry.x + entry.vx * dt, -halfW, halfW);
-      entry.z = clamp(entry.z + entry.vz * dt, -halfD, halfD);
-    });
-    // Rempeln: wer im Loch steht, kann hinausgeschoben werden.
-    for (let a = 0; a < entries.length; a += 1) {
-      for (let b = a + 1; b < entries.length; b += 1) {
-        const one = entries[a];
-        const two = entries[b];
-        if (one.outAt || two.outAt) continue;
-        const dx = two.x - one.x;
-        const dz = two.z - one.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist >= BOOK_BUMP || dist < 1e-6) continue;
-        const push = (BOOK_BUMP - dist) / 2;
-        one.x = clamp(one.x - (dx / dist) * push, -halfW, halfW);
-        one.z = clamp(one.z - (dz / dist) * push, -halfD, halfD);
-        two.x = clamp(two.x + (dx / dist) * push, -halfW, halfW);
-        two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
-      }
+    if (!arcade.bookClock) arcade.bookClock = now;
+    if (now - arcade.bookClock > BOOK_CATCHUP_MS) arcade.bookClock = now - BOOK_CATCHUP_MS;
+    const present = new Set(room.players.map((player) => player.id));
+    const entries = (arcade.order || room.players.map((player) => player.id))
+      .filter((id) => present.has(id) && arcade.players[id])
+      .map((id) => ({ id, entry: arcade.players[id] }));
+    while (arcade.bookClock + BOOK_STEP_MS <= now) {
+      arcade.bookClock += BOOK_STEP_MS;
+      bookStep(state, arcade.secret.bookPages, entries, BOOK_STEP_MS / 1000, arcade.bookClock, startedAt);
     }
-    // Seit wann steht man im Loch der Seite, die gerade herankommt? Das ist
-    // die Feinwertung: wer gleich viele Seiten übersteht, den ordnet, wer
-    // schneller in Deckung war. Vorher teilten sich in vier von zehn Runden
-    // zwei den Sieg.
-    const coming = state.pages.find((page) => page.index > state.slammed);
-    if (coming && elapsed >= coming.at) {
-      entries.forEach((entry) => {
-        if (entry.outAt) return;
-        if (bookInHole(coming, entry.x, entry.z)) {
-          if (entry.safeSince === null || entry.safeSince === undefined) entry.safeSince = elapsed;
-        } else {
-          entry.safeSince = null;
-        }
-      });
-    }
-    // Seiten schlagen auf.
-    state.pages.forEach((page) => {
-      if (page.index <= state.slammed || elapsed < page.slamAt) return;
-      state.slammed = page.index;
-      page.hits = [];
-      entries.forEach((entry) => {
-        if (entry.outAt) return;
-        if (bookInHole(page, entry.x, entry.z)) {
-          const since = entry.safeSince ?? page.slamAt;
-          entry.safeMs = (entry.safeMs || 0) + clamp(since - page.at, 0, page.flip);
-          entry.survived += 1;
-        } else {
-          entry.lives -= 1;
-          entry.squashed += 1;
-          entry.flatUntil = now + BOOK_FLAT_MS;
-          if (entry.lives <= 0) {
-            entry.outAt = elapsed;
-            entry.outMs = elapsed;
-          }
-        }
-        entry.lastPage = page.index;
-        entry.safeSince = null;
-        entry.score = entry.survived;
-      });
-      room.players.forEach((player) => {
-        const entry = arcade.players[player.id];
-        if (entry && entry.lastPage === page.index && entry.flatUntil > now) page.hits.push(player.id);
-      });
-    });
+    bookPublish(arcade, now - startedAt);
   },
   bot(ctx, player, entry) {
     const { arcade, room, now, elapsed } = ctx;
     if (entry.outAt || now < entry.flatUntil) return { action: "steer", x: 0, y: 0 };
     const state = arcade.book;
-    const page = state.pages.find((p) => p.index > state.slammed);
-    if (!page || elapsed < page.at) return { action: "steer", x: 0, y: 0 };
-    const react = byLevel(entry, 750, 420, 180);
-    if (elapsed < page.at + react) return { action: "steer", x: 0, y: 0 };
+    const page = arcade.secret.bookPages.find((p) => p.index > state.slammed);
+    const go = (tx, tz) => {
+      const dx = tx - entry.x;
+      const dz = tz - entry.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.08) return { action: "steer", x: 0, y: 0 };
+      const gain = Math.min(1, d * 2.5);
+      return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+    };
+    // Zwischen den Seiten: der starke wartet in der Buchmitte — von dort ist
+    // jedes Loch am schnellsten zu erreichen —, der mittlere oft, der
+    // schwache selten.
+    if (!page) return { action: "steer", x: 0, y: 0 };
+    if (entry.botWaitPage !== page.index) {
+      entry.botWaitPage = page.index;
+      entry.botCenter = Math.random() < byLevel(entry, 0.25, 0.6, 1);
+    }
+    // Menschliche Reaktion: vorher reagierte der starke nach 180 ms und
+    // gewann gemessen drei von vier Runden gegen jeden Menschen; der schwache
+    // brauchte 750 ms und war in neun von zehn Runden raus.
+    const react = byLevel(entry, 560, 470, 410);
+    if (elapsed < page.at + react) {
+      if (entry.botCenter) {
+        const spot = byLevel(entry, 0, 0.35, 0.25);
+        return go((Math.random() - 0.5) * spot, 0.2 + (Math.random() - 0.5) * spot);
+      }
+      return { action: "steer", x: 0, y: 0 };
+    }
     if (entry.botPage !== page.index) {
       entry.botPage = page.index;
       // Welches Loch? Der schwache nimmt das nächste, der starke das beste:
@@ -2128,18 +2213,11 @@ const book = {
         return { i, cost: dist + (level(entry) === "hard" ? Math.max(0, crowd - room2 + 1) * 2.5 : level(entry) === "normal" ? crowd * 0.8 : 0) };
       }).sort((a, b) => a.cost - b.cost);
       entry.botHole = scored[0]?.i ?? 0;
-      entry.botJitter = { x: (Math.random() - 0.5) * byLevel(entry, 0.7, 0.35, 0.1), z: (Math.random() - 0.5) * byLevel(entry, 0.7, 0.35, 0.1) };
+      entry.botJitter = { x: (Math.random() - 0.5) * byLevel(entry, 0.6, 0.35, 0.1), z: (Math.random() - 0.5) * byLevel(entry, 0.6, 0.35, 0.1) };
     }
     const hole = page.holes[entry.botHole] || page.holes[0];
     if (!hole) return { action: "steer", x: 0, y: 0 };
-    const tx = hole.x + entry.botJitter.x * hole.w;
-    const tz = hole.z + entry.botJitter.z * hole.d;
-    const dx = tx - entry.x;
-    const dz = tz - entry.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 0.08) return { action: "steer", x: 0, y: 0 };
-    const gain = Math.min(1, d * 2.5);
-    return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+    return go(hole.x + entry.botJitter.x * hole.w, hole.z + entry.botJitter.z * hole.d);
   },
   rank(arcade, entry) {
     const bis = entry.outAt ? Math.min(99, Math.round((entry.outMs || 0) / 1000)) : 99;
@@ -2813,7 +2891,7 @@ module.exports = {
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST, HONEY_GRACE_MS,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R, SNOW_STEP_MS, SNOW_GIANT, SNOW_GROW,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS, HOCKEY_STEP_MS, HOCKEY_LANE_STURM, HOCKEY_LANE_ABWEHR,
-    BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS,
+    BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS, BOOK_STEP_MS, BOOK_PUBLISH_LEAD_MS,
     PHOTO_W, PHOTO_D, PHOTO_IN, PHOTO_COVER, PHOTO_SOLO, PHOTO_SHOVE_COOLDOWN_MS,
     BOAT_LEAD_MS, BOAT_REACH, BOAT_TORQUE_MAX, BOAT_CAPACITY, BOAT_CAPSIZE_COST, BOAT_DEPART_BONUS,
     PIPE_ROUNDS, PIPE_LEAD_MS, PIPE_ANSWER_MS, PIPE_REVEAL_MS, PIPE_LEVELS, PIPE_POINTS, PIPE_SPEED_BONUS
@@ -2834,6 +2912,7 @@ module.exports = {
   hockeyStep,
   hockeyMallets,
   hockeyLimits,
+  bookStep,
   buildHoneyVine,
   honeyCombAt,
   honeyRisk,
