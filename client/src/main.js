@@ -1,5 +1,5 @@
 import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin200";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin200";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin201";
 import { MenuStage } from "./ui/MenuStage.js?v=tumblekin200";
 import { Feedback } from "./game/Feedback.js?v=tumblekin200";
 import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin200";
@@ -147,7 +147,8 @@ const ui = new UIManager({
   startGame: () => request("startGame"),
   rematch: () => request("rematch"),
   restartGame: () => request("restartGame"),
-  readyForNext: () => request("readyForNext")
+  readyForNext: () => request("readyForNext"),
+  readyForMinigame: (minigameId) => request("readyForMinigame", { minigameId })
 }, feedback, stage);
 
 // Griff für die Prüfskripte: mit ?dev=1 lassen sich Räume und Spiele direkt
@@ -207,7 +208,7 @@ function handleState(state) {
   }
   ui.render(state, myPlayerId);
 
-  if (state.status === "minigame" && state.currentMinigame) {
+  if (state.status === "minigame" && state.phase !== "waitingReady" && state.currentMinigame) {
     startOrUpdateMinigame(state.currentMinigame);
   } else {
     stopMinigame();

@@ -859,8 +859,18 @@ body.has-invite .start-sheet .field:first-child {
 .picker-card {
   width: min(100%, 560px);
   max-height: calc(100dvh - 40px);
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
+
+.picker-card:has(#picker-tools[hidden]) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.picker-browse { display: grid; gap: 8px; }
+.picker-browse input { width: 100%; min-height: 44px; }
+.picker-categories { display: flex; flex-wrap: wrap; gap: 6px; }
+.picker-categories .chip { min-height: 40px; padding: 6px 10px; font-size: 0.8rem; }
+.pick-empty { grid-column: 1 / -1; padding: 20px 8px; }
 
 .picker-head {
   display: flex;
@@ -886,13 +896,15 @@ body.has-invite .start-sheet .field:first-child {
 .picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 8px;
   overflow-y: auto;
   padding: 2px;
   overscroll-behavior: contain;
 }
 
-/* Abschnitte in der Spielauswahl: überarbeitete Spiele oben, der Rest darunter. */
+/* Spielarten helfen bei der Auswahl einer abwechslungsreichen Partie. */
 .pick-section {
   grid-column: 1 / -1;
   display: flex;
@@ -972,6 +984,7 @@ body.has-invite .start-sheet .field:first-child {
   padding: calc(20px + env(safe-area-inset-top)) 18px calc(20px + env(safe-area-inset-bottom));
   background: radial-gradient(circle at 50% 40%, rgba(14, 30, 42, 0.2), rgba(14, 30, 42, 0.62));
   backdrop-filter: blur(3px);
+  overflow-y: auto;
 }
 
 /* Ab dem Startschuss läuft das Spiel — die Karte darf keine Berührung mehr schlucken. */
@@ -995,6 +1008,34 @@ body.has-invite .start-sheet .field:first-child {
   box-shadow: var(--strong-shadow);
   text-align: center;
   animation: card-pop 360ms cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  max-height: calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.intro-tip { padding: 10px 12px; border-radius: 14px; background: #fff1c6; color: var(--ink); font-size: 0.86rem; font-weight: 750; line-height: 1.4; }
+.intro-details { width: 100%; color: var(--ink-soft); font-size: 0.86rem; line-height: 1.5; text-align: left; }
+.intro-details summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; margin-left: 18px; font-weight: 850; }
+.intro-details p { margin-top: 8px; }
+#intro-ready { width: 100%; }
+.intro-ready-status { color: var(--ink-soft); font-size: 0.78rem; line-height: 1.4; }
+.minigame-intro.counting .intro-tip { display: none; }
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .picker-card { width: min(100%, 760px); max-height: calc(100dvh - 20px); padding: 12px; gap: 8px; }
+  .picker-card h3 { font-size: 1.1rem; }
+  .picker-browse { grid-template-columns: minmax(160px, 0.65fr) minmax(0, 1.35fr); align-items: center; }
+  .picker-tools .chip, .picker-categories .chip { min-height: 36px; font-size: 0.78rem; padding: 4px 9px; }
+  .picker-count { font-size: 0.8rem; }
+  #picker-done { min-height: 44px; padding: 8px 16px; }
+  .minigame-intro { padding: 10px max(16px, env(safe-area-inset-left)) 10px max(16px, env(safe-area-inset-right)); gap: 8px; }
+  .intro-card { width: min(100%, 540px); gap: 6px; padding: 12px 18px; border-radius: 20px; max-height: calc(100dvh - 24px); }
+  .intro-card h2 { font-size: 1.7rem; }
+  .intro-gesture { padding: 4px 12px; font-size: 0.85rem; }
+  .intro-gesture-icon { font-size: 1.3rem; }
+  .intro-goal { font-size: 0.9rem; }
+  .intro-tip { padding: 6px 10px; font-size: 0.8rem; }
+  .minigame-intro.counting { grid-template-columns: minmax(0, 540px) 110px; justify-content: center; }
+  .minigame-intro.counting .intro-count { font-size: 4.5rem; min-height: 76px; }
 }
 
 .intro-round {

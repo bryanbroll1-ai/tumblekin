@@ -14,7 +14,7 @@
 // Sekunden über das Dev-Ereignis `devSkipMinigame` gewertet. Die Bots haben
 // bis dahin Punkte gemacht; sonst gäbe es nur Unentschieden, und eine
 // Punktejagd liefe bis an ihre Obergrenze.
-import { launchBrowser, openRoom, request, startServer, watchErrors } from "./lib/harness.mjs";
+import { launchBrowser, openRoom, readyForMinigame, request, startServer, watchErrors } from "./lib/harness.mjs";
 
 const headed = process.argv.includes("--head");
 
@@ -67,6 +67,7 @@ for (const plan of PLANS) {
     }
     rounds += 1;
     await page.waitForSelector("#screen-minigame.active", { timeout: 15000 });
+    await readyForMinigame(page);
     await page.waitForSelector("canvas.kinetic-webgl", { timeout: 15000 });
     const reason = await page.textContent("#intro-reason").catch(() => "");
     // Der Stand vor der Wertung — gleich zu Beginn, falls das Spiel früh endet.

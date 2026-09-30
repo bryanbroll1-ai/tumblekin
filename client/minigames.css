@@ -207,7 +207,45 @@
 .joystick-only .virtual-joystick {
   width: min(44vw, 174px);
   height: min(44vw, 174px);
-}.canopy-choice-controls button.pressed:not(:disabled) {
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .minigame-controls:has(.mobile-stick-controls) {
+    left: 0;
+    width: 100%;
+    transform: none;
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    pointer-events: none;
+  }
+  .minigame-controls .mobile-stick-controls {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    pointer-events: none;
+  }
+  .mobile-stick-controls > * { pointer-events: auto; }
+  .minigame-controls .mobile-stick-controls .virtual-joystick {
+    width: 116px;
+    height: 116px;
+    min-width: 116px;
+    min-height: 116px;
+  }
+  .minigame-controls .mobile-stick-controls > button {
+    width: 116px;
+    min-height: 88px;
+    padding: 10px;
+    font-size: 0.95rem;
+  }
+}
+
+.canopy-choice-controls button.pressed:not(:disabled) {
   transform: translateY(4px);
   background: #4fb87b;
   box-shadow: 0 3px 0 rgba(5, 18, 16, 0.88);

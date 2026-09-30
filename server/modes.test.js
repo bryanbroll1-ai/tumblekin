@@ -339,6 +339,7 @@ function playThrough(room, maxRounds = 60) {
   let rounds = 0;
   try {
     while (room.status === "minigame" && rounds < maxRounds) {
+      testRules.markMinigameReady(room, ["p0"], room.currentMinigame.id);
       testRules.finishMinigame(room);
       assert.equal(room.status, "result");
       testRules.continueAfterResult(room);
@@ -349,6 +350,75 @@ function playThrough(room, maxRounds = 60) {
   }
   return rounds;
 }
+
+test("Startkarte: ohne alle Menschen laufen weder Spieluhr noch Bots", () => {
+  const room = makeRoom("single", 4, { single: "luftpuck" });
+  room.players[1].isBot = false;
+  testRules.startGame(room);
+  const id = room.currentMinigame.id;
+  try {
+    assert.equal(room.phase, "waitingReady");
+    assert.equal(room.currentMinigame.startedAt, null);
+    assert.equal(room.currentMinigame.arcade, null);
+    assert.equal(room.minigameTick, null);
+    assert.equal(room.timers.size, 0);
+    assert.equal(testRules.serializeRoom(room).readyNeeded, 2);
+    assert.equal(testRules.markMinigameReady(room, ["fremd"], id).ok, false);
+    assert.equal(testRules.markMinigameReady(room, ["p0"], id).ok, true);
+    assert.equal(testRules.markMinigameReady(room, ["p0"], id).ok, true);
+    assert.deepEqual(room.readyForMinigame, ["p0"]);
+    assert.equal(room.phase, "waitingReady");
+    assert.equal(testRules.markMinigameReady(room, ["p1"], id).ok, true);
+    assert.equal(room.phase, "playingMinigame");
+    assert.ok(room.currentMinigame.startedAt > Date.now());
+    assert.ok(room.currentMinigame.arcade);
+    assert.notEqual(room.currentMinigame.id, id);
+    const startedAt = room.currentMinigame.startedAt;
+    assert.equal(testRules.markMinigameReady(room, ["p1"], id).ok, false);
+    assert.equal(room.currentMinigame.startedAt, startedAt);
+  } finally {
+    testRules.clearRoomTimers(room);
+  }
+});
+
+test("Startkarte: getrennte Geräte blockieren nicht, alle offline starten keine Uhr", () => {
+  const room = makeRoom("single", 2, { single: "turmbau" });
+  room.players[1].isBot = false;
+  testRules.startGame(room);
+  try {
+    testRules.markMinigameReady(room, ["p0"], room.currentMinigame.id);
+    room.players.forEach((player) => { player.connected = false; });
+    assert.equal(testRules.maybeStartPreparedMinigame(room), false);
+    assert.equal(room.currentMinigame.startedAt, null);
+    room.players[0].connected = true;
+    assert.equal(testRules.maybeStartPreparedMinigame(room), true);
+    assert.equal(room.phase, "playingMinigame");
+  } finally {
+    testRules.clearRoomTimers(room);
+  }
+});
+
+test("Startkarte: nächste Runde verlangt neues Bereit, lokale Spieler können gemeinsam starten", () => {
+  const room = makeRoom("marathon", 3, { length: 5 });
+  room.players.forEach((player) => { player.isBot = false; });
+  testRules.startGame(room);
+  const id = room.currentMinigame.id;
+  try {
+    assert.equal(testRules.markMinigameReady(room, ["p0", "p1", "p2"], id).ok, true);
+    assert.equal(room.phase, "playingMinigame");
+    testRules.finishMinigame(room);
+    testRules.continueAfterResult(room);
+    assert.equal(room.phase, "waitingReady");
+    assert.deepEqual(room.readyForMinigame, []);
+    assert.equal(testRules.markMinigameReady(room, ["p0", "p1", "p2"], id).ok, false);
+    assert.equal(room.currentMinigame.startedAt, null);
+    testRules.resetToLobby(room);
+    assert.equal(room.currentMinigame, null);
+    assert.deepEqual(room.readyForMinigame, []);
+  } finally {
+    testRules.clearRoomTimers(room);
+  }
+});
 
 test("Ablauf: ein Marathon spielt genau seine Länge und endet auf dem Endbildschirm", () => {
   for (const length of modes.MARATHON_LENGTHS) {
@@ -364,6 +434,7 @@ test("Ablauf: ein Einzelspiel führt zurück in die Lobby und zählt den Sitzung
   const room = makeRoom("single", 2, { single: "turmbau" });
   testRules.startGame(room);
   assert.equal(room.currentMinigame.type, "turmbau");
+  testRules.markMinigameReady(room, ["p0"], room.currentMinigame.id);
   testRules.finishMinigame(room);
   testRules.continueAfterResult(room);
   testRules.clearRoomTimers(room);
@@ -384,6 +455,7 @@ test("Ablauf: Punktejagd und K.O. enden von selbst", () => {
 test("Ablauf: die Ergebnistafel trägt Platz, Punkte und die Vorschau", () => {
   const room = makeRoom("marathon", 4, { length: 5 });
   testRules.startGame(room);
+  testRules.markMinigameReady(room, ["p0"], room.currentMinigame.id);
   testRules.finishMinigame(room);
   const result = room.lastMinigameResult;
   testRules.clearRoomTimers(room);

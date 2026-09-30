@@ -163,7 +163,18 @@ export async function startSingle(page, type) {
   await request(page, "updateSettings", { settings: { single: type } });
   await request(page, "startGame");
   await page.waitForSelector("#screen-minigame.active", { timeout: 15000 });
+  await readyForMinigame(page);
   await page.waitForSelector("canvas.kinetic-webgl", { timeout: 15000 });
+}
+
+// Dieselbe Lesepause und derselbe Bereit-Knopf wie auf dem Handy. Räume mit
+// mehreren echten Geräten müssen jedes Gerät separat bereitmelden.
+export async function readyForMinigame(page) {
+  await page.waitForFunction(() => window.__tumblekin.state()?.status === "minigame", null, { timeout: 15000 });
+  if (await page.evaluate(() => window.__tumblekin.state().phase === "waitingReady")) {
+    await page.click("#intro-ready");
+  }
+  await page.waitForFunction(() => window.__tumblekin.state()?.phase === "playingMinigame", null, { timeout: 15000 });
 }
 
 // Wie weit ist das laufende Minispiel? Negativ = Countdown läuft noch.

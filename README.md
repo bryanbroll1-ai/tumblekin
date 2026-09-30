@@ -27,6 +27,9 @@ Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
 2. Auf einem Gerät eine Party starten.
 3. Den QR-Code scannen oder die WLAN-Adresse plus Raumcode verwenden.
 4. Der Host wählt einen Modus und tippt auf **Los geht's**.
+5. Vor jedem Spiel zeigt die Startkarte Ziel, Steuerung und einen Tipp. **Alle Regeln lesen** klappt die ausführliche Hilfe auf. Erst wenn alle verbundenen Menschen **Bereit!** tippen, beginnt der gemeinsame Countdown; Bots blockieren die Lesepause nicht.
+
+Die Spielauswahl lässt sich nach **Reaktion**, **Geschick**, **Denken** und **Miteinander** filtern und nach Namen durchsuchen. Bei einer eigenen Auswahl fügt **Sichtbare wählen** die gefilterten Spiele hinzu, ohne die übrige Auswahl zu löschen.
 
 Eine Partie braucht mindestens zwei Teilnehmer. Wer allein ist, holt sich mit **+ Bot** Mitspieler dazu — die Bots spielen jedes Minispiel mit, in drei Stärken; dass die stärkere in jedem Minispiel tatsächlich häufiger gewinnt, misst `npm run bot-sim` nach.
 
@@ -263,6 +266,7 @@ npm run smoke                # jedes Minispiel ein paar Sekunden: Render- und Ko
 npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
+npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
 npm run scene-check          # Figuren im Bild, auf dem Boden, nicht in Kulissen
 npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnistafel, dazu Sprünge und NaN
 npm run session-sim          # viele Spiele hintereinander: wächst etwas, das nicht wachsen darf?

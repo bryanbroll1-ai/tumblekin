@@ -81,6 +81,8 @@ export class CameraRig {
     const rect = canvas?.getBoundingClientRect() || { top: 0, left: 0, width, height };
     let top = 0;
     let bottom = height;
+    let left = 0;
+    let right = width;
     const insets = this.base.insets;
     if (insets) {
       top = insets.top ?? 0;
@@ -92,11 +94,20 @@ export class CameraRig {
       }
       const controls = this.host.controls;
       if (controls && controls.children.length) {
+        // Im flachen Querformat stehen Stick und Aktionsknopf seitlich.
+        // Reserviere ihre Breite, statt die ganze untere Bildhälfte zu sperren.
+        const sideControls = width > height && height <= 520
+          ? controls.querySelector(".mobile-stick-controls") : null;
+        const children = sideControls ? [...sideControls.children] : [...controls.children];
         let highest = Infinity;
-        [...controls.children].forEach((child) => {
+        children.forEach((child) => {
           if (child.offsetParent === null) return;
           const r = child.getBoundingClientRect();
-          if (r.height > 8) highest = Math.min(highest, r.top - rect.top);
+          if (r.height <= 8) return;
+          const center = (r.left + r.right) / 2 - rect.left;
+          if (sideControls && center < width / 3) left = Math.max(left, r.right - rect.left + 10);
+          else if (sideControls && center > width * 2 / 3) right = Math.min(right, r.left - rect.left - 10);
+          else highest = Math.min(highest, r.top - rect.top);
         });
         if (Number.isFinite(highest)) bottom = Math.min(bottom, highest - 8);
       }
@@ -108,7 +119,7 @@ export class CameraRig {
       top = Math.max(0, mid - height * 0.25);
       bottom = Math.min(height, top + height * 0.5);
     }
-    return { top, bottom, left: 0, right: width };
+    return { top, bottom, left, right };
   }
 
   resize() {

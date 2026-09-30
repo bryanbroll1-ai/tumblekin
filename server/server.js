@@ -1553,6 +1553,7 @@ io.on("connection", (socket) => {
       lastMinigameResult: null,
       resultEndsAt: null,
       readyForNext: [],
+      readyForMinigame: [],
       lastMessage: "Raum erstellt.",
       winnerIds: [],
       timers: new Set(),
@@ -1764,7 +1765,7 @@ io.on("connection", (socket) => {
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Werkzeuge sind in dieser Version deaktiviert.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann das.");
-    if (room.status !== "minigame") return replyError(reply, "Gerade läuft kein Minispiel.");
+    if (room.status !== "minigame" || room.phase === "waitingReady") return replyError(reply, "Gerade läuft kein Minispiel.");
     finishMinigame(room);
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
@@ -1798,6 +1799,16 @@ io.on("connection", (socket) => {
     if (room.status !== "end") return replyError(reply, "Revanche gibt es erst nach dem Ende.");
     if (!room.devMode && room.players.length < 2) return replyError(reply, "Es braucht mindestens zwei Spieler.");
     startGame(room);
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
+  on("readyForMinigame", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    const controlled = room.players.filter((player) => canControl(socket, player));
+    const result = markMinigameReady(room, controlled.map((player) => player.id), payload?.minigameId);
+    if (!result.ok) return replyError(reply, result.error);
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
   });
@@ -1899,7 +1910,7 @@ function startNextRound(room) {
     finishGame(room, modes.matchOutcome(room.match, room.players).winnerIds);
     return;
   }
-  startMinigame(room, modes.roundLabel(room.match), type);
+  prepareMinigame(room, modes.roundLabel(room.match), type);
 }
 
 function resetToLobby(room) {
@@ -1911,6 +1922,7 @@ function resetToLobby(room) {
   room.winnerIds = [];
   room.resultEndsAt = null;
   room.readyForNext = [];
+  room.readyForMinigame = [];
   room.match = null;
   room.lastMessage = "Zurück in der Lobby.";
   room.players.forEach((player) => {
@@ -1924,6 +1936,46 @@ function resetToLobby(room) {
   });
 }
 
+// Keine Spieluhr, Simulation oder Bot-Eingabe läuft während der Lesepause.
+// Eine eigene ID schützt die nächste Runde vor verspäteten Bereit-Nachrichten.
+function prepareMinigame(room, reason, type) {
+  clearRoomTimers(room);
+  const template = MINIGAMES.find((game) => game.type === type);
+  room.status = "minigame";
+  room.phase = "waitingReady";
+  room.lastMinigameResult = null;
+  room.readyForNext = [];
+  room.readyForMinigame = [];
+  room.currentMinigame = {
+    id: `${room.code}_intro_${room.minigameCounter + 1}_${Date.now()}`,
+    type, title: template.title, reason,
+    startedAt: null, duration: template.duration,
+    scores: {}, arena: {}, arcade: null
+  };
+  room.lastMessage = "Lest die Regeln und meldet euch bereit.";
+}
+
+function markMinigameReady(room, playerIds, minigameId) {
+  if (room.phase !== "waitingReady" || room.currentMinigame?.id !== minigameId) {
+    return { ok: false, error: "Diese Startkarte ist nicht mehr aktuell." };
+  }
+  const humans = humansInRoom(room);
+  const controlled = humans.filter((player) => playerIds.includes(player.id));
+  if (!controlled.length) return { ok: false, error: "Du gehörst nicht zu diesem Raum." };
+  room.readyForMinigame = [...new Set([...room.readyForMinigame, ...controlled.map((player) => player.id)])];
+  maybeStartPreparedMinigame(room);
+  return { ok: true };
+}
+
+function maybeStartPreparedMinigame(room) {
+  if (room.phase !== "waitingReady") return false;
+  const humans = humansInRoom(room);
+  if (!humans.length || !humans.every((player) => room.readyForMinigame.includes(player.id))) return false;
+  const { reason, type } = room.currentMinigame;
+  startMinigame(room, reason, type);
+  return true;
+}
+
 function startMinigame(room, reason, forcedType = null) {
   clearRoomTimers(room);
 
@@ -1934,6 +1986,7 @@ function startMinigame(room, reason, forcedType = null) {
   room.phase = "playingMinigame";
   room.lastMinigameResult = null;
   room.readyForNext = [];
+  room.readyForMinigame = [];
 
   const now = Date.now();
   const countdownMs = template.countdownMs || 4200;
@@ -1988,7 +2041,7 @@ const QUIET_INPUT_FAMILIES = new Set(["pump"]);
 
 function handleMinigameInput(room, player, rawInput) {
   const minigame = room.currentMinigame;
-  if (room.status !== "minigame" || !minigame) {
+  if (room.status !== "minigame" || !minigame || room.phase === "waitingReady") {
     return { ok: false, error: "Gerade läuft kein Minispiel." };
   }
   // Ab hier lesen alle Familien Felder aus `input`. Ein Nicht-Objekt darf hier
@@ -2257,7 +2310,7 @@ function beginMinigameFinale(room, minigame) {
 
 function finishMinigame(room) {
   const minigame = room.currentMinigame;
-  if (!minigame || room.status !== "minigame") return;
+  if (!minigame || room.status !== "minigame" || room.phase === "waitingReady") return;
   minigame.finishing = true;
 
   updateArcade(room);
@@ -8708,6 +8761,7 @@ function serializeRoom(room) {
     lastMinigameResult: room.lastMinigameResult,
     resultEndsAt: room.resultEndsAt,
     readyForNext: room.readyForNext || [],
+    readyForMinigame: room.readyForMinigame || [],
     readyNeeded: humansInRoom(room).length,
     lastMessage: room.lastMessage,
     winnerIds: room.winnerIds,
@@ -8808,6 +8862,10 @@ function leaveCurrentRoom(socket, notify, intentional = false) {
   socket.leave(code);
   socket.data.roomCode = null;
   socket.data.playerId = null;
+
+  // Ein getrenntes Gerät darf die noch verbundenen, bereiten Spieler nicht
+  // auf der Startkarte festhalten. Sind alle offline, bleibt die Uhr stehen.
+  if (maybeStartPreparedMinigame(room)) emitRoom(room);
 
   if (room.players.length === 0 || !room.players.some((candidate) => !candidate.isBot && candidate.connected)) {
     if (!room.cleanupTimer) {
@@ -8990,6 +9048,8 @@ module.exports = {
     WHACK_GOLD_POINTS,
     buildWhackPops,
     startGame,
+    markMinigameReady,
+    maybeStartPreparedMinigame,
     finishMinigame,
     continueAfterResult,
     resetToLobby,

@@ -12,7 +12,7 @@ import {
   setKinOpacity
 } from "./VoxelKit.js?v=tumblekin200";
 import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin200";
-import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin200";
+import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin201";
 import { frameChance } from "./Quality.js?v=tumblekin200";
 import { verblocke } from "./Blockform.js?v=tumblekin200";
 

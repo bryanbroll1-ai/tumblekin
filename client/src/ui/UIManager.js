@@ -11,7 +11,8 @@ import {
   minigameTitle
 } from "../game/GameState.js?v=tumblekin200";
 import { playerStatus } from "../game/Player.js?v=tumblekin200";
-import { MINIGAME_CATALOG, GESTURES, REWORKED, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin200";
+import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin200";
+import { GAME_CATEGORIES, MINIGAME_GUIDES } from "../minigames/guides.js?v=tumblekin201";
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
@@ -109,6 +110,8 @@ export class UIManager {
       pickerEyebrow: $("picker-eyebrow"),
       pickerTools: $("picker-tools"),
       pickerGrid: $("picker-grid"),
+      pickerSearch: $("picker-search"),
+      pickerCategories: $("picker-categories"),
       pickerCount: $("picker-count"),
       pickerDone: $("picker-done"),
       pickerClose: $("picker-close"),
@@ -117,6 +120,11 @@ export class UIManager {
       introReason: $("intro-reason"),
       introTitle: $("intro-title"),
       introGoal: $("intro-goal"),
+      introTip: $("intro-tip"),
+      introRules: $("intro-rules"),
+      introDetails: $("intro-details"),
+      introReady: $("intro-ready"),
+      introReadyStatus: $("intro-ready-status"),
       introExtra: $("intro-extra"),
       introGestureIcon: $("intro-gesture-icon"),
       introGestureLabel: $("intro-gesture-label"),
@@ -165,6 +173,12 @@ export class UIManager {
     });
     el.leave.addEventListener("click", () => this.safeAction(() => this.handlers.leaveRoom()));
     el.startGame.addEventListener("click", () => this.safeAction(() => this.handlers.startGame()));
+    el.introReady.addEventListener("click", () => {
+      const id = this.state?.currentMinigame?.id;
+      if (!id || this.state.phase !== "waitingReady") return;
+      this.feedback?.sound("tap");
+      this.safeAction(() => this.handlers.readyForMinigame(id));
+    });
     el.addBot.addEventListener("click", () => this.safeAction(() => this.handlers.addBot()));
     el.enableDevMode.addEventListener("click", () => this.safeAction(() => this.handlers.enableDevMode()));
     el.rematch.addEventListener("click", () => this.safeAction(() => this.handlers.rematch()));
@@ -225,15 +239,28 @@ export class UIManager {
       this.picker.selected = new Set(MINIGAME_CATALOG.map((game) => game.type));
       this.renderPicker();
     });
-    el.pickerTools.querySelector("[data-picker-reworked]").addEventListener("click", () => {
+    el.pickerTools.querySelector("[data-picker-visible]").addEventListener("click", () => {
       if (!this.picker) return;
-      this.picker.selected = new Set(MINIGAME_CATALOG.filter((game) => REWORKED.has(game.type)).map((game) => game.type));
+      this.visiblePickerGames().forEach((game) => this.picker.selected.add(game.type));
       this.renderPicker();
     });
     el.pickerTools.querySelector("[data-picker-none]").addEventListener("click", () => {
       if (!this.picker) return;
       this.picker.selected = new Set();
       this.renderPicker();
+    });
+    el.pickerSearch.addEventListener("input", () => {
+      if (!this.picker) return;
+      this.picker.query = el.pickerSearch.value;
+      this.renderPicker();
+      el.pickerGrid.scrollTop = 0;
+    });
+    el.pickerCategories.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-category]");
+      if (!button || !this.picker) return;
+      this.picker.category = button.dataset.category;
+      this.renderPicker();
+      el.pickerGrid.scrollTop = 0;
     });
     el.pickerGrid.addEventListener("click", (event) => {
       const card = event.target.closest("[data-pick]");
@@ -248,6 +275,7 @@ export class UIManager {
       if (this.picker.selected.has(type)) this.picker.selected.delete(type);
       else this.picker.selected.add(type);
       this.renderPicker();
+      el.pickerGrid.querySelector(`[data-pick="${type}"]`)?.focus({ preventScroll: true });
     });
 
     el.gameMenuButton.addEventListener("click", () => {
@@ -543,7 +571,10 @@ export class UIManager {
     const selected = kind === "single"
       ? new Set(settings.single ? [settings.single] : [])
       : new Set(settings.pool && settings.pool.length ? settings.pool : MINIGAME_CATALOG.map((game) => game.type));
-    this.picker = { kind, selected };
+    this.picker = { kind, selected, category: "all", query: "" };
+    this.el.pickerSearch.value = "";
+    this.el.pickerCategories.innerHTML = [{ id: "all", title: "Alle", icon: "" }, ...GAME_CATEGORIES]
+      .map((category) => `<button type="button" class="chip" data-category="${category.id}">${category.icon} ${category.title}</button>`).join("");
     this.el.pickerEyebrow.textContent = kind === "single" ? "Einzelspiel" : "Spielauswahl";
     this.el.pickerTitle.textContent = kind === "single" ? "Welches Spiel?" : "Welche Spiele kommen dran?";
     this.el.pickerTools.hidden = kind === "single";
@@ -556,8 +587,8 @@ export class UIManager {
   renderPicker() {
     const picker = this.picker;
     if (!picker) return;
-    const random = picker.kind === "single"
-      ? `<button type="button" class="pick-card ${picker.selected.size === 0 ? "is-picked" : ""}" data-pick="__random">
+    const random = picker.kind === "single" && picker.category === "all" && !picker.query.trim()
+      ? `<button type="button" class="pick-card ${picker.selected.size === 0 ? "is-picked" : ""}" data-pick="__random" aria-pressed="${picker.selected.size === 0}">
           <span class="pick-icon">🎲</span><strong>Zufall</strong><small>Lasst euch überraschen</small>
         </button>`
       : "";
@@ -571,19 +602,30 @@ export class UIManager {
           <small>${escapeHtml(gesture.label)}</small>
         </button>`;
     };
-    // Überarbeitete Spiele oben, der Rest darunter — je in Katalogreihenfolge.
-    const done = MINIGAME_CATALOG.filter((game) => REWORKED.has(game.type));
-    const open = MINIGAME_CATALOG.filter((game) => !REWORKED.has(game.type));
-    const section = (title, games, note) => games.length
-      ? `<h4 class="pick-section">${title} <span>${games.length}</span>${note ? `<small>${note}</small>` : ""}</h4>${games.map(card).join("")}`
-      : "";
-    this.el.pickerGrid.innerHTML = random
-      + section("✨ Überarbeitet", done, "vollständig poliert")
-      + section("Noch nicht überarbeitet", open, "");
+    const visible = this.visiblePickerGames();
+    const sections = GAME_CATEGORIES.map((category) => {
+      const games = visible.filter((game) => MINIGAME_GUIDES[game.type]?.category === category.id);
+      return games.length ? `<h4 class="pick-section">${category.icon} ${category.title} <span>${games.length}</span></h4>${games.map(card).join("")}` : "";
+    }).join("");
+    this.el.pickerGrid.innerHTML = random + (sections || '<p class="pick-empty" role="status">Kein Spiel gefunden. Versuch einen anderen Namen oder eine andere Kategorie.</p>');
+    this.el.pickerCategories.querySelectorAll("[data-category]").forEach((button) => {
+      const active = button.dataset.category === picker.category;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
     const count = picker.selected.size;
-    this.el.pickerCount.textContent = picker.kind === "single" ? "" : `${count} von ${MINIGAME_CATALOG.length}`;
+    this.el.pickerCount.textContent = picker.kind === "single" ? "" : `${count} / ${MINIGAME_CATALOG.length} gewählt`;
     this.el.pickerDone.disabled = picker.kind !== "single" && count < 2;
     this.el.pickerDone.textContent = count < 2 && picker.kind !== "single" ? "Mindestens zwei wählen" : "Übernehmen";
+  }
+
+  visiblePickerGames() {
+    const { category, query } = this.picker;
+    const normalize = (value) => value.toLocaleLowerCase("de").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ß/g, "ss");
+    const search = normalize(query.trim());
+    return MINIGAME_CATALOG.filter((game) =>
+      (category === "all" || MINIGAME_GUIDES[game.type]?.category === category)
+      && normalize(game.title).includes(search));
   }
 
   commitPicker() {
@@ -614,21 +656,40 @@ export class UIManager {
 
   // Die Karte vor jedem Spiel: Name, Geste, Ziel — dann 3-2-1-LOS.
   syncIntro(minigame) {
+    const waiting = this.state?.phase === "waitingReady";
+    this.el.introReady.hidden = !waiting;
+    this.el.introReadyStatus.hidden = !waiting;
+    this.el.introDetails.hidden = !waiting;
+    if (waiting) {
+      const ready = this.state.readyForMinigame || [];
+      const humans = this.state.players.filter((player) => !player.isBot && player.connected !== false);
+      const mine = ready.includes(this.myPlayerId);
+      this.el.introReady.disabled = mine;
+      this.el.introReady.textContent = mine ? "Du bist bereit ✓" : "Bereit!";
+      const count = humans.filter((player) => ready.includes(player.id)).length;
+      this.el.introReadyStatus.textContent = `${count} / ${humans.length} bereit · ${mine ? "Wir warten auf die anderen." : "Los geht’s, wenn alle bereit sind."}`;
+    }
     if (!minigame || this.introMinigameId === minigame.id) return;
     this.introMinigameId = minigame.id;
     clearInterval(this.introTimer);
 
     const meta = minigameMeta(minigame.type);
+    const guide = MINIGAME_GUIDES[minigame.type];
     const gesture = gestureMeta(minigame.type);
     this.el.introReason.textContent = minigame.reason || "";
     this.el.introTitle.textContent = minigame.title;
-    this.el.introGoal.textContent = meta?.help || "Sammle die meisten Punkte.";
+    this.el.introGoal.textContent = guide?.goal || "Sammle die meisten Punkte.";
+    this.el.introTip.textContent = guide?.tip || "";
+    this.el.introRules.textContent = meta?.help || "";
+    this.el.introDetails.open = false;
     this.el.introGestureIcon.textContent = gesture.icon;
     this.el.introGestureLabel.textContent = gesture.label;
     this.el.introExtra.innerHTML = this.introExtra();
     this.el.intro.hidden = false;
     this.el.intro.classList.remove("counting", "through");
     this.el.introCount.hidden = true;
+
+    if (waiting) return;
 
     const clockOffset = (this.state?.serverTime || Date.now()) - Date.now();
     let lastShown = null;
