@@ -206,7 +206,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️👆 Stick steuern, Knopf werfen
 
-- **Schneeballhang:** Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1 bis 3 Punkte, je grösser die Kugel war. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild.
+- **Schneeballhang:** Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1, 2 oder 4 Punkte, je grösser die Kugel war. Eine Riesenkugel walzt weiter und kann noch jemanden umwerfen. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild.
 
 ### 🕹️💥 Stick laufen, Knopf schubsen
 

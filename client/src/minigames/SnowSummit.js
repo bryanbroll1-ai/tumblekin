@@ -4,6 +4,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin200";
+import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin200";
 
 // Schneeballhang — ein Plateau auf dem Gipfel, rundherum ein Schneewall.
 // Jeder schiebt eine Kugel vor sich her, die beim Rollen wächst; ein Tipp
@@ -16,6 +17,8 @@ import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tu
 const W = 6.2;                // wie SNOW_W / SNOW_D auf dem Server
 const D = 8;
 const BODY_R = 0.3;
+const STICK_GAP_MS = 40;         // Stick höchstens so oft schicken
+const TICK_LEAD_MS = 45;         // halber Servertakt (90 ms), siehe stickAt
 
 function ballRadius(size) {
   return 0.12 + size * 0.26;
@@ -26,13 +29,20 @@ const _v = new THREE.Vector3();
 export class SnowSummit extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.lastServerAt = performance.now();
     this.carried = new Map();      // playerId → Kugel vor der Figur
     this.rolling = new Map();      // Kugel-ID → Mesh
     this.seenBursts = new Set();
     this.stunned = new Map();
     this.labelY = 0.8;
     this.flakes = null;
+    this.roundTrip = 0;
+    this.stickLog = [];            // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
+    this.throwLog = [];            // { at }: eigene Würfe (Geräteuhr)
+    this.stickWanted = null;
+    this.stickSent = { x: 0, y: 0, clock: 0 };
+    this.lastPingAt = 0;
+    this.view = null;              // Vorausrechnung zur Ankunftszeit (forecastSnow)
+    this.localDust = [];           // { x, z, at } — schon gezeigter Schneestaub
   }
 
   stage() {
@@ -240,17 +250,13 @@ export class SnowSummit extends MinigameScene {
       label: "Schneeballhang: rollen",
       intervalMs: 70,
       feedback: this.feedback,
-      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
     });
     this.throwButton = this.controls.querySelector("[data-snow-throw]");
     this.on(this.throwButton, "pointerdown", (event) => {
       event.preventDefault();
-      const minigame = this.update || this.minigame;
-      if (!minigame || minigame.finaleAt) return;
-      this.feedback?.sound("whoosh");
-      this.feedback?.vibrate(12);
-      this.sendInput({ action: "throw" }).catch(() => {});
+      this.throwNow();
     });
   }
 
@@ -259,15 +265,123 @@ export class SnowSummit extends MinigameScene {
     this.joystick = null;
   }
 
-  onUpdate() {
-    this.lastServerAt = performance.now();
+  // Der Stick meldet sich alle 70 ms und bei jedem Richtungswechsel — dazu
+  // liest das Bild ihn in jedem Frame. Geschickt wird, was sich geändert hat,
+  // höchstens alle 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung
+  // weiss, ab wann der Server sie hat (wie in Farbenjagd).
+  queueStick(x, y) {
+    this.stickWanted = { x, y };
+    this.flushStick();
+  }
+
+  flushStick() {
+    const want = this.stickWanted;
+    const minigame = this.update || this.minigame;
+    if (!want || !minigame || minigame.finaleAt) return;
+    const clock = performance.now();
+    const same = Math.abs(want.x - this.stickSent.x) < 0.02 && Math.abs(want.y - this.stickSent.y) < 0.02;
+    if (same && clock - this.stickSent.clock < 400) return;
+    if (clock - this.stickSent.clock < STICK_GAP_MS) return;
+    this.stickSent = { x: want.x, y: want.y, clock };
+    const at = this.now();
+    this.stickLog.push({ at, x: want.x, y: want.y });
+    while (this.stickLog.length > 2 && this.stickLog[1].at < at - 3000) this.stickLog.shift();
+    this.sendInput({ action: "steer", x: want.x, y: want.y })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => {});
+  }
+
+  // Werfen: nur, wenn die Vorausrechnung sagt, dass es beim Server ankommt
+  // und gilt — dann fliegt die Kugel sofort, nicht eine Rundreise später.
+  throwNow() {
+    const minigame = this.update || this.minigame;
+    if (!minigame || minigame.finaleAt) return;
+    const own = this.view?.entries.get(this.getControlledPlayerId());
+    const rules = snowRules(minigame.arcade);
+    this.feedback?.vibrate(12);
+    const clock = performance.now();
+    if (own && canThrow(rules, own, this.view.at)) {
+      this.throwLog.push({ at: this.now() });
+      while (this.throwLog.length > 4) this.throwLog.shift();
+      this.feedback?.sound("whoosh");
+    } else {
+      this.feedback?.sound("tap");
+    }
+    this.sendInput({ action: "throw" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Ohne Stick keine Antworten, also keine Laufzeit: dann misst ein Ping.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.stickSent.clock < 1000 || clock - this.lastPingAt < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Wann eine Meldung dieses Geräts beim Server wirkt: eine Rundreise nach dem
+  // Senden, abzüglich eines halben Takts — der Server liest den Stick einmal je
+  // Takt und rechnet damit alle Schritte seit dem letzten.
+  lands(sent) {
+    return sent.at + this.roundTrip - TICK_LEAD_MS;
+  }
+
+  // Welchen Stick der Server für den Schritt ab Serverzeit `at` hat. Kam die
+  // Meldung vor dem Serverstand an, steht sie schon in ihm.
+  stickAt(at, from, entry) {
+    let pick = null;
+    for (const sent of this.stickLog) {
+      if (this.lands(sent) <= at) pick = sent;
+      else break;
+    }
+    if (!pick || this.lands(pick) <= from) return { x: entry.dirX || 0, y: entry.dirZ || 0 };
+    return pick;
+  }
+
+  // Das ganze Feld zu der Serverzeit, zu der ein jetzt geschickter Stick
+  // ankommt: die eigene Figur mit dem eigenen Stick und den eigenen Würfen,
+  // die anderen mit dem, den der Server gerade von ihnen hat.
+  forecast(f) {
+    const { arcade, minigame, players, controlledId } = f;
+    const from = arcade.snowClock || minigame.sentAt || f.now;
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const to = minigame.finaleAt ? from : Math.min(Math.max(from, f.now + this.roundTrip), Math.max(from, endAt));
+    const present = new Set(players.map((player) => player.id));
+    const ids = (arcade.order || players.map((player) => player.id)).filter((id) => present.has(id) && arcade.players[id]);
+    this.view = forecastSnow(arcade, {
+      from,
+      to,
+      ids,
+      inputAt: (id, at) => {
+        const entry = arcade.players[id];
+        if (id !== controlledId) return { x: entry.dirX || 0, y: entry.dirZ || 0 };
+        const stick = this.stickAt(at, from, { dirX: entry.dirX, dirZ: entry.dirZ });
+        const thrown = this.throwLog.some((sent) => {
+          const lands = this.lands(sent);
+          return lands > from && lands > at - STEP_MS && lands <= at;
+        });
+        return { x: stick.x, y: stick.y, throw: thrown };
+      }
+    });
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId } = f;
     const state = arcade?.snow;
     if (!state) return;
-    const age = Math.min(0.12, (performance.now() - this.lastServerAt) / 1000);
+    if (this.joystick && this.joystick.pointerId !== null) this.queueStick(this.joystick.vecX, this.joystick.vecY);
+    else this.flushStick();
+    this.pingIfIdle(f.minigame);
+    this.forecast(f);
+    const view = this.view;
+    const rules = snowRules(arcade);
 
     // Schnee fällt, Rauch steigt, Fahne weht.
     if (this.flakes) {
@@ -289,32 +403,30 @@ export class SnowSummit extends MinigameScene {
     if (this.flag) this.flag.rotation.y = Math.sin(now / 260) * 0.35;
 
     players.forEach((player) => {
-      const entry = arcade.players[player.id];
+      const entry = view.entries.get(player.id) || arcade.players[player.id];
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       const ball = this.carried.get(player.id);
       if (!entry || !kin || !animator || !ball) return;
       const isOwn = player.id === controlledId;
-      // Vorausgerechnet, aber nie über den Zaun: an der Wand steht der Server
-      // still, die Vorausrechnung lief mit dem letzten Tempo weiter — und die
-      // Figur stand halb im Schneewall.
-      const tx = Math.max(-W / 2 + 0.3, Math.min(W / 2 - 0.3, entry.x + entry.vx * age));
-      const tz = Math.max(-D / 2 + 0.3, Math.min(D / 2 - 0.3, entry.z + entry.vz * age));
+      // Die eigene Figur folgt der Vorausrechnung fast ohne Verzug — sie IST
+      // schon die Antwort auf den Stick.
+      const follow = isOwn ? 0.7 : 0.45;
       const before = kin.position.clone();
-      kin.position.x += (tx - kin.position.x) * frameLerp(0.35, dt);
-      kin.position.z += (tz - kin.position.z) * frameLerp(0.35, dt);
+      kin.position.x += (entry.x - kin.position.x) * frameLerp(follow, dt);
+      kin.position.z += (entry.z - kin.position.z) * frameLerp(follow, dt);
       const moved = Math.hypot(kin.position.x - before.x, kin.position.z - before.z);
       const turn = entry.heading - kin.rotation.y;
-      kin.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * frameLerp(0.3, dt);
-      const stunned = now < (entry.stunUntil || 0);
+      kin.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * frameLerp(isOwn ? 0.5 : 0.3, dt);
+      const stunned = view.at < (entry.stunUntil || 0);
       if (stunned && !this.stunned.get(player.id)) {
         animator.trigger("knockback");
-        animator.expression("dizzy", entry.stunUntil - now);
+        animator.expression("dizzy", Math.max(300, entry.stunUntil - view.at));
       }
       this.stunned.set(player.id, stunned);
 
-      // Die Kugel vor der Figur: so gross wie auf dem Server, rollt mit.
-      ball.size += ((entry.size ?? 0.2) - ball.size) * frameLerp(0.3, dt);
+      // Die Kugel vor der Figur: so gross wie in der Vorausrechnung, rollt mit.
+      ball.size += ((entry.size ?? 0.2) - ball.size) * frameLerp(isOwn ? 0.6 : 0.3, dt);
       const r = ballRadius(ball.size);
       const hx = Math.sin(kin.rotation.y);
       const hz = Math.cos(kin.rotation.y);
@@ -324,11 +436,12 @@ export class SnowSummit extends MinigameScene {
       ball.spin += (moved / Math.max(0.1, r));
       ball.mesh.rotation.set(ball.spin, kin.rotation.y, 0, "YXZ");
       ball.band.visible = true;
-      if (isOwn && entry.size >= (state.throwMin ?? 0.4) && !this.readySeen) {
-        this.readySeen = true;
-        this.feedback?.sound("plink");
+      if (isOwn) {
+        // Ein Ton bei jeder neuen Stufe: wurfbereit, zwei Punkte, Riesenkugel.
+        const stage = entry.size >= rules.giant ? 3 : entry.size >= 0.6 ? 2 : entry.size >= rules.throwMin ? 1 : 0;
+        if (stage > (this.stageSeen || 0)) this.feedback?.sound(stage === 3 ? "sparkle" : "plink");
+        this.stageSeen = stage;
       }
-      if (isOwn && entry.size < (state.throwMin ?? 0.4)) this.readySeen = false;
 
       if (f.finale) return;
       if (stunned) animator.set("dizzy");
@@ -336,11 +449,20 @@ export class SnowSummit extends MinigameScene {
       else animator.set("idle");
     });
 
-    // Rollende Kugeln.
-    const alive = new Set();
-    state.balls.forEach((ball) => {
-      alive.add(ball.id);
+    // Rollende Kugeln, wie die Vorausrechnung sie sieht — die eigene fliegt
+    // schon los, bevor der Server sie kennt (ID „p…“). Kommt sie dann vom
+    // Server zurück, übernimmt sie das Mesh, statt neu aufzutauchen.
+    const alive = new Set(view.balls.map((ball) => ball.id));
+    const orphans = [];
+    this.rolling.forEach((mesh, id) => {
+      if (alive.has(id)) return;
+      if (String(id).startsWith("p") && mesh.userData.owner === controlledId) orphans.push(mesh);
+      else this.scene.remove(mesh);
+      this.rolling.delete(id);
+    });
+    view.balls.forEach((ball) => {
       let mesh = this.rolling.get(ball.id);
+      if (!mesh && ball.owner === controlledId && orphans.length) mesh = orphans.shift();
       if (!mesh) {
         mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), lambert("#ffffff"));
         mesh.castShadow = true;
@@ -348,15 +470,14 @@ export class SnowSummit extends MinigameScene {
         const owner = players.find((p) => p.id === ball.owner);
         const band = new THREE.Mesh(new THREE.TorusGeometry(1.01, 0.05, 6, 24), new THREE.MeshLambertMaterial({ color: owner?.color || "#ffffff" }));
         mesh.add(band);
-        mesh.scale.setScalar(ball.r);
         mesh.position.set(ball.x, ball.r, ball.z);
         this.scene.add(mesh);
-        this.rolling.set(ball.id, mesh);
       }
-      const x = ball.x + ball.vx * age;
-      const z = ball.z + ball.vz * age;
-      mesh.position.x += (x - mesh.position.x) * frameLerp(0.6, dt);
-      mesh.position.z += (z - mesh.position.z) * frameLerp(0.6, dt);
+      mesh.userData.owner = ball.owner;
+      this.rolling.set(ball.id, mesh);
+      mesh.scale.setScalar(ball.r);
+      mesh.position.x += (ball.x - mesh.position.x) * frameLerp(0.6, dt);
+      mesh.position.z += (ball.z - mesh.position.z) * frameLerp(0.6, dt);
       mesh.position.y = ball.r;
       const dir = Math.atan2(ball.vx, ball.vz);
       mesh.rotation.set(ball.spin, dir, 0, "YXZ");
@@ -366,23 +487,36 @@ export class SnowSummit extends MinigameScene {
         this.burst(_v, ["#ffffff", "#e3f0fa"], { count: 1, speed: 0.4, up: 0.5, size: 0.05, life: 0.4, gravity: 2 });
       }
     });
-    this.rolling.forEach((mesh, id) => {
-      if (alive.has(id)) return;
-      this.scene.remove(mesh);
-      this.rolling.delete(id);
+    orphans.forEach((mesh) => this.scene.remove(mesh));
+
+    // Schneestaub gleich dort, wo die Vorausrechnung eine Kugel platzen sieht —
+    // sonst verschwände sie eine Rundreise vor dem Staub.
+    const clock = performance.now();
+    this.localDust = this.localDust.filter((d) => clock - d.clock < 900);
+    view.events.forEach((event) => {
+      if (!["hit", "block", "clash", "fizzle"].includes(event.kind)) return;
+      const key = `${event.kind}:${event.ball ?? event.balls?.join("+")}`;
+      if (this.localDust.some((d) => d.key === key)) return;
+      this.localDust.push({ key, x: event.x, z: event.z, clock });
+      const big = event.kind !== "fizzle";
+      this.burst(new THREE.Vector3(event.x, 0.4, event.z), ["#ffffff", "#e3f0fa", "#cfe3f5"], { count: big ? 22 : 8, speed: big ? 2.4 : 1.1, up: big ? 2.2 : 1, size: 0.08, life: big ? 0.9 : 0.5 });
     });
 
-    // Treffer, Blocks, Zusammenstösse.
+    // Treffer, Blocks, Zusammenstösse vom Server: Punkte, Töne, Rütteln.
     (state.bursts || []).forEach((b) => {
       const key = `${b.at}:${b.x.toFixed(2)}:${b.z.toFixed(2)}`;
       if (this.seenBursts.has(key)) return;
       this.seenBursts.add(key);
       const at = new THREE.Vector3(b.x, 0.3 + b.size * 0.3, b.z);
-      const big = b.kind === "hit" || b.kind === "clash" || b.kind === "block";
-      this.burst(at, ["#ffffff", "#e3f0fa", "#cfe3f5"], { count: big ? 22 : 8, speed: big ? 2.4 : 1.1, up: big ? 2.2 : 1, size: 0.08, life: big ? 0.9 : 0.5 });
+      const shown = this.localDust.some((d) => Math.hypot(d.x - b.x, d.z - b.z) < 0.9);
+      if (!shown) {
+        const big = b.kind === "hit" || b.kind === "clash" || b.kind === "block";
+        this.burst(at, ["#ffffff", "#e3f0fa", "#cfe3f5"], { count: big ? 22 : 8, speed: big ? 2.4 : 1.1, up: big ? 2.2 : 1, size: 0.08, life: big ? 0.9 : 0.5 });
+      }
       if (b.kind === "hit") {
         const thrower = this.kins.get(b.by);
-        if (thrower) this.pop(thrower.position.clone().add(new THREE.Vector3(0, 1.15, 0)), `+${b.value}`, { color: b.value >= 3 ? "#ffe36b" : "#ffffff", size: 0.4 + b.value * 0.05 });
+        const giant = b.value >= 4;
+        if (thrower) this.pop(thrower.position.clone().add(new THREE.Vector3(0, 1.15, 0)), giant ? `+${b.value} RIESIG!` : `+${b.value}`, { color: giant ? "#ffe36b" : "#ffffff", size: 0.4 + b.value * 0.04 });
         const victim = this.kins.get(b.victim);
         if (victim) this.pop(victim.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "PLATSCH!", { color: "#bfe6ff", size: 0.32 });
         this.animators.get(b.by)?.trigger("fistpump");
@@ -391,7 +525,7 @@ export class SnowSummit extends MinigameScene {
           this.feedback?.sound("impact");
           this.feedback?.vibrate([30, 20, 50]);
         } else if (b.by === controlledId) {
-          this.feedback?.sound(b.value >= 3 ? "perfect" : "coin");
+          this.feedback?.sound(giant ? "perfect" : "coin");
           this.feedback?.vibrate(14);
         }
       } else if (b.kind === "block" || b.kind === "clash") {
@@ -447,10 +581,13 @@ export class SnowSummit extends MinigameScene {
       banner.style.background = tone;
     }
     if (this.throwButton) {
-      const size = own?.size ?? 0;
-      const ready = size >= (state.throwMin ?? 0.4) && !stunned;
+      // Der Knopf zeigt die Kugel, wie sie beim Server ankommt.
+      const mine = this.view?.entries.get(controlledId) || own;
+      const rules = snowRules(arcade);
+      const size = mine?.size ?? 0;
+      const ready = size >= rules.throwMin && !(this.view && this.view.at < (mine?.stunUntil || 0));
       this.throwButton.classList.toggle("is-ready", ready);
-      this.throwButton.dataset.value = size >= 0.85 ? "3" : size >= 0.6 ? "2" : "1";
+      this.throwButton.dataset.value = String(ballValue(size, rules));
       this.throwButton.querySelector(".snow-meter i").style.width = `${Math.round(Math.min(1, size) * 100)}%`;
       this.throwButton.disabled = Boolean(minigame.finaleAt);
     }

@@ -62,7 +62,7 @@ export const MINIGAME_CATALOG = [
   { type: "grimassen", title: "Grimassen", family: "face", gesture: "sculpt", help: "Oben hängt ein verzogenes Gesicht, vor dir eine Gummimaske. Zieh die sechs gelben Punkte — Brauen, Nase, Mundwinkel, Kinn —, bis deine Maske genauso aussieht. Nach neun Sekunden wird verglichen: je näher jeder Punkt am Vorbild liegt, desto mehr Punkte. Drei Gesichter, jedes schiefer als das vorige." },
   { type: "flaggenhoch", title: "Flaggen hoch", family: "flags", gesture: "flags", help: "Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle — wer dann stillhält, hat richtig. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand." },
   { type: "honigwabe", title: "Honigwabe", family: "honey", gesture: "pick", help: "Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und lässt vier Früchte fallen. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Einmal im Spiel darfst du deinen Zug ganz weiterschieben. Goldene Äpfel zählen drei. Wer am Ende die meisten Früchte hat, gewinnt." },
-  { type: "schneeball", title: "Schneeballhang", family: "snow", gesture: "stickThrow", help: "Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1 bis 3 Punkte, je grösser die Kugel war. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild." },
+  { type: "schneeball", title: "Schneeballhang", family: "snow", gesture: "stickThrow", help: "Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1, 2 oder 4 Punkte, je grösser die Kugel war. Eine Riesenkugel walzt weiter und kann noch jemanden umwerfen. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild." },
   { type: "luftpuck", title: "Luftpuck", family: "hockey", gesture: "joystick", help: "Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte; lenk sie mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende." },
   { type: "buecherwurm", title: "Bücherwurm", family: "book", gesture: "joystick", help: "Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten." },
   { type: "schnappschuss", title: "Schnappschuss", family: "photo", gesture: "stickShove", help: "Premiere auf dem roten Teppich! Die Kameradrohne zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und wer ganz allein drauf ist, bekommt noch 5. SCHUBS lässt dich nach vorn schnellen und stösst alle vor dir aus dem Bild." },
@@ -107,7 +107,8 @@ export const REWORKED = new Set([
   "tauziehen",
   "grimassen",
   "flaggenhoch",
-  "honigwabe"
+  "honigwabe",
+  "schneeball"
 ]);
 
 export const ARCADE_TYPES = new Set(
