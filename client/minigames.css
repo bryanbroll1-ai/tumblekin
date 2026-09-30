@@ -1995,6 +1995,44 @@ canvas.is-stunned {
   color: #42101a;
 }
 
+.arena-shrink {
+  position: absolute;
+  top: calc(98px + env(safe-area-inset-top));
+  left: 50%;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 7px 12px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #ffd15c;
+  color: #3f2c00;
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-align: center;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.arena-shrink[data-phase="active"] {
+  background: #ff6b7f;
+  color: #42101a;
+}
+
+.arena-shrink:not([hidden]) ~ .color-banner.arena-banner {
+  top: calc(140px + env(safe-area-inset-top));
+}
+
+@media (orientation: landscape) and (max-height: 520px) and (min-width: 560px) {
+  .arena-shrink {
+    top: calc(12px + env(safe-area-inset-top));
+    max-width: calc(100% - 300px);
+  }
+  .arena-shrink:not([hidden]) ~ .color-banner.arena-banner {
+    top: calc(98px + env(safe-area-inset-top));
+  }
+}
+
 /* --- Lichtwächter: Stand aller Läufer ----------------------------------- */
 /* Die Kamera folgt der eigenen Figur; wer wo steht, zeigt diese Leiste. */
 .redlight-race {

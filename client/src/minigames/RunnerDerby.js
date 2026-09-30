@@ -890,7 +890,10 @@ export class RunnerDerby extends MinigameScene {
       // so hoch, dass die Füsse über der Stange bleiben.
       let lift = 0;
       if (jumping) {
-        const phase = Math.max(0, entry.jumpUntil - now) / 650;
+        // Ein neues Server-Update kann der abgeglichenen Client-Uhr leicht
+        // voraus sein. Außerhalb [0, 1] würde sin negativ und die gebrochene
+        // Potenz NaN — damit verschwindet der Läufer bis zum nächsten Bild.
+        const phase = Math.min(1, Math.max(0, (entry.jumpUntil - now) / 650));
         lift = Math.pow(Math.sin(phase * Math.PI), 0.6) * 1.25;
         // Auch beim Bahnwechsel: wer zwischen zwei Bahnen über eine Hürde
         // springt, streift sonst ihren Seitenpfosten.

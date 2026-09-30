@@ -2,7 +2,8 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, noise } from "./VoxelKit.js?v=tumblekin200";
 import { ringband } from "./Blockform.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameDecay, frameLerp } from "./Quality.js?v=tumblekin200";
+import { frameDecay, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { arenaShrinkCue } from "./FeedbackCues.js?v=tumblekin202";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 
 // Bumper Pool: jede Figur sitzt in einem gestreiften Schwimmring auf einer
@@ -336,6 +337,7 @@ export class BounceArena extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="arena-lives" data-arena-lives></div>
+      <div class="arena-shrink" data-arena-shrink role="status" hidden></div>
       <div class="color-banner arena-banner" data-arena-banner hidden></div>`;
   }
 
@@ -650,8 +652,13 @@ export class BounceArena extends MinigameScene {
     const radius = arena.radius ?? 1;
     this.island.scale.set(radius, 1, radius);
     // Schrumpft die Insel, glüht der Rand rhythmisch — man soll es merken.
-    const shrinkGlow = arena.shrinking ? 0.5 + Math.sin(now / 110) * 0.35 : 0;
-    this.rim.material.emissiveIntensity = 0.35 + Math.sin(now / 190) * 0.15 + danger * 0.9 + this.pulse + shrinkGlow;
+    const cue = finale ? { phase: "none" } : arenaShrinkCue(arena, now);
+    const reduced = prefersReducedMotion();
+    const beat = reduced ? 0 : Math.sin(now / 700);
+    const shrinkGlow = cue.phase === "active" ? 0.7 + beat * 0.12 : cue.phase === "soon" ? 0.35 + beat * 0.08 : 0;
+    this.rim.material.emissive.set(cue.phase === "soon" ? "#ffb126" : "#ff4668");
+    this.rim.material.emissiveIntensity = 0.35 + (reduced ? 0 : Math.sin(now / 700) * 0.1)
+      + danger * 0.9 + this.pulse + shrinkGlow;
     this.shimmer?.forEach((patch) => {
       const d = patch.userData;
       patch.position.x = d.x + Math.sin(now / 1700 + d.phase) * 0.4;
@@ -797,10 +804,23 @@ export class BounceArena extends MinigameScene {
     }
     const banner = this.hud.querySelector("[data-arena-banner]");
     if (!banner) return;
-    if (arena?.shrinking && !this.shrinkAnnounced && !f.finale) {
-      this.shrinkAnnounced = true;
-      this.flash = { text: "Die Insel schrumpft!", until: f.now + 2400, tone: "warn" };
+    const cue = f.finale ? { phase: "none", seconds: 0 } : arenaShrinkCue(arena, f.now);
+    const warning = this.hud.querySelector("[data-arena-shrink]");
+    if (warning) {
+      warning.hidden = cue.phase === "none";
+      warning.dataset.phase = cue.phase;
+      const text = cue.phase === "soon" ? `⚠ Rand schrumpft in ${cue.seconds} s` : "⚠ Rand schrumpft — zur Mitte!";
+      if (warning.textContent !== text) warning.textContent = text;
+    }
+    if (cue.phase === "soon" && !this.shrinkWarningAnnounced) {
+      this.shrinkWarningAnnounced = true;
       this.feedback?.sound("countdown");
+      this.feedback?.vibrate(12);
+    }
+    if (cue.phase === "active" && !this.shrinkAnnounced) {
+      this.shrinkAnnounced = true;
+      this.feedback?.sound("countdown");
+      this.feedback?.vibrate([12, 60, 12]);
     }
     if (this.flash && f.now < this.flash.until && !f.finale) {
       banner.hidden = false;

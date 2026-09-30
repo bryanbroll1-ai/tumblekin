@@ -17,7 +17,7 @@ export {
   finalePose,
   applyFinaleMood,
   reachArm
-} from "./Kin.js?v=tumblekin200";
+} from "./Kin.js?v=tumblekin202";
 
 // Weicher Kontaktschatten: eine runde Scheibe mit Verlauf nach aussen. Der
 // frühere Schatten war ein Quader mit harter Kante — unter jeder Figur lag ein

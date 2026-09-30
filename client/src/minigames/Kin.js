@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { landingCompression } from "./FeedbackCues.js?v=tumblekin202";
 
 // Die Tumblekin: Figur und Bewegung.
 //
@@ -621,12 +622,13 @@ const STATES = {
   land: {
     dur: 0.3,
     blend: 0.03,
-    pose(p, t) {
-      const squash = sin(clamp01(t / 0.3) * Math.PI);
+    pose(p, t, a) {
+      const impact = landingCompression(t * 1000);
+      const squash = a.reduced ? Math.max(0, impact) * 0.55 : impact;
       p.sq = 1 - squash * 0.2;
-      p.crouch = squash * 0.05;
-      p.aLr = 0.2 + squash * 0.9;
-      p.aRr = 0.2 + squash * 0.9;
+      p.crouch = Math.max(0, squash) * 0.05;
+      p.aLr = 0.2 + Math.max(0, squash) * 0.9;
+      p.aRr = 0.2 + Math.max(0, squash) * 0.9;
       face(p, "surprised");
     }
   },

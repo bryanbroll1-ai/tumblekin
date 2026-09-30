@@ -10,6 +10,7 @@
     "smoke": "node scripts/smoke.mjs",
     "match-check": "node scripts/match-check.mjs",
     "onboarding-check": "node scripts/onboarding-check.mjs",
+    "feedback-check": "node scripts/feedback-check.mjs",
     "match-sim": "node scripts/match-sim.mjs",
     "bot-sim": "node scripts/bot-sim.mjs",
     "icons": "node scripts/icons.mjs",

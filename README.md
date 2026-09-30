@@ -227,6 +227,10 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-Geste) und dem 3-2-1-LOS-Countdown; die Ergebnisse werden von Platz 4 bis Platz 1 aufgedeckt, Gleichstände bekommen ein eigenes Badge.
 
+Landungen federn schnell ein und danach leicht nach. Bei Ballonfahrt zeigt ein kontrastreicher Ring die Sacklandung; seine Größe wächst weiterhin mit der Flughöhe. Bumper Pool kündigt den schrumpfenden Rand fünf Sekunden vorher an. Bei reduzierter Bewegung bleibt der Rand ruhig und die Landung verzichtet auf das Nachfedern.
+
+Im Zielsprint bleibt der Sprungbogen auch dann gültig, wenn ein Server-Update der abgeglichenen Client-Uhr kurz vorausläuft.
+
 ## Dev-Testmodus
 
 Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät, zwischen denen man im Minispiel umschaltet. Jedes der 40 Minispiele lässt sich über **🎮 Einzel** direkt auswählen.
@@ -267,6 +271,7 @@ npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
 npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
+npm run feedback-check       # Landungen, Landering, Insel-Vorwarnung und reduzierte Bewegung
 npm run scene-check          # Figuren im Bild, auf dem Boden, nicht in Kulissen
 npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnistafel, dazu Sprünge und NaN
 npm run session-sim          # viele Spiele hintereinander: wächst etwas, das nicht wachsen darf?

@@ -47,6 +47,7 @@ const FLIEGT = {
 // Dort steht der Stand der anderen stattdessen in der Höhenleiste am Bildrand.
 // Die Prüfung auf die EIGENE Figur gilt weiterhin — das ist die harte Grenze.
 const NUR_EIGENE = {
+  finishRush: "die Kamera folgt dem eigenen Läufer; entfernte Mitspieler stehen in der Rennleiste",
   bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild",
   kanonenflug: "die Kamera bleibt beim eigenen Rohr, bis man selbst geschossen hat — wer vorher fliegt, fliegt aus dem Bild",
   fassmut: "beim Fallen füllt die eigene Bahn das Bild, in der Auflösung zeigt die Kamera alle",

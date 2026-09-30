@@ -1,7 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { landingCompression } from "./FeedbackCues.js?v=tumblekin202";
 import { berge, heuballen, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Ballonfahrt — Zielabwurf über einer Patchwork-Landschaft. Halten heizt den
@@ -290,6 +291,26 @@ export class BalloonGlide extends MinigameScene {
     this.aim.rotation.x = -Math.PI / 2;
     this.aim.position.set(0, 0.06, ROW_Z[0]);
     scene.add(this.aim);
+
+    // Vier helle Bögen mit dunklem Untergrund bleiben auf Wiese, Acker und
+    // Zielscheibe sichtbar. Die Markierung wächst weiterhin mit der Höhe:
+    // tief fliegen gibt einen schärferen Landepunkt, hoch fliegen mehr Spielraum.
+    this.aimRing = new THREE.Group();
+    this.aimRing.rotation.x = -Math.PI / 2;
+    this.aimRing.position.set(0, 0.07, ROW_Z[0]);
+    const outline = new THREE.Mesh(
+      new THREE.RingGeometry(0.78, 1.03, 32),
+      new THREE.MeshBasicMaterial({ color: "#152632", transparent: true, opacity: 0.8, depthWrite: false })
+    );
+    const arcs = new THREE.InstancedMesh(
+      new THREE.RingGeometry(0.83, 0.98, 8, 1, Math.PI * 0.07, Math.PI * 0.36),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, depthWrite: false }), 4
+    );
+    for (let i = 0; i < 4; i += 1) arcs.setMatrixAt(i, new THREE.Matrix4().makeRotationZ(i * Math.PI / 2));
+    arcs.instanceMatrix.needsUpdate = true;
+    arcs.position.z = 0.004;
+    this.aimRing.add(outline, arcs);
+    scene.add(this.aimRing);
   }
 
   // Das Land unter dem Ballon: Hecken zwischen den Feldern, Heuballen auf
@@ -399,7 +420,7 @@ export class BalloonGlide extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <p class="trace-hint glide-hint">Halten = Brenner · Knopf = Sandsack</p>
+      <p class="trace-hint glide-hint">Halten = Steigen · Ring = Sacklandung</p>
       <button type="button" class="nerve-button glide-drop" data-glide-drop>
         <span class="nerve-button-face">ABWURF</span>
       </button>`;
@@ -505,6 +526,8 @@ export class BalloonGlide extends MinigameScene {
         mesh.rotation.z = -t * 3;
         if (elapsed >= bag.landAt && !mesh.userData.landed && bag.points !== null && bag.points !== undefined) {
           mesh.userData.landed = true;
+          mesh.userData.landedAt = now;
+          mesh.userData.landRotation = Math.atan2(Math.sin(mesh.rotation.z), Math.cos(mesh.rotation.z));
           const at = mesh.position.clone().setY(0.1);
           this.burst(at, ["#c9a26f", "#8a5a34", "#ffffff"], { count: 10, speed: 1.6, up: 1.4, size: 0.08, life: 0.5 });
           if (bag.points > 0) {
@@ -524,9 +547,24 @@ export class BalloonGlide extends MinigameScene {
             this.feedback?.sound("clack");
           }
         }
+        if (mesh.userData.landed) {
+          const age = Math.max(0, now - mesh.userData.landedAt);
+          const impact = landingCompression(age);
+          const compression = prefersReducedMotion() ? Math.max(0, impact) * 0.55 : impact;
+          const sy = 1 - compression * 0.22;
+          const side = 1 / Math.sqrt(sy);
+          mesh.scale.set(side, sy, side);
+          const settle = Math.min(1, age / 200);
+          mesh.rotation.z = mesh.userData.landRotation * (1 - settle * settle * (3 - 2 * settle));
+          // Auch der schräg aufkommende Sack bleibt über dem Feld.
+          mesh.position.y = 0.02 + Math.abs(Math.cos(mesh.rotation.z)) * 0.13 * sy
+            + Math.abs(Math.sin(mesh.rotation.z)) * 0.12 * side;
+        }
         if (elapsed > bag.landAt + 1200) {
           this.scene.remove(mesh);
           this.bagMeshes.delete(key);
+          mesh.geometry.dispose();
+          mesh.material.dispose();
         }
       });
 
@@ -600,6 +638,9 @@ export class BalloonGlide extends MinigameScene {
       this.aim.scale.setScalar(r);
       this.aim.material.opacity = 0.34 - own.y * 0.16;
       this.aim.visible = !finale && own.bagsLeft > 0;
+      this.aimRing.position.x = land;
+      this.aimRing.scale.setScalar(r);
+      this.aimRing.visible = this.aim.visible;
     }
     this.clouds.forEach((cloud, i) => { cloud.position.x -= dt * (0.1 + (i % 3) * 0.05); });
   }
