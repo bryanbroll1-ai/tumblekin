@@ -3,6 +3,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { forecastHockey, hockeyRules, limits } from "./Puckbahn.js?v=tumblekin200";
 
 // Luftpuck — ein riesiger Airhockey-Tisch in einer Neon-Spielhalle. Jeder
 // steht auf einer Schwebescheibe in seiner Hälfte und schiebt den Puck. Das
@@ -15,12 +16,20 @@ import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 const TABLE_Y = 0.5;
 const RAIL_H = 0.22;
 const TEAM_COLORS = ["#ff3b8d", "#2fd6ff"];
+const STICK_GAP_MS = 40;         // Stick höchstens so oft schicken
+const TICK_LEAD_MS = 45;         // halber Servertakt (90 ms), siehe stickAt
 
 export class AirHockey extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.lastServerAt = performance.now();
     this.discs = new Map();
+    this.roundTrip = 0;
+    this.stickLog = [];            // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
+    this.stickWanted = null;
+    this.stickSent = { x: 0, y: 0, clock: 0 };
+    this.lastPingAt = 0;
+    this.view = null;              // Vorausrechnung zur Ankunftszeit (forecastHockey)
+    this.ownTouchAt = 0;           // wann das Gerät den eigenen Stoss schon gezeigt hat
     this.seenGoals = 0;
     this.labelY = 0.8;
     this.screens = [];
@@ -103,6 +112,25 @@ export class AirHockey extends MinigameScene {
       disc.position.set(entry?.x ?? 0, TABLE_Y + 0.06, entry?.z ?? 0);
       scene.add(disc);
       this.discs.set(player.id, { disc, side, r });
+      // Im Zweierteam hat jeder eine Zone — die eigene leuchtet schwach auf
+      // dem Tisch, damit klar ist, warum die Scheibe dort stehen bleibt.
+      if (player.id === this.getControlledPlayerId() && entry?.lane) {
+        const lim = limits(hockeyRules(arcade), side, 0, entry.lane);
+        const w = lim.xMax - lim.xMin;
+        const d = lim.zMax - lim.zMin;
+        const zone = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color: TEAM_COLORS[side], transparent: true, opacity: 0.1, depthWrite: false }));
+        zone.rotation.x = -Math.PI / 2;
+        zone.position.set(0, TABLE_Y + 0.004, (lim.zMin + lim.zMax) / 2);
+        zone.userData.isFx = true;
+        scene.add(zone);
+        const kante = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.035), new THREE.MeshBasicMaterial({ color: TEAM_COLORS[side], transparent: true, opacity: 0.55, depthWrite: false }));
+        kante.rotation.x = -Math.PI / 2;
+        // Die Kante, an der die Zone mitten im Feld endet.
+        const edge = entry.lane === "sturm" ? (side === 0 ? lim.zMax : lim.zMin) : (side === 0 ? lim.zMin : lim.zMax);
+        kante.position.set(0, TABLE_Y + 0.005, edge);
+        kante.userData.isFx = true;
+        scene.add(kante);
+      }
     });
     if (state?.robot) {
       const robo = new THREE.Group();
@@ -290,7 +318,7 @@ export class AirHockey extends MinigameScene {
       label: "Luftpuck: Scheibe steuern",
       intervalMs: 60,
       feedback: this.feedback,
-      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
     });
   }
@@ -300,23 +328,98 @@ export class AirHockey extends MinigameScene {
     this.joystick = null;
   }
 
-  onUpdate() {
-    this.lastServerAt = performance.now();
+  // Der Stick meldet sich alle 60 ms und bei jedem Richtungswechsel — dazu
+  // liest das Bild ihn in jedem Frame. Geschickt wird, was sich geändert hat,
+  // höchstens alle 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung
+  // weiss, ab wann der Server sie hat (wie in Farbenjagd).
+  queueStick(x, y) {
+    this.stickWanted = { x, y };
+    this.flushStick();
+  }
+
+  flushStick() {
+    const want = this.stickWanted;
+    const minigame = this.update || this.minigame;
+    if (!want || !minigame || minigame.finaleAt) return;
+    const clock = performance.now();
+    const same = Math.abs(want.x - this.stickSent.x) < 0.02 && Math.abs(want.y - this.stickSent.y) < 0.02;
+    if (same && clock - this.stickSent.clock < 400) return;
+    if (clock - this.stickSent.clock < STICK_GAP_MS) return;
+    this.stickSent = { x: want.x, y: want.y, clock };
+    const at = this.now();
+    this.stickLog.push({ at, x: want.x, y: want.y });
+    while (this.stickLog.length > 2 && this.stickLog[1].at < at - 3000) this.stickLog.shift();
+    this.sendInput({ action: "steer", x: want.x, y: want.y })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => {});
+  }
+
+  // Ohne Stick keine Antworten, also keine Laufzeit: dann misst ein Ping.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.stickSent.clock < 1000 || clock - this.lastPingAt < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Welchen Stick der Server für den Schritt ab Serverzeit `at` hat: was dieses
+  // Gerät eine Rundreise vorher geschickt hat, abzüglich eines halben Takts
+  // (der Server liest den Stick einmal je Takt). Kam die Meldung vor dem
+  // Serverstand an, steht sie schon in ihm.
+  stickAt(at, from, entry) {
+    const lands = (sent) => sent.at + this.roundTrip - TICK_LEAD_MS;
+    let pick = null;
+    for (const sent of this.stickLog) {
+      if (lands(sent) <= at) pick = sent;
+      else break;
+    }
+    if (!pick || lands(pick) <= from) return { x: entry.dirX || 0, y: entry.dirZ || 0 };
+    return pick;
+  }
+
+  // Der Tisch zu der Serverzeit, zu der ein jetzt geschickter Stick ankommt.
+  forecast(f) {
+    const { arcade, minigame, players, controlledId } = f;
+    const from = arcade.hockeyClock || minigame.sentAt || f.now;
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const to = minigame.finaleAt ? from : Math.min(Math.max(from, f.now + this.roundTrip), Math.max(from, endAt));
+    const present = new Set(players.map((player) => player.id));
+    const ids = (arcade.order || players.map((player) => player.id)).filter((id) => present.has(id) && arcade.players[id]);
+    this.view = forecastHockey(arcade, {
+      from,
+      to,
+      ids,
+      inputAt: (id, at) => {
+        const entry = arcade.players[id];
+        return id === controlledId ? this.stickAt(at, from, entry) : { x: entry.dirX || 0, y: entry.dirZ || 0 };
+      }
+    });
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId } = f;
     const state = arcade?.hockey;
     if (!state) return;
-    const age = Math.min(0.12, (performance.now() - this.lastServerAt) / 1000);
+    if (this.joystick && this.joystick.pointerId !== null) this.queueStick(this.joystick.vecX, this.joystick.vecY);
+    else this.flushStick();
+    this.pingIfIdle(f.minigame);
+    this.forecast(f);
+    const view = this.view;
 
-    // Puck mit Vorausschau zwischen den Serverständen.
-    const p = state.puck;
-    const px = Math.max(-this.w / 2, Math.min(this.w / 2, p.x + p.vx * age));
-    const pz = p.z + p.vz * age;
-    const jump = Math.hypot(px - this.puck.position.x, pz - this.puck.position.z) > 1.2;
-    this.puck.position.x = jump ? px : this.puck.position.x + (px - this.puck.position.x) * frameLerp(0.6, dt);
-    this.puck.position.z = jump ? pz : this.puck.position.z + (pz - this.puck.position.z) * frameLerp(0.6, dt);
+    // Der Puck, wie er beim Eintreffen des eigenen Sticks liegt. Springt er
+    // weit (Anstoss nach einem Tor), springt auch das Bild.
+    const p = view.state.puck;
+    const jump = Math.hypot(p.x - this.puck.position.x, p.z - this.puck.position.z) > 1.2;
+    this.puck.position.x = jump ? p.x : this.puck.position.x + (p.x - this.puck.position.x) * frameLerp(0.7, dt);
+    this.puck.position.z = jump ? p.z : this.puck.position.z + (p.z - this.puck.position.z) * frameLerp(0.7, dt);
     this.puck.rotation.y += Math.hypot(p.vx, p.vz) * dt * 2;
     this.trailPoints.unshift(this.puck.position.clone());
     this.trailPoints.length = Math.min(this.trailPoints.length, this.trail.length * 2);
@@ -327,22 +430,33 @@ export class AirHockey extends MinigameScene {
       if (at) t.position.set(at.x, TABLE_Y + 0.005, at.z);
     });
 
+    // Der eigene Stoss: sofort, wenn die Vorausrechnung ihn sieht.
+    if (!f.finale) {
+      view.events.forEach((event) => {
+        if (event.kind !== "touch" || event.id !== controlledId || event.at <= this.ownTouchAt) return;
+        this.ownTouchAt = event.at;
+        this.ownTouchShownAt = performance.now();
+        this.animators.get(controlledId)?.trigger("punch");
+        this.burst(new THREE.Vector3(event.x, TABLE_Y + 0.1, event.z), [TEAM_COLORS[arcade.players[controlledId]?.side ?? 0], "#ffffff"], { count: 6, speed: 1.3, up: 0.8, size: 0.05, life: 0.35 });
+        this.feedback?.sound("clack");
+        this.feedback?.vibrate(10);
+      });
+    }
+
     // Scheiben und Figuren.
     players.forEach((player) => {
-      const entry = arcade.players[player.id];
+      const entry = view.mallets.get(player.id) || arcade.players[player.id];
+      const served = arcade.players[player.id];
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       const disc = this.discs.get(player.id);
       if (!entry || !kin || !animator || !disc) return;
-      // Vorausgerechnet, aber in der eigenen Hälfte: an Bande oder Mittellinie
-      // steht der Server still, die Vorausrechnung liefe darüber hinaus.
-      const r = entry.r || 0.36;
-      const zMin = entry.side === 0 ? 0.12 + r : -this.l / 2 + r;
-      const zMax = entry.side === 0 ? this.l / 2 - r : -0.12 - r;
-      const tx = Math.max(-this.w / 2 + r, Math.min(this.w / 2 - r, entry.x + (entry.vx || 0) * age));
-      const tz = Math.max(zMin, Math.min(zMax, entry.z + (entry.vz || 0) * age));
-      disc.disc.position.x += (tx - disc.disc.position.x) * frameLerp(0.5, dt);
-      disc.disc.position.z += (tz - disc.disc.position.z) * frameLerp(0.5, dt);
+      const isOwn = player.id === controlledId;
+      // Die eigene Scheibe folgt der Vorausrechnung fast ohne Verzug — sie
+      // IST schon die Antwort auf den Stick.
+      const follow = isOwn ? 0.75 : 0.5;
+      disc.disc.position.x += (entry.x - disc.disc.position.x) * frameLerp(follow, dt);
+      disc.disc.position.z += (entry.z - disc.disc.position.z) * frameLerp(follow, dt);
       disc.disc.position.y = TABLE_Y + 0.06 + Math.sin(now / 200 + disc.r * 10) * 0.012;
       kin.position.x = disc.disc.position.x;
       kin.position.z = disc.disc.position.z;
@@ -352,19 +466,25 @@ export class AirHockey extends MinigameScene {
       const moving = Math.hypot(entry.vx || 0, entry.vz || 0) > 0.6;
       if (f.finale) return;
       animator.set(moving ? "ride" : "ready");
-      if ((entry.touches || 0) > (disc.touches ?? entry.touches ?? 0)) {
-        animator.trigger("punch");
-        this.burst(this.puck.position.clone().setY(TABLE_Y + 0.1), [TEAM_COLORS[disc.side], "#ffffff"], { count: 6, speed: 1.3, up: 0.8, size: 0.05, life: 0.35 });
-        if (player.id === controlledId) {
-          this.feedback?.sound("clack");
-          this.feedback?.vibrate(10);
+      // Stösse der anderen (und eigene, die die Vorausrechnung nicht sah)
+      // kommen vom Server.
+      if ((served?.touches || 0) > (disc.touches ?? served?.touches ?? 0)) {
+        const shown = isOwn && performance.now() - (this.ownTouchShownAt || 0) < 500;
+        if (!shown) {
+          animator.trigger("punch");
+          this.burst(this.puck.position.clone().setY(TABLE_Y + 0.1), [TEAM_COLORS[disc.side], "#ffffff"], { count: 6, speed: 1.3, up: 0.8, size: 0.05, life: 0.35 });
+          if (isOwn) {
+            this.feedback?.sound("clack");
+            this.feedback?.vibrate(10);
+          }
         }
       }
-      disc.touches = entry.touches || 0;
+      disc.touches = served?.touches || 0;
     });
-    if (this.robot && state.robot) {
-      this.robot.position.x += (state.robot.x - this.robot.position.x) * frameLerp(0.5, dt);
-      this.robot.position.z += (state.robot.z - this.robot.position.z) * frameLerp(0.5, dt);
+    const robot = view.state.robot || state.robot;
+    if (this.robot && robot) {
+      this.robot.position.x += (robot.x - this.robot.position.x) * frameLerp(0.5, dt);
+      this.robot.position.z += (robot.z - this.robot.position.z) * frameLerp(0.5, dt);
     }
 
     // Tore.

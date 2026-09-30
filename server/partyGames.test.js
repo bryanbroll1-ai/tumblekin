@@ -714,6 +714,124 @@ test("Luftpuck: fünf Tore beenden das Spiel", () => {
   g.restore();
 });
 
+test("Luftpuck: im Zweierteam bleibt jeder in seiner Zone", () => {
+  const g = setup("luftpuck", 4);
+  const sturm = g.players.find((p) => g.arcade.players[p.id].side === 0 && g.arcade.players[p.id].lane === "sturm");
+  const abwehr = g.players.find((p) => g.arcade.players[p.id].side === 0 && g.arcade.players[p.id].lane === "abwehr");
+  assert.ok(sturm && abwehr, "Team 0 hat Sturm und Abwehr");
+  const steer = () => {
+    g.input(sturm, { action: "steer", x: 0, y: 1 });     // der Sturm will zum eigenen Tor
+    g.input(abwehr, { action: "steer", x: 0, y: -1 });   // die Abwehr zur Mittellinie
+  };
+  steer();
+  g.run(0, 3000, 30, steer);
+  assert.ok(g.arcade.players[sturm.id].z <= C.HOCKEY_LANE_STURM + 1e-9, "der Sturm bleibt vorn");
+  assert.ok(g.arcade.players[abwehr.id].z >= C.HOCKEY_LANE_ABWEHR - 1e-9, "die Abwehr bleibt hinten");
+  g.restore();
+});
+
+test("Luftpuck: eine zurückweichende Scheibe schiebt den Puck nicht ins eigene Tor", () => {
+  const g = setup("luftpuck", 2);
+  const [a] = g.players;
+  const state = g.arcade.hockey;
+  const entry = g.arcade.players[a.id];
+  g.run(0, C.HOCKEY_SERVE_MS + 100, 30);
+  // Der Puck kommt schnell aufs Tor von Team 0 zu, die Scheibe weicht vor ihm
+  // zurück, langsamer als er.
+  Object.assign(entry, { x: 0, z: 1.5, vx: 0, vz: 3, dirX: 0, dirZ: 1 });
+  Object.assign(state.puck, { x: 0, z: 0.85, vx: 0, vz: 5 });
+  g.at(C.HOCKEY_SERVE_MS + 130);
+  g.arcade.hockeyClock = g.now;
+  for (let t = C.HOCKEY_SERVE_MS + 160; t <= C.HOCKEY_SERVE_MS + 400; t += 30) {
+    g.at(t);
+    g.input(a, { action: "steer", x: 0, y: 1 });
+    g.tick();
+    if (entry.touches) break;
+  }
+  assert.ok(entry.touches >= 1, "die Scheibe hat den Puck berührt");
+  assert.ok(state.puck.vz < 5, `der Puck wird gebremst, nicht angeschoben (vz ${state.puck.vz.toFixed(2)})`);
+  g.restore();
+});
+
+test("Luftpuck: ein abgefälschter Schuss zählt für den Schützen, nicht als Eigentor", () => {
+  const g = setup("luftpuck", 2);
+  const [a, b] = g.players;          // a: Team 0 (unten), b: Team 1 (oben)
+  const state = g.arcade.hockey;
+  g.run(0, C.HOCKEY_SERVE_MS + 100, 30);
+  // b steht still vor dem eigenen Tor, a hat eben aufs Tor geschossen.
+  Object.assign(g.arcade.players[b.id], { x: 0.55, z: -C.HOCKEY_L / 2 + 0.7, vx: 0, vz: 0, dirX: 0, dirZ: 0 });
+  Object.assign(g.arcade.players[a.id], { x: -1.5, z: 3, vx: 0, vz: 0, dirX: 0, dirZ: 0 });
+  Object.assign(state.puck, { x: 0, z: -1.5, vx: 0, vz: -8 });
+  state.lastTouch = a.id;
+  state.lastBy = [{ id: a.id, at: g.now }, null];
+  g.at(C.HOCKEY_SERVE_MS + 130);
+  g.arcade.hockeyClock = g.now;
+  g.run(C.HOCKEY_SERVE_MS + 160, C.HOCKEY_SERVE_MS + 1200, 30);
+  assert.deepEqual(state.score, [1, 0], "Tor für Team 0");
+  assert.equal(g.arcade.players[b.id].touches, 1, "der Verteidiger hat ihn gestreift");
+  assert.equal(state.goals[0].own, false, "kein Eigentor");
+  assert.equal(state.goals[0].by, a.id);
+  assert.equal(g.arcade.players[a.id].goals, 1);
+  g.restore();
+});
+
+test("Luftpuck: gleich schnell, egal wie lang der Servertakt ist", () => {
+  const pos = (every) => {
+    const g = setup("luftpuck", 2);
+    const [a] = g.players;
+    g.arcade.seed = 853;                   // der Anstoss hängt am Seed
+    g.input(a, { action: "steer", x: 0.8, y: -0.4 });
+    g.run(0, 1440, every);                // 1440 ist ein Vielfaches von 30 und 90
+    const out = { x: g.arcade.players[a.id].x, z: g.arcade.players[a.id].z, puck: { ...g.arcade.hockey.puck } };
+    g.restore();
+    return out;
+  };
+  const fine = pos(30);
+  const coarse = pos(90);
+  assert.ok(Math.abs(fine.x - coarse.x) < 1e-9 && Math.abs(fine.z - coarse.z) < 1e-9, JSON.stringify({ fine, coarse }));
+  assert.ok(Math.abs(fine.puck.x - coarse.puck.x) < 1e-9 && Math.abs(fine.puck.z - coarse.puck.z) < 1e-9);
+});
+
+// Das Gerät rechnet den Tisch bis zur Ankunft seines Sticks voraus
+// (Puckbahn.js). Dafür muss es Schritt für Schritt genauso rechnen.
+test("Luftpuck: Gerät und Server rechnen Schritt für Schritt gleich", async () => {
+  const { stepHockey, hockeyRules } = await import("../client/src/minigames/Puckbahn.js");
+  for (const count of [4, 1]) {
+    const g = setup("luftpuck", count);
+    const arcade = g.arcade;
+    const rules = hockeyRules(arcade);
+    let seed = 5 + count;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const server = party.hockeyMallets(arcade, g.room);
+    const device = JSON.parse(JSON.stringify(server));
+    const devState = JSON.parse(JSON.stringify(arcade.hockey));
+    const devRobot = device.find((m) => m.robot);
+    if (devRobot) devState.robot = devRobot.e;
+    let now = arcade.startedAt;
+    for (let k = 0; k < 1500; k += 1) {
+      if (k % 6 === 0) {
+        server.forEach((m, i) => {
+          if (m.robot) return;
+          // Meist auf den Puck zu, damit es Stösse, Tore und Abpraller gibt.
+          const p = arcade.hockey.puck;
+          const a = rnd() < 0.7 ? Math.atan2(p.x - m.e.x, p.z - m.e.z) : rnd() * Math.PI * 2;
+          const mag = 0.4 + rnd() * 0.6;
+          [m.e, device[i].e].forEach((e) => { e.dirX = Math.sin(a) * mag; e.dirZ = Math.cos(a) * mag; });
+        });
+      }
+      now += C.HOCKEY_STEP_MS;
+      party.hockeyStep(arcade.hockey, server, now, arcade.seed || 0);
+      stepHockey(rules, devState, device, now, arcade.seed || 0, []);
+    }
+    const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-6, `${what}: ${a} gegen ${b} (${count} Spieler)`);
+    server.forEach((m, i) => ["x", "z", "vx", "vz"].forEach((key) => near(m.e[key], device[i].e[key], `${m.id}.${key}`)));
+    ["x", "z", "vx", "vz"].forEach((key) => near(arcade.hockey.puck[key], devState.puck[key], `puck.${key}`));
+    assert.deepEqual(arcade.hockey.score, devState.score);
+    assert.ok(arcade.hockey.touches >= 8, `es gab Stösse (${arcade.hockey.touches})`);
+    g.restore();
+  }
+});
+
 // --- Bücherwurm ------------------------------------------------------------
 
 test("Bücherwurm: Seiten mit Löchern, die weniger werden, und Löcher liegen im Buch", () => {
