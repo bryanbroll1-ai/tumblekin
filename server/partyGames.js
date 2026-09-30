@@ -2246,8 +2246,19 @@ const book = {
 // zählt herunter und drückt ab: wer dann im Ausschnitt steht, ist auf dem
 // Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und
 // wer ganz allein drauf ist, bekommt noch 5. Wer im Weg steht, wird
-// geschubst — ein Tipp auf SCHUBS lässt einen nach vorn schnellen und stösst
-// alle vor einem weg.
+// geschubst — ein Tipp auf SCHUBS lässt einen nach vorn schnellen, und wen
+// man dabei rammt, der fliegt aus dem Bild.
+//
+// Gerechnet wird in festen Schritten auf einer eigenen Uhr (photoClock), in
+// der festen Reihenfolge arcade.order — genau so wie auf dem Gerät
+// (Fotobuehne.js), das damit die eigene Figur bis zur Ankunftszeit des
+// eigenen Sticks vorausrechnet. Ein Test hält beide Rechnungen gleich.
+//
+// Gemessen am alten Stand: Liefen alle zur Mitte, bekam der vierte Platz in
+// 12,8 von 13 Fotos das Titelbild — das Gedränge wurde Paar für Paar
+// aufgelöst, und wer zuletzt dran war, blieb stehen. Jetzt wird es für alle
+// zugleich aufgelöst, und wer hineinläuft, weicht, wer schon steht, bleibt:
+// die Mitte hält, wer zuerst da ist, und herausholen kann ihn nur ein Schubs.
 const PHOTO_W = 6.4;
 const PHOTO_D = 7.2;
 const PHOTO_DURATION_MS = 42000;
@@ -2262,14 +2273,32 @@ const PHOTO_COVER = 10;
 const PHOTO_SOLO = 5;
 const PHOTO_SPEED = 3.3;
 const PHOTO_ACCEL = 14;
+const PHOTO_TURN = 10;                 // rad/s: so schnell dreht man sich zum Stick
 const PHOTO_BODY = 0.3;
 const PHOTO_BUMP = 0.62;
+const PHOTO_HOLD = 0.2;                // wer steht, weicht im Gedränge so wenig
 const PHOTO_DASH_MS = 190;
 const PHOTO_DASH_SPEED = 7;
-const PHOTO_SHOVE_REACH = 0.95;
+const PHOTO_HIT_R = 0.75;              // so nah muss man beim Vorschnellen herankommen
+const PHOTO_HIT_CONE = 0.35;           // und ungefähr in Blickrichtung
 const PHOTO_SHOVE_KICK = 5.5;
 const PHOTO_SHOVE_STUN_MS = 450;
+const PHOTO_STUN_DRAG = 4;
 const PHOTO_SHOVE_COOLDOWN_MS = 1300;
+const PHOTO_STEP_MS = 30;              // Rechenschritt, wie STEP_MS in Fotobuehne.js
+const PHOTO_CATCHUP_MS = 250;          // hängt der Server, holt er höchstens so viel nach
+// Wo der nächste Ausschnitt liegt, sieht das Gerät erst so kurz vorher:
+// Rundreise (bis 250 ms, wie das Gerät sie deckelt) plus ein Servertakt.
+// Vorher stand der ganze Plan von Anfang an im Netzverkehr.
+const PHOTO_PUBLISH_LEAD_MS = 350;
+
+// Die Regeln, wie das Gerät sie braucht (Fotobuehne.js liest arcade.photoRules).
+const PHOTO_RULES = {
+  w: PHOTO_W, d: PHOTO_D, speed: PHOTO_SPEED, accel: PHOTO_ACCEL, turn: PHOTO_TURN, body: PHOTO_BODY,
+  bump: PHOTO_BUMP, hold: PHOTO_HOLD, dashMs: PHOTO_DASH_MS, dashSpeed: PHOTO_DASH_SPEED, hitR: PHOTO_HIT_R,
+  hitCone: PHOTO_HIT_CONE, kick: PHOTO_SHOVE_KICK, stunMs: PHOTO_SHOVE_STUN_MS, stunDrag: PHOTO_STUN_DRAG,
+  cooldownMs: PHOTO_SHOVE_COOLDOWN_MS, inPts: PHOTO_IN, coverPts: PHOTO_COVER, soloPts: PHOTO_SOLO, stepMs: PHOTO_STEP_MS
+};
 
 function buildPhotoShots(seed, durationMs = PHOTO_DURATION_MS) {
   const shots = [];
@@ -2300,26 +2329,199 @@ function buildPhotoShots(seed, durationMs = PHOTO_DURATION_MS) {
   return shots;
 }
 
+// Was die Geräte vom Fotoplan sehen: Zeiten immer, den Ausschnitt erst kurz
+// bevor er auf der Bühne erscheint.
+function photoPublish(arcade, elapsed) {
+  const full = arcade.secret.photoShots;
+  arcade.photo.shots.forEach((shown, i) => {
+    if (shown.x !== null || elapsed < shown.at - PHOTO_PUBLISH_LEAD_MS) return;
+    shown.x = full[i].x;
+    shown.z = full[i].z;
+    shown.r = full[i].r;
+  });
+}
+
+// Anlaufen exakt gelöst (wie snowEase): unabhängig davon, wie der Schritt
+// zerlegt wird.
+function photoEase(v, target, rate, dt) {
+  const fade = Math.exp(-rate * dt);
+  return { v: target + (v - target) * fade, d: target * dt + (v - target) * (1 - fade) / rate };
+}
+
+// Ein SCHUBS setzt an: vorschnellen in Blickrichtung. Gerammt wird im
+// Schritt, bei Berührung — vorher flog, wer 1,6 Einheiten vor einem stand,
+// schon beim Drücken weg, lange bevor man ihn erreicht hatte.
+function photoStartShove(entry, start) {
+  if (start < entry.stunUntil || start - entry.lastShoveAt < PHOTO_SHOVE_COOLDOWN_MS) return false;
+  entry.lastShoveAt = start;
+  entry.dashUntil = start + PHOTO_DASH_MS;
+  entry.shoves += 1;
+  return true;
+}
+
+// Ein Rechenschritt. `shots`: der ganze Fotoplan (mit Ausschnitten),
+// `entries`: [{ id, entry }] in der Reihenfolge arcade.order, `now` die
+// Serverzeit am Ende des Schritts. Genau so in Fotobuehne.js (stepPhoto) —
+// ein Test hält beide gleich.
+function photoStep(state, shots, entries, stepMs, now, startedAt) {
+  const dt = stepMs / 1000;
+  const start = now - stepMs;
+  const halfW = PHOTO_W / 2 - PHOTO_BODY;
+  const halfD = PHOTO_D / 2 - PHOTO_BODY;
+  entries.forEach(({ entry }) => {
+    if (entry.shoveQueued) {
+      entry.shoveQueued = false;
+      photoStartShove(entry, start);
+    }
+    const dashing = start < entry.dashUntil;
+    const stunned = start < entry.stunUntil;
+    let dx;
+    let dz;
+    if (dashing) {
+      entry.vx = Math.sin(entry.heading) * PHOTO_DASH_SPEED;
+      entry.vz = Math.cos(entry.heading) * PHOTO_DASH_SPEED;
+      dx = entry.vx * dt;
+      dz = entry.vz * dt;
+    } else {
+      const rate = stunned ? PHOTO_STUN_DRAG : PHOTO_ACCEL;
+      const gx = photoEase(entry.vx, stunned ? 0 : entry.dirX * PHOTO_SPEED, rate, dt);
+      const gz = photoEase(entry.vz, stunned ? 0 : entry.dirZ * PHOTO_SPEED, rate, dt);
+      entry.vx = gx.v;
+      entry.vz = gz.v;
+      dx = gx.d;
+      dz = gz.d;
+      if (!stunned && Math.hypot(entry.dirX, entry.dirZ) > 0.15) {
+        const want = Math.atan2(entry.dirX, entry.dirZ);
+        const diff = Math.atan2(Math.sin(want - entry.heading), Math.cos(want - entry.heading));
+        entry.heading += clamp(diff, -PHOTO_TURN * dt, PHOTO_TURN * dt);
+      }
+    }
+    const x = entry.x + dx;
+    const z = entry.z + dz;
+    entry.x = clamp(x, -halfW, halfW);
+    entry.z = clamp(z, -halfD, halfD);
+    if (x !== entry.x) entry.vx = 0;
+    if (z !== entry.z) entry.vz = 0;
+  });
+  // Rammen: erst alle Treffer sammeln, dann austeilen — rennen zwei
+  // ineinander, fliegen beide, egal wer zuerst gerechnet wird.
+  const hits = [];
+  entries.forEach(({ id, entry }) => {
+    if (!(start < entry.dashUntil)) return;
+    const hx = Math.sin(entry.heading);
+    const hz = Math.cos(entry.heading);
+    entries.forEach(({ id: otherId, entry: other }) => {
+      if (other === entry || start < other.stunUntil) return;
+      const ox = other.x - entry.x;
+      const oz = other.z - entry.z;
+      const dist = Math.hypot(ox, oz);
+      if (dist > PHOTO_HIT_R || dist < 1e-6) return;
+      if ((ox * hx + oz * hz) / dist < PHOTO_HIT_CONE) return;
+      hits.push({ by: id, shover: entry, victim: other, victimId: otherId, nx: ox / dist, nz: oz / dist });
+    });
+  });
+  hits.forEach(({ by, shover, victim, nx, nz }) => {
+    victim.vx = nx * PHOTO_SHOVE_KICK;
+    victim.vz = nz * PHOTO_SHOVE_KICK;
+    victim.stunUntil = now + PHOTO_SHOVE_STUN_MS;
+    victim.dashUntil = 0;
+    victim.shoved += 1;
+    victim.lastShovedBy = by;
+    victim.lastShovedAt = now;
+    // Wer trifft, bleibt stehen, statt durch das Bild zu schiessen.
+    if (shover.dashUntil > now) shover.dashUntil = now;
+    shover.vx *= 0.3;
+    shover.vz *= 0.3;
+    shover.hits = (shover.hits || 0) + 1;
+  });
+  // Gedränge: alle Paare aus demselben Stand, dann zugleich verschieben. Wer
+  // auf den anderen zuläuft, weicht; wer steht, bleibt fast stehen.
+  const moves = entries.map(() => ({ x: 0, z: 0 }));
+  for (let a = 0; a < entries.length; a += 1) {
+    for (let b = a + 1; b < entries.length; b += 1) {
+      const one = entries[a].entry;
+      const two = entries[b].entry;
+      const dx = two.x - one.x;
+      const dz = two.z - one.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= PHOTO_BUMP || dist < 1e-6) continue;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const overlap = PHOTO_BUMP - dist;
+      const inOne = Math.max(0, one.vx * nx + one.vz * nz);
+      const inTwo = Math.max(0, -(two.vx * nx + two.vz * nz));
+      const share = (inOne + PHOTO_HOLD) / (inOne + inTwo + 2 * PHOTO_HOLD);
+      moves[a].x -= nx * overlap * share;
+      moves[a].z -= nz * overlap * share;
+      moves[b].x += nx * overlap * (1 - share);
+      moves[b].z += nz * overlap * (1 - share);
+    }
+  }
+  entries.forEach(({ entry }, i) => {
+    entry.x = clamp(entry.x + moves[i].x, -halfW, halfW);
+    entry.z = clamp(entry.z + moves[i].z, -halfD, halfD);
+  });
+  // Blitz!
+  const elapsed = now - startedAt;
+  shots.forEach((shot) => {
+    if (shot.index <= state.shot || elapsed < shot.shootAt) return;
+    state.shot = shot.index;
+    const inside = entries
+      .map(({ id, entry }) => ({ id, entry, d: Math.hypot(entry.x - shot.x, entry.z - shot.z) }))
+      .filter((item) => item.d <= shot.r);
+    const nearest = inside.reduce((best, item) => (!best || item.d < best.d ? item : best), null);
+    const result = { index: shot.index, at: now, in: [] };
+    inside.forEach((item) => {
+      const cover = item === nearest;
+      const solo = inside.length === 1;
+      const points = PHOTO_IN + (cover ? PHOTO_COVER : 0) + (solo ? PHOTO_SOLO : 0);
+      item.entry.score += points;
+      item.entry.photos += 1;
+      if (cover) item.entry.covers += 1;
+      result.in.push({ id: item.id, points, cover, solo });
+    });
+    state.results.push(result);
+    if (state.results.length > 6) state.results.shift();
+  });
+}
+
+function photoSpawn(index) {
+  return [[-1.6, 2], [1.6, 2], [-1.6, -1.6], [1.6, -1.6]][index % 4];
+}
+
+function photoGauss() {
+  let sum = 0;
+  for (let i = 0; i < 6; i += 1) sum += Math.random();
+  return (sum - 3) / Math.sqrt(0.5);
+}
+
 const photo = {
   cooldown: 0,
   fastHand: true,
   create(arcade, players) {
+    const shots = buildPhotoShots(arcade.seed);
+    arcade.secret = { ...(arcade.secret || {}), photoShots: shots };
     arcade.photo = {
       w: PHOTO_W,
       d: PHOTO_D,
-      shots: buildPhotoShots(arcade.seed),
+      shots: shots.map(({ index, at, shootAt }) => ({ index, at, shootAt, x: null, z: null, r: null })),
       shot: -1,                        // letzter ausgelöster Schnappschuss
       results: []                      // je Schnappschuss: { index, in: [{ id, points, cover, solo }] }
     };
-    const spots = [[-1.6, 2], [1.6, 2], [-1.6, -1.6], [1.6, -1.6]];
+    arcade.photoRules = { ...PHOTO_RULES };
+    arcade.order = players.map((player) => player.id);
+    arcade.photoClock = arcade.startedAt || 0;
+    photoPublish(arcade, 0);
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
-      const [x, z] = spots[index % spots.length];
-      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, heading: Math.atan2(-x, -z), dashUntil: 0, lastShoveAt: 0, stunUntil: 0, shoves: 0, shoved: 0, photos: 0, covers: 0, score: 0 });
+      const [x, z] = photoSpawn(index);
+      Object.assign(entry, {
+        x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, heading: Math.atan2(-x, -z), dashUntil: 0, lastShoveAt: -1e9, shoveQueued: false,
+        stunUntil: 0, shoves: 0, shoved: 0, hits: 0, photos: 0, covers: 0, score: 0
+      });
     });
   },
   input(ctx, player, entry, input) {
-    const { arcade, now } = ctx;
     if (input.action === "steer") {
       const x = inputNumber(input.x);
       const y = inputNumber(input.y);
@@ -2331,147 +2533,100 @@ const photo = {
       return { ok: true };
     }
     if (input.action !== "shove") return { ok: false, error: "Laufen oder schubsen." };
-    if (now < entry.stunUntil || now - entry.lastShoveAt < PHOTO_SHOVE_COOLDOWN_MS) return { ok: true };
-    entry.lastShoveAt = now;
-    entry.dashUntil = now + PHOTO_DASH_MS;
-    entry.shoves += 1;
-    // Wer vor einem steht, fliegt zur Seite.
-    const hx = Math.sin(entry.heading);
-    const hz = Math.cos(entry.heading);
-    Object.entries(arcade.players).forEach(([id, other]) => {
-      if (other === entry || now < other.stunUntil) return;
-      const dx = other.x - entry.x;
-      const dz = other.z - entry.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > PHOTO_SHOVE_REACH + PHOTO_DASH_SPEED * PHOTO_DASH_MS / 1000 * 0.5 || dist < 1e-6) return;
-      if ((dx * hx + dz * hz) / dist < 0.35) return;
-      other.vx = (dx / dist) * PHOTO_SHOVE_KICK;
-      other.vz = (dz / dist) * PHOTO_SHOVE_KICK;
-      other.stunUntil = now + PHOTO_SHOVE_STUN_MS;
-      other.shoved += 1;
-      other.lastShovedBy = player.id;
-      other.lastShovedAt = now;
-      void id;
-    });
+    // Angesetzt wird im nächsten Rechenschritt — dort prüft er auch Pause und
+    // Taumeln, genau wie die Vorausrechnung auf dem Gerät.
+    entry.shoveQueued = true;
     return { ok: true };
   },
   update(ctx) {
-    const { arcade, room, now, elapsed } = ctx;
+    const { arcade, room, now, minigame } = ctx;
     const state = arcade.photo;
-    const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
+    const startedAt = minigame?.startedAt ?? arcade.startedAt ?? 0;
     arcade.lastUpdateAt = now;
-    const entries = room.players.map((player) => ({ id: player.id, e: arcade.players[player.id] })).filter((x) => x.e);
-    const halfW = PHOTO_W / 2 - PHOTO_BODY;
-    const halfD = PHOTO_D / 2 - PHOTO_BODY;
-    entries.forEach(({ e }) => {
-      const stunned = now < e.stunUntil;
-      const dashing = now < e.dashUntil;
-      if (dashing) {
-        e.vx = Math.sin(e.heading) * PHOTO_DASH_SPEED;
-        e.vz = Math.cos(e.heading) * PHOTO_DASH_SPEED;
-      } else if (stunned) {
-        e.vx *= Math.exp(-4 * dt);
-        e.vz *= Math.exp(-4 * dt);
-      } else {
-        e.vx += (e.dirX * PHOTO_SPEED - e.vx) * Math.min(1, PHOTO_ACCEL * dt);
-        e.vz += (e.dirZ * PHOTO_SPEED - e.vz) * Math.min(1, PHOTO_ACCEL * dt);
-        if (Math.hypot(e.dirX, e.dirZ) > 0.15) {
-          const want = Math.atan2(e.dirX, e.dirZ);
-          const diff = Math.atan2(Math.sin(want - e.heading), Math.cos(want - e.heading));
-          e.heading += clamp(diff, -10 * dt, 10 * dt);
-        }
-      }
-      e.x = clamp(e.x + e.vx * dt, -halfW, halfW);
-      e.z = clamp(e.z + e.vz * dt, -halfD, halfD);
-    });
-    for (let a = 0; a < entries.length; a += 1) {
-      for (let b = a + 1; b < entries.length; b += 1) {
-        const one = entries[a].e;
-        const two = entries[b].e;
-        const dx = two.x - one.x;
-        const dz = two.z - one.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist >= PHOTO_BUMP || dist < 1e-6) continue;
-        const push = (PHOTO_BUMP - dist) / 2;
-        one.x = clamp(one.x - (dx / dist) * push, -halfW, halfW);
-        one.z = clamp(one.z - (dz / dist) * push, -halfD, halfD);
-        two.x = clamp(two.x + (dx / dist) * push, -halfW, halfW);
-        two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
-      }
+    if (!arcade.photoClock) arcade.photoClock = now;
+    if (now - arcade.photoClock > PHOTO_CATCHUP_MS) arcade.photoClock = now - PHOTO_CATCHUP_MS;
+    const present = new Set(room.players.map((player) => player.id));
+    const entries = (arcade.order || room.players.map((player) => player.id))
+      .filter((id) => present.has(id) && arcade.players[id])
+      .map((id) => ({ id, entry: arcade.players[id] }));
+    while (arcade.photoClock + PHOTO_STEP_MS <= now) {
+      arcade.photoClock += PHOTO_STEP_MS;
+      photoStep(state, arcade.secret.photoShots, entries, PHOTO_STEP_MS, arcade.photoClock, startedAt);
     }
-    // Blitz!
-    state.shots.forEach((shot) => {
-      if (shot.index <= state.shot || elapsed < shot.shootAt) return;
-      state.shot = shot.index;
-      const inside = entries
-        .map(({ id, e }) => ({ id, e, d: Math.hypot(e.x - shot.x, e.z - shot.z) }))
-        .filter((item) => item.d <= shot.r);
-      const nearest = inside.reduce((best, item) => (!best || item.d < best.d ? item : best), null);
-      const result = { index: shot.index, at: now, in: [] };
-      inside.forEach((item) => {
-        const cover = item === nearest;
-        const solo = inside.length === 1;
-        const points = PHOTO_IN + (cover ? PHOTO_COVER : 0) + (solo ? PHOTO_SOLO : 0);
-        item.e.score += points;
-        item.e.photos += 1;
-        if (cover) item.e.covers += 1;
-        result.in.push({ id: item.id, points, cover, solo });
-      });
-      state.results.push(result);
-      if (state.results.length > 6) state.results.shift();
-    });
+    photoPublish(arcade, now - startedAt);
   },
   bot(ctx, player, entry) {
     const { arcade, room, now, elapsed } = ctx;
     const state = arcade.photo;
-    if (now < entry.stunUntil) return null;
-    const shot = state.shots.find((s) => s.index > state.shot);
-    if (!shot || elapsed < shot.at + byLevel(entry, 650, 380, 180)) {
-      return { action: "steer", x: 0, y: 0 };
-    }
-    // Schubsen: steht jemand zwischen mir und der Mitte (oder in der Mitte),
-    // und ich schaue ungefähr hin — der starke tut es gezielt.
-    const eager = byLevel(entry, 0.05, 0.25, 0.55);
-    if (now - entry.lastShoveAt > PHOTO_SHOVE_COOLDOWN_MS && Math.random() < eager) {
-      const hx = Math.sin(entry.heading);
-      const hz = Math.cos(entry.heading);
-      const rivals = room.players.map((p) => arcade.players[p.id]).filter((o) => o && o !== entry);
-      // Der starke schubst nur den, der der Mitte am nächsten ist — also den,
-      // der ihm das Titelbild wegnimmt.
-      const best = rivals.reduce((b, o) => (!b || Math.hypot(o.x - shot.x, o.z - shot.z) < Math.hypot(b.x - shot.x, b.z - shot.z) ? o : b), null);
-      const target = rivals.find((o) => {
-        if (level(entry) === "hard" && o !== best) return false;
-        const dx = o.x - entry.x;
-        const dz = o.z - entry.z;
-        const dist = Math.hypot(dx, dz);
-        return dist < PHOTO_SHOVE_REACH && dist > 0 && (dx * hx + dz * hz) / dist > 0.6 && Math.hypot(o.x - shot.x, o.z - shot.z) < shot.r + 0.4;
-      });
-      if (target) return { action: "shove" };
-    }
-    // Wohin genau: der starke in die Mitte (Titelbild), die anderen irgendwo
-    // in den Ausschnitt.
+    if (now < entry.stunUntil) return { action: "steer", x: 0, y: 0 };
+    const shot = arcade.secret.photoShots.find((s) => s.index > state.shot);
+    if (!shot) return { action: "steer", x: 0, y: 0 };
+    const go = (tx, tz) => {
+      const dx = tx - entry.x;
+      const dz = tz - entry.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.08) return { action: "steer", x: 0, y: 0 };
+      const gain = Math.min(1, d * 2.4);
+      return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+    };
+    // Menschliche Reaktion: vorher lief der starke nach 180 ms los — schneller,
+    // als ein Mensch den Ausschnitt überhaupt sieht.
     if (entry.botShot !== shot.index) {
       entry.botShot = shot.index;
-      const spread = byLevel(entry, 0.65, 0.35, 0.02) * shot.r;
+      entry.botReact = Math.max(300, byLevel(entry, 560, 460, 420) + photoGauss() * 60);
+      entry.botCenter = Math.random() < byLevel(entry, 0.2, 0.5, 0.85);
+      const spread = byLevel(entry, 0.45, 0.25, 0.06) * shot.r;
       const a = Math.random() * Math.PI * 2;
       entry.botOffX = Math.cos(a) * spread;
       entry.botOffZ = Math.sin(a) * spread;
+      // Der starke schubst kurz vor dem Blitz, der mittlere irgendwann, der
+      // schwache kaum.
+      entry.botShoveWhen = byLevel(entry, 0.1, 0.45, 0.8);
     }
-    const dx = shot.x + entry.botOffX - entry.x;
-    const dz = shot.z + entry.botOffZ - entry.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 0.08) return { action: "steer", x: 0, y: 0 };
-    const gain = Math.min(1, d * 2.4);
-    return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+    // Zwischen den Bildern: der starke wartet mitten auf der Bühne — von dort
+    // ist jeder Ausschnitt am schnellsten erreicht.
+    if (elapsed < shot.at + entry.botReact) {
+      return entry.botCenter ? go(0, 0.2) : { action: "steer", x: 0, y: 0 };
+    }
+    const left = shot.shootAt - elapsed;
+    const rivals = room.players.map((p) => arcade.players[p.id]).filter((o) => o && o !== entry && now >= o.stunUntil);
+    const nearestRival = rivals.reduce((b, o) => (!b || Math.hypot(o.x - shot.x, o.z - shot.z) < Math.hypot(b.x - shot.x, b.z - shot.z) ? o : b), null);
+    const mine = Math.hypot(entry.x - shot.x, entry.z - shot.z);
+    if (now - entry.lastShoveAt > PHOTO_SHOVE_COOLDOWN_MS && now >= entry.dashUntil) {
+      const hx = Math.sin(entry.heading);
+      const hz = Math.cos(entry.heading);
+      const inLine = (o) => {
+        const dx = o.x - entry.x;
+        const dz = o.z - entry.z;
+        const dist = Math.hypot(dx, dz);
+        return dist < 1.3 && dist > 0 && (dx * hx + dz * hz) / dist > 0.8;
+      };
+      // Der starke wartet bis kurz vor dem Blitz — wer dann fliegt, kommt
+      // nicht mehr zurück ins Bild.
+      const late = left < byLevel(entry, 1200, 750, 600);
+      if (late && Math.random() < entry.botShoveWhen && rivals.some((o) => inLine(o) && Math.hypot(o.x - shot.x, o.z - shot.z) < shot.r + 0.3)) {
+        return { action: "shove" };
+      }
+    }
+    // Steht einer in der Mitte, läuft der starke genau auf ihn zu (dann schaut
+    // er ihn an und kann rammen), die anderen irgendwo in den Ausschnitt.
+    if (level(entry) === "hard" && nearestRival && Math.hypot(nearestRival.x - shot.x, nearestRival.z - shot.z) < mine && mine < shot.r + 0.6) {
+      return go(nearestRival.x, nearestRival.z);
+    }
+    return go(shot.x + entry.botOffX, shot.z + entry.botOffZ);
   },
   rank(arcade, entry) {
     return (entry.score || 0) * 100 + Math.min(99, (entry.covers || 0) * 10 + (entry.photos || 0));
   },
   detail(arcade, entry) {
-    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte" };
+    const covers = entry.covers || 0;
+    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte", extra: covers ? `${covers}× Titelbild` : null };
   },
-  done() {
-    return false;
+  done(ctx) {
+    const { arcade, elapsed } = ctx;
+    const shots = arcade.photo.shots;
+    const last = shots[shots.length - 1];
+    return Boolean(last) && arcade.photo.shot >= last.index && elapsed > last.shootAt + 1400;
   }
 };
 
@@ -2892,7 +3047,8 @@ module.exports = {
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R, SNOW_STEP_MS, SNOW_GIANT, SNOW_GROW,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS, HOCKEY_STEP_MS, HOCKEY_LANE_STURM, HOCKEY_LANE_ABWEHR,
     BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS, BOOK_STEP_MS, BOOK_PUBLISH_LEAD_MS,
-    PHOTO_W, PHOTO_D, PHOTO_IN, PHOTO_COVER, PHOTO_SOLO, PHOTO_SHOVE_COOLDOWN_MS,
+    PHOTO_W, PHOTO_D, PHOTO_IN, PHOTO_COVER, PHOTO_SOLO, PHOTO_SHOVE_COOLDOWN_MS, PHOTO_STEP_MS, PHOTO_PUBLISH_LEAD_MS,
+    PHOTO_SHOVE_STUN_MS, PHOTO_DASH_MS,
     BOAT_LEAD_MS, BOAT_REACH, BOAT_TORQUE_MAX, BOAT_CAPACITY, BOAT_CAPSIZE_COST, BOAT_DEPART_BONUS,
     PIPE_ROUNDS, PIPE_LEAD_MS, PIPE_ANSWER_MS, PIPE_REVEAL_MS, PIPE_LEVELS, PIPE_POINTS, PIPE_SPEED_BONUS
   },
@@ -2913,6 +3069,7 @@ module.exports = {
   hockeyMallets,
   hockeyLimits,
   bookStep,
+  photoStep,
   buildHoneyVine,
   honeyCombAt,
   honeyRisk,

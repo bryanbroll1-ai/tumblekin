@@ -210,7 +210,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️💥 Stick laufen, Knopf schubsen
 
-- **Schnappschuss:** Premiere auf dem roten Teppich! Die Kameradrohne zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10), und wer ganz allein drauf ist, bekommt noch 5. SCHUBS lässt dich nach vorn schnellen und stösst alle vor dir aus dem Bild.
+- **Schnappschuss:** Premiere auf dem roten Teppich! Der Fotograf zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10 — der Stern zeigt, wer es gerade wäre), und wer ganz allein drauf ist, bekommt noch 5. Wer zuerst in der Mitte steht, hält sie im Gedränge. Herausholen kann ihn nur SCHUBS: du schnellst nach vorn, und wen du rammst, der fliegt aus dem Bild.
 
 ### 👀👆 Mit den Augen folgen, dann tippen
 

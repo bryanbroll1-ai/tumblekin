@@ -968,7 +968,7 @@ test("Bücherwurm: Gerät und Server rechnen Schritt für Schritt gleich", async
 test("Schnappschuss: wer im Ausschnitt steht, ist auf dem Foto — die Mitte bekommt das Titelbild", () => {
   const g = setup("schnappschuss", 3);
   const [a, b, c] = g.players;
-  const shot = g.arcade.photo.shots[0];
+  const shot = g.arcade.secret.photoShots[0];
   Object.assign(g.arcade.players[a.id], { x: shot.x, z: shot.z });
   Object.assign(g.arcade.players[b.id], { x: shot.x + shot.r * 0.7, z: shot.z });
   Object.assign(g.arcade.players[c.id], { x: shot.x + shot.r + 1.5 > 3 ? shot.x - shot.r - 1.5 : shot.x + shot.r + 1.5, z: shot.z });
@@ -984,7 +984,7 @@ test("Schnappschuss: wer im Ausschnitt steht, ist auf dem Foto — die Mitte bek
 test("Schnappschuss: allein im Bild gibt es noch etwas dazu", () => {
   const g = setup("schnappschuss", 2);
   const [a, b] = g.players;
-  const shot = g.arcade.photo.shots[0];
+  const shot = g.arcade.secret.photoShots[0];
   Object.assign(g.arcade.players[a.id], { x: shot.x, z: shot.z });
   Object.assign(g.arcade.players[b.id], { x: shot.x > 0 ? -2.8 : 2.8, z: shot.z > 0 ? -3.2 : 3.2 });
   g.run(0, shot.shootAt + 40, 30);
@@ -992,19 +992,177 @@ test("Schnappschuss: allein im Bild gibt es noch etwas dazu", () => {
   g.restore();
 });
 
-test("Schnappschuss: SCHUBS stösst den, der vor einem steht, weg", () => {
+test("Schnappschuss: SCHUBS stösst den, der vor einem steht, weg — danach erst wieder nach der Pause", () => {
   const g = setup("schnappschuss", 2);
   const [a, b] = g.players;
   Object.assign(g.arcade.players[a.id], { x: 0, z: 1, heading: Math.PI });
   Object.assign(g.arcade.players[b.id], { x: 0, z: 0.4 });
-  g.at(500);
+  g.run(0, 480, 30);
   g.input(a, { action: "shove" });
+  g.run(510, 600, 30);
   assert.ok(g.arcade.players[b.id].stunUntil > g.now, "b taumelt");
-  g.run(520, 900, 20);
-  assert.ok(g.arcade.players[b.id].z < 0, `b wurde weggeschoben (z ${g.arcade.players[b.id].z.toFixed(2)})`);
+  g.run(630, 1000, 30);
+  assert.ok(g.arcade.players[b.id].z < -0.2, `b wurde weggeschoben (z ${g.arcade.players[b.id].z.toFixed(2)})`);
   g.input(a, { action: "shove" });
+  g.run(1030, 1100, 30);
   assert.equal(g.arcade.players[a.id].shoves, 1, "danach erst wieder nach der Pause");
   g.restore();
+});
+
+test("Schnappschuss: SCHUBS trifft bei Berührung, nicht schon beim Drücken", () => {
+  const g = setup("schnappschuss", 3);
+  const [a, near, far] = g.players;
+  Object.assign(g.arcade.players[a.id], { x: 0, z: 2, heading: Math.PI });
+  Object.assign(g.arcade.players[near.id], { x: 0, z: 0.7 });            // 1,3 vor a: erst nach dem Vorschnellen erreicht
+  Object.assign(g.arcade.players[far.id], { x: 2.5, z: 2 });             // daneben, nicht in Blickrichtung
+  g.run(0, 480, 30);
+  g.input(a, { action: "shove" });
+  g.run(510, 510, 30);
+  assert.equal(g.arcade.players[near.id].stunUntil, 0, "noch nicht erreicht — noch nicht getroffen");
+  g.run(540, 800, 30);
+  assert.ok(g.arcade.players[near.id].shoved === 1, "beim Aufprall fliegt er");
+  assert.equal(g.arcade.players[far.id].shoved, 0, "wer daneben steht, bleibt stehen");
+  assert.ok(g.arcade.players[a.id].z > 0.2, `wer trifft, bleibt stehen, statt durchzuschiessen (z ${g.arcade.players[a.id].z.toFixed(2)})`);
+  g.restore();
+});
+
+test("Schnappschuss: im Gedränge hält die Mitte, wer zuerst da ist — auf jedem Platz", () => {
+  // Vorher wurde das Gedränge Paar für Paar aufgelöst: wer zuletzt gerechnet
+  // wurde, blieb in der Mitte stehen — liefen alle hin, bekam Platz 4 zwölf
+  // von dreizehn Titelbildern.
+  for (let first = 0; first < 4; first += 1) {
+    const g = setup("schnappschuss", 4);
+    const shot = g.arcade.secret.photoShots[0];
+    let runner = 0;
+    g.players.forEach((p, i) => {
+      const e = g.arcade.players[p.id];
+      if (i === first) Object.assign(e, { x: shot.x, z: shot.z });
+      else {
+        const a = (runner * Math.PI * 2) / 3 + 0.3;
+        runner += 1;
+        Object.assign(e, { x: shot.x + Math.sin(a) * 1.2, z: shot.z + Math.cos(a) * 1.2 });
+      }
+    });
+    g.run(0, shot.shootAt + 40, 30, () => {
+      g.players.forEach((p, i) => {
+        if (i === first) return;
+        const e = g.arcade.players[p.id];
+        const dx = shot.x - e.x;
+        const dz = shot.z - e.z;
+        const d = Math.hypot(dx, dz) || 1;
+        g.input(p, { action: "steer", x: dx / d, y: dz / d });
+      });
+    });
+    const cover = g.arcade.photo.results[0].in.find((item) => item.cover);
+    assert.equal(cover?.id, g.players[first].id, `Platz ${first + 1} stand zuerst in der Mitte`);
+    g.restore();
+  }
+});
+
+test("Schnappschuss: wo der nächste Ausschnitt liegt, sieht das Gerät erst kurz vorher", () => {
+  const g = setup("schnappschuss", 2);
+  const shots = g.arcade.secret.photoShots;
+  const shown = () => JSON.parse(JSON.stringify(publicArcade(g.arcade)));
+  assert.ok(!JSON.stringify(shown()).includes("photoShots"), "kein Geheimfach im Paket");
+  assert.deepEqual(shown().photo.shots.map((s) => s.shootAt), shots.map((s) => s.shootAt), "die Zeiten sehen alle");
+  const later = shots[3];
+  g.run(0, later.at - C.PHOTO_PUBLISH_LEAD_MS - 60, 30);
+  assert.equal(shown().photo.shots[3].x, null, "zu früh: noch geheim");
+  assert.ok(shown().photo.shots.slice(4).every((s) => s.x === null), "und alle späteren erst recht");
+  g.run(later.at - C.PHOTO_PUBLISH_LEAD_MS - 30, later.at - C.PHOTO_PUBLISH_LEAD_MS + 30, 30);
+  const now = shown().photo.shots[3];
+  assert.deepEqual([now.x, now.z, now.r], [later.x, later.z, later.r], "kurz vorher: jetzt darf das Gerät es wissen");
+  g.restore();
+});
+
+test("Schnappschuss: gleich schnell, egal wie lang der Servertakt ist", () => {
+  const pos = (every) => {
+    const g = setup("schnappschuss", 2);
+    const [a] = g.players;
+    g.input(a, { action: "steer", x: 0.7, y: -0.6 });
+    g.run(0, 1440, every);                // 1440 ist ein Vielfaches von 30 und 90
+    const e = g.arcade.players[a.id];
+    const out = { x: e.x, z: e.z, heading: e.heading };
+    g.restore();
+    return out;
+  };
+  const fine = pos(30);
+  const coarse = pos(90);
+  assert.ok(Math.abs(fine.x - coarse.x) < 1e-9 && Math.abs(fine.z - coarse.z) < 1e-9 && Math.abs(fine.heading - coarse.heading) < 1e-9, JSON.stringify({ fine, coarse }));
+});
+
+test("Schnappschuss: Gerät und Server rechnen Schritt für Schritt gleich", async () => {
+  const { stepPhoto, photoRules } = await import("../client/src/minigames/Fotobuehne.js");
+  const g = setup("schnappschuss", 4);
+  const arcade = g.arcade;
+  const rules = photoRules(arcade);
+  const shots = arcade.secret.photoShots;
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const server = arcade.order.map((id) => ({ id, entry: arcade.players[id] }));
+  const device = JSON.parse(JSON.stringify(server));
+  const devState = { shot: arcade.photo.shot, results: [] };
+  let now = arcade.startedAt;
+  const steps = Math.ceil((shots[shots.length - 1].shootAt + 200) / C.PHOTO_STEP_MS);
+  for (let k = 0; k < steps; k += 1) {
+    if (k % 6 === 0) {
+      server.forEach(({ entry }, i) => {
+        // Meist zum Ausschnitt, damit es Gedränge und Treffer gibt.
+        const shot = shots.find((s) => s.index > arcade.photo.shot) || shots[0];
+        const a = rnd() < 0.8 ? Math.atan2(shot.x - entry.x, shot.z - entry.z) : rnd() * Math.PI * 2;
+        const m = 0.4 + rnd() * 0.6;
+        [entry, device[i].entry].forEach((e) => { e.dirX = Math.sin(a) * m; e.dirZ = Math.cos(a) * m; });
+        if (rnd() < 0.3) [entry, device[i].entry].forEach((e) => { e.shoveQueued = true; });
+      });
+    }
+    now += C.PHOTO_STEP_MS;
+    party.photoStep(arcade.photo, shots, server, C.PHOTO_STEP_MS, now, arcade.startedAt);
+    stepPhoto(rules, devState, shots, device, C.PHOTO_STEP_MS, now, arcade.startedAt, []);
+  }
+  const keys = ["x", "z", "vx", "vz", "heading", "stunUntil", "dashUntil", "lastShoveAt", "shoves", "shoved", "hits", "photos", "covers", "score"];
+  server.forEach(({ entry }, i) => keys.forEach((key) => assert.ok(Math.abs((entry[key] || 0) - (device[i].entry[key] || 0)) < 1e-6, `${key}: ${entry[key]} gegen ${device[i].entry[key]}`)));
+  assert.equal(devState.shot, arcade.photo.shot);
+  const shoved = server.reduce((sum, { entry }) => sum + entry.shoved, 0);
+  const covers = server.reduce((sum, { entry }) => sum + entry.covers, 0);
+  assert.ok(shoved >= 8 && covers > 5, `es gab Treffer (${shoved}) und Titelbilder (${covers})`);
+  g.restore();
+});
+
+test("Schnappschuss: die Bots sind gestaffelt, der starke reagiert wie ein Mensch", () => {
+  const sums = { easy: 0, normal: 0, hard: 0 };
+  const reactions = [];
+  const runs = 30;
+  for (let r = 0; r < runs; r += 1) {
+    const g = setup("schnappschuss", 3, { bots: true });
+    const levels = ["easy", "normal", "hard"];
+    g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
+    const hard = g.arcade.players[g.players[2].id];
+    const shots = g.arcade.secret.photoShots;
+    const seen = new Set();
+    for (let t = 0; t <= g.minigame.duration; t += 30) {
+      g.at(t);
+      if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
+      g.tick();
+      // Wann zeigt der Stick des starken auf den neuen Ausschnitt? Zwischen
+      // den Bildern läuft er zur Bühnenmitte — Laufen allein heisst nichts.
+      const shot = shots.find((s) => s.index > g.arcade.photo.shot && t >= s.at);
+      if (!shot || seen.has(shot.index)) continue;
+      const dx = shot.x - hard.x;
+      const dz = shot.z - hard.z;
+      const d = Math.hypot(dx, dz);
+      const stick = Math.hypot(hard.dirX, hard.dirZ);
+      if (d > 0.4 && stick > 0.3 && (hard.dirX * dx + hard.dirZ * dz) / (stick * d) > 0.9) {
+        seen.add(shot.index);
+        reactions.push(t - shot.at);
+      }
+    }
+    g.players.forEach((p, i) => { sums[levels[i]] += g.arcade.players[p.id].score; });
+    g.restore();
+  }
+  assert.ok(sums.hard > sums.normal && sums.normal > sums.easy, JSON.stringify(sums));
+  reactions.sort((x, y) => x - y);
+  const median = reactions[Math.floor(reactions.length / 2)];
+  assert.ok(median >= 350, `der starke läuft erst los, wenn ein Mensch den Ausschnitt gesehen hätte (Median ${median} ms)`);
 });
 
 // --- Kippboot --------------------------------------------------------------

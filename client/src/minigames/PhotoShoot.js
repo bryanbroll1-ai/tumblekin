@@ -4,27 +4,45 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin200";
+import { forecastPhoto, photoRules, canShove } from "./Fotobuehne.js?v=tumblekin200";
 
 // Schnappschuss — Premierenabend auf dem roten Teppich. Ein Fotograf vorn
-// am Bühnenrand zeigt einen Bildausschnitt, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto; wer der Mitte am
-// nächsten ist, aufs Titelbild. Mit SCHUBS stösst man andere aus dem Bild.
+// am Bühnenrand zeigt einen Bildausschnitt, zählt herunter und blitzt. Wer im
+// Ausschnitt steht, ist auf dem Foto; wer der Mitte am nächsten ist, aufs
+// Titelbild — ein goldener Stern zeigt, wer das gerade wäre. Mit SCHUBS
+// schnellt man vor und rammt andere aus dem Bild.
+//
+// Bühne, Countdown und Blitz laufen nach der Ankunftszeit beim Server
+// (Fotobuehne.js rechnet sie voraus): die eigene Figur antwortet sofort auf
+// den Stick, und ob man drauf ist, sieht man im selben Augenblick wie den
+// Blitz — nicht eine Rundreise später.
 //
 // Drumherum: eine Fotowand mit Sternen, Samtkordeln an goldenen Pfosten,
 // dahinter Paparazzi, deren Kameras blitzen, Scheinwerfer auf Stativen und
 // Suchscheinwerfer, die über den Nachthimmel wandern.
 const STAGE_Y = 0.25;
 const TEPPICH_Y = STAGE_Y + 0.015;
+const STICK_GAP_MS = 40;         // Stick höchstens so oft schicken
+const TICK_LEAD_MS = 45;         // halber Servertakt (90 ms), siehe lands
 
 export class PhotoShoot extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.lastServerAt = performance.now();
     this.seenShot = -1;
     this.seenShoves = new Map();
+    this.stunned = new Map();
     this.labelY = 0.8;
     this.flashes = [];
     this.beams = [];
     this.polaroidUntil = 0;
+    this.polaroid = null;          // { index, key } — was die Karte gerade zeigt
+    this.roundTrip = 0;
+    this.stickLog = [];            // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
+    this.shoveLog = [];            // { at }: eigene SCHUBSER (Geräteuhr)
+    this.stickWanted = null;
+    this.stickSent = { x: 0, y: 0, clock: 0 };
+    this.lastPingAt = 0;
+    this.view = null;              // Vorausrechnung zur Ankunftszeit (forecastPhoto)
   }
 
   stage() {
@@ -78,16 +96,27 @@ export class PhotoShoot extends MinigameScene {
     this.zoneFill = flaeche;
     this.countSprites = ["3", "2", "1"].map((text) => {
       const sprite = createNameLabel(text, "#ffe25c");
-      sprite.scale.multiplyScalar(1.4);
+      sprite.scale.multiplyScalar(2.4);
       sprite.visible = false;
       scene.add(sprite);
       return sprite;
     });
-    // Lichtkegel von oben auf den Ausschnitt.
-    this.cone = new THREE.Mesh(new THREE.ConeGeometry(1, 4.5, 32, 1, true), new THREE.MeshBasicMaterial({ color: "#fff4c0", transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }));
-    this.cone.userData.isFx = true;
-    this.cone.visible = false;
-    scene.add(this.cone);
+    // Ein goldener Stern über dem, der gerade aufs Titelbild käme. Ein
+    // Lichtkegel von oben stand zuerst hier — er verdeckte genau die Figuren
+    // im Ausschnitt und den Countdown darüber.
+    const zacken = new THREE.Shape();
+    for (let i = 0; i < 10; i += 1) {
+      const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+      const r = i % 2 ? 0.16 : 0.38;
+      if (i === 0) zacken.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      else zacken.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    zacken.closePath();
+    this.coverMark = new THREE.Mesh(new THREE.ExtrudeGeometry(zacken, { depth: 0.06, bevelEnabled: false }), new THREE.MeshBasicMaterial({ color: "#ffd84a" }));
+    this.coverMark.geometry.center();
+    this.coverMark.userData.isFx = true;
+    this.coverMark.visible = false;
+    scene.add(this.coverMark);
 
     // Der Fotograf: steht vorn auf dem Teppich, mit dem Rücken zu uns, und
     // wandert zum Ausschnitt mit. Eine Drohne über der Bühne hätte genau den
@@ -249,17 +278,13 @@ export class PhotoShoot extends MinigameScene {
       label: "Schnappschuss: laufen",
       intervalMs: 60,
       feedback: this.feedback,
-      onVector: (x, y) => this.sendInput({ action: "steer", x, y }).catch(() => {}),
+      onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
     });
     this.shoveButton = this.controls.querySelector("[data-photo-shove]");
     this.on(this.shoveButton, "pointerdown", (event) => {
       event.preventDefault();
-      const minigame = this.update || this.minigame;
-      if (!minigame || minigame.finaleAt) return;
-      this.feedback?.sound("whoosh");
-      this.feedback?.vibrate(14);
-      this.sendInput({ action: "shove" }).catch(() => {});
+      this.shoveNow();
     });
   }
 
@@ -268,22 +293,135 @@ export class PhotoShoot extends MinigameScene {
     this.joystick = null;
   }
 
-  onUpdate() {
-    this.lastServerAt = performance.now();
+  // Der Stick meldet sich alle 60 ms und bei jedem Richtungswechsel — dazu
+  // liest das Bild ihn in jedem Frame. Geschickt wird, was sich geändert hat,
+  // höchstens alle 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung
+  // weiss, ab wann der Server sie hat (wie in Farbenjagd).
+  queueStick(x, y) {
+    this.stickWanted = { x, y };
+    this.flushStick();
+  }
+
+  flushStick() {
+    const want = this.stickWanted;
+    const minigame = this.update || this.minigame;
+    if (!want || !minigame || minigame.finaleAt) return;
+    const clock = performance.now();
+    const same = Math.abs(want.x - this.stickSent.x) < 0.02 && Math.abs(want.y - this.stickSent.y) < 0.02;
+    if (same && clock - this.stickSent.clock < 400) return;
+    if (clock - this.stickSent.clock < STICK_GAP_MS) return;
+    this.stickSent = { x: want.x, y: want.y, clock };
+    const at = this.now();
+    this.stickLog.push({ at, x: want.x, y: want.y });
+    while (this.stickLog.length > 2 && this.stickLog[1].at < at - 3000) this.stickLog.shift();
+    this.sendInput({ action: "steer", x: want.x, y: want.y })
+      .then(() => this.noteRoundTrip(performance.now() - clock))
+      .catch(() => {});
+  }
+
+  // SCHUBS: gilt er laut Vorausrechnung, schnellt die Figur sofort los — nicht
+  // erst eine Rundreise später.
+  shoveNow() {
+    const minigame = this.update || this.minigame;
+    if (!minigame || minigame.finaleAt) return;
+    const own = this.view?.entries.get(this.getControlledPlayerId());
+    const rules = photoRules(minigame.arcade);
+    const clock = performance.now();
+    if (own && canShove(rules, own, this.view.at)) {
+      this.shoveLog.push({ at: this.now() });
+      while (this.shoveLog.length > 4) this.shoveLog.shift();
+      this.feedback?.sound("whoosh");
+      this.feedback?.vibrate(14);
+    } else {
+      this.feedback?.sound("tap");
+      this.feedback?.vibrate(6);
+    }
+    this.sendInput({ action: "shove" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Ohne Stick keine Antworten, also keine Laufzeit: dann misst ein Ping.
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.stickSent.clock < 1000 || clock - this.lastPingAt < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
+  }
+
+  // Wann eine Meldung dieses Geräts beim Server wirkt: eine Rundreise nach dem
+  // Senden, abzüglich eines halben Takts — der Server liest sie einmal je Takt
+  // und rechnet damit alle Schritte seit dem letzten.
+  lands(sent) {
+    return sent.at + this.roundTrip - TICK_LEAD_MS;
+  }
+
+  // Welchen Stick der Server für den Schritt ab Serverzeit `at` hat. Kam die
+  // Meldung vor dem Serverstand an, steht sie schon in ihm.
+  stickAt(at, from, entry) {
+    let pick = null;
+    for (const sent of this.stickLog) {
+      if (this.lands(sent) <= at) pick = sent;
+      else break;
+    }
+    if (!pick || this.lands(pick) <= from) return { x: entry.dirX || 0, y: entry.dirZ || 0 };
+    return pick;
+  }
+
+  // Die Bühne zu der Serverzeit, zu der ein jetzt geschickter Stick ankommt:
+  // die eigene Figur mit dem eigenen Stick und SCHUBS, die anderen mit dem,
+  // den der Server gerade von ihnen hat.
+  forecast(f) {
+    const { arcade, minigame, players, controlledId } = f;
+    const from = arcade.photoClock || minigame.sentAt || f.now;
+    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
+    const to = minigame.finaleAt ? from : Math.min(Math.max(from, f.now + this.roundTrip), Math.max(from, endAt));
+    const present = new Set(players.map((player) => player.id));
+    const ids = (arcade.order || players.map((player) => player.id)).filter((id) => present.has(id) && arcade.players[id]);
+    this.view = forecastPhoto(arcade, {
+      from,
+      to,
+      ids,
+      startedAt: minigame.startedAt,
+      inputAt: (id, at) => {
+        const entry = arcade.players[id];
+        if (id !== controlledId) return { x: entry.dirX || 0, y: entry.dirZ || 0 };
+        const stick = this.stickAt(at, from, entry);
+        const shove = this.shoveLog.some((sent) => {
+          const lands = this.lands(sent);
+          return lands > from && lands > at - 30 && lands <= at;
+        });
+        return { x: stick.x, y: stick.y, shove };
+      }
+    });
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.photo;
     if (!state) return;
-    const elapsed = now - minigame.startedAt;
-    const age = Math.min(0.12, (performance.now() - this.lastServerAt) / 1000);
+    if (this.joystick && this.joystick.pointerId !== null) this.queueStick(this.joystick.vecX, this.joystick.vecY);
+    else this.flushStick();
+    this.pingIfIdle(minigame);
+    this.forecast(f);
+    const view = this.view;
+    // Alles läuft nach der Ankunftszeit: der Ausschnitt erscheint, zählt und
+    // blitzt so, wie es beim Server geschieht, wenn ein jetzt geschickter Stick
+    // dort ankommt — und die Figuren stehen, wo sie dann stehen.
+    const elapsed = minigame.finaleAt ? now - minigame.startedAt : now + this.roundTrip - minigame.startedAt;
+    const done = Math.max(view.state.shot, state.shot);
 
     // Der aktuelle Ausschnitt.
-    const shot = state.shots.find((s) => s.index > state.shot && elapsed >= s.at);
+    const shot = state.shots.find((s) => s.index > done && elapsed >= s.at && s.x !== null);
     this.zone.visible = Boolean(shot) && !f.finale;
-    this.cone.visible = this.zone.visible;
     this.countSprites.forEach((sprite) => { sprite.visible = false; });
+    this.coverMark.visible = false;
     if (shot) {
       const left = shot.shootAt - elapsed;
       const grow = Math.min(1, (elapsed - shot.at) / 250);
@@ -293,22 +431,34 @@ export class PhotoShoot extends MinigameScene {
       const hot = left < 900;
       this.zoneRing.material.color.set(hot && Math.floor(now / 120) % 2 ? "#ff5d73" : "#ffffff");
       this.zoneFill.material.opacity = hot ? 0.28 : 0.16;
-      this.cone.position.set(shot.x, STAGE_Y + 2.25, shot.z);
-      this.cone.scale.set(shot.r, 1, shot.r);
       const count = Math.ceil(left / Math.max(1, (shot.shootAt - shot.at) / 3));
       const sprite = this.countSprites[3 - Math.max(1, Math.min(3, count))];
       if (sprite && left > 0) {
         sprite.visible = true;
-        sprite.position.set(shot.x, STAGE_Y + 1.9, shot.z);
+        sprite.position.set(shot.x, STAGE_Y + 3.4, shot.z);
       }
       if (count !== this.lastCount && left > 0) {
         this.lastCount = count;
         this.feedback?.sound("countdown");
       }
+      // Wer jetzt aufs Titelbild käme: ein Stern über dem Kopf.
+      const cover = this.coverHolder(shot, players, view);
+      const kin = cover && this.kins.get(cover);
+      // Wandert der Stern zu mir, klingt es kurz — man muss nicht hinsehen.
+      if (cover === controlledId && this.coverWas !== controlledId && left > 0 && performance.now() - (this.coverSoundAt || 0) > 400) {
+        this.coverSoundAt = performance.now();
+        this.feedback?.sound("plink");
+      }
+      this.coverWas = cover;
+      if (kin && !f.finale) {
+        this.coverMark.visible = true;
+        this.coverMark.position.set(kin.position.x, kin.position.y + 1.95 + Math.sin(now / 160) * 0.06, kin.position.z);
+        this.coverMark.rotation.y = now / 400;
+      }
     }
 
     // Der Fotograf läuft vor den Ausschnitt und hebt die Kamera.
-    const aim = shot || state.shots.find((s) => s.index > state.shot) || { x: 0, z: 0 };
+    const aim = shot || state.shots.find((s) => s.index > done && s.x !== null) || { x: 0, z: 0 };
     const fx = Math.max(-this.W / 2 + 0.4, Math.min(this.W / 2 - 0.4, aim.x));
     const walk = fx - this.fotograf.position.x;
     this.fotograf.position.x += walk * frameLerp(0.08, dt);
@@ -317,11 +467,13 @@ export class PhotoShoot extends MinigameScene {
     this.fotografAnimator.set(Math.abs(walk) > 0.15 ? "walk" : shot ? "aim" : "idle");
     this.fotografAnimator.update(now);
 
-    // Blitz!
-    if (state.shot > this.seenShot) {
-      this.seenShot = state.shot;
-      const result = state.results.find((r) => r.index === state.shot);
-      const done = state.shots[state.shot];
+    // Blitz! — wenn die Vorausrechnung ihn sieht, also zugleich mit dem
+    // Countdown im Bild. Wer drauf ist, sagt dieselbe Rechnung; kommt das
+    // Foto vom Server anders zurück, zeigt die Karte das.
+    if (done > this.seenShot) {
+      this.seenShot = done;
+      const result = state.results.find((r) => r.index === done) || view.state.results.find((r) => r.index === done);
+      const flashed = state.shots[done];
       const flash = this.hud.querySelector("[data-photo-flash]");
       if (flash) {
         flash.classList.remove("is-on");
@@ -332,22 +484,28 @@ export class PhotoShoot extends MinigameScene {
       this.flashOff = performance.now() + 160;
       this.feedback?.sound("perfect");
       this.rig.shake(0.15);
-      if (done) this.burst(new THREE.Vector3(done.x, STAGE_Y + 0.6, done.z), ["#ffffff", "#fff4c0"], { count: 16, speed: 2, up: 1.2, size: 0.06, life: 0.5 });
+      if (flashed?.x !== null && flashed?.x !== undefined) this.burst(new THREE.Vector3(flashed.x, STAGE_Y + 0.6, flashed.z), ["#ffffff", "#fff4c0"], { count: 16, speed: 2, up: 1.2, size: 0.06, life: 0.5 });
       (result?.in || []).forEach((item) => {
         const kin = this.kins.get(item.id);
         const animator = this.animators.get(item.id);
         if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), `+${item.points}`, { color: item.cover ? "#ffe36b" : "#ffffff", size: item.cover ? 0.5 : 0.38 });
         animator?.trigger(item.cover ? "victory" : "wavehi");
-        if (item.id === controlledId) this.feedback?.vibrate(item.cover ? [20, 30, 40] : 16);
       });
+      const mine = (result?.in || []).find((item) => item.id === controlledId);
+      if (mine) this.feedback?.vibrate(mine.cover ? [20, 30, 40] : 16);
+      else this.feedback?.vibrate([40, 30, 40]);
       this.showPolaroid(result, players, controlledId);
+    } else if (this.polaroid && !this.hud.querySelector("[data-photo-polaroid]")?.hidden) {
+      // Das Foto vom Server ist massgeblich.
+      const confirmed = state.results.find((r) => r.index === this.polaroid.index);
+      if (confirmed && photoKey(confirmed) !== this.polaroid.key) this.showPolaroid(confirmed, players, controlledId, { keepTimer: true });
     }
     if (this.flashOff && performance.now() > this.flashOff) {
       this.flashOff = 0;
       this.cameraFlash.material.color.set("#7a7a70");
     }
 
-    // Paparazzi blitzen zufällig — und alle, wenn die Drohne blitzt.
+    // Paparazzi blitzen zufällig.
     const nowP = performance.now();
     this.flashes.forEach((blitz) => {
       if (nowP > blitz.userData.next) {
@@ -365,33 +523,40 @@ export class PhotoShoot extends MinigameScene {
     });
 
     players.forEach((player) => {
-      const entry = arcade.players[player.id];
+      const entry = view.entries.get(player.id) || arcade.players[player.id];
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
-      // Vorausgerechnet, aber nie über den Bühnenrand hinaus.
-      const tx = Math.max(-this.W / 2 + 0.3, Math.min(this.W / 2 - 0.3, entry.x + (entry.vx || 0) * age));
-      const tz = Math.max(-this.D / 2 + 0.3, Math.min(this.D / 2 - 0.3, entry.z + (entry.vz || 0) * age));
-      kin.position.x += (tx - kin.position.x) * frameLerp(0.45, dt);
-      kin.position.z += (tz - kin.position.z) * frameLerp(0.45, dt);
+      const isOwn = player.id === controlledId;
+      // Die eigene Figur folgt der Vorausrechnung fast ohne Verzug — sie IST
+      // schon die Antwort auf den Stick.
+      const follow = isOwn ? 0.7 : 0.45;
+      kin.position.x += (entry.x - kin.position.x) * frameLerp(follow, dt);
+      kin.position.z += (entry.z - kin.position.z) * frameLerp(follow, dt);
       const turn = entry.heading - kin.rotation.y;
-      kin.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * frameLerp(0.3, dt);
+      kin.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * frameLerp(isOwn ? 0.5 : 0.3, dt);
       const shoves = entry.shoves || 0;
       if (shoves > (this.seenShoves.get(player.id) ?? shoves)) {
         animator.trigger("shove");
         this.burst(kin.position.clone().add(new THREE.Vector3(Math.sin(entry.heading) * 0.5, 0.6, Math.cos(entry.heading) * 0.5)), ["#ffffff", player.color], { count: 6, speed: 1.4, up: 0.8, size: 0.05, life: 0.3 });
       }
       this.seenShoves.set(player.id, shoves);
-      const stunned = now < (entry.stunUntil || 0);
-      if (stunned && entry.lastShovedAt && now - entry.lastShovedAt < 120 && this.lastShovedPop !== `${player.id}${entry.lastShovedAt}`) {
-        this.lastShovedPop = `${player.id}${entry.lastShovedAt}`;
+      const stunned = view.at < (entry.stunUntil || 0);
+      if (stunned && !this.stunned.get(player.id)) {
         animator.trigger("knockback");
+        animator.expression?.("dizzy", Math.max(300, entry.stunUntil - view.at));
         this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "HUCH!", { color: "#ffb3bd", size: 0.3 });
-        if (player.id === controlledId) {
+        this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.7, 0)), ["#ffffff", "#ffe25c"], { count: 8, speed: 1.8, up: 0.9, size: 0.05, life: 0.35 });
+        if (isOwn) {
           this.rig.shake(0.35);
           this.feedback?.sound("collision");
+          this.feedback?.vibrate([30, 20, 30]);
+        } else if (entry.lastShovedBy === controlledId) {
+          this.feedback?.sound("clack");
+          this.feedback?.vibrate(20);
         }
       }
+      this.stunned.set(player.id, stunned);
       if (f.finale) return;
       const moving = Math.hypot(entry.vx || 0, entry.vz || 0) > 0.5;
       const inShot = shot && Math.hypot(entry.x - shot.x, entry.z - shot.z) <= shot.r;
@@ -404,7 +569,24 @@ export class PhotoShoot extends MinigameScene {
     });
   }
 
-  showPolaroid(result, players, controlledId) {
+  // Wer jetzt dem Ausschnitt am nächsten in der Mitte steht (laut
+  // Vorausrechnung) — der käme beim Blitz aufs Titelbild.
+  coverHolder(shot, players, view) {
+    let best = null;
+    let bestD = Infinity;
+    players.forEach((player) => {
+      const entry = view.entries.get(player.id);
+      if (!entry) return;
+      const d = Math.hypot(entry.x - shot.x, entry.z - shot.z);
+      if (d <= shot.r && d < bestD) {
+        best = player.id;
+        bestD = d;
+      }
+    });
+    return best;
+  }
+
+  showPolaroid(result, players, controlledId, { keepTimer = false } = {}) {
     const card = this.hud.querySelector("[data-photo-polaroid]");
     if (!card) return;
     const inside = result?.in || [];
@@ -416,22 +598,24 @@ export class PhotoShoot extends MinigameScene {
       : "<em>Niemand im Bild!</em>";
     card.innerHTML = `<div class="photo-picture">${names}</div><p>Schnappschuss ${Number(result?.index ?? 0) + 1}</p>`;
     card.hidden = false;
-    this.polaroidUntil = performance.now() + 1600;
+    this.polaroid = { index: result?.index ?? -1, key: photoKey(result) };
+    if (!keepTimer) this.polaroidUntil = performance.now() + 1600;
   }
 
   drawHud(f) {
     const { arcade, state: room, controlledId, minigame, now } = f;
     const state = arcade?.photo;
     if (!state) return;
-    const own = arcade.players[controlledId];
+    const view = this.view;
+    const own = view?.entries.get(controlledId) || arcade.players[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     const text = String(own?.score || 0);
     if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
     const chips = this.hud.querySelector("[data-photo-chips]");
     if (chips) {
       const html = room.players.map((player) => {
-        const entry = arcade.players[player.id];
-        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>📸${entry?.score || 0}</span>`;
+        const entry = view?.entries.get(player.id) || arcade.players[player.id];
+        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${entry?.score || 0}</span>`;
       }).join("");
       if (html !== this.chipsHtml) {
         this.chipsHtml = html;
@@ -440,16 +624,18 @@ export class PhotoShoot extends MinigameScene {
     }
     const card = this.hud.querySelector("[data-photo-polaroid]");
     if (card && !card.hidden && performance.now() > this.polaroidUntil) card.hidden = true;
-    const elapsed = now - minigame.startedAt;
-    const shot = state.shots.find((s) => s.index > state.shot && elapsed >= s.at);
+    const elapsed = now + this.roundTrip - minigame.startedAt;
+    const done = Math.max(view?.state.shot ?? -1, state.shot);
+    const shot = state.shots.find((s) => s.index > done && elapsed >= s.at && s.x !== null);
     const banner = this.hud.querySelector("[data-photo-banner]");
     let message = null;
     let tone = "#b57bff";
     if (elapsed < state.shots[0]?.at) message = "Gleich wird fotografiert …";
-    else if (shot) {
-      const inside = own && Math.hypot(own.x - shot.x, own.z - shot.z) <= shot.r;
-      message = inside ? "Lächeln! 😁" : "Rein ins Bild!";
-      tone = inside ? "#1fbf5b" : "#ff5d73";
+    else if (shot && own) {
+      const inside = Math.hypot(own.x - shot.x, own.z - shot.z) <= shot.r;
+      const cover = view && this.coverHolder(shot, room.players, view) === controlledId;
+      message = cover ? "⭐ Titelbild! Halt die Mitte!" : inside ? "Im Bild — zur Mitte! 😁" : "Rein ins Bild!";
+      tone = cover ? "#e0a100" : inside ? "#1fbf5b" : "#ff5d73";
     }
     if (banner) {
       banner.hidden = !message || Boolean(minigame.finaleAt) || (card && !card.hidden);
@@ -457,12 +643,18 @@ export class PhotoShoot extends MinigameScene {
       banner.style.background = tone;
     }
     if (this.shoveButton) {
-      const ready = own ? Math.min(1, (now - (own.lastShoveAt || 0)) / 1300) : 1;
-      this.shoveButton.classList.toggle("is-ready", ready >= 1);
+      const rules = photoRules(arcade);
+      const at = view?.at ?? now;
+      const ready = own ? Math.max(0, Math.min(1, (at - (own.lastShoveAt ?? -1e9)) / rules.cooldownMs)) : 1;
+      this.shoveButton.classList.toggle("is-ready", ready >= 1 && !(own && at < (own.stunUntil || 0)));
       this.shoveButton.querySelector(".snow-meter i").style.width = `${Math.round(ready * 100)}%`;
       this.shoveButton.disabled = Boolean(minigame.finaleAt);
     }
   }
+}
+
+function photoKey(result) {
+  return (result?.in || []).map((item) => `${item.id}:${item.points}`).join(",");
 }
 
 function fotowandTextur() {
