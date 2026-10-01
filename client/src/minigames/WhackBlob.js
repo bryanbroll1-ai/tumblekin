@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin204";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)
@@ -561,12 +561,12 @@ export class WhackBlob extends MinigameScene {
       }
       if (blob.userData.sparkle) {
         blob.userData.sparkle.rotation.y = now / 200;
-        if (Math.random() < 0.08) this.burst(blob.position.clone().add(new THREE.Vector3(0, 0.9, 0)), ["#ffe36b", "#ffffff"], { count: 1, speed: 0.6, up: 0.6, size: 0.05, life: 0.4 });
+        if (Math.random() < frameChance(0.08, dt)) this.burst(blob.position.clone().add(new THREE.Vector3(0, 0.9, 0)), ["#ffe36b", "#ffffff"], { count: 1, speed: 0.6, up: 0.6, size: 0.05, life: 0.4 });
       }
     });
     this.blobs.forEach((blob, id) => {
       if (active.has(id)) return;
-      this.scene.remove(blob);
+      this.removeObject(blob);
       this.blobs.delete(id);
     });
 

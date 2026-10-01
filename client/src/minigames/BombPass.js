@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { eventChance, frameLerp } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
-import { ringband } from "./Blockform.js?v=tumblekin200";
+import { ringband } from "./Blockform.js?v=tumblekin204";
 
 // Zündstoff — heisse Kartoffel mit einer Bombe. Die Zündzeit blinkt kurz auf,
 // dann heisst es: merken und rechtzeitig weitergeben. Wer sie beim Knall hält,
@@ -550,11 +550,11 @@ export class BombPass extends MinigameScene {
     }
     this.spark.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(now / (150 - tension * 100))) * (0.8 + tension * 1.4);
     this.spark.scale.setScalar(1 + tension * 0.7);
-    if (this.bomb.visible && Math.random() < frameChance(0.3 + tension * 2.2, dt)) {
+    if (this.bomb.visible && !finale && Math.random() < eventChance(0.3 + tension * 2.2, dt)) {
       this.burst(this.bomb.position.clone().add(new THREE.Vector3(0, 0.55, 0)), ["#ffd15c", "#ff8b2e"], { count: 1 + Math.round(tension * 2), speed: 0.5 + tension, up: 0.6 + tension * 0.8, size: 0.04, life: 0.3 });
     }
     // Schweiss vom Träger, und der eigene Puls in der Hand.
-    if (holderKin && !finale && tension > 0.25 && Math.random() < frameChance(tension * 5, dt)) {
+    if (holderKin && !finale && tension > 0.25 && Math.random() < eventChance(tension * 5, dt)) {
       const brow = holderKin.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.72, 0.18));
       this.burst(brow, ["#bfe9ff", "#8fd4ff"], { count: 1, speed: 0.35, up: 0.5, size: 0.045, life: 0.45, gravity: 5 });
     }

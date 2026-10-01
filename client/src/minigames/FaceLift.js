@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Grimassen: oben hängt ein verzogenes Gesicht im Goldrahmen, davor steht die
@@ -298,7 +298,7 @@ export class FaceLift extends MinigameScene {
     };
     this.on(this.webglCanvas, "pointerdown", (event) => {
       event.preventDefault();
-      if (!this.canShape()) return;
+      if (this.drag || !this.canShape()) return;
       const hit = hitAt(event);
       const mask = this.masks.get(this.own);
       if (!hit || !mask) return;
@@ -342,6 +342,10 @@ export class FaceLift extends MinigameScene {
     };
     this.on(this.webglCanvas, "pointerup", release);
     this.on(this.webglCanvas, "pointercancel", release);
+    this.on(this.webglCanvas, "lostpointercapture", release);
+    const interrupt = () => { if (this.drag) release({ pointerId: this.drag.pointerId }); };
+    this.on(window, "blur", interrupt);
+    this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {

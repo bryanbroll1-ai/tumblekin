@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { reachArm } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { eventChance, frameLerp } from "./Quality.js?v=tumblekin204";
 
 // Fassmut — über jedem hängt ein Fass am Seil, das Seil läuft über eine Rolle
 // am Galgen und hinunter in die eigenen Hände. Das Fass wird losgelassen und
@@ -493,7 +493,7 @@ export class BarrelDare extends MinigameScene {
         if (!mine) animator.trigger("pull");
       }
       // Solange das Seil durch die Hände saust, qualmt es ein bisschen.
-      if (falling && !caught && !hit && Math.random() < frameChance(0.6 + (1 - distance / startM) * 2, dt)) {
+      if (falling && !finale && !caught && !hit && Math.random() < eventChance(0.6 + (1 - distance / startM) * 2, dt)) {
         this.burst(hands.clone(), ["#fff4dd", "#e2c48a"], { count: 1, speed: 0.4, up: 0.6, size: 0.04, life: 0.4, gravity: -0.5 });
       }
 

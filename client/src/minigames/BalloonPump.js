@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, reachArm } from "./VoxelKit.js?v=tumblekin200";
+import { createCloud, reachArm } from "./VoxelKit.js?v=tumblekin204";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Pump-Panik — ein reiner Klicker: jeder Tipp pumpt den eigenen Ballon

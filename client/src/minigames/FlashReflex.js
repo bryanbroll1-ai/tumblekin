@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin204";
 
 // Blitzreflex: zwei rote Lampen, dann Grün — wer am schnellsten tippt, hat
 // die beste Reaktionszeit. Drei Versuche, gewertet wird der BESTE (Best of 3);
@@ -411,7 +411,7 @@ export class FlashReflex extends MinigameScene {
     const round = live && times.length === live.index ? live : null;
     const best = own ? bestOf(own) : null;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = best === null ? "BEST —" : `BEST ${best} ms`;
+    this.scoreNode.textContent = best === null ? "—" : `${best} ms`;
     const rounds = this.hud.querySelector("[data-react-rounds]");
     if (rounds) {
       // Versuch 1, 2, 3 — der beste leuchtet gold. Nur neu schreiben, wenn

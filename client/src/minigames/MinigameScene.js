@@ -9,12 +9,14 @@ import {
   FloatingText,
   standOn,
   applyFinaleMood,
-  setKinOpacity
-} from "./VoxelKit.js?v=tumblekin200";
+  setKinOpacity,
+  disposeScene
+} from "./VoxelKit.js?v=tumblekin204";
+import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin204";
 import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin200";
 import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin201";
-import { frameChance } from "./Quality.js?v=tumblekin200";
-import { verblocke } from "./Blockform.js?v=tumblekin200";
+import { frameChance } from "./Quality.js?v=tumblekin204";
+import { verblocke } from "./Blockform.js?v=tumblekin204";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
@@ -83,6 +85,7 @@ export class MinigameScene {
     this.build();
     this.rig = new CameraRig(this, this.shot());
     this.bind?.();
+    this.prepareHud();
     this.loop();
   }
 
@@ -97,6 +100,8 @@ export class MinigameScene {
     this.listeners.forEach(({ target, type, fn, options }) => target.removeEventListener(type, fn, options));
     this.listeners = [];
     this.unbind?.();
+    this.hudObserver?.disconnect();
+    this.controls.inert = false;
     this.controls.innerHTML = "";
     teardownStage(this);
     this.kins.clear();
@@ -198,8 +203,48 @@ export class MinigameScene {
   updateHudBasics(f) {
     if (!this.hud) return;
     this.hudTime ||= this.hud.querySelector("[data-kinetic-time]");
-    if (this.hudTime) this.hudTime.textContent = `${f.remaining}s`;
+    if (this.hudTime) this.hudTime.textContent = f.finale ? "Ende" : `${f.remaining}s`;
     this.hud.classList.toggle("dev-mode", Boolean(f.state.devMode));
+    this.controls.inert = f.finale;
+    this.webglCanvas.style.pointerEvents = f.finale ? "none" : "";
+    const score = this.hudScore;
+    if (score) {
+      const text = score.textContent;
+      if (text !== this.hudScoreText) {
+        score.setAttribute("aria-label", `${score.dataset.metric}: ${text}`);
+        if (this.hudScoreText !== undefined && !f.finale && f.now - (this.metricPulseAt || 0) > 400) {
+          this.metricPulseAt = f.now;
+          score.classList.remove("metric-change");
+          // Zwei aufeinanderfolgende Änderungen brauchen keinen Layout-Flush.
+          score.classList.add("metric-change");
+        }
+        this.hudScoreText = text;
+      }
+      if (f.now - (this.metricPulseAt || 0) > 220) score.classList.remove("metric-change");
+    }
+  }
+
+  prepareHud() {
+    this.hudScore = this.hud.querySelector("[data-kinetic-score]");
+    if (this.hudScore) this.hudScore.dataset.metric = MINIGAME_METRICS[this.minigame.type] || "Punkte";
+    const time = this.hud.querySelector("[data-kinetic-time]");
+    if (time) time.dataset.metric = "Zeit";
+    const chips = this.hud.querySelector(".hud-chips");
+    if (!chips) return;
+    const refresh = () => {
+      const bottom = chips.getBoundingClientRect().bottom - this.hud.getBoundingClientRect().top;
+      this.hud.style.setProperty("--hud-chips-bottom", `${Math.ceil(bottom)}px`);
+    };
+    refresh();
+    this.hudObserver = new ResizeObserver(refresh);
+    this.hudObserver.observe(chips);
+  }
+
+  // Dynamische Objekte verschwinden auch aus dem GPU-Vorrat. Ressourcen,
+  // die ein anderes Objekt der Szene noch benutzt, bleiben erhalten.
+  removeObject(object) {
+    object.removeFromParent();
+    disposeScene(object, { retain: this.scene });
   }
 
   // --- Figuren ------------------------------------------------------------------

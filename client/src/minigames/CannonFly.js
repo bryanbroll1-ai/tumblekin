@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin204";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann

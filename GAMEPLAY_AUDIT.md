@@ -16,7 +16,7 @@ Bereits im selben PR: gemeinsame Bereit-Phase und kurze Regeln für alle Spiele,
 
 | Prüfung | Ergebnis |
 | --- | --- |
-| Server- und Eingaberegressionen | 394 Tests bestanden |
+| Server- und Eingaberegressionen | 396 Tests bestanden; zweiter Durchgang siehe Einzelbericht |
 | Ganze Regelrunden | 1080 bestanden: jedes Spiel mit 2/3/4 Spielern, drei Zeitschritten und drei Seeds; fehlerhafte Eingaben eingeschlossen |
 | Browser-Rauchtest | Alle 40 Spiele einschließlich Finale ohne Render- oder Konsolenfehler |
 | Szenenprüfung | Alle 40; eigene Figur sichtbar, zulässige Standflächen geprüft |
@@ -35,7 +35,7 @@ Bewusst fliegende, tauchende oder sitzende Figuren werden nicht als bodenstehend
 
 Der erste 42-Runden-Test meldete bei `performance.memory` einen Anstieg von etwa 13 auf 39 MB. Die Detailprüfung trennte JS-Objekte und Geometriepuffer: nach einmaligem Aufbau aller Spiele blieb der gemeinsame Blockform-Vorrat über weitere Wiederholungen bei 469 Einträgen und 13,12 MB. Vergleichbare wiederholte Spiele schwankten nach Garbage Collection nur gering; es blieb jeweils die zuletzt gestartete Szene über die Entwickleransicht erreichbar. Dieser Verweis wird jetzt beim Beenden ebenfalls gelöscht.
 
-Der Langzeittest misst deshalb JS-Heap und Puffer separat, erzwingt Garbage Collection und prüft zusätzlich alte Szenen. Der schnelle Lauf prüft Aufbau und Abbau, nicht den vollständigen Spielverlauf. Der ursprüngliche längere Lauf spielte 42 Runden auf derselben Seite ohne Browserfehler; Canvas-, Textur- und Listenerzahlen blieben im erwarteten Bereich. Der Geometriecache bleibt ein sinnvoller Kandidat für ein festes Speicherbudget auf schwachen Mobilgeräten; die gemessene Stabilität beweist keine Obergrenze für jede mögliche Partie.
+Der Langzeittest misst deshalb JS-Heap und Puffer separat, erzwingt Garbage Collection und prüft zusätzlich alte Szenen. Der schnelle Lauf prüft Aufbau und Abbau, nicht den vollständigen Spielverlauf. Der ursprüngliche längere Lauf spielte 42 Runden auf derselben Seite ohne Browserfehler; Canvas-, Textur- und Listenerzahlen blieben im erwarteten Bereich. Im zweiten Durchgang wurde dieser Geometriecache auf 8 MiB und 256 Einträge begrenzt und seine Verdrängung geprüft. Das Budget gilt für die dort gehaltenen CPU-Geometriepuffer; aktive Szenen und GPU-Speicher sind davon getrennt. Weitere Änderungen und Einzelbefunde zu allen Spielen stehen in [GAME_REFINEMENT.md](GAME_REFINEMENT.md).
 
 ## Nächste Verbesserungen nach Priorität
 

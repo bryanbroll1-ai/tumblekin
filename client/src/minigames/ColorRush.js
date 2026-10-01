@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { frameLerp } from "./Quality.js?v=tumblekin204";
 import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
@@ -224,11 +224,12 @@ export class ColorRush extends MinigameScene {
     // einen eigenen Wisch — bei drei, vier Feldern in anderthalb Sekunden war
     // das mehr Fingerarbeit als Entscheidung.
     this.on(this.webglCanvas, "pointerdown", (event) => {
-      this.swipe = { x: event.clientX, y: event.clientY, steps: 0 };
+      if (this.swipe) return;
+      this.swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, steps: 0 };
     });
     this.on(window, "pointermove", (event) => {
       const swipe = this.swipe;
-      if (!swipe) return;
+      if (!swipe || swipe.pointerId !== event.pointerId) return;
       const dx = event.clientX - swipe.x;
       const dy = event.clientY - swipe.y;
       const noetig = swipe.steps === 0 ? 26 : 44;
@@ -239,8 +240,12 @@ export class ColorRush extends MinigameScene {
       swipe.steps += 1;
       this.sendStep(dir);
     });
-    this.on(window, "pointerup", () => { this.swipe = null; });
-    this.on(window, "pointercancel", () => { this.swipe = null; });
+    const end = (event) => { if (event.pointerId === this.swipe?.pointerId) this.swipe = null; };
+    const interrupt = () => { this.swipe = null; };
+    this.on(window, "pointerup", end);
+    this.on(window, "pointercancel", end);
+    this.on(window, "blur", interrupt);
+    this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {

@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createShadowBlob } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { createShadowBlob } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
@@ -103,7 +103,7 @@ export class SortBelt extends MinigameScene {
 
   hudHtml() {
     return `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-belt-score>0</strong></div>
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-belt-score data-kinetic-score>0</strong></div>
       <div class="belt-streak" data-belt-streak hidden></div>
       <div class="belt-chips" data-belt-chips></div>
       <div class="color-banner belt-banner" data-belt-banner hidden></div>`;
@@ -434,16 +434,19 @@ export class SortBelt extends MinigameScene {
     let startY = 0;
     let startAt = 0;
     let tracking = false;
+    let pointerId = null;
 
     this.onDown = (event) => {
+      if (tracking) return;
       event.preventDefault();
       tracking = true;
+      pointerId = event.pointerId;
       startX = event.clientX;
       startY = event.clientY;
       startAt = performance.now();
     };
     this.onUp = (event) => {
-      if (!tracking) return;
+      if (!tracking || pointerId !== event.pointerId) return;
       tracking = false;
       const dx = event.clientX - startX;
       const dy = event.clientY - startY;
@@ -463,11 +466,17 @@ export class SortBelt extends MinigameScene {
       }
       this.sortTo(dx < 0 ? 0 : 2);
     };
-    this.onCancel = () => { tracking = false; };
+    this.onCancel = (event) => {
+      if (event?.pointerId !== undefined && event.pointerId !== pointerId) return;
+      tracking = false;
+      pointerId = null;
+    };
 
     this.on(this.webglCanvas, "pointerdown", this.onDown);
-    this.on(this.webglCanvas, "pointerup", this.onUp);
-    this.on(this.webglCanvas, "pointercancel", this.onCancel);
+    this.on(window, "pointerup", this.onUp);
+    this.on(window, "pointercancel", this.onCancel);
+    this.on(window, "blur", this.onCancel);
+    this.on(document, "visibilitychange", () => { if (document.hidden) this.onCancel(); });
   }
 
   // Ein Tipp trifft die Rutsche, über der er liegt. Die Trennlinien liegen bei

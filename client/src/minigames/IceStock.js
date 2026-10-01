@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp } from "./Quality.js?v=tumblekin204";
 import { himmel, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
 import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
 
@@ -395,11 +395,12 @@ export class IceStock extends MinigameScene {
 
   bindDrag() {
     this.onDown = (event) => {
+      if (this.drag) return;
       event.preventDefault();
-      this.drag = { x: event.clientX, y: event.clientY };
+      this.drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     };
     this.onMove = (event) => {
-      if (!this.drag) return;
+      if (!this.drag || this.drag.pointerId !== event.pointerId) return;
       this.drag.cx = event.clientX;
       this.drag.cy = event.clientY;
       // Kraft und Richtung stehen schon WÄHREND des Ziehens da: der Balken
@@ -407,7 +408,7 @@ export class IceStock extends MinigameScene {
       this.showPower(this.aimFrom(this.drag));
     };
     this.onUp = (event) => {
-      if (!this.drag) return;
+      if (!this.drag || this.drag.pointerId !== event.pointerId) return;
       this.drag.cx = event.clientX;
       this.drag.cy = event.clientY;
       const aim = this.aimFrom(this.drag);
@@ -433,7 +434,11 @@ export class IceStock extends MinigameScene {
       this.releaseFlash(aim);
       this.sendInput({ action: "flick", dx: clamp(dx, -1, 1), dy: clamp(dy, -1, -0.02) }).catch(() => {});
     };
-    this.onCancel = () => { this.drag = null; this.hidePower(); };
+    this.onCancel = (event) => {
+      if (event?.pointerId !== undefined && this.drag?.pointerId !== event.pointerId) return;
+      this.drag = null;
+      this.hidePower();
+    };
 
     this.on(this.webglCanvas, "pointerdown", this.onDown);
     this.on(this.webglCanvas, "pointermove", this.onMove);

@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
-import { frameChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
+import { eventChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin204";
 import { airToSurface, forecastDiver, jellyAt, timeToSurface } from "./Tauchgang.js?v=tumblekin200";
 
 // Tiefenrausch: tauchen mit dem Stick. Gold liegt im ganzen Schacht, je tiefer
@@ -493,7 +493,7 @@ export class DeepDig extends MinigameScene {
       // Unverwundbar nach einem Stich: kurz blinken.
       kin.visible = !(viewAt < (view.safeUntil || 0) && !view.fainted && Math.floor(now / 110) % 2 === 0);
       // Luftblasen, mehr wenn man hektisch ist.
-      if (view.y > 1.3 && Math.random() < frameChance(speed > 1.2 ? 2.2 : 0.9, dt)) {
+      if (!finale && view.y > 1.3 && Math.random() < eventChance(speed > 1.2 ? 2.2 : 0.9, dt)) {
         this.burst(new THREE.Vector3(kin.position.x, kin.position.y + 0.55, 0.3), ["#dff6ff", "#ffffff"], { count: 1, speed: 0.2, up: 1.2, size: 0.05, life: 0.9, gravity: -1.2, drag: 1.0 });
       }
       if (isOwn && !finale) (view.events || []).forEach((event) => this.showOwn(event, player, kin, animator));

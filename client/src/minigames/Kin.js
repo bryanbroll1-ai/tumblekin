@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { prefersReducedMotion } from "./Quality.js?v=tumblekin204";
 import { landingCompression } from "./FeedbackCues.js?v=tumblekin202";
 
 // Die Tumblekin: Figur und Bewegung.

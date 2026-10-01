@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin200";
+import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin204";
 
 // Die Kamera der Minispiele.
 //

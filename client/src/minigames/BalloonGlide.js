@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { eventChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin204";
 import { landingCompression } from "./FeedbackCues.js?v=tumblekin202";
 import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 import { berge, heuballen, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
@@ -498,7 +498,7 @@ export class BalloonGlide extends MinigameScene {
       const flame = balloon.userData.flame;
       flame.visible = Boolean(burning) && !entry.stalled;
       flame.scale.setScalar(1 + Math.sin(now / 40) * 0.2);
-      if (flame.visible && Math.random() < frameChance(4, dt)) {
+      if (flame.visible && !finale && Math.random() < eventChance(4, dt)) {
         this.burst(new THREE.Vector3(x, balloon.position.y + 1.25, ROW_Z[row]), ["#ffb13b", "#ffe36b"], { count: 1, speed: 0.3, up: 1.1, size: 0.06, life: 0.3, gravity: -2 });
       }
 

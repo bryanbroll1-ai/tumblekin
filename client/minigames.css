@@ -113,6 +113,34 @@
   font-weight: 1000;
 }
 
+.kinetic-scorebar [data-metric] {
+  grid-template-rows: 18px 11px;
+  align-content: center;
+  padding: 0 5px;
+  line-height: 18px;
+}
+
+.kinetic-scorebar [data-metric]::after {
+  grid-row: 2;
+  content: attr(data-metric);
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 11px;
+  letter-spacing: 0.02em;
+  opacity: 0.8;
+}
+
+.kinetic-scorebar .metric-change { animation: metric-nudge 180ms ease-out; }
+@keyframes metric-nudge {
+  50% { transform: scale(1.06); }
+}
+
+.minigame-controls[inert] { opacity: 0.45; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kinetic-scorebar .metric-change { animation: none; }
+}
+
 .kinetic-scorebar span {
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
@@ -393,6 +421,7 @@
 
 .dare-distance.steht { color: #7fe0a8; }
 .dare-distance.ueberrollt { color: #ff6b7f; letter-spacing: 0.16em; }
+.dare-distance:empty { display: none; }
 
 /* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
    dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
@@ -1277,7 +1306,7 @@
    angeschnitten, eine Zeile darunter lag er hinter dem Hinweisbanner. */
 .trace-lapbar {
   position: absolute;
-  top: calc(56px + env(safe-area-inset-top));
+  top: calc(68px + env(safe-area-inset-top));
   left: 12px;
   display: flex;
   gap: 6px;
@@ -1309,7 +1338,7 @@
    die Zahl, auf die man beim Lenken nebenbei schielt. */
 .trace-combo {
   position: absolute;
-  top: calc(56px + env(safe-area-inset-top));
+  top: calc(68px + env(safe-area-inset-top));
   right: 12px;
   padding: 5px 12px;
   border-radius: 999px;
@@ -1643,7 +1672,7 @@
    die Ecke, um die es gerade geht. */
 .kinetic-hud .color-banner.paint-banner,
 .kinetic-hud.dev-mode .color-banner.paint-banner {
-  top: calc(50px + env(safe-area-inset-top));
+  top: calc(70px + env(safe-area-inset-top));
   bottom: auto;
   padding: 7px 16px;
   font-size: clamp(0.8rem, 3.4vw, 1rem);
@@ -1890,6 +1919,7 @@ canvas.is-stunned {
   display: flex;
   flex-direction: column-reverse;
   gap: 5px;
+  max-height: calc(100% - 160px);
 }
 .knife-ammo i {
   display: block;
@@ -1901,6 +1931,19 @@ canvas.is-stunned {
 }
 .knife-ammo i.used {
   opacity: 0.22;
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .knife-ammo {
+    top: calc(70px + env(safe-area-inset-top));
+    right: 12px;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .trace-combo { top: calc(112px + env(safe-area-inset-top)); }
 }
 
 /* --- Münzregen: Serie und Faktor ------------------------------------------- */
@@ -2303,7 +2346,23 @@ canvas.is-stunned {
 
 /* Steht eine Chip-Leiste oben, rückt das Banner darunter. */
 .kinetic-hud .hud-chips ~ .color-banner {
-  top: calc(98px + env(safe-area-inset-top));
+  top: calc(var(--hud-chips-bottom, 88px) + 10px);
+}
+
+.kinetic-hud .hud-chips ~ .flag-call {
+  top: calc(var(--hud-chips-bottom, 88px) + 10px);
+}
+
+.kinetic-hud .simon-chips ~ [data-seek-banner],
+.kinetic-hud .simon-chips ~ [data-swarm-banner] {
+  top: calc(86px + env(safe-area-inset-top));
+}
+
+.react-rounds {
+  top: calc(68px + env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  justify-content: center;
 }
 
 /* --- Fassrolle: Wellenwarnung ------------------------------------------- */

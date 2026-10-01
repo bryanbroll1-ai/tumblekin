@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin204";
 import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 

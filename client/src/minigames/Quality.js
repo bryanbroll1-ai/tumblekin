@@ -60,14 +60,14 @@ export function setQualityTier(tier) {
 // Für Nachziehen: aus dem Anteil je Bild wird der Anteil für diesen Zeitschritt.
 export function frameLerp(perFrameAt60, dt) {
   const step = Math.max(0, Math.min(0.25, dt || 0)) * 60;
-  return 1 - Math.pow(1 - perFrameAt60, step);
+  return 1 - Math.pow(1 - Math.max(0, Math.min(1, perFrameAt60)), step);
 }
 
 // Für Abklingen (`wert *= 0.9`): derselbe Gedanke, nur behält der Faktor hier
 // den verbleibenden statt den zurückgelegten Anteil.
 export function frameDecay(keepPerFrameAt60, dt) {
   const step = Math.max(0, Math.min(0.25, dt || 0)) * 60;
-  return Math.pow(keepPerFrameAt60, step);
+  return Math.pow(Math.max(0, Math.min(1, keepPerFrameAt60)), step);
 }
 
 // Für Funken und Staub, die je Bild mit einer Wahrscheinlichkeit entstehen
@@ -76,4 +76,9 @@ export function frameDecay(keepPerFrameAt60, dt) {
 // rieselt auf einem 120-Hz-Gerät doppelt so viel Staub wie gedacht.
 export function frameChance(perFrameAt60, dt) {
   return frameLerp(perFrameAt60, dt);
+}
+
+// Ereignisrate pro Sekunde, nicht Wahrscheinlichkeit pro 60-Hz-Bild.
+export function eventChance(perSecond, dt) {
+  return -Math.expm1(-Math.max(0, perSecond) * Math.max(0, Math.min(0.25, dt || 0)));
 }

@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { reachArm } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin200";
 import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin200";
 
@@ -457,7 +457,7 @@ export class SnowSummit extends MinigameScene {
     this.rolling.forEach((mesh, id) => {
       if (alive.has(id)) return;
       if (String(id).startsWith("p") && mesh.userData.owner === controlledId) orphans.push(mesh);
-      else this.scene.remove(mesh);
+      else this.removeObject(mesh);
       this.rolling.delete(id);
     });
     view.balls.forEach((ball) => {
@@ -482,12 +482,12 @@ export class SnowSummit extends MinigameScene {
       const dir = Math.atan2(ball.vx, ball.vz);
       mesh.rotation.set(ball.spin, dir, 0, "YXZ");
       // Pulverschnee hinter der Kugel.
-      if (Math.random() < 0.35) {
+      if (Math.random() < frameChance(0.35, dt)) {
         _v.set(mesh.position.x, 0.05, mesh.position.z);
         this.burst(_v, ["#ffffff", "#e3f0fa"], { count: 1, speed: 0.4, up: 0.5, size: 0.05, life: 0.4, gravity: 2 });
       }
     });
-    orphans.forEach((mesh) => this.scene.remove(mesh));
+    orphans.forEach((mesh) => this.removeObject(mesh));
 
     // Schneestaub gleich dort, wo die Vorausrechnung eine Kugel platzen sieht —
     // sonst verschwände sie eine Rundreise vor dem Staub.

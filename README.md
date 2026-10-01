@@ -274,6 +274,9 @@ npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur
 npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
 npm run feedback-check       # Landungen, Landering, Insel-Vorwarnung und reduzierte Bewegung
 npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unterbrechung
+npm run gesture-check        # sieben Wisch-/Ziehspiele: zweiter Finger, Loslassen und Unterbrechung
+npm run effects-check        # Partikelflug bei 30/60/120 Hz, Ressourcen, Cachebudget und reduzierte Bewegung
+npm run refinement-check     # alle 40 Spiele: Hoch-/Querformat, 320px, HUD und Finale-Steuerung
 npm run animation-check      # 64 Posen bei 30/60/120 Hz, reduzierte Bewegung und Fußkontakt im Zielsprint
 npm run scene-check          # Figuren im Bild, auf dem Boden, nicht in Kulissen
 npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnistafel, dazu Sprünge und NaN
@@ -292,6 +295,10 @@ npx playwright install chromium
 Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIUM_PATH=/pfad/zu/chrome` verwenden. Der Exit-Code ist 0 nur, wenn alles sauber durchläuft.
 
 Die Ergebnisse und priorisierten nächsten Schritte stehen in [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md).
+Der zweite Durchgang mit Einzelbefunden zu allen 40 Spielen steht in [GAME_REFINEMENT.md](GAME_REFINEMENT.md).
+`refinement-check` speichert Bilder und `observations.json` unter `/tmp/tumblekin-refinement`;
+mit `TUMBLEKIN_SCREENSHOTS=/pfad` lässt sich der Ausgabeordner ändern. Spielnamen
+begrenzen den Lauf, etwa `npm run refinement-check -- messerwurf spurmaler`.
 
 ## Veröffentlichung
 

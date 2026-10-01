@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createKin, KinAnimator, reachArm, KIN_SOLE } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { createKin, KinAnimator, reachArm, KIN_SOLE } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer, wolken, himmel } from "./Kulisse.js?v=tumblekin200";
 
 // Flaggen hoch — auf dem Deck eines Segelschiffs. Oben auf der Brücke steht

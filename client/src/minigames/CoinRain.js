@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { flashKin } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
 
 // Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
@@ -371,19 +371,24 @@ export class CoinRain extends MinigameScene {
     // beim Loslassen — bei 300 ms zwischen zwei Münzen im Goldrausch zählt
     // jeder Augenblick. Wer weiterzieht, wechselt noch eine Spur weiter.
     this.on(this.webglCanvas, "pointerdown", (event) => {
-      this.swipe = { x: event.clientX, steps: 0 };
+      if (this.swipe) return;
+      this.swipe = { pointerId: event.pointerId, x: event.clientX, steps: 0 };
     });
     this.on(window, "pointermove", (event) => {
       const swipe = this.swipe;
-      if (!swipe) return;
+      if (!swipe || swipe.pointerId !== event.pointerId) return;
       const dx = event.clientX - swipe.x;
       if (Math.abs(dx) < (swipe.steps === 0 ? 24 : 48)) return;
       swipe.x = event.clientX;
       swipe.steps += 1;
       this.sendLane(dx > 0 ? 1 : -1);
     });
-    this.on(window, "pointerup", () => { this.swipe = null; });
-    this.on(window, "pointercancel", () => { this.swipe = null; });
+    const end = (event) => { if (event.pointerId === this.swipe?.pointerId) this.swipe = null; };
+    const interrupt = () => { this.swipe = null; };
+    this.on(window, "pointerup", end);
+    this.on(window, "pointercancel", end);
+    this.on(window, "blur", interrupt);
+    this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {

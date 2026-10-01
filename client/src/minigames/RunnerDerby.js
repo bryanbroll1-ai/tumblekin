@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, KIN_SOLE, standOn } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { createCloud, createKin, KinAnimator, KIN_SOLE, standOn } from "./VoxelKit.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin204";
 
 // Zielgerade: drei Bahnen auf einer echten Laufbahn — Boostplatten, Matsch,
 // Hürden und Heuballen. Wischen wechselt die Bahn, Tippen oder nach oben
@@ -766,13 +766,14 @@ export class RunnerDerby extends MinigameScene {
     // wer knapp vor einer Hürde wechselte, lief noch hinein. Gewischt werden
     // darf auch über der Leiste unten, wo der Daumen ohnehin liegt.
     const beginne = (event) => {
-      this.swipe = { x: event.clientX, y: event.clientY, at: performance.now(), done: false };
+      if (this.swipe) return;
+      this.swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now(), done: false };
     };
     this.on(this.webglCanvas, "pointerdown", beginne);
     this.on(this.controls, "pointerdown", beginne);
     this.on(window, "pointermove", (event) => {
       const swipe = this.swipe;
-      if (!swipe || swipe.done) return;
+      if (!swipe || swipe.done || swipe.pointerId !== event.pointerId) return;
       const dx = event.clientX - swipe.x;
       const dy = event.clientY - swipe.y;
       if (Math.abs(dx) >= 28 && Math.abs(dx) > Math.abs(dy)) {
@@ -785,7 +786,7 @@ export class RunnerDerby extends MinigameScene {
       }
     });
     this.on(window, "pointerup", (event) => this.resolveSwipe(event));
-    this.on(window, "pointercancel", () => { this.swipe = null; });
+    this.on(window, "pointercancel", (event) => { if (event.pointerId === this.swipe?.pointerId) this.swipe = null; });
     const interrupt = () => { this.swipe = null; };
     this.on(window, "blur", interrupt);
     this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
@@ -808,8 +809,9 @@ export class RunnerDerby extends MinigameScene {
 
   resolveSwipe(event) {
     const swipe = this.swipe;
+    if (!swipe || swipe.pointerId !== event.pointerId) return;
     this.swipe = null;
-    if (!swipe || swipe.done) return;
+    if (swipe.done) return;
     // Ein einfacher Tipp springt. Er löste vorher einen Angriff aus — genau
     // das, was man beim hastigen Tippen vor einer Hürde nicht wollte.
     if (Math.abs(event.clientX - swipe.x) < 26 && Math.abs(event.clientY - swipe.y) < 26) this.springen();

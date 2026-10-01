@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin200";
+import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin204";
 import { addStageLights } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp } from "./Quality.js?v=tumblekin204";
 
 // Bergsteiger — die Wand zeigt, welche Hand als Nächstes greifen muss. Der
 // richtige Griff zieht eine Sprosse hoch, der falsche rutscht eine ab. Oben
@@ -407,7 +407,9 @@ export class CliffClimb extends MinigameScene {
     const cap = new THREE.MeshLambertMaterial({ color: "#f3f8fd" });
     [[-5.6, 2.6, 2.2], [-3.1, 3.8, 2.8], [0.4, 5.2, 3.4], [3.6, 3.4, 2.6], [6, 2.2, 2]].forEach(([x, h, w], i) => {
       const peak = new THREE.Mesh(new THREE.ConeGeometry(w, h, 4), rock);
-      peak.position.set(x, top + h / 2, -3.2 - (i % 2) * 1.4);
+      // Auch der breiteste Berg bleibt hinter der Schneefläche. Weiter vorne
+      // schnitt seine Flanke im Finale durch die Schuhe auf dem Plateau.
+      peak.position.set(x, top + h / 2, -5.2 - (i % 2) * 1.4);
       peak.rotation.y = Math.PI / 4 + i * 0.3;
       scene.add(peak);
       // Die Kappe ist etwas bauchiger als der Berg. Mit derselben Steigung lag

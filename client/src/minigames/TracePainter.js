@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin204";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Spurmaler: der Farbroller fährt von selbst die Spur hinauf, man LENKT ihn —
@@ -411,6 +411,7 @@ export class TracePainter extends MinigameScene {
     // weit er seitlich wandert, im Massstab des Bretts. So verdeckt er nie die
     // Spur, und der Roller springt beim Aufsetzen nicht.
     this.on(this.webglCanvas, "pointerdown", (event) => {
+      if (this.drag) return;
       event.preventDefault();
       this.webglCanvas.setPointerCapture?.(event.pointerId);
       this.drag = {
@@ -432,6 +433,7 @@ export class TracePainter extends MinigameScene {
     };
     this.on(this.webglCanvas, "pointerup", up);
     this.on(this.webglCanvas, "pointercancel", up);
+    this.on(this.webglCanvas, "lostpointercapture", up);
     // Am Rechner lenken die Pfeiltasten.
     this.on(window, "keydown", (event) => {
       if (event.key === "ArrowLeft" || event.key === "a") this.keyDir = -1;

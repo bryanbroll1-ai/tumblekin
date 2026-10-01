@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, noise } from "./VoxelKit.js?v=tumblekin200";
-import { ringband } from "./Blockform.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameDecay, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { createCloud, noise } from "./VoxelKit.js?v=tumblekin204";
+import { ringband } from "./Blockform.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameDecay, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin204";
 import { arenaShrinkCue } from "./FeedbackCues.js?v=tumblekin202";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
 

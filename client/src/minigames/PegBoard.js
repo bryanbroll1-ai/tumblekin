@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin204";
 import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
 import { landingX } from "./Nagelbahn.js?v=tumblekin200";

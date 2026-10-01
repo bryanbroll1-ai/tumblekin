@@ -74,18 +74,24 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await startSingle(page, "ballonfahrt");
   await page.waitForSelector("#minigame-intro", { state: "hidden" });
-  await page.evaluate(async () => { window.__feedbackThree = await import("/vendor/three/three.module.js"); });
-  await page.click("[data-glide-drop]");
-  const landedHandle = await page.waitForFunction(() => {
-    const scene = window.__tumblekinScene;
+  const landed = await page.evaluate(async () => {
+    const THREE = await import("/vendor/three/three.module.js");
     const id = window.__tumblekin.state().players.find((p) => p.isHost).id;
-    const pair = [...scene.bagMeshes].find(([key, mesh]) => key.startsWith(id + ":") && mesh.userData.landed);
-    if (!pair) return false;
-    const [key, mesh] = pair;
-    const bottom = new window.__feedbackThree.Box3().setFromObject(mesh).min.y;
-    return { key, bottom, volume: mesh.scale.x * mesh.scale.y * mesh.scale.z };
-  }, null, { timeout: 6000, polling: "raf" });
-  const landed = await landedHandle.jsonValue();
+    // Observe in the same task as the press. A slow automation round trip can
+    // otherwise miss the sack's entire 1.2-second lifetime after landing.
+    const button = document.querySelector("[data-glide-drop]");
+    button.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 11, bubbles: true }));
+    button.dispatchEvent(new PointerEvent("pointerup", { pointerId: 11, bubbles: true }));
+    const until = performance.now() + 6000;
+    while (performance.now() < until) {
+      await new Promise(requestAnimationFrame);
+      const pair = [...window.__tumblekinScene.bagMeshes].find(([key, mesh]) => key.startsWith(id + ":") && mesh.userData.landed);
+      if (!pair) continue;
+      const [key, mesh] = pair;
+      return { key, bottom: new THREE.Box3().setFromObject(mesh).min.y, volume: mesh.scale.x * mesh.scale.y * mesh.scale.z };
+    }
+    throw new Error("Der abgeworfene Sack ist nicht gelandet");
+  });
   assert.ok(landed.bottom >= -0.005, "Der gelandete Sack darf nicht im Feld stecken");
   assert.ok(Math.abs(landed.volume - 1) < 1e-9);
   await page.waitForFunction((key) => !window.__tumblekinScene.bagMeshes.has(key), landed.key, { timeout: 4000 });
