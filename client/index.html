@@ -12,8 +12,9 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin204">
-    <link rel="stylesheet" href="/minigames.css?v=tumblekin204">
+    <link rel="stylesheet" href="/style.css?v=tumblekin205">
+    <link rel="stylesheet" href="/minigames.css?v=tumblekin205">
+    <link rel="stylesheet" href="/press-feedback.css?v=tumblekin205">
   </head>
   <body data-screen="start">
     <main id="app">
@@ -171,6 +172,7 @@
         <div class="stage-spacer" data-stage-band></div>
         <div class="sheet result-sheet">
           <ol id="result-list" class="result-list"></ol>
+          <p id="result-ranking-note" class="result-ranking-note" hidden></p>
           <div id="standings" class="standings"></div>
           <div id="result-next" class="result-next"></div>
           <div class="result-timer" aria-hidden="true"><span></span></div>
@@ -196,6 +198,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin204"></script>
+    <script type="module" src="/src/main.js?v=tumblekin205"></script>
   </body>
 </html>

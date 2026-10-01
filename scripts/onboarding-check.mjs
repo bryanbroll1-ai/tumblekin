@@ -80,6 +80,7 @@ try {
   await screenshot(host, "intro-landscape");
   await host.click("#intro-ready");
   await guest.waitForFunction(() => window.__tumblekin.state().readyForMinigame.length === 1);
+  await host.waitForFunction(() => document.querySelector("#intro-ready").disabled);
   assert.equal(await host.locator("#intro-ready").isDisabled(), true);
   assert.equal(await host.evaluate(() => window.__tumblekin.state().phase), "waitingReady");
   await guest.click("#intro-ready");

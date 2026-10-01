@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin204";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
-import { frameLerp } from "./Quality.js?v=tumblekin204";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin205";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
+import { frameLerp } from "./Quality.js?v=tumblekin205";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Rohrsalat — im Kesselhaus hängt ein Gewirr aus Kupferrohren an der

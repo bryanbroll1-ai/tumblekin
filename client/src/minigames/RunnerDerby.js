@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, KIN_SOLE, standOn } from "./VoxelKit.js?v=tumblekin204";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
-import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin204";
+import { createCloud, createKin, KinAnimator, KIN_SOLE, standOn } from "./VoxelKit.js?v=tumblekin205";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
+import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin205";
 
 // Zielgerade: drei Bahnen auf einer echten Laufbahn — Boostplatten, Matsch,
 // Hürden und Heuballen. Wischen wechselt die Bahn, Tippen oder nach oben

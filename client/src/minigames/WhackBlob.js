@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin204";
+import { createCloud } from "./VoxelKit.js?v=tumblekin205";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
-import { frameLerp, frameChance } from "./Quality.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin205";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)

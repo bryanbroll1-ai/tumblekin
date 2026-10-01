@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin204";
+import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin205";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
 import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 import { baeume, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 

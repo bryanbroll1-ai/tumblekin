@@ -11,8 +11,8 @@ import {
   minigameTitle
 } from "../game/GameState.js?v=tumblekin200";
 import { playerStatus } from "../game/Player.js?v=tumblekin200";
-import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin200";
-import { GAME_CATEGORIES, MINIGAME_GUIDES } from "../minigames/guides.js?v=tumblekin201";
+import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin205";
+import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin205";
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
@@ -132,6 +132,7 @@ export class UIManager {
       resultReason: $("result-reason"),
       resultTitle: $("result-title"),
       resultList: $("result-list"),
+      resultRankingNote: $("result-ranking-note"),
       standings: $("standings"),
       resultNext: $("result-next"),
       resultReady: $("result-ready"),
@@ -436,6 +437,9 @@ export class UIManager {
   async safeAction(action) {
     if (this.actionInFlight) return;
     this.actionInFlight = true;
+    const button = performance.now() - (this.feedback?.buttons?.recentAt || 0) < 300
+      ? this.feedback?.buttons?.recentButton : null;
+    button?.setAttribute("aria-busy", "true");
     try {
       await action();
     } catch (error) {
@@ -444,6 +448,7 @@ export class UIManager {
       this.showToast(error.message || "Aktion fehlgeschlagen.");
     } finally {
       this.actionInFlight = false;
+      button?.removeAttribute("aria-busy");
     }
   }
 
@@ -680,7 +685,7 @@ export class UIManager {
     this.el.introTitle.textContent = minigame.title;
     this.el.introGoal.textContent = guide?.goal || "Sammle die meisten Punkte.";
     this.el.introTip.textContent = guide?.tip || "";
-    this.el.introRules.textContent = meta?.help || "";
+    this.el.introRules.textContent = [meta?.help, MINIGAME_TIEBREAKERS[minigame.type]].filter(Boolean).join(" ");
     this.el.introDetails.open = false;
     this.el.introGestureIcon.textContent = gesture.icon;
     this.el.introGestureLabel.textContent = gesture.label;
@@ -791,6 +796,12 @@ export class UIManager {
     const match = state.match;
     const isNew = this.shownResultId !== result?.id;
     const ranking = result?.ranking || [];
+    const sameMetricDifferentPlaces = ranking.some((entry, index) => ranking.slice(index + 1).some(other =>
+      entry.place !== other.place && entry.detail?.value !== null && entry.detail?.value !== undefined &&
+      entry.detail?.kind === other.detail?.kind && entry.detail?.value === other.detail?.value));
+    const note = sameMetricDifferentPlaces ? MINIGAME_TIEBREAKERS[result?.type] : null;
+    this.el.resultRankingNote.hidden = !note;
+    this.el.resultRankingNote.textContent = note || "";
     this.el.resultReason.textContent = result?.reason || "";
     this.el.resultTitle.textContent = result?.title || "Ergebnis";
 

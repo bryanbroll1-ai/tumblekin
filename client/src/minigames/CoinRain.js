@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin204";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
-import { frameLerp } from "./Quality.js?v=tumblekin204";
+import { flashKin } from "./VoxelKit.js?v=tumblekin205";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
+import { frameLerp } from "./Quality.js?v=tumblekin205";
 import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
 
 // Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und

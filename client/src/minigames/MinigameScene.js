@@ -11,12 +11,12 @@ import {
   applyFinaleMood,
   setKinOpacity,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin204";
-import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin204";
+} from "./VoxelKit.js?v=tumblekin205";
+import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin205";
 import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin200";
 import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin201";
-import { frameChance } from "./Quality.js?v=tumblekin204";
-import { verblocke } from "./Blockform.js?v=tumblekin204";
+import { frameChance } from "./Quality.js?v=tumblekin205";
+import { verblocke } from "./Blockform.js?v=tumblekin205";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
@@ -52,7 +52,21 @@ export class MinigameScene {
   constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
     this.canvas = canvas;
     this.controls = controls;
-    this.sendInput = sendInput;
+    this.sendInput = (input) => {
+      // Auch Tippen auf die Bühne drückt den zugehörigen Aktionsknopf.
+      // Dauersteuerung und Laufzeit-Pings erzeugen keinen Knopfimpuls.
+      if (!["ping", "steer", "thrust", "hold", "lift", "release"].includes(input.action)) {
+        const buttons = [...this.controls.querySelectorAll("button")];
+        if (buttons.length === 1) feedback?.buttons?.pulse(buttons[0]);
+      }
+      return sendInput(input).catch(error => {
+        if (input.action !== "ping" && performance.now() - (this.inputErrorAt || -1000) > 1000) {
+          this.inputErrorAt = performance.now();
+          this.onInputError?.(error);
+        }
+        throw error;
+      });
+    };
     this.now = now;
     this.getState = getState;
     this.myPlayerId = myPlayerId;
@@ -95,6 +109,7 @@ export class MinigameScene {
   }
 
   destroy() {
+    this.feedback?.buttons?.reset();
     cancelAnimationFrame(this.frame);
     this.frame = null;
     this.listeners.forEach(({ target, type, fn, options }) => target.removeEventListener(type, fn, options));
@@ -113,6 +128,13 @@ export class MinigameScene {
   // Zuhörer, die beim Abbau von selbst wieder abgehängt werden.
   on(target, type, fn, options) {
     if (!target) return;
+    if (type === "pointerdown") {
+      const handler = fn;
+      fn = event => {
+        if (event.button > 0 || event.target?.closest?.("button:disabled, [inert]")) return;
+        handler(event);
+      };
+    }
     target.addEventListener(type, fn, options);
     this.listeners.push({ target, type, fn, options });
   }

@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin204";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
-import { eventChance, frameLerp } from "./Quality.js?v=tumblekin204";
+import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin205";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
+import { eventChance, frameLerp } from "./Quality.js?v=tumblekin205";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
-import { ringband } from "./Blockform.js?v=tumblekin204";
+import { ringband } from "./Blockform.js?v=tumblekin205";
 
 // Zündstoff — heisse Kartoffel mit einer Bombe. Die Zündzeit blinkt kurz auf,
 // dann heisst es: merken und rechtzeitig weitergeben. Wer sie beim Knall hält,

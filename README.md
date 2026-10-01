@@ -121,19 +121,22 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Lenk die Scheibe mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
 - **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
 
-### 👆✳️ In jede Richtung wischen
+### 👆↔️ Seitlich wischen · Tippen springt
 
 - **Zielgerade:** Wisch nach links oder rechts auf die Boostplatten: grüne Platten mit Pfeilen schieben dich an, Matsch bremst. Tippen springt über Hürden — in der Luft bist du etwas langsamer, also nur, wenn es nötig ist. Heuballen sind zu hoch zum Springen, da hilft nur ausweichen.
+
+### 👆✳️ In jede Richtung wischen
+
 - **Farbflucht:** Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
 
 ### 👆 Tippen
 
 - **Nervenprobe:** Die Zielzeit liegt zwischen 4 und 8 Sekunden. Nach 2 Sekunden verschwindet jede Uhr — zähl im Kopf weiter und drück so nah wie möglich an der Zielzeit.
-- **Pump-Panik:** Tippe so schnell du kannst, gern mit zwei Fingern — jeder Tipp pumpt deinen Ballon dicker. Wer am Ende am meisten gepumpt hat, lässt seinen Ballon platzen und gewinnt.
 - **Fassmut:** Über dir hängt ein Fass am Seil. Irgendwann wird es losgelassen und fällt — EIN Tipp spannt das Seil, doch das Fass rutscht noch ein Stück nach. Der Schatten zeigt, wo es stehen bliebe: zieh, wenn er im Grünen dicht über deinem Kopf ist. Wer es am dichtesten über dem Kopf stoppt, gewinnt — zu spät gezogen gibt eine Beule.
 - **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus – zu zweit erst beim zweiten Treffer.
 - **Blob-Klopfe:** Blobs poppen aus den Löchern — tipp drauf, bevor sie abtauchen. Je schneller, desto mehr: 3, 2 oder 1 Punkt, der goldene bringt 5. Finger weg von den dunkelroten mit Stachelkrone: zwei Punkte weg und kurz benommen.
 - **Seilspringen:** Die zwei Dreher schwingen das Riesenseil, und es wird immer schneller. Tipp, wenn es unter dir durchgeht — du bist nur kurz in der Luft. Achtung bei DOPPELT: dann kommt es zweimal kurz hintereinander. Einmal hängen geblieben und du bist raus.
+- **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Winkel. Drei Schuss: triff die Zielflagge — sie steht jeden Schuss woanders, und der Windsack zeigt, ob Wind dich weiter trägt oder bremst. Beim Winkel zeigt ein Ring, wo du ohne Wind landen würdest. Die Punkte aller drei zählen zusammen.
 - **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt, jeder dreht sich anders. Äpfel bringen Extrapunkte. Ein Klirren kostet den Stamm — und alle Punkte, die er dir schon gebracht hat.
 - **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
 - **Kippboot:** Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker: der Streifen an der Bordwand zeigt, wo er sicher landet (grün) und wo das Boot kentern würde (rot). Wer es zum Kentern bringt, verliert 30 Punkte. Gespielt wird in Runden — jeder ist einmal dran, alle mit demselben Tier, vom Küken bis zum Schwein. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu.
@@ -142,17 +145,20 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 - **Lichtwächter:** Halte den Knopf, um zu laufen. Wenn die Lampe gelb blinkt, dreht sich der Wächter um — lass bis dahin los. Wer bei Rot noch läuft, fliegt fünf Meter zurück und ist kurz benommen. Manchmal täuscht er nur an. Wer zuerst am Tor ist, gewinnt.
 - **Fassrolle:** Alle stehen auf einem Riesenfass über dem Fluss. Halte ◀ oder ▶ und lauf gegen die Drehung an — aber wer läuft, dreht das Fass auch unter den anderen. Wellen kündigen sich an: lauf ihnen entgegen. Wer fällt, schwimmt zurück — doch in den letzten 12 Sekunden kommt das Wildwasser, und wer dann fällt, ist raus. Unter den Übrigen zählt die Zeit im grünen Streifen oben.
-- **Ballonfahrt:** Halte den Finger auf dem Bild, dann heizt der Brenner und du steigst — loslassen lässt sinken. Mit ABWURF fällt ein Sandsack: er fliegt mit, während er fällt, also je höher, desto früher werfen. Triff die Zielscheiben auf den Feldern und sammle unterwegs Sterne.
+
+### 👆👆 Schnell tippen
+
+- **Pump-Panik:** Tippe so schnell du kannst, gern mit zwei Fingern — jeder Tipp pumpt deinen Ballon dicker. Wer am Ende am meisten gepumpt hat, lässt seinen Ballon platzen und gewinnt.
+- **Bergsteiger:** Tippe auf die Bildhälfte, auf der der nächste Griff leuchtet — jede Seite ist eine Hand, die falsche kostet den Griff. Der Gipfel liegt auf 70: wer am schnellsten oben ist, gewinnt. Wer nicht ankommt, zählt nach Höhe.
+- **Tauziehen:** Zwei Teams, ein Seil, dazwischen die Schlammgrube. Jeder Tipp zieht — aber jeder Zug kostet Griffkraft (der Balken im Knopf), und die wächst nur langsam nach. Der Knopf sagt dir, wie du ziehen sollst: wer wild hämmert, rutscht ab und schenkt den anderen einen Ruck (LANGSAM!), wer zu zaghaft zieht, verschenkt Kraft (SCHNELLER!), und kurz vor Schluss heisst es ALLES! Zieht ihr fast gleichzeitig, gibt es ein HAU-RUCK. Wer zuerst zwei Runden holt, gewinnt — die anderen landen im Schlamm.
 
 ### 👆↔️ Links/Rechts wischen
 
 - **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang Münzen und weich den Bomben aus — fünf Fänge in Folge verdoppeln jede Münze, zehn verdreifachen sie. Am Ende kommt der Goldrausch, und eine Schatztruhe fällt in die angesagte Spur.
 
-### 👆👆 Schnell tippen
+### 👆⏺️ Bild halten · Knopf abwerfen
 
-- **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Winkel. Drei Schuss: triff die Zielflagge — sie steht jeden Schuss woanders, und der Windsack zeigt, ob Wind dich weiter trägt oder bremst. Beim Winkel zeigt ein Ring, wo du ohne Wind landen würdest. Die Punkte aller drei zählen zusammen.
-- **Bergsteiger:** Tippe auf die Bildhälfte, auf der der nächste Griff leuchtet — jede Seite ist eine Hand, die falsche kostet den Griff. Der Gipfel liegt auf 70: wer am schnellsten oben ist, gewinnt. Wer nicht ankommt, zählt nach Höhe.
-- **Tauziehen:** Zwei Teams, ein Seil, dazwischen die Schlammgrube. Jeder Tipp zieht — aber jeder Zug kostet Griffkraft (der Balken im Knopf), und die wächst nur langsam nach. Der Knopf sagt dir, wie du ziehen sollst: wer wild hämmert, rutscht ab und schenkt den anderen einen Ruck (LANGSAM!), wer zu zaghaft zieht, verschenkt Kraft (SCHNELLER!), und kurz vor Schluss heisst es ALLES! Zieht ihr fast gleichzeitig, gibt es ein HAU-RUCK. Wer zuerst zwei Runden holt, gewinnt — die anderen landen im Schlamm.
+- **Ballonfahrt:** Halte den Finger auf dem Bild, dann heizt der Brenner und du steigst — loslassen lässt sinken. Mit ABWURF fällt ein Sandsack: er fliegt mit, während er fällt, also je höher, desto früher werfen. Triff die Zielscheiben auf den Feldern und sammle unterwegs Sterne.
 
 ### 👆🎵 Im Takt tippen
 
@@ -277,6 +283,8 @@ npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unte
 npm run gesture-check        # sieben Wisch-/Ziehspiele: zweiter Finger, Loslassen und Unterbrechung
 npm run effects-check        # Partikelflug bei 30/60/120 Hz, Ressourcen, Cachebudget und reduzierte Bewegung
 npm run refinement-check     # alle 40 Spiele: Hoch-/Querformat, 320px, HUD und Finale-Steuerung
+npm run press-check          # Knopfdruck, Tastatur, assistive Aktivierung, Halten und echte Aktionsfehler
+npm run session-sim -- 12 --quick ballonPump leuchtfolge kanonenflug  # wiederholte gleiche Szenen für den Speichervergleich
 npm run animation-check      # 64 Posen bei 30/60/120 Hz, reduzierte Bewegung und Fußkontakt im Zielsprint
 npm run scene-check          # Figuren im Bild, auf dem Boden, nicht in Kulissen
 npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnistafel, dazu Sprünge und NaN
@@ -296,6 +304,7 @@ Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIU
 
 Die Ergebnisse und priorisierten nächsten Schritte stehen in [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md).
 Der zweite Durchgang mit Einzelbefunden zu allen 40 Spielen steht in [GAME_REFINEMENT.md](GAME_REFINEMENT.md).
+Die kritische Prüfung von Spielidee, alternativer Bedienung und offenen Designfragen je Spiel steht in [GAME_DESIGN_REVIEW.md](GAME_DESIGN_REVIEW.md). Sie dokumentiert außerdem den neuen Tastendruck, gemeinsame Teamplätze und verständliche Aktionszustände.
 `refinement-check` speichert Bilder und `observations.json` unter `/tmp/tumblekin-refinement`;
 mit `TUMBLEKIN_SCREENSHOTS=/pfad` lässt sich der Ausgabeordner ändern. Spielnamen
 begrenzen den Lauf, etwa `npm run refinement-check -- messerwurf spurmaler`.

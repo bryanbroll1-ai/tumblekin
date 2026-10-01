@@ -2495,7 +2495,7 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     // Läuft die Zeit im Zweikampf ab, liegt vorn, wer noch mehr Leben hat.
     return arcadePlayer.outAt
       ? Math.max(1, Math.round(arcadePlayer.outAt))
-      : 100000000000000 + (arcadePlayer.lives || 0) * 1000000 + (arcadePlayer.passes || 0);
+      : 100000000000000 + (arcadePlayer.lives || 0) * 1000000;
   }
   if (arcade.family === "catchfall") {
     // Der Bombenabzug steckt seit updateCatchfall schon in `catches` — genau der

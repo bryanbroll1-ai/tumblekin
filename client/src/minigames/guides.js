@@ -8,6 +8,37 @@ export const GAME_CATEGORIES = [
 
 const guide = (category, goal, tip) => ({ category, goal, tip });
 
+// Stichentscheide stehen ausdrücklich in den Regeln. Auf der Ergebnistafel
+// werden sie nur erläutert, wenn dieselbe Hauptzahl verschiedene Plätze ergibt.
+export const MINIGAME_TIEBREAKERS = {
+  bounceArena: "Bei gleichen Leben zählen Rauswürfe, danach die Zeit auf der Insel.",
+  colorEscape: "Bei gleichen überstandenen Runden gewinnt, wer insgesamt schneller auf der sicheren Farbe stand.",
+  ballonPump: "Bei gleicher Zahl an Pumpstößen gewinnt, wer diese Zahl zuerst erreicht hat.",
+  fassmut: "Bei gleichen Punkten entscheidet der dichteste einzelne Stopp.",
+  seilspringen: "Bei gleicher Überlebensleistung entscheiden die genauer getimten Sprünge.",
+  kanonenflug: "Bei gleichen Punkten entscheidet die kleinere gesamte Abweichung vom Ziel.",
+  blobklopfe: "Bei gleichen Punkten entscheiden mehr Treffer.",
+  messerwurf: "Bei gleichen Punkten entscheiden weniger Fehlwürfe.",
+  turmbau: "Bei gleicher Turmhöhe entscheiden mehr perfekte Stapel.",
+  ballonfahrt: "Bei gleichen Punkten entscheidet die kleinere gesamte Abweichung von den Zielmitten.",
+  trampolin: "Bei gleicher angezeigter Höhe entscheidet die längste Trefferfolge.",
+  sortierband: "Bei gleichen Punkten entscheidet, wer die Teile im Mittel früher einsortiert hat.",
+  leuchtfolge: "Bei gleich vielen richtigen Folgen entscheiden weniger Fehler, danach das schnellere Nachtippen.",
+  blitzreflex: "Bei gleicher Bestzeit entscheidet die gesamte Reaktionszeit aller Versuche.",
+  nagelbrett: "Bei gleichen Punkten entscheiden mehr erfolgreiche Kugeln.",
+  eisstock: "Bei gleichen gerundeten Punkten entscheidet die genauere Lage der Steine.",
+  spuersinn: "Bei gleichen Punkten entscheiden weniger Suchversuche.",
+  augenmass: "Bei gleichen Punkten entscheidet die kleinere gesamte Schätzabweichung.",
+  grimassen: "Bei gleichen Punkten entscheidet die kleinere gesamte Abweichung vom Vorbild.",
+  flaggenhoch: "Bei gleich vielen richtigen Befehlen entscheiden übrige Leben, danach die schnellere Reaktion.",
+  honigwabe: "Bei gleich vielen Früchten entscheiden weniger Honigstiche.",
+  schneeball: "Bei gleichen Punkten entscheiden weniger eingesteckte Treffer.",
+  buecherwurm: "Bei gleich vielen Seiten entscheiden übrige Leben, dann längeres Überleben und das schnellere Erreichen sicherer Löcher.",
+  schnappschuss: "Bei gleichen Punkten entscheiden mehr Titelbilder, danach mehr Fotos im Bildausschnitt.",
+  kippboot: "Bei gleichen Punkten entscheiden weniger gekenterte Boote.",
+  rohrsalat: "Bei gleichen Punkten entscheiden mehr richtige Ventile."
+};
+
 export const MINIGAME_GUIDES = {
   bounceArena: guide("together", "Ramm die anderen von der Insel. Übrige Leben entscheiden, danach Rauswürfe.", "Du hast drei Leben. In den letzten 15 Sekunden schrumpft die Insel."),
   finishRush: guide("skill", "Erreiche das Ziel zuerst: wechsle die Spur und tippe zum Springen.", "Grüne Platten geben Boost. Über Heuballen kannst du nicht springen."),
@@ -31,7 +62,7 @@ export const MINIGAME_GUIDES = {
   spurmaler: guide("skill", "Lenke per Wisch deinen Farbroller möglichst genau entlang der Spur.", "Bleib im Band für Serienboni. Für Kristalle am Rand riskierst du deine Serie."),
   sortierband: guide("reaction", "Wisch jedes Teil in die passende Rutsche: links, unten oder rechts.", "Die Schilder wechseln Plätze. Richtige Serien bringen Zusatzpunkte."),
   angelduell: guide("skill", "Halte, um Fische einzuholen. Lass los, wenn die Schnur zu stark gespannt ist.", "Bei einem Schub zieht der Fisch kräftiger. Eine gerissene Schnur kostet Fang."),
-  leuchtfolge: guide("thinking", "Merk dir die leuchtenden Pilze und tippe die Folge nach.", "Warte, bis die Vorführung vorbei ist. Jede Runde wird die Folge länger."),
+  leuchtfolge: guide("thinking", "Merk dir die leuchtenden Pilze und tippe die Folge nach.", "Tippe auf die Pilze oder die Farbknöpfe. Erst nach der Vorführung zählen deine Tipps."),
   blitzreflex: guide("reaction", "Tippe erst bei Grün. Deine schnellste Reaktion aus drei Versuchen zählt.", "Ein Tipp vor Grün ist ein Fehlstart und macht den Versuch ungültig."),
   nagelbrett: guide("skill", "Lass fünf Kugeln per Tipp fallen und sammle Punkte in den Töpfen.", "Jede fallende Kugel hat einen Stups: links oder rechts tippen. Gold bringt +15."),
   eisstock: guide("skill", "Wisch drei Steine möglichst nahe an den Knopf in der Mitte.", "Ein längerer Wisch gibt mehr Kraft. Deine Steine können fremde wegschieben."),

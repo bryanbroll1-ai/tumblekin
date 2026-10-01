@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin204";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
+import { reachArm } from "./VoxelKit.js?v=tumblekin205";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
-import { frameLerp, frameChance } from "./Quality.js?v=tumblekin204";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin205";
 import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin200";
 import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin200";
 
@@ -295,7 +295,7 @@ export class SnowSummit extends MinigameScene {
   // und gilt — dann fliegt die Kugel sofort, nicht eine Rundreise später.
   throwNow() {
     const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt) return;
+    if (!minigame || minigame.finaleAt || this.throwButton?.disabled) return;
     const own = this.view?.entries.get(this.getControlledPlayerId());
     const rules = snowRules(minigame.arcade);
     this.feedback?.vibrate(12);
@@ -585,11 +585,13 @@ export class SnowSummit extends MinigameScene {
       const mine = this.view?.entries.get(controlledId) || own;
       const rules = snowRules(arcade);
       const size = mine?.size ?? 0;
-      const ready = size >= rules.throwMin && !(this.view && this.view.at < (mine?.stunUntil || 0));
+      const at = this.view?.at ?? now;
+      const ready = Boolean(mine && canThrow(rules, mine, at));
       this.throwButton.classList.toggle("is-ready", ready);
       this.throwButton.dataset.value = String(ballValue(size, rules));
       this.throwButton.querySelector(".snow-meter i").style.width = `${Math.round(Math.min(1, size) * 100)}%`;
-      this.throwButton.disabled = Boolean(minigame.finaleAt);
+      this.throwButton.disabled = !ready || Boolean(minigame.finaleAt);
+      this.throwButton.querySelector("b").textContent = ready ? "WERFEN" : at < (mine?.stunUntil || 0) ? "ERHOLEN" : size < rules.throwMin ? "ROLLEN …" : "LÄDT …";
     }
   }
 }

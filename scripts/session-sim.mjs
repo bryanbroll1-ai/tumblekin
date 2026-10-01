@@ -18,13 +18,13 @@
 //    von allein auf, dafür gibt es dispose(). Vergisst eine Szene das, wächst
 //    der Verbrauch monoton.
 //  * Zuhörer am window. Die überleben jede Szene, weil window bleibt.
-import { ALL_GAMES, finishRound, launchBrowser, openRoom, startServer, startSingle } from "./lib/harness.mjs";
+import { pickGames, finishRound, launchBrowser, openRoom, startServer, startSingle } from "./lib/harness.mjs";
 
 const argv = process.argv.slice(2);
 const headed = argv.includes("--head");
 const quick = argv.includes("--quick"); // Szenenaufbau/-abbau; kein vollständiger Spielverlauf
 const rounds = Number(argv.find((a) => /^\d+$/.test(a)) || 20);
-const GAMES = ALL_GAMES;
+const GAMES = pickGames(argv.filter(a => !a.startsWith("--") && !/^\d+$/.test(a)));
 
 const { base, stop: stopServer, errorOutput: serverOutput } = await startServer({ log: true });
 // --js-flags=--expose-gc, damit die Heap-Zahl das Aufgeräumte nicht mitzählt.
@@ -143,23 +143,27 @@ if (samples.length < 3) {
 } else {
   const first = samples[0];
   const last = samples[samples.length - 1];
-  const half = samples[Math.floor(samples.length / 2)];
 
   // Canvas: das ist die harte Grenze. Bleibt pro Runde eines liegen, ist die
   // Partie nach etwa 16 Runden vorbei.
   say(last.canvases <= first.canvases + 1,
     `WebGL-Flächen stabil (${first.canvases} → ${last.canvases}); Browser geben rund 16 her`);
 
-  // Geometrien/Texturen: three.js räumt die nicht von allein ab. Ein wenig
-  // Schwankung ist normal (verschiedene Szenen sind verschieden gross), ein
-  // monotoner Anstieg über die zweite Hälfte ist es nicht.
-  if (first.geometries !== null) {
-    const grewSteadily = last.geometries > half.geometries && half.geometries > first.geometries;
-    say(!grewSteadily,
-      `Geometrien wachsen nicht stetig (${first.geometries} → ${half.geometries} → ${last.geometries})`);
-    say(last.textures <= first.textures + 4,
-      `Texturen stabil (${first.textures} → ${last.textures})`);
+  // Ein größeres anderes Spiel ist kein Leak. Vergleiche ausschließlich
+  // Wiederholungen desselben Spiels; kleine Effekt-Schwankungen sind erlaubt.
+  const baselines = new Map();
+  let repeats = 0;
+  for (const sample of samples) {
+    const baseline = baselines.get(sample.game);
+    if (!baseline) { baselines.set(sample.game, sample); continue; }
+    if (sample.geometries === null || baseline.geometries === null) continue;
+    repeats += 1;
+    say(sample.geometries <= baseline.geometries + Math.max(12, baseline.geometries * 0.2),
+      `${sample.game}: aktive Geometrien bei Wiederholung im Rahmen (${baseline.geometries} → ${sample.geometries})`);
+    say(sample.textures <= baseline.textures + 2,
+      `${sample.game}: Texturen bei Wiederholung im Rahmen (${baseline.textures} → ${sample.textures})`);
   }
+  if (!repeats) console.log("– GPU-Vergleich übersprungen: dasselbe Spiel wiederholen oder mindestens 41 Runden wählen.");
 
   // Zuhörer am window: jede Szene hängt welche an und muss sie wieder abnehmen.
   say(last.listeners <= first.listeners + 4,

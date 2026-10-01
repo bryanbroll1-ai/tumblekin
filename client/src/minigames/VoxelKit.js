@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin204";
+import { fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin205";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 //

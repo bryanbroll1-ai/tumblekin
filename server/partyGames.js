@@ -281,7 +281,8 @@ const tug = {
   },
   rank(arcade, entry) {
     const wins = arcade.tug?.wins?.[entry.side] || 0;
-    return wins * 1000000 + Math.round((entry.work || 0) * 100);
+    // Der Teamsieg gehört beiden: eigener Arbeitseinsatz trennt keine Plätze.
+    return wins;
   },
   detail(arcade, entry) {
     return { kind: "points", value: arcade.tug?.wins?.[entry.side] || 0, label: "Runden" };
@@ -1921,9 +1922,8 @@ const hockey = {
   rank(arcade, entry) {
     const score = arcade.hockey?.score || [0, 0];
     const own = score[entry.side] || 0;
-    const other = score[1 - entry.side] || 0;
-    // Tore des Teams, dann Tordifferenz, dann eigene Tore, dann Ballkontakte.
-    return own * 1000000 + Math.max(0, 50 + own - other) * 10000 + (entry.goals || 0) * 100 + Math.min(99, entry.touches || 0);
+    // Tore und Kontakte sind Beiträge zum selben Teamsieg, keine Einzelplätze.
+    return own;
   },
   detail(arcade, entry) {
     return { kind: "points", value: arcade.hockey?.score?.[entry.side] || 0, label: "Tore" };

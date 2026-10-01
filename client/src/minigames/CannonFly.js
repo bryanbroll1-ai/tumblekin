@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin204";
+import { createCloud } from "./VoxelKit.js?v=tumblekin205";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin205";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
@@ -738,7 +738,7 @@ export class CannonFly extends MinigameScene {
     if (this.launchButton) {
       this.launchButton.disabled = Boolean(own?.launchedAt || minigame.finaleAt);
       const face = this.launchButton.querySelector(".nerve-button-face");
-      if (face) face.textContent = own?.powerAt && !own?.launchedAt ? "WINKEL!" : "FEUER!";
+      if (face) face.textContent = own?.launchedAt ? "IM FLUG …" : own?.powerAt ? "WINKEL STOPPEN" : "KRAFT STOPPEN";
     }
   }
 }

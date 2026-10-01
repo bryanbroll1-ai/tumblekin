@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin204";
+import { createCloud } from "./VoxelKit.js?v=tumblekin205";
 import { dressWater } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin204";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin204";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin205";
 import { forecastFish } from "./Angelvorschau.js?v=tumblekin200";
 import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 

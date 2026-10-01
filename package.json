@@ -26,7 +26,8 @@
     "leerlauf-check": "node scripts/leerlauf-check.mjs",
     "refinement-check": "node scripts/refinement-check.mjs",
     "gesture-check": "node scripts/gesture-check.mjs",
-    "effects-check": "node scripts/effects-check.mjs"
+    "effects-check": "node scripts/effects-check.mjs",
+    "press-check": "node scripts/press-check.mjs"
   },
   "keywords": [
     "party-game",

@@ -49,6 +49,42 @@ function setup(type, n = 4, { bots = false } = {}) {
 
 // --- Tauziehen -------------------------------------------------------------
 
+test("Zündstoff: bei gleicher Überlebensleistung gewinnt hektisches Weitergeben keinen Stichentscheid", () => {
+  const g = setup("zuendstoff", 2);
+  try {
+    const [one, two] = g.players.map(p => g.arcade.players[p.id]);
+    one.passes = 2; two.passes = 99;
+    assert.equal(arcadeRankingScore(g.arcade, one), arcadeRankingScore(g.arcade, two));
+    two.lives = one.lives - 1;
+    assert.ok(arcadeRankingScore(g.arcade, one) > arcadeRankingScore(g.arcade, two));
+  } finally { g.restore(); }
+});
+
+for (const type of ["tauziehen", "luftpuck"]) {
+  for (const count of [2, 3, 4]) {
+    test(`${type}: ${count} Spieler teilen den Teamplatz unabhängig vom Einzelbeitrag`, () => {
+      const g = setup(type, count);
+      try {
+        if (type === "tauziehen") g.arcade.tug.wins = [2, 1];
+        else g.arcade.hockey.score = [5, 3];
+        g.players.forEach((p, i) => Object.assign(g.arcade.players[p.id], {
+          work: i * 90, touches: i * 20, goals: i
+        }));
+        const places = testRules.rankPlaces(g.players, p => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
+        const winners = g.players.filter(p => g.arcade.players[p.id].side === 0);
+        winners.forEach(p => assert.equal(places[p.id], 1));
+        const losers = g.players.filter(p => g.arcade.players[p.id].side === 1);
+        losers.forEach(p => assert.equal(places[p.id], winners.length + 1));
+        // Auch ein unentschiedener Teamstand bleibt für alle unentschieden.
+        if (type === "tauziehen") g.arcade.tug.wins = [1, 1];
+        else g.arcade.hockey.score = [3, 3];
+        const draw = testRules.rankPlaces(g.players, p => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
+        assert.deepEqual(Object.values(draw), Array(count).fill(1));
+      } finally { g.restore(); }
+    });
+  }
+}
+
 test("Tauziehen: vier Spieler ergeben zwei gegen zwei, drei einer gegen zwei", () => {
   const four = setup("tauziehen", 4);
   const sides = four.players.map((p) => four.arcade.players[p.id].side);

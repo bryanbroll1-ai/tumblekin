@@ -47,6 +47,7 @@ export class Feedback {
     if (!context || context.state !== "running") return;
 
     const sequences = {
+      press: [tone(190, 110, 0.035, "triangle", 0.016)],
       tap: [tone(520, 410, 0.065, "sine", 0.022)],
       move: [tone(270, 390, 0.09, "sine", 0.022)],
       step: [tone(245, 330, 0.055, "triangle", 0.014)],
