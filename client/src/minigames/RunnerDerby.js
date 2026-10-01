@@ -14,6 +14,7 @@ import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tum
 // Matschpfützen, die spritzen, Leichtathletik-Hürden, Tribünen und
 // Wimpelketten an der Seite, eine höhere Kamera, und Tippen heisst Springen.
 const LANE_WIDTH = 1.15;
+const footBounds = new THREE.Box3();
 // Grösse der wiederverwendeten Kulissen-Vorräte. Am Bild gerechnet: die Kamera
 // sieht bei diesem Blickwinkel gut 14 Streckeneinheiten voraus, also reichen
 // zwölf Striche und je zwölf Objekte pro Seite mit deutlichem Puffer.
@@ -785,6 +786,24 @@ export class RunnerDerby extends MinigameScene {
     });
     this.on(window, "pointerup", (event) => this.resolveSwipe(event));
     this.on(window, "pointercancel", () => { this.swipe = null; });
+    const interrupt = () => { this.swipe = null; };
+    this.on(window, "blur", interrupt);
+    this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
+  }
+
+  // Die Laufbahn ist eben. Hürden und umfliegende Heuballen sind keine
+  // Standflächen; Prüfer können diese bekannte Höhe statt einer Latte nutzen.
+  groundHeightAt(x) { return Math.abs(x) <= LANE_WIDTH * 1.5 ? FLOOR_Y : MEADOW_TOP_Y; }
+
+  afterAnimate() {
+    this.kins.forEach((kin) => {
+      kin.updateMatrixWorld(true);
+      let sole = Infinity;
+      kin.userData.legs.forEach((leg) => { sole = Math.min(sole, footBounds.setFromObject(leg).min.y); });
+      // Kurvenneigung und Sprintpose kippen auch die Schuhe. Nur den Teil
+      // unter der Laufbahn anheben; der gewollte Sprung bleibt unverändert.
+      if (Number.isFinite(sole) && sole < FLOOR_Y) kin.position.y += FLOOR_Y - sole;
+    });
   }
 
   resolveSwipe(event) {

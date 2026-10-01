@@ -3,6 +3,7 @@ import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
 import { landingCompression } from "./FeedbackCues.js?v=tumblekin202";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 import { berge, heuballen, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Ballonfahrt — Zielabwurf über einer Patchwork-Landschaft. Halten heizt den
@@ -430,14 +431,7 @@ export class BalloonGlide extends MinigameScene {
       event.stopPropagation();
       this.pressDrop();
     });
-    const down = (event) => {
-      event.preventDefault();
-      this.setHolding(true);
-    };
-    const up = () => this.setHolding(false);
-    this.on(this.webglCanvas, "pointerdown", down);
-    this.on(window, "pointerup", up);
-    this.on(window, "pointercancel", up);
+    this.holdInput = bindHoldInput(this, [this.webglCanvas], (active) => this.setHolding(active));
   }
 
   unbind() {

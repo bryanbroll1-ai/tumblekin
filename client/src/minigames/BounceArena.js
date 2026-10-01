@@ -4,7 +4,7 @@ import { ringband } from "./Blockform.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameDecay, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
 import { arenaShrinkCue } from "./FeedbackCues.js?v=tumblekin202";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
 
 // Bumper Pool: jede Figur sitzt in einem gestreiften Schwimmring auf einer
 // Badeinsel mitten im Freibad und rempelt die anderen ins Becken. Drei Leben:

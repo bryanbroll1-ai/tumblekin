@@ -4,6 +4,7 @@ import { dressWater } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 import { forecastFish } from "./Angelvorschau.js?v=tumblekin200";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 
 // Angelduell: Halten holt die Schnur ein, aber wenn der Fisch zieht, reisst
 // sie bei zu viel Spannung. Wer die meisten Punkte an Land zieht, gewinnt.
@@ -243,13 +244,6 @@ export class FishDuel extends MinigameScene {
         <span class="fish-reel-meter"><i data-fish-reel-meter></i></span>
       </button>`;
     const button = this.controls.querySelector("[data-fish-reel]");
-    const down = (event) => {
-      event.preventDefault();
-      if (this.holding) return;
-      this.holding = true;
-      this.notePress(true);
-      this.feedback?.sound("tap");
-    };
     // Loslassen wird ausdrücklich gemeldet. Vorher merkte der Server es erst,
     // wenn 190 ms lang kein Halte-Ping mehr kam.
     const up = () => {
@@ -261,10 +255,12 @@ export class FishDuel extends MinigameScene {
       const sentAt = performance.now();
       this.sendInput({ action: "lift" }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
     };
-    this.on(button, "pointerdown", down);
-    this.on(this.webglCanvas, "pointerdown", down);
-    this.on(window, "pointerup", up);
-    this.on(window, "pointercancel", up);
+    this.holdInput = bindHoldInput(this, [button, this.webglCanvas], (active) => {
+      if (!active) { up(); return; }
+      this.holding = true;
+      this.notePress(true);
+      this.feedback?.sound("tap");
+    });
   }
 
   notePress(v) {

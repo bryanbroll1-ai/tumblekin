@@ -259,6 +259,7 @@ npm run bot-sim              # zahlt sich Können in jedem Spiel aus?
 npm run anzeige-check        # entscheidet die angezeigte Zahl auch die Rangfolge?
 npm run leerlauf-check       # steht ein Spiel am Ende zu lange still?
 npm run fuzz                 # Unsinn an alle Ereignisse des Servers
+npm run gameplay-check       # alle 40 Regeln: 1080 Runden, 2/3/4 Spieler, verschiedene Takte und Seeds
 ```
 
 `fuzz` braucht einmalig `npm install --no-save socket.io-client`.
@@ -272,9 +273,12 @@ npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
 npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
 npm run feedback-check       # Landungen, Landering, Insel-Vorwarnung und reduzierte Bewegung
+npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unterbrechung
+npm run animation-check      # 64 Posen bei 30/60/120 Hz, reduzierte Bewegung und Fußkontakt im Zielsprint
 npm run scene-check          # Figuren im Bild, auf dem Boden, nicht in Kulissen
 npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnistafel, dazu Sprünge und NaN
 npm run session-sim          # viele Spiele hintereinander: wächst etwas, das nicht wachsen darf?
+npm run session-sim -- 60 --quick # nur Aufbau/Abbau: alle Spiele plus Wiederholungen, alte Szenen und Speicher
 npm run gallery              # Bilder aller Minispiele nach galerie/
 ```
 
@@ -286,6 +290,8 @@ npx playwright install chromium
 ```
 
 Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIUM_PATH=/pfad/zu/chrome` verwenden. Der Exit-Code ist 0 nur, wenn alles sauber durchläuft.
+
+Die Ergebnisse und priorisierten nächsten Schritte stehen in [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md).
 
 ## Veröffentlichung
 

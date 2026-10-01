@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { reachArm } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
 import { frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin200";
 import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin200";

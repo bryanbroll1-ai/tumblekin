@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { createCloud } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
 import { frameChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
 import { airToSurface, forecastDiver, jellyAt, timeToSurface } from "./Tauchgang.js?v=tumblekin200";
 

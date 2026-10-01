@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Lichtwächter — "Ochs am Berg": halten heisst laufen. Solange der Riese am
@@ -372,15 +373,7 @@ export class RedLightGate extends MinigameScene {
         <span class="hold-button-face">HALTEN = LAUFEN</span>
       </button>`;
     this.holdButton = this.controls.querySelector("[data-hold-run]");
-    this.on(this.holdButton, "pointerdown", (event) => {
-      event.preventDefault();
-      this.holdButton.setPointerCapture?.(event.pointerId);
-      this.setHolding(true);
-    });
-    const up = () => this.setHolding(false);
-    this.on(this.holdButton, "pointerup", up);
-    this.on(this.holdButton, "pointercancel", up);
-    this.on(this.holdButton, "lostpointercapture", up);
+    this.holdInput = bindHoldInput(this, [this.holdButton], (active) => this.setHolding(active));
   }
 
   unbind() {

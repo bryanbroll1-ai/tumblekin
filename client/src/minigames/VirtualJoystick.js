@@ -53,6 +53,10 @@ export class VirtualJoystick {
     this.base.addEventListener("pointerup", this.onPointerEnd);
     this.base.addEventListener("pointercancel", this.onPointerEnd);
     this.base.addEventListener("lostpointercapture", this.onPointerEnd);
+    this.onBlur = () => this.reset();
+    this.onVisibility = () => { if (document.hidden) this.reset(); };
+    window.addEventListener("blur", this.onBlur);
+    document.addEventListener("visibilitychange", this.onVisibility);
   }
 
   updatePointer(event) {
@@ -120,6 +124,8 @@ export class VirtualJoystick {
     this.base.removeEventListener("pointerup", this.onPointerEnd);
     this.base.removeEventListener("pointercancel", this.onPointerEnd);
     this.base.removeEventListener("lostpointercapture", this.onPointerEnd);
+    window.removeEventListener("blur", this.onBlur);
+    document.removeEventListener("visibilitychange", this.onVisibility);
     this.root.innerHTML = "";
   }
 }

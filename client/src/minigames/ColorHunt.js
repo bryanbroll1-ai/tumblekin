@@ -2,7 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, KIN_SOLE, reachArm } from "./VoxelKit.js?v=tumblekin200";
 import { addStageLights } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 import { forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin200";

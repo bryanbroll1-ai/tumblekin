@@ -248,7 +248,17 @@ test("Flaggen hoch: richtig, falsch, zu spät und reingefallen", () => {
   assert.equal(g.arcade.players[b.id].lives, C.FLAG_LIVES - 1);
   // Eine Falle: wer drückt, fällt rein; wer stillhält, hat richtig.
   const fake = commands.find((command) => command.kind === "fake");
-  g.run(first.at + first.window + C.FLAG_GRACE_MS + 90, fake.at + 50, 30);
+  // Die Zwischenkommandos beantworten: sonst fallen die zwei anderen aus,
+  // das Finale beginnt vor der Falle und diese Eingabe ist zurecht gesperrt.
+  g.run(first.at + first.window + C.FLAG_GRACE_MS + 90, fake.at + 50, 30, (t) => {
+    const active = party.activeFlagCommand(commands, t);
+    if (!active || active === first || active === fake || active.kind === "fake") return;
+    g.players.forEach((player) => {
+      if (g.arcade.players[player.id].answers[active.index]) return;
+      const flags = active.kind === "both" ? ["red", "blue"] : [active.kind];
+      flags.forEach((flag) => g.input(player, { action: "flag", flag }));
+    });
+  });
   g.input(a, { action: "flag", flag: fake.side });
   g.run(fake.at + 80, fake.at + fake.window + 60, 30);
   assert.equal(g.arcade.players[a.id].answers[fake.index].result, "fooled");
@@ -263,9 +273,12 @@ test("Flaggen hoch: bei BEIDE zählt es erst, wenn beide Flaggen oben sind", () 
   // Bis dahin alles richtig beantworten, damit niemand vorher rausfliegt.
   g.run(0, both.at + 50, 20, (t) => {
     const active = party.activeFlagCommand(commands, t);
-    if (!active || active === both || g.arcade.players[p.id].answers[active.index]) return;
-    if (active.kind === "red" || active.kind === "blue") g.input(p, { action: "flag", flag: active.kind });
-    if (active.kind === "both" && t > active.at + 100) { g.input(p, { action: "flag", flag: "red" }); g.at(t + 50); g.input(p, { action: "flag", flag: "blue" }); }
+    if (!active || active === both || active.kind === "fake") return;
+    g.players.forEach((player) => {
+      if (g.arcade.players[player.id].answers[active.index]) return;
+      const flags = active.kind === "both" ? ["red", "blue"] : [active.kind];
+      flags.forEach((flag) => g.input(player, { action: "flag", flag }));
+    });
   });
   const vorher = g.arcade.players[p.id].correct;
   g.input(p, { action: "flag", flag: "red" });

@@ -199,7 +199,10 @@ for (const game of liste) {
           }
           kandidaten.push(o);
         });
-        const boden = raycaster.intersectObjects(kandidaten, false)[0];
+        const knownGround = host.groundHeightAt?.(stand.x, stand.z);
+        const boden = Number.isFinite(knownGround)
+          ? { point: { y: knownGround } }
+          : raycaster.intersectObjects(kandidaten, false)[0];
         if (!boden) return;
         // Beide Richtungen zählen. Im Boden STECKEN sieht kaputt aus, darüber
         // SCHWEBEN aber genauso — und der zweite Fall ist der leisere: beim

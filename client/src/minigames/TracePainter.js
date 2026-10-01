@@ -441,6 +441,9 @@ export class TracePainter extends MinigameScene {
       if ((event.key === "ArrowLeft" || event.key === "a") && this.keyDir < 0) this.keyDir = 0;
       if ((event.key === "ArrowRight" || event.key === "d") && this.keyDir > 0) this.keyDir = 0;
     });
+    const interrupt = () => { this.drag = null; this.keyDir = 0; };
+    this.on(window, "blur", interrupt);
+    this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {

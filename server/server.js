@@ -2051,7 +2051,7 @@ function handleMinigameInput(room, player, rawInput) {
   if (now < minigame.startedAt) {
     return { ok: false, error: "Das Minispiel startet gleich." };
   }
-  if (now > minigame.startedAt + minigame.duration) {
+  if (minigameFrozen(minigame, now)) {
     return { ok: false, error: "Das Minispiel ist vorbei." };
   }
 
@@ -2894,6 +2894,7 @@ function handleArenaInput(room, player, rawInput) {
   const minigame = room.currentMinigame;
   const arenaPlayer = minigame?.arena?.players?.[player.id];
   if (!arenaPlayer) return { ok: false, error: "Arena nicht bereit." };
+  if (minigameFrozen(minigame, Date.now())) return { ok: false, error: "Das Minispiel ist vorbei." };
   if (!arenaPlayer.inPlay) return { ok: true }; // still respawning — ignore, don't error
 
   // Wie in handleArcadeInput: die Regelschicht darf sich nicht auf das `|| {}`
@@ -4313,6 +4314,9 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
+  // Das Finale zeigt bereits festgelegte Plätze. Auch direkte Aufrufe aus
+  // Bots oder Werkzeugen dürfen diesen Stand nicht nachträglich verändern.
+  if (minigameFrozen(minigame, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
   const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
@@ -9084,6 +9088,7 @@ module.exports = {
     createArcadeState,
     ARCADE_CONFIGS,
     handleArcadeInput,
+    handleMinigameInput,
     arcadeResultDetail,
     createArenaState,
     handleArenaInput,

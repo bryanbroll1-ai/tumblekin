@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin203";
 import { baeume, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
 
 // Fassrolle — alle stehen auf einem Riesenfass über dem Fluss. Die Strömung
@@ -519,21 +520,15 @@ export class BarrelRoll extends MinigameScene {
         <button type="button" data-barrel-run="-1" aria-label="Nach links laufen">◀</button>
         <button type="button" data-barrel-run="1" aria-label="Nach rechts laufen">▶</button>
       </div>`;
+    const heldDirections = new Map();
     this.controls.querySelectorAll("[data-barrel-run]").forEach((button) => {
       const dir = Number(button.dataset.barrelRun);
-      this.on(button, "pointerdown", (event) => {
-        event.preventDefault();
-        button.setPointerCapture?.(event.pointerId);
-        this.setHold(dir);
-        button.classList.add("is-holding");
+      bindHoldInput(this, [button], (active) => {
+        button.classList.toggle("is-holding", active);
+        if (active) heldDirections.set(dir, true);
+        else heldDirections.delete(dir);
+        this.setHold([...heldDirections.keys()].at(-1) || 0);
       });
-      const release = () => {
-        button.classList.remove("is-holding");
-        if (this.holdDir === dir) this.setHold(0);
-      };
-      this.on(button, "pointerup", release);
-      this.on(button, "pointercancel", release);
-      this.on(button, "lostpointercapture", release);
     });
   }
 
@@ -550,6 +545,7 @@ export class BarrelRoll extends MinigameScene {
   }
 
   setHold(dir) {
+    if (this.holdDir === dir) return;
     this.holdDir = dir;
     clearInterval(this.holdTimer);
     this.holdTimer = null;

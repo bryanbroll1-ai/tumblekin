@@ -439,6 +439,8 @@ export class IceStock extends MinigameScene {
     this.on(this.webglCanvas, "pointermove", this.onMove);
     this.on(window, "pointerup", this.onUp);
     this.on(window, "pointercancel", this.onCancel);
+    this.on(window, "blur", this.onCancel);
+    this.on(document, "visibilitychange", () => { if (document.hidden) this.onCancel(); });
   }
 
   // Radius eines Steins im Bild: genau so gross, wie er auf dem Server stösst.
