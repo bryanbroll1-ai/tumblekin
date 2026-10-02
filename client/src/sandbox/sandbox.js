@@ -5,9 +5,9 @@ import {
   createNameLabel,
   createShadowBlob,
   createVoxelKin
-} from "../minigames/VoxelKit.js?v=tumblekin207";
-import { verblocke } from "../minigames/Blockform.js?v=tumblekin207";
-import { ENVIRONMENT_SETS, OBSTACLE_TYPES, createEnvironment, createObstacle } from "./EnvironmentKit.js?v=tumblekin207";
+} from "../minigames/VoxelKit.js?v=tumblekin208";
+import { verblocke } from "../minigames/Blockform.js?v=tumblekin208";
+import { ENVIRONMENT_SETS, OBSTACLE_TYPES, createEnvironment, createObstacle } from "./EnvironmentKit.js?v=tumblekin208";
 
 const PLAYER_COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 const PLAYER_NAMES = ["Spieler 1", "Spieler 2", "Spieler 3", "Spieler 4"];

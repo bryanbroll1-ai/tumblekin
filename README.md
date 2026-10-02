@@ -31,7 +31,7 @@ Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
 
 Die Spielauswahl lässt sich nach **Reaktion**, **Geschick**, **Denken** und **Miteinander** filtern und nach Namen durchsuchen. Bei einer eigenen Auswahl fügt **Sichtbare wählen** die gefilterten Spiele hinzu, ohne die übrige Auswahl zu löschen.
 
-Alle 40 Spiele zeigen ihre tatsächliche Spielansicht in der Auswahl und auf der Startkarte. Bei **Zielgerade**, **Eisstock**, **Ballonfahrt**, **Kanonenflug** und **Fassmut** lässt sich vor **Bereit!** mit **Steuerung ausprobieren** ein eigener Versuch starten. **Neu** setzt ihn zurück, **Fertig** oder Escape kehrt zur Startkarte zurück. Die Übung verwendet dieselben Regeln und Szenen wie die Partie; Punkte und Bereitstatus der Partie bleiben unverändert. Ihre Zeit läuft erst nach dem Szenenaufbau und einem kurzen Countdown.
+Alle 40 Spiele zeigen ihre tatsächliche Spielansicht in der Auswahl und auf der Startkarte. Bei **Bumper Pool**, **Zielgerade**, **Eisstock**, **Ballonfahrt**, **Kanonenflug** und **Fassmut** lässt sich vor **Bereit!** mit **Steuerung ausprobieren** ein eigener Versuch starten. **Neu** setzt ihn zurück, **Fertig** oder Escape kehrt zur Startkarte zurück. Die Übung verwendet dieselben Regeln und Szenen wie die Partie; Punkte und Bereitstatus der Partie bleiben unverändert. Ihre Zeit läuft erst nach dem Szenenaufbau und einem kurzen Countdown.
 
 Eine Partie braucht mindestens zwei Teilnehmer. Wer allein ist, holt sich mit **+ Bot** Mitspieler dazu — die Bots spielen jedes Minispiel mit, in drei Stärken; dass die stärkere in jedem Minispiel tatsächlich häufiger gewinnt, misst `npm run bot-sim` nach.
 
@@ -117,7 +117,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️ Stick ziehen
 
-- **Bumper Pool:** Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
+- **Bumper Pool:** Nur der Stick: Lenken, Anlauf nehmen und rammen. Loslassen bremst. Schubs die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
 - **Tiefenrausch:** Tauch mit dem Stick nach Gold — je tiefer, desto wertvoller, ganz unten wartet eine Truhe. Die Luft wird knapp, und zwar unten schneller: Die weisse Marke im Luftbalken zeigt, was der Weg nach oben kostet — kommt die Luft ihr nahe, tauch auf. Oben füllt sie sich wieder, und dein Gold ist sicher eingezahlt. Quallen kosten Luft und etwas Gold. Geht dir die Luft aus, ist alles weg, was du trägst.
 - **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Auf deiner eigenen Farbe fährst du schneller, auf fremder langsamer — bau dir Bahnen und übermal die anderen. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Wer am Ende die meiste Fläche hat, gewinnt.
 - **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Lenk die Scheibe mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
@@ -281,6 +281,8 @@ npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
 npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
 npm run practice-check       # vier Übungen mit echten Eingaben, Neustart, Aufräumen und Isolation von zwei Geräten
+npm run bumper-check         # nur Stick: echter Touch, Rammen, Klang, Übung und Fokusverlust
+npm run sprint-check         # Sprint/Sprung, Ausdauer, Kamera und isolierte Übung
 npm run pipe-check           # fünf echte Rohrsalat-Runden, sechs Ventile, kleine Bildschirme und Texturfreigabe
 npm run feedback-check       # Landungen, Landering, Insel-Vorwarnung und reduzierte Bewegung
 npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unterbrechung

@@ -340,9 +340,9 @@ test("bumper: in the last fifteen seconds the island shrinks", () => {
   updateBounceArena(room);
   assert.ok(arena.radius < ARENA_RADIUS * 0.7 && arena.radius > ARENA_RADIUS * 0.5, `Radius ${arena.radius}`);
   assert.equal(arena.shrinking, true);
-  // Wer ausserhalb steht, wird zurückgeschoben, nicht hinausgeworfen.
+  // Diese beiden Startpositionen liegen auch nach dem Schrumpfen innen.
   Object.values(arena.players).forEach((ap) => {
-    assert.ok(Math.hypot(ap.x, ap.y) <= arena.radius, "niemand fällt, nur weil die Insel kleiner wird");
+    assert.ok(Math.hypot(ap.x, ap.y) <= arena.radius, "die inneren Startpositionen bleiben auf der verkleinerten Insel");
   });
 });
 

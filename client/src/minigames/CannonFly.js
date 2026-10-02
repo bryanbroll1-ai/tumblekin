@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin207";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin207";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin207";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin207";
+import { createCloud } from "./VoxelKit.js?v=tumblekin208";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin208";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin208";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin208";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
 // fliegt die Figur. Drei Schuss; Ziel ist die FLAGGE, die jede Runde woanders

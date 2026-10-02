@@ -22,7 +22,7 @@ const { testRules } = require("../server/server.js");
 
 const {
   MINIGAMES,
-  createArcadeState,
+  createArcadeState, createArenaState, updateBounceArena, arenaBotStep, bounceResultScore, clearRoomTimers,
   updateArcade,
   arcadeBotStep,
   arcadeRankingScore
@@ -78,7 +78,7 @@ function makeRoom(type) {
   }));
   const template = MINIGAMES.find((game) => game.type === type);
   const startedAt = Date.now();
-  const arcade = createArcadeState(type, players, startedAt);
+  const arcade = type === "bounceArena" ? createArenaState(players, startedAt, template.duration) : createArcadeState(type, players, startedAt);
   if (!arcade) return null;
   // Die Stufe wird gesetzt, statt gewürfelt: sonst misst der Lauf, wer welche
   // Stufe gezogen hat, und nicht, was die Stufen taugen.
@@ -87,9 +87,9 @@ function makeRoom(type) {
   });
   const minigame = {
     id: 1, type, startedAt, duration: template.duration,
-    arcade, scores: {}, lastInputAt: {}
+    ...(type === "bounceArena" ? {arena: arcade} : {arcade}), scores: {}, lastInputAt: {}
   };
-  return { room: { currentMinigame: minigame, players }, minigame, arcade, players, seats };
+  return { room: { currentMinigame: minigame, players, timers: new Set() }, minigame, arcade, players, seats };
 }
 
 function profileFor(level) {
@@ -120,15 +120,18 @@ function playRound(type) {
     elapsed += step;
     const now = realStart + elapsed;
     minigame.startedAt = now - elapsed;
-    arcade.lastUpdateAt = now - step;
+    if(type !== "bounceArena") arcade.lastUpdateAt = now - step;
     shiftClock(now);
     clocks.forEach((clock) => {
       if (elapsed < clock.next) return;
       clock.next = elapsed + clock.every;
-      arcadeBotStep(room, clock.player);
+      if(type === "bounceArena") arenaBotStep(arcade, clock.player.id);
+      else arcadeBotStep(room, clock.player);
     });
-    updateArcade(room);
+    if(type === "bounceArena") { updateBounceArena(room); if(minigame.finaleAt) break; }
+    else updateArcade(room);
   }
+  clearRoomTimers(room);
   restoreClock();
 
   // Gemessen wird die PLATZIERUNG, nicht die Punktzahl. Die Familien werten in
@@ -140,7 +143,7 @@ function playRound(type) {
   let scored = players.map((player, index) => ({
     level: seats[index],
     side: arcade.players[player.id].side,
-    score: arcadeRankingScore(arcade, arcade.players[player.id])
+    score: type === "bounceArena" ? bounceResultScore(arcade.players[player.id]) : arcadeRankingScore(arcade, arcade.players[player.id])
   }));
   // Mannschaftsspiele (Tauziehen, Luftpuck) zählen das TEAM. Innerhalb eines
   // Teams entscheidet über den Platz, wer mehr Tore oder Zugarbeit hatte — und
@@ -177,9 +180,7 @@ function mean(values) {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 }
 
-// bounceArena laeuft nicht ueber die Arcade-Familien, sondern hat ein eigenes
-// System — es kann hier nicht mitgemessen werden.
-const families = MINIGAMES.filter((game) => game.arcadeFamily);
+const families = MINIGAMES.filter((game) => game.arcadeFamily || game.type === "bounceArena");
 const targets = ONLY ? families.filter((game) => game.type === ONLY) : families;
 if (targets.length === 0) {
   console.error(`Kein Minispiel mit dem Namen "${ONLY}".`);

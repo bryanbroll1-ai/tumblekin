@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin207";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
-import { frameLerp } from "./Quality.js?v=tumblekin207";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin207";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin208";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
+import { frameLerp } from "./Quality.js?v=tumblekin208";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin208";
 
 // Grimassen: oben hängt ein verzogenes Gesicht im Goldrahmen, davor steht die
 // eigene Gummimaske — erst neutral —, und man zieht sie an sechs Punkten

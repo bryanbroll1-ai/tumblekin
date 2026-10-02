@@ -1,4 +1,4 @@
-import { minigameMeta } from "../minigames/catalog.js?v=tumblekin207";
+import { minigameMeta } from "../minigames/catalog.js?v=tumblekin208";
 
 // Helfer rund um den Raumzustand, den der Server schickt.
 

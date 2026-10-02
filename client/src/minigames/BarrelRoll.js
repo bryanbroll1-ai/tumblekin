@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin207";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin207";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
-import { bindHoldInput } from "./HoldInput.js?v=tumblekin207";
-import { baeume, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin207";
+import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin208";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin208";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin208";
+import { baeume, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin208";
 
 // Fassrolle — alle stehen auf einem Riesenfass über dem Fluss. Die Strömung
 // dreht es mal so, mal so; mit ◀ oder ▶ läuft man dagegen an. Aber wer läuft,

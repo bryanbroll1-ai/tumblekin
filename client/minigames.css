@@ -689,8 +689,7 @@
 .virtual-joystick.active .joystick-knob {
   background: var(--yellow);
   transition: background 120ms ease;
-}.mobile-stick-controls .flux-burst,
-.mobile-stick-controls .bounce-bump {
+}.mobile-stick-controls .flux-burst {
   grid-column: auto;
   grid-row: auto;
   min-height: 146px;
@@ -1898,98 +1897,26 @@ canvas.is-stunned {
   color: #ffffff;
 }
 
-/* --- Bumper Pool: Leben aller Spieler ------------------------------------ */
-/* Je Spieler ein Chip mit drei Punkten in seiner Farbe. Das IST die Wertung:
-   wer die meisten Punkte übrig hat, gewinnt. */
-.arena-lives {
-  position: absolute;
-  top: calc(60px + env(safe-area-inset-top));
-  left: 12px;
-  right: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  pointer-events: none;
-}
-
-.arena-life {
-  display: inline-flex;
-  gap: 4px;
-  padding: 5px 8px;
-  border-radius: 999px;
-  background: rgba(21, 33, 38, 0.82);
-  box-shadow: inset 0 0 0 2px var(--chip);
-}
-
-.arena-life i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.arena-life i.on {
-  background: var(--chip);
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
-}
-
-.arena-life.is-own {
-  box-shadow: inset 0 0 0 2px #ffffff;
-}
-
-.arena-life.is-out {
-  opacity: 0.45;
-}
-
-.kinetic-hud .color-banner.arena-banner {
-  top: calc(98px + env(safe-area-inset-top));
-  bottom: auto;
-  background: #ffd15c;
-  color: #4a3400;
-}
-
-.kinetic-hud .color-banner.arena-banner[data-tone="out"] {
-  background: #ff6b7f;
-  color: #42101a;
-}
-
-.arena-shrink {
-  position: absolute;
-  top: calc(98px + env(safe-area-inset-top));
-  left: 50%;
-  width: max-content;
-  max-width: calc(100% - 24px);
-  padding: 7px 12px;
-  border: 2px solid #fff;
-  border-radius: 999px;
-  background: #ffd15c;
-  color: #3f2c00;
-  font-size: 0.82rem;
-  font-weight: 950;
-  text-align: center;
-  transform: translateX(-50%);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  pointer-events: none;
-}
-
-.arena-shrink[data-phase="active"] {
-  background: #ff6b7f;
-  color: #42101a;
-}
-
-.arena-shrink:not([hidden]) ~ .color-banner.arena-banner {
-  top: calc(140px + env(safe-area-inset-top));
-}
-
-@media (orientation: landscape) and (max-height: 520px) and (min-width: 560px) {
-  .arena-shrink {
-    top: calc(12px + env(safe-area-inset-top));
-    max-width: calc(100% - 300px);
-  }
-  .arena-shrink:not([hidden]) ~ .color-banner.arena-banner {
-    top: calc(98px + env(safe-area-inset-top));
-  }
+/* Bumper Pool: one stick; names and lives stay readable above the pool. */
+.bumper-players { position: absolute; top: calc(62px + env(safe-area-inset-top)); left: 12px; right: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 6px; pointer-events: none; }
+.bumper-player { min-width: 0; display: grid; gap: 2px; padding: 5px 8px; border: 2px solid var(--chip); border-radius: 12px; background: rgba(21,33,38,.88); color: #fff; text-align: center; }
+.bumper-player span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .68rem; }
+.bumper-player strong { color: var(--chip); font-size: .82rem; }
+.bumper-player.is-own { outline: 2px solid white; }
+.bumper-player.is-out { opacity: .5; }
+.arena-shrink, .bumper-status { position: absolute; top: calc(120px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 7px 12px; border: 2px solid white; border-radius: 20px; background: #ffd15c; color: #3f2c00; font-size: .78rem; font-weight: 900; text-align: center; pointer-events: none; }
+.arena-shrink[data-phase="active"] { background: #ff6b7f; }
+.arena-shrink:not([hidden]) ~ .bumper-status { top: calc(162px + env(safe-area-inset-top)); }
+.mobile-stick-controls.joystick-only.bumper-controls { width: 100%; min-height: 0; gap: 5px; }
+.bumper-controls .virtual-joystick { width: 128px; height: 128px; min-width: 128px; min-height: 128px; }
+.bumper-control-note { margin: 0; font-size: .72rem; line-height: 1.4; color: white; text-align: center; text-shadow: 0 1px 4px #142f39; pointer-events: none; }
+.bumper-disabled .joystick-slot { pointer-events: none; opacity: .4; }
+@media (orientation: landscape) and (max-height: 520px) {
+ .bumper-players { top: calc(12px + env(safe-area-inset-top)); left: 205px; right: 70px; }
+ .arena-shrink, .bumper-status { top: calc(72px + env(safe-area-inset-top)); }
+ .arena-shrink:not([hidden]) ~ .bumper-status { top: calc(110px + env(safe-area-inset-top)); }
+ .minigame-controls .mobile-stick-controls.bumper-controls { position: relative; }
+ .bumper-controls .bumper-control-note { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 240px; }
 }
 
 /* --- Lichtwächter: Stand aller Läufer ----------------------------------- */

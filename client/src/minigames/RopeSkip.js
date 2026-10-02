@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, setKinOpacity, standOn } from "./VoxelKit.js?v=tumblekin207";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin207";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
-import { frameLerp } from "./Quality.js?v=tumblekin207";
-import { baeume, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin207";
+import { createCloud, createKin, KinAnimator, setKinOpacity, standOn } from "./VoxelKit.js?v=tumblekin208";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin208";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
+import { frameLerp } from "./Quality.js?v=tumblekin208";
+import { baeume, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin208";
 
 // Seilspringen: zwei drehen das Seil, alle anderen springen. Wer hängen
 // bleibt, ist raus.

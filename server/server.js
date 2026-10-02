@@ -6,6 +6,7 @@ const { Server } = require("socket.io");
 const QRCode = require("qrcode");
 const modes = require("./modes");
 const Sprint = require("../client/src/minigames/SprintPhysics.js");
+const Bumper = require("../client/src/minigames/BumperPhysics.js");
 const { PARTY_FAMILIES, PARTY_GAMES } = require("./partyGames");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -1320,38 +1321,10 @@ const CURLING_RESTITUTION = 0;      // Steine schieben sich, sie prallen nicht a
 const CURLING_BUTTON_FACTOR = 1.6;    // Wert am Knopf, gemessen am inneren Ring
 const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel through
 
-// Bumper Pool — Schwimmringe rempeln sich auf einer Badeinsel.
-// Physics live in a unit disk (radius 1). One analog gesture: steer with the
-// stick, ramming is pure momentum. The rim ALWAYS bounces you back — unless a
-// bumper hit was hard enough to "launch" you (a short window), so you can never
-// drive yourself off but a solid ram sends a rival flying over the edge.
-//
-// Drei Leben. Wer ins Becken fliegt, verliert eines und springt nach kurzer
-// Pause zurück auf die Insel; erst mit dem letzten ist man raus. Vorher war
-// schon der erste Sturz das Aus: die Runde war nach rund neun Sekunden vorbei,
-// und wer im ersten Gedränge stand, hatte das Spiel nie gespielt. Der Hilfetext
-// versprach dabei längst das Zurückpaddeln.
-//
-// Damit es trotzdem ein Ende findet, schrumpft die Insel in den letzten
-// fünfzehn Sekunden — der Platz wird eng, und jeder Stoss sitzt.
-const ARENA_LIVES = 3;
-const ARENA_SHRINK_MS = 15000;        // so lange vor Schluss beginnt die Insel zu schrumpfen
-const ARENA_SHRINK_TO = 0.62;         // auf diesen Anteil ihres Radius
-const ARENA_RADIUS = 1.0;             // plate disk radius (logical units)
-const ARENA_BALL_RADIUS = 0.11;       // kin collision radius
-const ARENA_ACCEL = 3.8;              // stick thrust acceleration (snappy, responsive)
-const ARENA_DRAG = 1.75;              // velocity damping (quick stops, still carries momentum)
-const ARENA_RESTITUTION = 2.4;        // >1: bouncy bumpers, so rams carry punch
-const ARENA_BOT_LOOKAHEAD = 0.45;     // so weit (s) schauen Bots voraus, ob sie der Rand erwischt
-const ARENA_TIP_SPEED = 0.8;          // wer über der Kante hängt, rutscht mindestens so schnell hinunter
-const ARENA_LAUNCH_IMPULSE = 0.95;    // ab dieser Stosskraft (Δv) gilt ein Treffer als harter Rammstoss
-const ARENA_LAUNCH_MS = 1150;         // so lange zeigt die Figur danach ihr erschrockenes Gesicht
-const ARENA_SUBSTEPS = 4;             // sub-stepped integration prevents tunneling
-const ARENA_RESPAWN_MS = 2200;        // time out of play after a knock-off
-const ARENA_INVULN_MS = 1300;         // spawn grace: no collisions, can't be launched
-const ARENA_SURVIVE_RATE = 10;        // score per second in play
-const ARENA_KNOCKOUT_BONUS = 60;      // score for launching a rival
-const ARENA_CREDIT_MS = 1600;         // a hit only credits a knock-off this recent
+// Bumper Pool uses the same ring geometry and motion rules as its renderer.
+const ARENA_RADIUS = Bumper.C.RADIUS;
+const ARENA_BALL_RADIUS = Bumper.C.BALL_RADIUS;
+const ARENA_RESPAWN_MS = Bumper.C.RESPAWN_MS;
 
 const FLUX_SIZE = 9;
 const FLUX_MOVE_COOLDOWN = 92;
@@ -2101,132 +2074,17 @@ function scheduleBotMinigameInputs(room) {
 
 function updateBounceArena(room) {
   const minigame = room.currentMinigame;
-  if (!minigame || minigame.type !== "bounceArena") return;
-  const arena = minigame.arena;
+  if (minigame?.type !== "bounceArena") return;
   const now = Date.now();
-  if (now < minigame.startedAt || minigameFrozen(minigame, now)) {
-    arena.lastUpdateAt = now;
-    return;
-  }
-
-  const frameDt = Math.min(0.12, Math.max(0.016, (now - (arena.lastUpdateAt || now)) / 1000));
-  arena.lastUpdateAt = now;
-  arena.tick = (arena.tick || 0) + 1;
-
-  const players = Object.values(arena.players);
-
-  // Die Insel schrumpft zum Schluss — gleichmässig, damit man es kommen sieht.
-  const shrink = clamp((now - arena.shrinkFrom) / Math.max(1, arena.shrinkUntil - arena.shrinkFrom), 0, 1);
-  arena.radius = ARENA_RADIUS * (1 - (1 - arena.shrinkTo) * shrink);
-  arena.shrinking = shrink > 0;
-
-  // Zurück auf die Insel, wer noch Leben hat und lange genug im Wasser war.
-  players.forEach((ap) => {
-    if (ap.inPlay || ap.lives <= 0 || now < ap.outUntil) return;
-    const spot = arenaSpawnPoint(arena, ap);
-    ap.x = spot.x;
-    ap.y = spot.y;
-    ap.vx = 0;
-    ap.vy = 0;
-    ap.inPlay = true;
-    ap.ejecting = false;
-    ap.launchedUntil = 0;
-    ap.invulnUntil = now + ARENA_INVULN_MS;
-    ap.spawnedAt = now;
-  });
-
-  const sub = ARENA_SUBSTEPS;
-  const dt = frameDt / sub;
-
-  for (let step = 0; step < sub; step += 1) {
-    // Integrate: thrust while the stick intent is fresh, then damping, then move.
-    players.forEach((ap) => {
-      if (!ap.inPlay) return;
-      const steering = now - ap.lastThrustAt < 200 ? 1 : 0;
-      if (steering) {
-        ap.vx += ap.thrustX * ARENA_ACCEL * dt;
-        ap.vy += ap.thrustY * ARENA_ACCEL * dt;
-      }
-      const damp = Math.exp(-ARENA_DRAG * dt);
-      ap.vx *= damp;
-      ap.vy *= damp;
-      ap.x += ap.vx * dt;
-      ap.y += ap.vy * dt;
-      ap.playMs += dt * 1000;
-      ap.score += dt * ARENA_SURVIVE_RATE;
-    });
-
-    // Ball-ball collisions (skip invulnerable spawns so nobody is spawn-camped).
-    const entries = Object.entries(arena.players);
-    for (let a = 0; a < entries.length; a += 1) {
-      for (let b = a + 1; b < entries.length; b += 1) {
-        resolveArenaCollision(entries[a], entries[b], now);
-      }
-    }
-
-    // Der Rand hält niemanden. Wer mit der Mitte über die Kante rutscht —
-    // gestossen oder selbst gefahren —, kippt hinunter; vorher hängt man nur
-    // über und kann sich noch zurückretten. Früher prallte jeder, der nicht
-    // gerade hart gerammt worden war, vom Rand zurück auf die Insel: eine
-    // unsichtbare Bande, die dem Spiel die Spannung am Rand nahm.
-    players.forEach((ap) => {
-      if (!ap.inPlay) return;
-      const dist = Math.hypot(ap.x, ap.y);
-      if (!ap.ejecting && dist <= arena.radius) return;
-      ap.ejecting = true;
-      // Einmal über der Kante gibt es kein Zurück: man rutscht weiter nach
-      // aussen, auch wenn man gerade kaum Fahrt hat.
-      const nx = ap.x / (dist || 1);
-      const ny = ap.y / (dist || 1);
-      const vn = ap.vx * nx + ap.vy * ny;
-      if (vn < ARENA_TIP_SPEED) {
-        ap.vx += (ARENA_TIP_SPEED - vn) * nx;
-        ap.vy += (ARENA_TIP_SPEED - vn) * ny;
-      }
-      if (dist > arena.radius + ARENA_BALL_RADIUS) {
-        knockArenaPlayerOff(arena, ap, now);
-      }
-    });
-  }
-
-  let aliveCount = 0;
-  room.players.forEach((player) => {
-    const ap = arena.players[player.id];
-    if (!ap) return;
-    // Im Spiel ist, wer auf der Insel steht ODER noch zurückspringen darf.
-    if (ap.inPlay || ap.lives > 0) aliveCount += 1;
-    minigame.scores[player.id] = Math.max(0, Math.round(ap.score));
+  if (now < minigame.startedAt || minigameFrozen(minigame, now)) return;
+  Bumper.advance(minigame.arena, now);
+  room.players.forEach(player => {
+    const entry = minigame.arena.players[player.id];
+    minigame.scores[player.id] = Math.max(0, Math.round(entry?.score || 0));
     player.minigameScore = minigame.scores[player.id];
   });
-
-  // Ist nur noch einer (oder keiner) übrig, der Leben hat: kurzes Finale, dann
-  // die Tafel.
-  const elapsed = now - minigame.startedAt;
-  if (aliveCount <= 1 && elapsed > 2000 && room.players.length > 1) {
-    beginMinigameFinale(room, minigame);
-  }
-}
-
-// Ins Becken: ein Leben weniger. Mit Leben übrig geht es nach
-// ARENA_RESPAWN_MS zurück auf die Insel, ohne ist man raus.
-function knockArenaPlayerOff(arena, ap, now) {
-  if (!ap.inPlay) return;
-  ap.inPlay = false;
-  ap.ejecting = false;
-  ap.knockedAt = now;
-  ap.falls += 1;
-  ap.lives = Math.max(0, (ap.lives ?? 1) - 1);
-  if (ap.lives > 0) ap.outUntil = now + ARENA_RESPAWN_MS;
-  else ap.outAt = now;
-  ap.vx = 0;
-  ap.vy = 0;
-  // Credit a recent hitter with the knockout.
-  const hitter = ap.lastHitBy && arena.players[ap.lastHitBy];
-  if (hitter && now - ap.lastHitAt < ARENA_CREDIT_MS) {
-    hitter.knockouts += 1;
-    hitter.score += ARENA_KNOCKOUT_BONUS;
-  }
-  ap.lastHitBy = null;
+  const alive = Object.values(minigame.arena.players).filter(p => p.lives > 0).length;
+  if (alive <= 1 && now - minigame.startedAt > 2000 && room.players.length > 1) beginMinigameFinale(room, minigame);
 }
 
 // Schedule the wind-down: gameplay keeps rendering for a short finale so
@@ -2358,28 +2216,6 @@ function bounceResultScore(arenaPlayer) {
   return lives * 1000000000
     + (arenaPlayer.knockouts || 0) * 1000000
     + Math.min(999999, Math.round(arenaPlayer.playMs || 0));
-}
-
-// Wo man nach einem Sturz wieder auf die Insel kommt: innen, und dort, wo
-// gerade niemand steht — sonst landete man direkt vor dem, der einen eben
-// hinausgestossen hat.
-function arenaSpawnPoint(arena, self) {
-  let best = { x: 0, y: 0 };
-  let bestGap = -1;
-  const r = 0.38 * (arena.radius || ARENA_RADIUS);
-  for (let i = 0; i < 12; i += 1) {
-    const angle = (i / 12) * Math.PI * 2;
-    const x = Math.cos(angle) * r;
-    const y = Math.sin(angle) * r;
-    const gap = Object.values(arena.players)
-      .filter((other) => other !== self && other.inPlay)
-      .reduce((near, other) => Math.min(near, Math.hypot(other.x - x, other.y - y)), 9);
-    if (gap > bestGap) {
-      bestGap = gap;
-      best = { x, y };
-    }
-  }
-  return best;
 }
 
 function arcadeRankingScore(arcade, arcadePlayer) {
@@ -2807,206 +2643,51 @@ function finishGame(room, winnerIds) {
 }
 
 function createArenaState(players, startedAt, duration = 45000) {
-  const arena = {
-    radius: ARENA_RADIUS,
-    ballRadius: ARENA_BALL_RADIUS,
-    lives: ARENA_LIVES,
-    shrinkFrom: startedAt + Math.max(0, duration - ARENA_SHRINK_MS),
-    shrinkUntil: startedAt + duration,
-    shrinkTo: ARENA_SHRINK_TO,
-    lastUpdateAt: startedAt,
-    tick: 0,
-    players: {}
-  };
-  players.forEach((player, index) => {
-    const angle = (index / Math.max(1, players.length)) * Math.PI * 2 - Math.PI / 2;
-    arena.players[player.id] = {
-      x: Math.cos(angle) * 0.5,
-      y: Math.sin(angle) * 0.5,
-      vx: 0,
-      vy: 0,
-      thrustX: 0,
-      thrustY: 0,
-      lastThrustAt: 0,
-      inPlay: true,          // on the plate and collidable
-      lives: ARENA_LIVES,    // bei null ist man raus
-      ejecting: false,       // über die Kante gerutscht, kippt ins Becken
-      launchedUntil: 0,      // gerade hart gerammt (für das Gesicht der Figur)
-      outUntil: 0,           // respawns when now passes this
-      invulnUntil: startedAt + ARENA_INVULN_MS,
-      score: 0,
-      playMs: 0,             // accumulated time in play (for the result card)
-      knockouts: 0,
-      falls: 0,
-      lastHitBy: null,
-      lastHitAt: 0,
-      collisionCount: 0,
-      lastCollisionAt: 0,
-      knockedAt: 0,          // bumps the client into a tumble animation
-      spawnedAt: startedAt,
-      outAt: null
-    };
-  });
-  return arena;
+  return Bumper.create(players, startedAt, duration);
 }
 
 function handleArenaInput(room, player, rawInput) {
-  const minigame = room.currentMinigame;
-  const arenaPlayer = minigame?.arena?.players?.[player.id];
-  if (!arenaPlayer) return { ok: false, error: "Arena nicht bereit." };
-  if (minigameFrozen(minigame, Date.now())) return { ok: false, error: "Das Minispiel ist vorbei." };
-  if (!arenaPlayer.inPlay) return { ok: true }; // still respawning — ignore, don't error
-
-  // Wie in handleArcadeInput: die Regelschicht darf sich nicht auf das `|| {}`
-  // der Socket-Schicht verlassen, sie wird auch direkt gerufen.
-  const input = (rawInput && typeof rawInput === "object") ? rawInput : {};
+  const game = room.currentMinigame;
+  const p = game?.arena?.players?.[player.id];
   const now = Date.now();
-  const action = input.action;
-
-  // Analog stick: a direction vector in [-1, 1]. Stored as a steering
-  // intent and applied continuously by the physics step for a short window.
-  if (action === "thrust") {
-    let dx = inputNumber(input.x) || 0;
-    let dy = inputNumber(input.y) || 0;
-    const length = Math.hypot(dx, dy);
-    if (length > 1) { dx /= length; dy /= length; }
-    arenaPlayer.thrustX = dx;
-    arenaPlayer.thrustY = dy;
-    arenaPlayer.lastThrustAt = now;
-    return { ok: true };
+  if (!p) return { ok: false, error: "Arena nicht bereit." };
+  if (minigameFrozen(game, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
+  const input = rawInput && typeof rawInput === "object" ? rawInput : {};
+  if (!["thrust", "up", "down", "left", "right"].includes(input.action)) {
+    return { ok: false, error: "Zieh den Stick zum Lenken und Rammen." };
   }
-
-  // Backward-compatible 4-way fallback (bots / old clients).
-  if (action === "up" || action === "down" || action === "left" || action === "right") {
-    arenaPlayer.thrustX = action === "left" ? -1 : action === "right" ? 1 : 0;
-    arenaPlayer.thrustY = action === "up" ? -1 : action === "down" ? 1 : 0;
-    arenaPlayer.lastThrustAt = now;
-    return { ok: true };
-  }
-
-  return { ok: false, error: "Ungültiger Bounce-Arena-Input." };
-}
-
-function resolveArenaCollision(entryA, entryB, now = Date.now()) {
-  const [idA, a] = entryA;
-  const [idB, b] = entryB;
-  if (!a.inPlay || !b.inPlay) return;
-  // Spawn grace: invulnerable balls pass through so nobody gets spawn-camped.
-  if (now < a.invulnUntil || now < b.invulnUntil) return;
-
-  let dx = b.x - a.x;
-  let dy = b.y - a.y;
-  let distance = Math.hypot(dx, dy);
-  const minDistance = ARENA_BALL_RADIUS * 2;
-  if (distance >= minDistance) return;
-
-  if (distance < 0.0001) {
-    dx = 0.01;
-    dy = 0;
-    distance = 0.01;
-  }
-
-  const nx = dx / distance;
-  const ny = dy / distance;
-
-  // Separate the overlap so balls stay solid (no clipping / sinking through).
-  const overlap = (minDistance - distance) / 2;
-  a.x -= nx * overlap;
-  a.y -= ny * overlap;
-  b.x += nx * overlap;
-  b.y += ny * overlap;
-
-  // Equal-mass collision along the contact normal with a bouncy restitution.
-  const relVel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-  if (relVel < 0) {
-    const jn = -(1 + ARENA_RESTITUTION) * relVel / 2;
-    a.vx -= jn * nx;
-    a.vy -= jn * ny;
-    b.vx += jn * nx;
-    b.vy += jn * ny;
-    // Ein harter Treffer wird vermerkt: die Figuren schauen kurz erschrocken.
-    if (jn >= ARENA_LAUNCH_IMPULSE) {
-      a.launchedUntil = now + ARENA_LAUNCH_MS;
-      b.launchedUntil = now + ARENA_LAUNCH_MS;
-    }
-  }
-
-  a.lastHitBy = idB;
-  b.lastHitBy = idA;
-  a.lastHitAt = now;
-  b.lastHitAt = now;
-  if (now - a.lastCollisionAt > 120) a.collisionCount += 1;
-  if (now - b.lastCollisionAt > 120) b.collisionCount += 1;
-  a.lastCollisionAt = now;
-  b.lastCollisionAt = now;
+  // Advance before changing intent; a tap cannot move a prior collision.
+  Bumper.advance(game.arena, now);
+  if (!p.inPlay) return { ok: true };
+  const direction = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[input.action];
+  const [x, y] = direction || [clamp(inputNumber(input.x) || 0, -1, 1), clamp(inputNumber(input.y) || 0, -1, 1)];
+  Bumper.thrust(p, x, y, now);
+  return { ok: true };
 }
 
 function arenaBotStep(arena, playerId) {
-  const bot = arena?.players?.[playerId];
-  if (!bot?.inPlay) return;
-
+  const p = arena?.players?.[playerId];
   const now = Date.now();
-  // Der Rand hält niemanden: gezählt wird nicht nur, wo man steht, sondern wo
-  // man mit der jetzigen Fahrt gleich wäre. Wer schnell nach aussen rutscht,
-  // bremst früh genug.
-  const aheadX = bot.x + (bot.vx || 0) * ARENA_BOT_LOOKAHEAD;
-  const aheadY = bot.y + (bot.vy || 0) * ARENA_BOT_LOOKAHEAD;
-  const distanceFromCenter = Math.max(Math.hypot(bot.x, bot.y), Math.hypot(aheadX, aheadY)) / (arena.radius || ARENA_RADIUS);
-  // Im Ergebnis zählt Überleben (+100000) weit mehr als Abschüsse. Wer bis kurz
-  // vor den Rand jagt, verliert damit — gemessen gewann die „aggressivste"
-  // Einstellung nur 9 % der Partien, die vorsichtigste 49 %. Die Rollen standen
-  // also genau verkehrt herum. Können heisst hier: angreifen, wenn es günstig
-  // steht, und sonst in der Mitte bleiben.
-  const profile = bot.arenaProfile || (bot.arenaProfile = (() => {
-    const roll = Math.random();
-    return roll < 0.33 ? { edge: 0.9, aggro: 0.72, picks: false }
-      : roll < 0.75 ? { edge: 0.8, aggro: 0.9, picks: true }
-        : { edge: 0.68, aggro: 1, picks: true };
-  })());
+  if (!p?.inPlay || now < arena.startedAt || now >= arena.startedAt + arena.duration) return;
+  Bumper.advance(arena, now);
+  if (!p.inPlay) return;
+  const profile = p.botProfile || (p.botProfile = { level: ["easy", "normal", "hard"][Math.floor(Math.random() * 3)] });
+  const hard = profile.level === "hard", easy = profile.level === "easy";
+  const look = hard ? 0.32 : easy ? 0.12 : 0.28;
+  const aheadX = p.x + p.vx * look, aheadY = p.y + p.vy * look;
+  const edge = Math.hypot(aheadX, aheadY) / arena.radius;
+  let dx = -aheadX, dy = -aheadY;
+  const prey = Object.entries(arena.players).filter(([id, q]) => id !== playerId && q.inPlay && now >= q.invulnUntil)
+    .sort(([, a], [, b]) => (Math.hypot(a.x - p.x, a.y - p.y) - (hard ? .6 * Math.hypot(a.x, a.y) : 0))
+      - (Math.hypot(b.x - p.x, b.y - p.y) - (hard ? .6 * Math.hypot(b.x, b.y) : 0)))[0];
+  if (prey && edge < (hard ? 0.88 : easy ? 0.95 : 0.83)) {
+    const [, q] = prey;
+    const lead = hard ? 0.04 : 0;
+    dx = q.x + q.vx * lead - p.x; dy = q.y + q.vy * lead - p.y;
 
-  // Too close to the rim yourself: retreat toward the middle — gemessen von
-  // dort, wo die Fahrt einen gleich hinträgt, damit man gegen sie anlenkt.
-  let targetX = -aheadX;
-  let targetY = -aheadY;
-
-  if (distanceFromCenter < profile.edge) {
-    const opponents = Object.entries(arena.players)
-      .filter(([id, candidate]) => id !== playerId && candidate.inPlay && now >= candidate.invulnUntil)
-      .map(([_id, candidate]) => candidate);
-    let prey = null;
-    if (profile.picks) {
-      // Wer selbst schon nah am Rand steht, ist mit einem Stoss draussen. Nähe
-      // zählt weiter mit, aber weniger als die Lage des Gegners — sonst rennt man
-      // dem nächstbesten hinterher, der sicher in der Mitte sitzt.
-      let best = -Infinity;
-      opponents.forEach((candidate) => {
-        const rim = Math.hypot(candidate.x, candidate.y);
-        const reach = Math.hypot(candidate.x - bot.x, candidate.y - bot.y);
-        const value = rim - reach * 0.55;
-        if (value > best) {
-          best = value;
-          prey = candidate;
-        }
-      });
-    } else {
-      opponents.sort((a, b) => Math.hypot(a.x - bot.x, a.y - bot.y) - Math.hypot(b.x - bot.x, b.y - bot.y));
-      prey = opponents[0];
-    }
-    if (prey) {
-      // Aim past the rival, along the line from the arena centre outward, so
-      // the ram shoves them toward the nearest rim rather than across the plate.
-      const outLen = Math.max(0.05, Math.hypot(prey.x, prey.y));
-      const aimX = prey.x + (prey.x / outLen) * 0.45;
-      const aimY = prey.y + (prey.y / outLen) * 0.45;
-      targetX = aimX - bot.x;
-      targetY = aimY - bot.y;
-    }
   }
-
-  const length = Math.max(0.01, Math.hypot(targetX, targetY));
-  bot.thrustX = (targetX / length) * profile.aggro;
-  bot.thrustY = (targetY / length) * profile.aggro;
-  bot.lastThrustAt = now;
+  const length = Math.max(.01, Math.hypot(dx, dy));
+  Bumper.thrust(p, dx / length * (easy ? .8 : 1), dy / length * (easy ? .8 : 1), now);
 }
 
 // Der Startwert jeder Runde ist neu gewürfelt. Vorher stand er je Spieltyp

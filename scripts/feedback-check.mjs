@@ -45,7 +45,7 @@ try {
   const box = await warning.boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 844 && box.y >= 0 && box.y + box.height <= 390);
   const scorebar = await page.locator(".kinetic-scorebar").boundingBox();
-  assert.ok(box.x >= scorebar.x + scorebar.width && box.y < 50, "Die Warnung bleibt neben dem Stand und über dem Spielfeld");
+  assert.ok(box.y >= scorebar.y + scorebar.height, "Die Warnung bleibt unter dem Stand und über dem Spielfeld");
   await page.evaluate(() => { window.__cueNow = window.__tumblekinScene.update.arena.shrinkUntil; });
   await frames();
   assert.equal(await warning.isVisible(), false);

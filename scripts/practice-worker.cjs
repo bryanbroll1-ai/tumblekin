@@ -1,7 +1,7 @@
 // Isolated practice uses the real rules. No socket or multiplayer room is
 // created; terminating this Worker discards every practice score and timer.
 const { testRules: rules } = require('../server/server.js');
-const TYPES = new Set(['finishRush', 'eisstock', 'ballonfahrt', 'kanonenflug', 'fassmut']);
+const TYPES = new Set(['bounceArena', 'finishRush', 'eisstock', 'ballonfahrt', 'kanonenflug', 'fassmut']);
 let room = null;
 let timer = null;
 let generation = 0;
@@ -32,9 +32,11 @@ self.onmessage = ({ data }) => {
         id: 'practice-' + startedAt, type: game.type, title: game.title,
         startedAt, duration: game.duration, scores: {}, lastInputAt: {}
       };
-      currentMinigame.arcade = rules.createArcadeState(game.type, [player], startedAt);
+      const players = game.type === "bounceArena" ? [player, rules.createPlayer({ id: "trainer", name: "Trainingsring", color: "#28c7d9" })] : [player];
+      if (game.type === "bounceArena") currentMinigame.arena = rules.createArenaState(players, startedAt, game.duration);
+      else currentMinigame.arcade = rules.createArcadeState(game.type, players, startedAt);
       room = { code: 'PRACTICE', status: 'minigame', phase: 'playingMinigame',
-        players: [player], currentMinigame, timers: new Set() };
+        players, currentMinigame, timers: new Set() };
       prepared = true;
       publish();
     } else if (data.kind === 'begin') {
@@ -43,11 +45,13 @@ self.onmessage = ({ data }) => {
       const currentMinigame = room.currentMinigame;
       const startedAt = Date.now() + 1800;
       currentMinigame.startedAt = startedAt;
-      currentMinigame.arcade = rules.createArcadeState(currentMinigame.type, room.players, startedAt);
+      if (currentMinigame.arena) currentMinigame.arena = rules.createArenaState(room.players, startedAt, currentMinigame.duration);
+      else currentMinigame.arcade = rules.createArcadeState(currentMinigame.type, room.players, startedAt);
       publish();
       timer = setInterval(() => {
         try {
-          rules.updateArcade(room);
+          if (currentMinigame.arena) rules.updateBounceArena(room);
+          else rules.updateArcade(room);
           // Finales schedule multiplayer result timers. Practice only needs
           // the locked final state and leaves the scene visible for review.
           if (currentMinigame.finaleAt || Date.now() >= startedAt + currentMinigame.duration) {
@@ -60,7 +64,7 @@ self.onmessage = ({ data }) => {
     } else if (data.kind === 'input') {
       if (data.generation !== generation || prepared) return;
       if (!room) throw new Error('Übung noch nicht bereit.');
-      const response = rules.handleArcadeInput(room, room.players[0], data.input);
+      const response = room.currentMinigame.arena ? rules.handleArenaInput(room, room.players[0], data.input) : rules.handleArcadeInput(room, room.players[0], data.input);
       self.postMessage({ kind: 'reply', generation, id: data.id, response });
       publish();
     }

@@ -32,7 +32,8 @@
     "practice-check": "node scripts/practice-check.mjs",
     "game-previews": "node scripts/game-previews.mjs",
     "pipe-check": "node scripts/pipe-check.mjs",
-    "sprint-check": "node scripts/sprint-check.mjs"
+    "sprint-check": "node scripts/sprint-check.mjs",
+    "bumper-check": "node scripts/bumper-check.mjs"
   },
   "keywords": [
     "party-game",

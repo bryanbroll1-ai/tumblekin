@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin207";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin207";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
-import { frameLerp, frameChance } from "./Quality.js?v=tumblekin207";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin207";
+import { createCloud } from "./VoxelKit.js?v=tumblekin208";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin208";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin208";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin208";
 
 // Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)
 // kommen Blobs. Wer schnell draufhaut, bekommt mehr (3/2/1 Punkte), der
