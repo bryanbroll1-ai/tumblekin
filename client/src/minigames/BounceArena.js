@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, noise } from "./VoxelKit.js?v=tumblekin206";
-import { ringband } from "./Blockform.js?v=tumblekin206";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
-import { frameDecay, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin206";
-import { arenaShrinkCue } from "./FeedbackCues.js?v=tumblekin206";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin206";
+import { createCloud, noise } from "./VoxelKit.js?v=tumblekin207";
+import { ringband } from "./Blockform.js?v=tumblekin207";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
+import { frameDecay, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin207";
+import { arenaShrinkCue } from "./FeedbackCues.js?v=tumblekin207";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin207";
 
 // Bumper Pool: jede Figur sitzt in einem gestreiften Schwimmring auf einer
 // Badeinsel mitten im Freibad und rempelt die anderen ins Becken. Drei Leben:

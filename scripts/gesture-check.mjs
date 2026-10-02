@@ -7,7 +7,7 @@ const prepare=async game=>{await startSingle(page,game);await page.waitForSelect
 const read=()=>page.evaluate(()=>window.__gestureCalls);
 try{
  await openRoom(page,server.base,{name:'Gesten'});
- for(const [game,method] of [['colorEscape','sendStep'],['muenzregen','sendLane'],['finishRush','sendLane']]){
+ for(const [game,method] of [['colorEscape','sendStep'],['muenzregen','sendLane']]){
   await prepare(game);
   await page.evaluate(method=>{window.__gestureCalls=[];window.__tumblekinScene[method]=(...args)=>window.__gestureCalls.push(args);},method);
   await pointer('canvas.kinetic-webgl','pointerdown',11);

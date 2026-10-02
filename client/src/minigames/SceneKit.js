@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { disposeScene } from "./VoxelKit.js?v=tumblekin206";
-import { qualityTier } from "./Quality.js?v=tumblekin206";
+import { disposeScene } from "./VoxelKit.js?v=tumblekin207";
+import { qualityTier } from "./Quality.js?v=tumblekin207";
 
 // Shared stage plumbing for the 3D minigames. Every minigame used to carry a
 // byte-identical copy of the renderer setup, the resize handler, the own-marker

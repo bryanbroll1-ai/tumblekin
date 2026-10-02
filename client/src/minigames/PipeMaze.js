@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { disposeScene } from "./VoxelKit.js?v=tumblekin206";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
-import { frameLerp } from "./Quality.js?v=tumblekin206";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin206";
+import { disposeScene } from "./VoxelKit.js?v=tumblekin207";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
+import { frameLerp } from "./Quality.js?v=tumblekin207";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin207";
 
 // Rohrsalat — im Kesselhaus hängt ein Gewirr aus Kupferrohren an der
 // Ziegelwand. Oben die Ventile, unten die Ausgänge; nur einer führt in die

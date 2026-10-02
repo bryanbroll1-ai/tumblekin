@@ -24,14 +24,14 @@ export const GESTURES = {
   pick: { icon: "👆🍎", label: "Eins oder zwei pflücken" },
   stickThrow: { icon: "🕹️👆", label: "Stick steuern, Knopf werfen" },
   stickShove: { icon: "🕹️💥", label: "Stick laufen, Knopf schubsen" },
-  run: { icon: "👆↔️", label: "Seitlich wischen · Tippen springt" },
+  run: { icon: "👆⏺️", label: "Sprint halten · Sprung tippen" },
   glide: { icon: "👆⏺️", label: "Bild halten · Knopf abwerfen" },
   follow: { icon: "👀👆", label: "Mit den Augen folgen, dann tippen" }
 };
 
 export const MINIGAME_CATALOG = [
   { type: "bounceArena", title: "Bumper Pool", gesture: "joystick", help: "Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe." },
-  { type: "finishRush", title: "Zielgerade", family: "runner", gesture: "run", help: "Wisch nach links oder rechts auf die Boostplatten: grüne Platten mit Pfeilen schieben dich an, Matsch bremst. Tippen springt über Hürden — in der Luft bist du etwas langsamer, also nur, wenn es nötig ist. Heuballen sind zu hoch zum Springen, da hilft nur ausweichen." },
+  { type: "finishRush", title: "Zielgerade", family: "runner", gesture: "run", help: "100 Meter, sieben Hürden, eine eigene Bahn für jede Person. Halte SPRINT für mehr Tempo; Loslassen lädt am Boden die Ausdauer auf. Tippe SPRUNG vor der Hürde – der grüne Hinweis hilft beim Timing. Sprinten und Springen kosten Ausdauer. Ganz leer? Dein Sprint erholt sich bis 30 Prozent; springen kannst du trotzdem. Ein Hürdentreffer kostet Tempo, du bleibst im Rennen. Die schnellste Zielzeit gewinnt; gleiche Hundertstel teilen den Platz." },
   { type: "colorEscape", title: "Farbflucht", family: "colorgrid", gesture: "swipeAny", help: "Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus." },
   { type: "nervenprobe", title: "Nervenprobe", family: "stopclock", gesture: "tap", help: "Die Zielzeit liegt zwischen 4 und 8 Sekunden. Nach 2 Sekunden verschwindet jede Uhr — zähl im Kopf weiter und drück so nah wie möglich an der Zielzeit." },
   { type: "lichtwaechter", title: "Lichtwächter", family: "redlight", gesture: "hold", help: "Halte den Knopf, um zu laufen. Wenn die Lampe gelb blinkt, dreht sich der Wächter um — lass bis dahin los. Wer bei Rot noch läuft, fliegt fünf Meter zurück und ist kurz benommen. Manchmal täuscht er nur an. Wer zuerst am Tor ist, gewinnt." },

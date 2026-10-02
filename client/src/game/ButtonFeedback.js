@@ -14,7 +14,7 @@ export class ButtonFeedback {
       if (!button) return;
       this.pointers.set(event.pointerId, button);
       this.press(button);
-      if (!button.closest("#minigame-controls")) {
+      if (!button.closest("#minigame-controls, .practice-layer .minigame-controls")) {
         this.feedback?.sound("press");
         this.feedback?.vibrate(6);
       }
@@ -28,7 +28,7 @@ export class ButtonFeedback {
       // Assistive Technik löst click ohne vorausgehende Pointer-Ereignisse aus.
       const button = this.buttonAt(event.target);
       if (!button || event.detail !== 0) return;
-      if (button.closest("#minigame-controls")) {
+      if (button.closest("#minigame-controls, .practice-layer .minigame-controls")) {
         this.dispatch(button, "pointerdown", -100);
         this.dispatch(button, "pointerup", -100);
       } else this.pulse(button);
@@ -88,11 +88,11 @@ export class ButtonFeedback {
     const button = this.buttonAt(event.target);
     if (!button) return;
     if (event.repeat) {
-      if (button.closest("#minigame-controls")) { event.preventDefault(); event.stopPropagation(); }
+      if (button.closest("#minigame-controls, .practice-layer .minigame-controls")) { event.preventDefault(); event.stopPropagation(); }
       return;
     }
     this.keys.set(event.code, button);
-    if (button.closest("#minigame-controls")) {
+    if (button.closest("#minigame-controls, .practice-layer .minigame-controls")) {
       event.preventDefault();
       event.stopPropagation();
       this.dispatch(button, "pointerdown", event.code === "Space" ? -101 : -102);
@@ -107,7 +107,7 @@ export class ButtonFeedback {
     const button = this.keys.get(event.code);
     if (!button) return;
     this.keys.delete(event.code);
-    if (button.closest("#minigame-controls")) {
+    if (button.closest("#minigame-controls, .practice-layer .minigame-controls")) {
       event.preventDefault();
       event.stopPropagation();
       this.dispatch(button, "pointerup", event.code === "Space" ? -101 : -102);
@@ -125,7 +125,7 @@ export class ButtonFeedback {
 
   reset() {
     for (const [code, button] of this.keys) {
-      if (button.closest("#minigame-controls")) this.dispatch(button, "pointercancel", code === "Space" ? -101 : -102);
+      if (button.closest("#minigame-controls, .practice-layer .minigame-controls")) this.dispatch(button, "pointercancel", code === "Space" ? -101 : -102);
     }
     this.keys.clear();
     this.pointers.clear();

@@ -19,7 +19,7 @@ Alle Zeilen enthalten die gemeinsame Anzeige- und Finale-Verfeinerung. Zusätzli
 | Spiel | Einzeln betrachtete Mechanik | Anzeige und zusätzliche Änderung |
 | --- | --- | --- |
 | Bumper Pool | Rempler, drei Leben, Rauswürfe, schrumpfende Insel | Leben; vorhandene Insel-Vorwarnung und Joystick-Unterbrechung erneut geprüft |
-| Zielgerade | Spurwechsel, Sprung, Boost, Hindernisse, Zielplatz | Platz; Wisch gehört seinem Finger, fremdes Loslassen erzeugt keinen Sprung; Fußkontakt erneut geprüft |
+| Zielgerade | Neuer 100-Meter-Hürdensprint: eigene Bahn, Ausdauer, gehaltenes Sprinten, getimte Sprünge | Gemeinsame Sprungphysik und kontinuierliche Treffer-/Zielprüfung; zwei unabhängige Druckknöpfe; Übung und Kamera in Hoch-/Querformat |
 | Farbflucht | Farbansage, Feldwechsel, Sturz und steigendes Tempo | Runden; Mehrfinger- und Unterbrechungsschutz für die Wischgeste |
 | Nervenprobe | Sichtbare Startuhr, verdecktes Weiterzählen, Stoppabweichung | Eigene Zielzeit erhalten; keine verräterische zweite Uhr |
 | Lichtwächter | Halten, Gelb-/Rotwechsel, Rückwurf und Zieleinlauf | Weg; Halteunterbrechung erneut geprüft |
@@ -99,3 +99,9 @@ Neue Prüfung: 403 Regeltests bestanden; die fünf Kameraspiele bestanden 15 Lay
 Die Ansichtsexporte in `scripts/game-previews.mjs` warten auf die tatsächlich aufgebaute Aufgabe; besonders bei Rohrsalat liefert der Vorlauf noch ein leeres Brett. Die frühe Layoutprüfung allein belegt deshalb nicht die Lesbarkeit jeder späteren Spielsituation. Spaß und Zielschwierigkeit bleiben Gegenstand menschlicher Testpartien.
 
 Ergänzend bestanden alle sieben Druckprüfungen, die sieben Gestenspiele und die Einführung auf zwei Geräten. Grimassen wurde aus 18 Pixeln Abstand zum Griff gezogen; die Formänderung erreichte den Server, und Drehen beendete den Zug vor der neuen Anordnung. Rohrsalat durchlief fünf echte Runden: auch sechs Ventile passen auf 320 Pixel Breite und in zwei Querformate, die vollständigen Buchstabenschilder bleiben frei von der Ansage, und beim Wechsel wird die alte Schildtextur freigegeben. Alle 40 Vorschauen wurden aus laufenden Szenen erzeugt und auf Größe sowie leere Renderflächen geprüft.
+
+## Zielgerade komplett erneuert (2. Oktober 2026)
+
+Der alte Bahnwechselkurs wurde durch einen 100-Meter-Hürdensprint mit eigenen Bahnen, Ausdauer und zwei unabhängigen Aktionsknöpfen ersetzt. Regeln, Bots, Kurs, Kamera, Trefferfeedback, Sprung- und Landeposen, Einführung und echte Spielvorschau sind angepasst. Zielgerade bietet jetzt ebenfalls einen isolierten Übungsversuch. Details und begründete Entscheidungen stehen in [ZIELGERADE_REWORK.md](ZIELGERADE_REWORK.md).
+
+410 Regeltests, 27 vollständige Zielgerade-Simulationen, je 120 Bot-Runden zu zweit/dritt/viert und drei mobile Layouts bestanden. Der Browsercheck bestätigt echte Zwei-Finger-Bedienung, Tastatur, Loslassen bei Tab-/Größenwechsel, gemeinsame sichtbare Sprunghöhe, Kamerarahmen, Übungsneustart und unveränderte Partiedaten. Der Animationscheck bestand 384 Varianten mit und ohne reduzierte Bewegung.

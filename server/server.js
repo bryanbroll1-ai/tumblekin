@@ -5,6 +5,7 @@ const path = require("path");
 const { Server } = require("socket.io");
 const QRCode = require("qrcode");
 const modes = require("./modes");
+const Sprint = require("../client/src/minigames/SprintPhysics.js");
 const { PARTY_FAMILIES, PARTY_GAMES } = require("./partyGames");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -77,7 +78,7 @@ const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_LEAD_SPREAD_MS + DARE_ROUNDS * (
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
   { type: "bounceArena", title: "Bumper Pool", duration: 45000 },
-  { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
+  { type: "finishRush", title: "Zielgerade", duration: 32000, arcadeFamily: "runner" },
   { type: "colorEscape", title: "Farbflucht", duration: 40000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
@@ -627,44 +628,8 @@ function seekFindValue(probes) {
 }
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
-// Zielgerade — ein Lauf über drei Bahnen, 150 Meter.
-//
-// Die alte Fassung war ein Selbstläufer: alle rannten gleich schnell, und man
-// wischte hin und wieder um ein Hindernis herum. Jetzt entscheidet drei Dinge,
-// wer vorn ist, und alle drei sieht man kommen:
-//
-//  * DIE BAHN hat Tempo. Jeder Abschnitt gibt den drei Bahnen einen Belag —
-//    Tempo, normal, Sand —, und die Tempobahn wandert. Man liest voraus und
-//    plant eine Linie.
-//  * HÜRDEN stehen nie im Sand, dafür oft in der schnellen Bahn: überspringen
-//    (tippen) oder ausweichen, sonst stolpert man gut eine Sekunde.
-//  * ANSCHUB: wer auf ein Boostfeld wechselt, bekommt einen kurzen Stoss
-//    obendrauf — der Wechsel selbst fühlt sich nach Tempo an.
-//
-// Gegenstände gibt es keine: wer vorn ist, ist vorn, weil er die Bahn besser
-// gelesen und sauberer gesprungen ist.
-const RUNNER_LENGTH = 150;
-const RUNNER_BASE_SPEED = 5.2;
-const RUNNER_SEG_LEN = 7.5;            // Länge eines Bahnabschnitts in Metern
-// Belagfaktoren. Der Abstand zwischen Sand und Tempo ist bewusst gross: eine
-// Bahn muss sich beim Hinschauen lohnen, sonst schaut niemand hin.
-const RUNNER_SURFACE = { sand: 0.70, normal: 1.0, tempo: 1.34 };
-// Ein Sprung ist eine Antwort, kein Dauerzustand. Vorher kostete er nichts:
-// wer ununterbrochen tippte, war gegen jede Hürde UND jeden Wurf gefeit, und
-// das Lesen der Bahn war wertlos. Jetzt ist man in der Luft etwas langsamer,
-// und nach der Landung dauert es einen Moment bis zum nächsten Absprung.
-const RUNNER_JUMP_MS = 650;
-const RUNNER_JUMP_REST_MS = 350;
-const RUNNER_AIR_FACTOR = 0.86;
-// Ein Stolperer muss das Rennen kosten können. Bei 1150 ms und 0.35-Tempo lag
-// der Verlust bei rund 0.75 s auf 26 s Renndauer — knapp drei Prozent, zu wenig,
-// als dass sich saubere Bahnwahl auszahlt.
-const RUNNER_STUMBLE_MS = 1200;
-// Anschub beim Wechsel auf ein Boostfeld: so viel schneller, und so lange
-// klingt er ab. Nur beim Hineinwechseln, nicht beim Weiterlaufen von einem
-// Boostfeld aufs nächste — sonst wäre er nur ein etwas stärkerer Belag.
-const RUNNER_KICK = 0.3;
-const RUNNER_KICK_MS = 600;
+// Zielgerade: personal lanes, shared 100 m course and ballistic hurdles.
+const RUNNER_LENGTH = Sprint.C.LENGTH;
 // Farbflucht — eine Farbe wird angesagt, alle anderen Felder fallen weg.
 //
 // Die alte Fassung war im Ablauf kaputt: die Zielfarbe stand im Banner erst
@@ -2437,12 +2402,7 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     if (arcadePlayer.stoppedMs === null || arcadePlayer.stoppedMs === undefined) return 0;
     return Math.max(1, 100000 - Math.round(arcadePlayer.deviationMs || 0));
   }
-  if (arcade.family === "runner") {
-    // Finishers rank above everyone still running, fastest first.
-    return arcadePlayer.finishedAt
-      ? 10000000 - Math.round(arcadePlayer.finishMs || 0)
-      : Math.round(arcadePlayer.progress || 0);
-  }
+  if (arcade.family === "runner") return Sprint.rank(arcadePlayer);
   if (arcade.family === "colorgrid") {
     // Mehr überstandene Runden zuerst. Wer gleich viele hat, den ordnet, wer
     // schneller auf seinem sicheren Feld stand — vorher teilten sich in gut der
@@ -3191,22 +3151,9 @@ function createArcadeState(type, players, startedAt, options = {}) {
   }
   if (config.family === "runner") {
     arcade.trackLength = RUNNER_LENGTH;
-    arcade.segments = createRunnerCourse(arcade.seed);
-    arcade.segLen = RUNNER_SEG_LEN;
+    arcade.hurdles = Sprint.course(arcade.seed);
     players.forEach((player, index) => {
-      const entry = arcade.players[player.id];
-      entry.lane = runnerStartLane(index, players.length);
-      entry.progress = 0;
-      entry.nextHurdle = 0;        // Index des nächsten noch offenen Abschnitts
-      entry.nextWall = 0;          // dasselbe für die Heuballen
-      entry.crashes = 0;           // in einen Heuballen gelaufen
-      entry.stumbleUntil = 0;
-      entry.kickAt = 0;              // wann zuletzt auf ein Boostfeld gewechselt
-      entry.kicks = 0;
-      entry.jumpUntil = 0;
-      entry.finishedAt = null;
-      entry.finishMs = null;
-      entry.stumbles = 0;
+      Object.assign(arcade.players[player.id], Sprint.player(index, startedAt));
     });
   }
   if (config.family === "colorgrid") {
@@ -4135,98 +4082,6 @@ function buildWaveSchedule(seed, totalMs) {
   return waves;
 }
 
-// Same course for every player: at each row at least one lane stays free,
-// so the track is always beatable and fair.
-// Der Kurs besteht aus Abschnitten. Jeder verteilt die drei Beläge auf die
-// drei Bahnen, und in manchen steht zusätzlich eine Hürde in einer Bahn.
-//
-// Zwei Regeln halten ihn fair und lesbar:
-//  * Die Tempobahn wandert. Zwei Abschnitte hintereinander dieselbe schnelle
-//    Bahn wären eine Einladung, einmal zu wechseln und dann wegzuschauen.
-//  * Die Hürde steht NIE in der Sandbahn. Sonst wäre die Entscheidung geschenkt
-//    — der Sand ist schon Strafe genug, eine Hürde obendrauf trifft niemanden.
-function createRunnerCourse(seed) {
-  const segments = [];
-  const count = Math.ceil(RUNNER_LENGTH / RUNNER_SEG_LEN);
-  let tempo = Math.floor(arcadeNoise(seed + 5) * 3);
-  let sand = (tempo + 1 + Math.floor(arcadeNoise(seed + 11) * 2)) % 3;
-  for (let index = 0; index < count; index += 1) {
-    const at = index * RUNNER_SEG_LEN;
-    // Die ersten beiden Abschnitte sind flach: man soll die Bahnen sehen,
-    // bevor sie etwas kosten.
-    const ruhig = index < 2;
-    const lanes = [0, 1, 2].map((lane) => {
-      if (ruhig) return "normal";
-      if (lane === tempo) return "tempo";
-      if (lane === sand) return "sand";
-      return "normal";
-    });
-    // Ab dem vierten Abschnitt stehen Hürden — anfangs in gut jedem zweiten,
-    // zum Ziel hin in fast jedem. Zum Schluss wird es hektischer.
-    const anteil = index / Math.max(1, count - 1);
-    // Nie zwei Hürden hintereinander in derselben Bahn: Sprung und Landung
-    // dauern zusammen eine Sekunde, mit Boost liegen zwei Abschnitte aber
-    // nur gut 0,7 s auseinander — die zweite wäre nicht zu schaffen.
-    const vorige = segments.length ? segments[segments.length - 1].hurdle : null;
-    let hurdle = null;
-    if (index >= 3 && arcadeNoise(seed + index * 23) < 0.45 + 0.3 * anteil) {
-      const kandidaten = [0, 1, 2].filter((lane) => lanes[lane] !== "sand" && lane !== vorige);
-      if (kandidaten.length) hurdle = kandidaten[Math.floor(arcadeNoise(seed + index * 29) * kandidaten.length)];
-    }
-    // Heuballen: zu hoch zum Springen, man muss die Bahn wechseln. Sie stehen
-    // am Anfang eines Abschnitts, nie in der Bahn der Hürde und nie im Sand —
-    // oft also genau auf der Tempobahn: wer sie will, muss um den Ballen herum.
-    // Der Sand bleibt immer frei, es gibt also immer einen Weg.
-    let wall = null;
-    if (index >= 4 && arcadeNoise(seed + index * 47) < 0.2 + 0.25 * anteil) {
-      const kandidaten = [0, 1, 2].filter((lane) => lanes[lane] !== "sand" && lane !== hurdle);
-      if (kandidaten.length) wall = kandidaten[Math.floor(arcadeNoise(seed + index * 53) * kandidaten.length)];
-    }
-    segments.push({ index, at, lanes, hurdle, hurdleAt: at + RUNNER_SEG_LEN * 0.62, wall, wallAt: at + RUNNER_SEG_LEN * 0.22 });
-    // Nächster Abschnitt. Die Tempobahn sprang früher in JEDEM Abschnitt auf
-    // eine andere Bahn, oft von ganz links nach ganz rechts — alle 0,9 s ein
-    // neuer Wisch, zwei Bahnen weit. Das ist kein Planen mehr, sondern
-    // Hinterherwischen: gemessen fuhren alle drei Bot-Stufen im Mittel einen
-    // Belag von 1.04, kaum besser als geradeaus, und die Rangfolge war Zufall.
-    // Jetzt bleibt sie oft liegen und wandert, wenn, in die Nachbarbahn. Wer
-    // vorausschaut, fährt eine Linie; wer nur reagiert, hängt eine Bahn zurück.
-    if (arcadeNoise(seed + index * 31) >= 0.42) {
-      tempo = tempo === 1
-        ? (arcadeNoise(seed + index * 41) < 0.5 ? 0 : 2)
-        : 1;
-    }
-    sand = (tempo + 1 + Math.floor(arcadeNoise(seed + index * 37) * 2)) % 3;
-  }
-  return segments;
-}
-
-// Startbahn: verteilt über alle drei Bahnen, wie an einer echten Startlinie.
-// Vorher standen alle in der Mitte auf demselben Fleck, die Figuren steckten
-// zu viert ineinander. Die ersten beiden Abschnitte sind in allen Bahnen
-// gleich, die Startbahn bringt also niemandem einen Vorteil.
-function runnerStartLane(index, count) {
-  if (count <= 1) return 1;
-  if (count === 2) return index === 0 ? 0 : 2;
-  if (count === 4) return [0, 1, 2, 1][index];
-  return index % 3;
-}
-
-// Der Abschnitt, in dem eine Position liegt.
-function runnerSegmentAt(arcade, position) {
-  const segments = arcade.segments || [];
-  if (segments.length === 0) return null;
-  const index = Math.min(segments.length - 1, Math.max(0, Math.floor(position / RUNNER_SEG_LEN)));
-  return segments[index];
-}
-
-// Der Belagfaktor einer Bahn an einer Position.
-function runnerLaneFactor(arcade, position, lane) {
-  const segment = runnerSegmentAt(arcade, position);
-  if (!segment) return 1;
-  return RUNNER_SURFACE[segment.lanes[lane]] ?? 1;
-}
-
-
 // Der Zeitplan: je Runde Beginn (ab Spielstart), Ende der Ansage und Ende des
 // Falls. Server, Bots und Client lesen alle dieselben Zahlen.
 function buildColorSchedule() {
@@ -4317,7 +4172,7 @@ function handleArcadeInput(room, player, rawInput) {
   // Das Finale zeigt bereits festgelegte Plätze. Auch direkte Aufrufe aus
   // Bots oder Werkzeugen dürfen diesen Stand nicht nachträglich verändern.
   if (minigameFrozen(minigame, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -5024,23 +4879,24 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "runner") {
-    if (arcadePlayer.finishedAt) return { ok: true };
-    if (input.action === "lane") {
-      const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
-      arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
-      arcadePlayer.hasMoved = true;
-      return { ok: true };
+    if (!["sprint", "jump"].includes(input.action)) {
+      return { ok: false, error: "Sprint halten, Sprung tippen." };
     }
-    if (input.action === "jump") {
-      // Noch in der Luft oder gerade gelandet: der Tipp verfällt still. Eine
-      // Fehlermeldung je Tipp wäre beim hastigen Tippen nur Lärm.
-      if (now < (arcadePlayer.jumpUntil || 0) + RUNNER_JUMP_REST_MS) return { ok: true };
-      arcadePlayer.jumpUntil = now + RUNNER_JUMP_MS;
-      arcadePlayer.jumps = (arcadePlayer.jumps || 0) + 1;
-      arcadePlayer.hasMoved = true;
-      return { ok: true };
+    if (input.action === "sprint" && typeof input.hold !== "boolean") {
+      return { ok: false, error: "Haltezustand fehlt." };
     }
-    return { ok: false, error: "Wische zum Spurwechsel, tippe zum Springen." };
+    // Apply the time before an input under the previous input state. In
+    // particular, a late jump cannot retroactively clear a crossed hurdle.
+    updateRunner(room, minigame, arcade, now);
+    if (arcadePlayer.finishedAt !== null) return { ok: true };
+    if (input.action === "sprint") {
+      arcadePlayer.holding = input.hold;
+      arcadePlayer.sprintAt = now;
+    } else if (now >= minigame.startedAt) {
+      Sprint.jump(arcadePlayer, now);
+    }
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
   }
 
   if (arcade.family === "colorgrid") {
@@ -5471,9 +5327,7 @@ function updateArcade(room) {
   }
 
   if (arcade.family === "runner") {
-    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
-    arcade.lastUpdateAt = now;
-    updateRunner(room, minigame, arcade, dt, now);
+    updateRunner(room, minigame, arcade, now);
   }
 
   if (arcade.family === "colorgrid") {
@@ -5872,71 +5726,15 @@ function updateWave(room, minigame, arcade, now) {
   });
 }
 
-function updateRunner(room, minigame, arcade, dt, now) {
+function updateRunner(room, minigame, arcade, now) {
+  const to = Math.min(now, minigame.startedAt + minigame.duration);
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
-    if (!entry || entry.finishedAt) return;
-
-    const stumbling = now < entry.stumbleUntil;
-    const jumping = now < entry.jumpUntil;
-
-    // Constantly run forward like Subway Surfers
-    const surface = runnerLaneFactor(arcade, entry.progress, entry.lane);
-    const belag = runnerSegmentAt(arcade, entry.progress)?.lanes[entry.lane] || "normal";
-    // Anschub: nur wer von einem anderen Belag auf ein Boostfeld kommt.
-    if (belag === "tempo" && entry.surface !== "tempo" && entry.surface !== undefined && !stumbling) {
-      entry.kickAt = now;
-      entry.kicks = (entry.kicks || 0) + 1;
-    }
-    const kickLeft = belag === "tempo" && !stumbling ? Math.max(0, 1 - (now - (entry.kickAt || 0)) / RUNNER_KICK_MS) : 0;
-    const speed = RUNNER_BASE_SPEED
-      * surface
-      * (1 + RUNNER_KICK * kickLeft)
-      * (stumbling ? 0.32 : 1.25)
-      * (jumping ? RUNNER_AIR_FACTOR : 1);
-
-    entry.speed = speed;
-    entry.surface = belag;
-    entry.progress = Math.min(arcade.trackLength, entry.progress + speed * dt);
-
-    const segments = arcade.segments || [];
-    while (entry.nextHurdle < segments.length && entry.progress >= segments[entry.nextHurdle].hurdleAt) {
-      const segment = segments[entry.nextHurdle];
-      entry.nextHurdle += 1;
-      if (segment.hurdle === null || segment.hurdle !== entry.lane) continue;
-      
-      if (!jumping) {
-        entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
-        entry.stumbles += 1;
-        entry.flash = "bad";
-        entry.lastHitAt = now;
-      }
-    }
-
-    // Heuballen: Springen hilft nicht, nur ausweichen.
-    while (entry.nextWall < segments.length && entry.progress >= segments[entry.nextWall].wallAt) {
-      const segment = segments[entry.nextWall];
-      entry.nextWall += 1;
-      if (segment.wall === null || segment.wall === undefined || segment.wall !== entry.lane) continue;
-      entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
-      entry.stumbles += 1;
-      entry.crashes = (entry.crashes || 0) + 1;
-      entry.flash = "bad";
-      entry.lastHitAt = now;
-    }
-
-    if (entry.progress >= arcade.trackLength) {
-      entry.finishedAt = now;
-      entry.finishMs = Math.max(0, now - minigame.startedAt);
-      entry.flash = "good";
-      entry.lastHitAt = now;
-    }
-
-    entry.score = entry.finishedAt
-      ? 10000000 - entry.finishMs
-      : Math.round(entry.progress * 1000);
+    if (!entry) return;
+    Sprint.advance(entry, arcade.hurdles, minigame.startedAt, to);
     syncArcadeScore(minigame, player, entry);
   });
+  arcade.lastUpdateAt = to;
 }
 
 function updateColorGrid(room, minigame, arcade, now) {
@@ -8555,112 +8353,31 @@ function arcadeBotStep(room, bot) {
     return;
   }
   if (arcade.family === "runner") {
-    if (player.finishedAt) return;
+    if (player.finishedAt !== null) return;
     const now = Date.now();
     const profile = botProfile(player);
-    const segments = arcade.segments || [];
-    const hier = runnerSegmentAt(arcade, player.progress);
-    if (!hier) return;
-    const naechster = segments[Math.min(segments.length - 1, hier.index + 1)];
-
-    if (player.botSegIndex !== hier.index) {
-      player.botSegIndex = hier.index;
-      player.botRead = Math.random() > profile.mistake;
+    const hard = profile.level === "hard";
+    const easy = profile.level === "easy";
+    const low = hard ? 18 : easy ? 0 : 14;
+    const high = hard ? 50 : easy ? 32 : 50;
+    const sprint = arcade.trackLength - player.progress < 12
+      || (player.botSprinting ? player.energy > low : player.energy >= high);
+    player.botSprinting = sprint;
+    handleArcadeInput(room, bot, { action: "sprint", hold: sprint && !(hard && now < player.jumpUntil) });
+    const hurdle = arcade.hurdles[player.nextHurdle];
+    if (!hurdle) return;
+    if (player.botHurdle !== hurdle.index) {
+      player.botHurdle = hurdle.index;
+      player.botWillJump = Math.random() > (hard ? 0.02 : easy ? 0.32 : 0.12);
+      player.botJumpLead = (hard ? 0.45 : easy ? 0.25 : 0.38)
+        + (Math.random() - 0.5) * (hard ? 0.08 : easy ? 0.42 : 0.22);
     }
-
-    // Springen, wenn die Hürde gleich da ist — gemessen in Zeit, nicht in
-    // Metern: mit Anschub auf dem Boost ist man so schnell, dass drei Meter
-    // zwischen zwei Blicke des Bots fielen. Ein Sprung trägt 0,65 s, also
-    // reicht es, innerhalb der letzten gut halben Sekunde abzuspringen.
-    const tempo = Math.max(1, player.speed || RUNNER_BASE_SPEED);
-    const huerde = [hier, naechster].find((segment) => segment.hurdle === player.lane && segment.hurdleAt > player.progress);
-    if (player.botRead && huerde && (huerde.hurdleAt - player.progress) / tempo < 0.55) {
+    if (player.botWillJump && (hurdle.at - player.progress) / Math.max(1, player.speed) <= player.botJumpLead) {
       handleArcadeInput(room, bot, { action: "jump" });
-      return;
-    }
-
-    // Heuballen voraus in der eigenen Bahn: ausweichen. Ob der Bot ihn
-    // rechtzeitig sieht, würfelt er EINMAL je Ballen — der schwache sieht ihn
-    // spät oder gar nicht und läuft hinein.
-    const ballen = [hier, naechster].find((segment) => segment.wall === player.lane && segment.wallAt > player.progress);
-    if (ballen) {
-      if (player.botWallFor !== ballen.index) {
-        player.botWallFor = ballen.index;
-        const sieht = profile.level === "hard" ? 0.96 : profile.level === "normal" ? 0.82 : 0.55;
-        player.botSeesWall = Math.random() < sieht;
-      }
-      // Wie früh er ausweicht, in Sekunden bis zum Ballen.
-      const blick = profile.level === "hard" ? 0.75 : profile.level === "normal" ? 0.55 : 0.34;
-      if (player.botSeesWall && (ballen.wallAt - player.progress) / tempo < blick) {
-        const frei = [player.lane - 1, player.lane + 1].filter((lane) => lane >= 0 && lane <= 2 && ballen.wall !== lane);
-        // Lieber auf einen guten Belag als in den Sand.
-        frei.sort((a, b) => (RUNNER_SURFACE[ballen.lanes[b]] ?? 1) - (RUNNER_SURFACE[ballen.lanes[a]] ?? 1));
-        if (frei.length) {
-          handleArcadeInput(room, bot, { action: "lane", dir: frei[0] > player.lane ? 1 : -1 });
-          return;
-        }
-      }
-    }
-
-    // Die Bahn bewerten — und zwar BEIDE Abschnitte, den laufenden anteilig und
-    // den naechsten ganz.
-    //
-    // Vorher zaehlte nur der naechste. Der Bot wechselte also fuer eine Bahn, die
-    // erst gleich gut wird, und bezahlte dafuer den Rest des laufenden
-    // Abschnitts — oft auf Sand. Gemessen kam dabei fuer ALLE drei Stufen ein
-    // mittlerer Belag von 0.97 heraus, also schlechter als stur geradeaus
-    // (1.00): die Tempobahn, um die sich das halbe Spiel dreht, nutzte niemand.
-    //
-    // Huerden wiegen nur noch leicht, seit man springen kann: sie kosten einen
-    // Sprung, nicht den Abschnitt. Sie ganz auszuschliessen hat den Bot von
-    // guten Tempobahnen ferngehalten.
-    //
-    // Ein Bahnwechsel kostet nichts und geht sofort. Richtig ist also: in der
-    // besten Bahn des LAUFENDEN Abschnitts bleiben und kurz vor der Grenze in
-    // die beste des nächsten wechseln. Die alte Bewertung (jetzt·Rest + dann)
-    // verliess die Tempobahn schon nach einem Achtel des Abschnitts, um für
-    // den nächsten bereit zu stehen — und verschenkte so genau das, worum es
-    // geht. Wie genau der Bot die Grenze trifft, ist jetzt seine Spielstärke:
-    // der starke wechselt einen Schritt vorher, der schwache erst ein Stück
-    // hinter der Grenze, wenn er die neue Bahn sieht.
-    let wanted = player.lane;
-    // Wie weit der Bot bis zu seinem nächsten Blick läuft. Der starke nimmt
-    // den Blick, der der Grenze am nächsten liegt; der mittlere wechselt erst,
-    // wenn er fast dran ist (und liegt damit oft ein Stück zu spät), der
-    // schwache erst, wenn er die neue Bahn unter den Füssen hat.
-    const tickSeconds = clamp((now - (player.botLastStepAt || now - 330)) / 1000, 0.08, 0.6);
-    player.botLastStepAt = now;
-    if (player.botRead) {
-      const toNext = hier.at + RUNNER_SEG_LEN - player.progress;
-      const stride = Math.max(0.5, (player.speed || RUNNER_BASE_SPEED) * tickSeconds);
-      const nextBest = [0, 1, 2].reduce((best, lane) =>
-        ((RUNNER_SURFACE[naechster.lanes[lane]] ?? 1) > (RUNNER_SURFACE[naechster.lanes[best]] ?? 1) ? lane : best), player.lane);
-      const lead = profile.level === "hard"
-        ? stride * (Math.abs(nextBest - player.lane) > 1 ? 1.5 : 0.5)
-        : profile.level === "normal" ? 0.6 : -2.2;
-      const sinceStart = player.progress - hier.at;
-      const plan = toNext <= lead ? naechster : hier;
-      const late = lead < 0 && sinceStart < -lead;
-      const laneValue = (segment, lane) => {
-        let wert = RUNNER_SURFACE[segment.lanes[lane]] ?? 1;
-        // Hürden kosten nur einen Sprung, nicht den Abschnitt.
-        if (segment.hurdle === lane && (segment !== hier || player.progress < hier.hurdleAt)) wert -= 0.12;
-        // Ein Heuballen kostet den Abschnitt, solange er noch vor einem steht;
-        // danach ist die Bahn wieder so gut wie ihr Belag.
-        if (segment.wall === lane && (segment !== hier || player.progress < hier.wallAt)) wert -= 0.5;
-        return wert - Math.abs(lane - player.lane) * 0.02;
-      };
-      if (!late) {
-        let best = -Infinity;
-        [0, 1, 2].forEach((lane) => {
-          const wert = laneValue(plan, lane);
-          if (wert > best) { best = wert; wanted = lane; }
-        });
-      }
-    }
-
-    if (wanted !== player.lane) {
-      handleArcadeInput(room, bot, { action: "lane", dir: wanted > player.lane ? 1 : -1 });
+      player.botWillJump = false;
+      // A strong runner releases during flight: momentum is already fixed,
+      // so holding would spend energy without adding speed.
+      if (hard && now < player.jumpUntil) handleArcadeInput(room, bot, { action: "sprint", hold: false });
     }
     return;
   }
@@ -9100,7 +8817,6 @@ module.exports = {
     ARENA_RADIUS,
     ARENA_BALL_RADIUS,
     ARENA_RESPAWN_MS,
-    createRunnerCourse,
     dareBarrelAt,
     dareRestingDistance,
     darePoints,
@@ -9109,8 +8825,6 @@ module.exports = {
     DARE_ROLL_MS,
     DARE_LEAD_IN_MS,
     DARE_SHOW_MS,
-    runnerSegmentAt,
-    runnerLaneFactor,
     advanceColorRound,
     colorGridPhaseAt,
     updateArcade,

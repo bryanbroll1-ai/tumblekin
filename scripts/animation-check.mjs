@@ -15,7 +15,7 @@ try {
     await page.emulateMedia({ reducedMotion });
     const results = await page.evaluate(async () => {
       const THREE = await import("/vendor/three/three.module.js");
-      const { createKin, KinAnimator, KIN_STATES, standOn } = await import("/src/minigames/Kin.js?v=tumblekin202");
+      const { createKin, KinAnimator, KIN_STATES, standOn } = await import("/src/minigames/Kin.js?v=tumblekin207");
       const rows = [];
       const box = new THREE.Box3();
       for (const state of KIN_STATES) for (const hz of [30, 60, 120]) {
@@ -51,8 +51,8 @@ try {
   console.log(`✓ ${states} Animationszustände · ${variants} Varianten bei 30/60/120 Hz, mit und ohne reduzierte Bewegung`);
   const runner = await page.evaluate(async () => {
     const THREE = await import("/vendor/three/three.module.js");
-    const { createKin, KinAnimator, standOn } = await import("/src/minigames/Kin.js?v=tumblekin202");
-    const { RunnerDerby } = await import("/src/minigames/RunnerDerby.js?v=tumblekin203");
+    const { createKin, KinAnimator, standOn } = await import("/src/minigames/Kin.js?v=tumblekin207");
+    const { RunnerDerby } = await import("/src/minigames/RunnerDerby.js?v=tumblekin207");
     const kin = createKin("#ff5d73", 0);
     const animator = new KinAnimator(kin);
     const host = { kins: new Map([["test", kin]]) };

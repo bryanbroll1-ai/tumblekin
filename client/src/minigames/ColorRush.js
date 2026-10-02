@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin206";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin206";
-import { frameLerp } from "./Quality.js?v=tumblekin206";
-import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin206";
+import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin207";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin207";
+import { frameLerp } from "./Quality.js?v=tumblekin207";
+import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin207";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
 // Wischen hüpft man Feld für Feld. Runde und Phase kommen aus dem Zeitplan des

@@ -1,7 +1,7 @@
 // Isolated practice uses the real rules. No socket or multiplayer room is
 // created; terminating this Worker discards every practice score and timer.
 const { testRules: rules } = require('../server/server.js');
-const TYPES = new Set(['eisstock', 'ballonfahrt', 'kanonenflug', 'fassmut']);
+const TYPES = new Set(['finishRush', 'eisstock', 'ballonfahrt', 'kanonenflug', 'fassmut']);
 let room = null;
 let timer = null;
 let generation = 0;

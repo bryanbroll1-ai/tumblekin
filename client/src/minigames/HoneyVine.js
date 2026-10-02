@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin206";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin206";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
-import { frameLerp } from "./Quality.js?v=tumblekin206";
-import { kiste, lambert, viele, streuer, zaun, sonnenblumen, himmel, wolken } from "./Kulisse.js?v=tumblekin206";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin207";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin207";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
+import { frameLerp } from "./Quality.js?v=tumblekin207";
+import { kiste, lambert, viele, streuer, zaun, sonnenblumen, himmel, wolken } from "./Kulisse.js?v=tumblekin207";
 
 // Honigwabe — ein Bienengarten im Abendlicht. Vom Ast eines grossen Baumes
 // hängt eine Ranke: Äpfel, ab und zu ein goldener, dazwischen Honigwaben, um

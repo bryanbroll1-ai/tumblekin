@@ -31,7 +31,7 @@ Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
 
 Die Spielauswahl lässt sich nach **Reaktion**, **Geschick**, **Denken** und **Miteinander** filtern und nach Namen durchsuchen. Bei einer eigenen Auswahl fügt **Sichtbare wählen** die gefilterten Spiele hinzu, ohne die übrige Auswahl zu löschen.
 
-Alle 40 Spiele zeigen ihre tatsächliche Spielansicht in der Auswahl und auf der Startkarte. Bei **Eisstock**, **Ballonfahrt**, **Kanonenflug** und **Fassmut** lässt sich vor **Bereit!** mit **Steuerung ausprobieren** ein eigener Versuch starten. **Neu** setzt ihn zurück, **Fertig** oder Escape kehrt zur Startkarte zurück. Die Übung verwendet dieselben Regeln und Szenen wie die Partie; Punkte und Bereitstatus der Partie bleiben unverändert. Ihre Zeit läuft erst nach dem Szenenaufbau und einem kurzen Countdown.
+Alle 40 Spiele zeigen ihre tatsächliche Spielansicht in der Auswahl und auf der Startkarte. Bei **Zielgerade**, **Eisstock**, **Ballonfahrt**, **Kanonenflug** und **Fassmut** lässt sich vor **Bereit!** mit **Steuerung ausprobieren** ein eigener Versuch starten. **Neu** setzt ihn zurück, **Fertig** oder Escape kehrt zur Startkarte zurück. Die Übung verwendet dieselben Regeln und Szenen wie die Partie; Punkte und Bereitstatus der Partie bleiben unverändert. Ihre Zeit läuft erst nach dem Szenenaufbau und einem kurzen Countdown.
 
 Eine Partie braucht mindestens zwei Teilnehmer. Wer allein ist, holt sich mit **+ Bot** Mitspieler dazu — die Bots spielen jedes Minispiel mit, in drei Stärken; dass die stärkere in jedem Minispiel tatsächlich häufiger gewinnt, misst `npm run bot-sim` nach.
 
@@ -123,9 +123,9 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Lenk die Scheibe mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
 - **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
 
-### 👆↔️ Seitlich wischen · Tippen springt
+### 👆⏺️ Sprint halten · Sprung tippen
 
-- **Zielgerade:** Wisch nach links oder rechts auf die Boostplatten: grüne Platten mit Pfeilen schieben dich an, Matsch bremst. Tippen springt über Hürden — in der Luft bist du etwas langsamer, also nur, wenn es nötig ist. Heuballen sind zu hoch zum Springen, da hilft nur ausweichen.
+- **Zielgerade:** 100 Meter, sieben Hürden, eine eigene Bahn für jede Person. Halte SPRINT für mehr Tempo; Loslassen lädt am Boden die Ausdauer auf. Tippe SPRUNG vor der Hürde – der grüne Hinweis hilft beim Timing. Sprinten und Springen kosten Ausdauer. Ganz leer? Dein Sprint erholt sich bis 30 Prozent; springen kannst du trotzdem. Ein Hürdentreffer kostet Tempo, du bleibst im Rennen. Die schnellste Zielzeit gewinnt; gleiche Hundertstel teilen den Platz.
 
 ### 👆✳️ In jede Richtung wischen
 

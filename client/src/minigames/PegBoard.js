@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin206";
-import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin206";
-import { Nachlauf } from "./Nachlauf.js?v=tumblekin206";
-import { landingX } from "./Nagelbahn.js?v=tumblekin206";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin207";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin207";
+import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin207";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin207";
+import { landingX } from "./Nagelbahn.js?v=tumblekin207";
 
 // Eine Kugel-Form für alle Kugeln: vorher bekam jede Kugel eigene Geometrie,
 // und beim Landen wurde sie nur aus der Szene genommen, nie freigegeben.
