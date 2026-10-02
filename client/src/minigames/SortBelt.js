@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createShadowBlob } from "./VoxelKit.js?v=tumblekin205";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
-import { frameLerp } from "./Quality.js?v=tumblekin205";
-import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
+import { createShadowBlob } from "./VoxelKit.js?v=tumblekin206";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
+import { frameLerp } from "./Quality.js?v=tumblekin206";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin206";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
 // wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt

@@ -4,6 +4,8 @@ Dieser Durchgang betrachtet jedes der 40 Spiele als Eingabe → Entscheidung →
 
 ## Jetzt umgesetzt
 
+Die erste Umsetzung der hier priorisierten Kameras, Vorschaubilder und freiwilligen Übungen vom 2. Oktober steht in [GAME_REFINEMENT.md](GAME_REFINEMENT.md#umsetzung-der-ersten-designprioritäten-2-oktober-2026). Die offenen menschlichen Spieltests in der Tabelle bleiben zusätzliche Designfragen.
+
 - **Sichtbarer Druck statt flüchtigem `:active`.** Jeder verfügbare DOM-Knopf sinkt sofort in seinen Sockel. Ein kurzer Touch-Tipp bleibt mindestens 90 ms erkennbar; längeres Halten bleibt eingedrückt. Loslassen außerhalb des Knopfs, mehrere Finger, Abbruch und Fensterwechsel werden getrennt behandelt. Menüknöpfe geben zusätzlich einen kurzen mechanischen Ton und eine kleine Vibration, soweit eingeschaltet und vom Gerät unterstützt. Spielaktionen behalten ihre eigenen Klänge. Reduzierte Bewegung verwendet den veränderten Schatten ohne Bewegung.
 - **Spielbild und Knopf passen zusammen.** Bei Spielen mit einem einzelnen Aktionsknopf drückt auch eine Aktion über die Bühne diesen Knopf sichtbar ein. Dauersteuerung und Laufzeit-Pings erzeugen keine künstlichen Impulse. Die zusätzliche Pump-Knopfanimation wurde entfernt, damit zwei Animationen nicht gegeneinander arbeiten.
 - **Tastatur und assistive Aktivierung.** Fokussierte Spielknöpfe funktionieren mit Enter und Leertaste. Gehaltene Knöpfe bekommen auch das Loslassen. Automatische Tastenwiederholung zählt nicht als weitere Aktion. Ein assistiver `click` aktiviert denselben Eingabeweg. Menüknöpfe behalten ihre native Klickbedienung.

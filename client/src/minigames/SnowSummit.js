@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin205";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin203";
-import { frameLerp, frameChance } from "./Quality.js?v=tumblekin205";
-import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin200";
-import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin200";
+import { reachArm } from "./VoxelKit.js?v=tumblekin206";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin206";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin206";
+import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin206";
+import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin206";
 
 // Schneeballhang — ein Plateau auf dem Gipfel, rundherum ein Schneewall.
 // Jeder schiebt eine Kugel vor sich her, die beim Rollen wächst; ein Tipp

@@ -1,4 +1,4 @@
-import { minigameMeta } from "../minigames/catalog.js?v=tumblekin200";
+import { minigameMeta } from "../minigames/catalog.js?v=tumblekin206";
 
 // Helfer rund um den Raumzustand, den der Server schickt.
 
@@ -20,7 +20,7 @@ export const MODES = {
   },
   single: {
     icon: "🎮",
-    name: "Einzelspiel",
+    name: "Ein Spiel",
     help: "Ein Minispiel eurer Wahl — danach geht es zurück in die Lobby."
   }
 };

@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin205";
+import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin206";
 
 // Die Kamera der Minispiele.
 //
@@ -87,6 +87,8 @@ export class CameraRig {
     if (insets) {
       top = insets.top ?? 0;
       bottom = height - (insets.bottom ?? 0);
+      left = insets.left ?? 0;
+      right = width - (insets.right ?? 0);
     } else {
       const bar = this.host.hud?.querySelector(".kinetic-scorebar");
       if (bar && bar.offsetParent !== null) {
@@ -112,9 +114,9 @@ export class CameraRig {
         if (Number.isFinite(highest)) bottom = Math.min(bottom, highest - 8);
       }
     }
-    // Nie weniger als die Hälfte des Bildes: lieber etwas unter einem Knopf
-    // als eine Szene im Briefschlitz.
-    if (bottom - top < height * 0.5) {
+    // Automatic estimates retain a useful image area. Explicit reservations
+    // must stay exact: enlarging them would put a puzzle behind its own HUD.
+    if (!insets && bottom - top < height * 0.5) {
       const mid = (top + bottom) / 2;
       top = Math.max(0, mid - height * 0.25);
       bottom = Math.min(height, top + height * 0.5);

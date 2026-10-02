@@ -79,7 +79,7 @@ export async function launchBrowser({ headed = false, args = [] } = {}) {
   return chromium.launch({
     headless: !headed,
     ...(executablePath ? { executablePath } : {}),
-    args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", ...args]
+    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", ...args]
   });
 }
 

@@ -9,10 +9,11 @@ import {
   joinUrlFor,
   sortByStanding,
   minigameTitle
-} from "../game/GameState.js?v=tumblekin200";
-import { playerStatus } from "../game/Player.js?v=tumblekin200";
-import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin205";
-import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin205";
+} from "../game/GameState.js?v=tumblekin206";
+import { playerStatus } from "../game/Player.js?v=tumblekin206";
+import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin206";
+import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin206";
+import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin206';
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
@@ -37,6 +38,10 @@ export class UIManager {
     this.roomLabels = [...document.querySelectorAll("[data-room-code]")];
     this.bindElements();
     this.bindEvents();
+    this.practice = new PracticeSession(feedback, () => {
+      this.el.intro.inert = Boolean(this.practice?.active);
+      if (this.state?.status === 'minigame') this.syncIntro(this.state.currentMinigame);
+    }, message => this.showToast(message));
     this.prefillFromStorage();
     this.loadConfig();
     this.showScreen("start");
@@ -124,6 +129,8 @@ export class UIManager {
       introRules: $("intro-rules"),
       introDetails: $("intro-details"),
       introReady: $("intro-ready"),
+      introPractice: $("intro-practice"),
+      introPreview: $("intro-preview"),
       introReadyStatus: $("intro-ready-status"),
       introExtra: $("intro-extra"),
       introGestureIcon: $("intro-gesture-icon"),
@@ -176,9 +183,14 @@ export class UIManager {
     el.startGame.addEventListener("click", () => this.safeAction(() => this.handlers.startGame()));
     el.introReady.addEventListener("click", () => {
       const id = this.state?.currentMinigame?.id;
-      if (!id || this.state.phase !== "waitingReady") return;
+      if (!id || this.state.phase !== "waitingReady" || this.practice?.active) return;
       this.feedback?.sound("tap");
       this.safeAction(() => this.handlers.readyForMinigame(id));
+    });
+    el.introPractice.addEventListener('click', () => {
+      const game = this.state?.currentMinigame;
+      if (!game || this.state.phase !== 'waitingReady' || el.introPractice.disabled) return;
+      this.practice.open(game, getMyPlayer(this.state, this.myPlayerId)?.color);
     });
     el.addBot.addEventListener("click", () => this.safeAction(() => this.handlers.addBot()));
     el.enableDevMode.addEventListener("click", () => this.safeAction(() => this.handlers.enableDevMode()));
@@ -580,7 +592,7 @@ export class UIManager {
     this.el.pickerSearch.value = "";
     this.el.pickerCategories.innerHTML = [{ id: "all", title: "Alle", icon: "" }, ...GAME_CATEGORIES]
       .map((category) => `<button type="button" class="chip" data-category="${category.id}">${category.icon} ${category.title}</button>`).join("");
-    this.el.pickerEyebrow.textContent = kind === "single" ? "Einzelspiel" : "Spielauswahl";
+    this.el.pickerEyebrow.textContent = kind === "single" ? "Ein Spiel" : "Spielauswahl";
     this.el.pickerTitle.textContent = kind === "single" ? "Welches Spiel?" : "Welche Spiele kommen dran?";
     this.el.pickerTools.hidden = kind === "single";
     this.el.pickerDone.hidden = kind === "single";
@@ -602,7 +614,7 @@ export class UIManager {
       const picked = picker.selected.has(game.type);
       return `
         <button type="button" class="pick-card ${picked ? "is-picked" : ""}" data-pick="${game.type}" aria-pressed="${picked}">
-          <span class="pick-icon">${gesture.icon}</span>
+          <span class="pick-preview"><img src="/assets/games/${game.type}.jpg" loading="lazy" decoding="async" alt=""><span class="pick-icon">${gesture.icon}</span></span>
           <strong>${escapeHtml(game.title)}</strong>
           <small>${escapeHtml(gesture.label)}</small>
         </button>`;
@@ -662,14 +674,17 @@ export class UIManager {
   // Die Karte vor jedem Spiel: Name, Geste, Ziel — dann 3-2-1-LOS.
   syncIntro(minigame) {
     const waiting = this.state?.phase === "waitingReady";
+    if (!waiting) this.practice?.close();
     this.el.introReady.hidden = !waiting;
+    this.el.introPractice.hidden = !waiting || !canPractice(minigame?.type);
     this.el.introReadyStatus.hidden = !waiting;
     this.el.introDetails.hidden = !waiting;
     if (waiting) {
       const ready = this.state.readyForMinigame || [];
       const humans = this.state.players.filter((player) => !player.isBot && player.connected !== false);
       const mine = ready.includes(this.myPlayerId);
-      this.el.introReady.disabled = mine;
+      this.el.introReady.disabled = mine || Boolean(this.practice?.active);
+      this.el.introPractice.disabled = mine;
       this.el.introReady.textContent = mine ? "Du bist bereit ✓" : "Bereit!";
       const count = humans.filter((player) => ready.includes(player.id)).length;
       this.el.introReadyStatus.textContent = `${count} / ${humans.length} bereit · ${mine ? "Wir warten auf die anderen." : "Los geht’s, wenn alle bereit sind."}`;
@@ -683,6 +698,7 @@ export class UIManager {
     const gesture = gestureMeta(minigame.type);
     this.el.introReason.textContent = minigame.reason || "";
     this.el.introTitle.textContent = minigame.title;
+    this.el.introPreview.src = `/assets/games/${minigame.type}.jpg`;
     this.el.introGoal.textContent = guide?.goal || "Sammle die meisten Punkte.";
     this.el.introTip.textContent = guide?.tip || "";
     this.el.introRules.textContent = [meta?.help, MINIGAME_TIEBREAKERS[minigame.type]].filter(Boolean).join(" ");
@@ -755,6 +771,7 @@ export class UIManager {
   }
 
   hideIntro() {
+    this.practice?.close();
     clearInterval(this.introTimer);
     this.introTimer = null;
     this.el.intro.hidden = true;

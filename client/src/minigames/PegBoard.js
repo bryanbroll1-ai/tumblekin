@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin205";
-import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
-import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
-import { landingX } from "./Nagelbahn.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin206";
+import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin206";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin206";
+import { landingX } from "./Nagelbahn.js?v=tumblekin206";
 
 // Eine Kugel-Form für alle Kugeln: vorher bekam jede Kugel eigene Geometrie,
 // und beim Landen wurde sie nur aus der Szene genommen, nie freigegeben.
@@ -60,6 +60,7 @@ function makeLabel(text, { color = "#ffffff", size = 0.36, stroke = "rgba(20, 28
 export class PegBoard extends MinigameScene {
   constructor(ctx) {
     super(ctx);
+    this.ownInView = false;
     this.ballMeshes = new Map();
     // Die Kugeln kommen im Servertakt; gezeichnet wird ihre weiche Bahn.
     this.nachlauf = new Nachlauf();
@@ -317,14 +318,18 @@ export class PegBoard extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 0.75, 0],
-      frame: { w: BOARD_W + 0.8, h: BOARD_H + 2.2 },
+      look: [0, 0.15, 0],
+      frame: { w: BOARD_W + 0.5, h: BOARD_H + 0.9 },
       fill: 0.96,
-      pitch: 0.04,
+      pitch: 0,
       fov: 36,
       intro: { yaw: 0.45, pitch: 0.15, zoom: 1.3 },
       finale: { pull: 0.6, zoom: 0.55, lift: 0.4, orbit: 0.1 }
     };
+  }
+
+  keepInView(f) {
+    return f.finale ? [...this.kins.values()] : [];
   }
 
   bind() {

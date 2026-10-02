@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin205";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin205";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin206";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin206";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin206";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin206";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
 // fliegt die Figur. Drei Schuss; Ziel ist die FLAGGE, die jede Runde woanders
@@ -64,6 +64,7 @@ export class CannonFly extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>—</strong></div>
       <div class="simon-round cannon-info" data-cannon-info></div>
+      <div class="cannon-aim-readout" data-cannon-aim hidden></div>
       <div class="color-banner" data-cannon-banner hidden></div>
       <div class="cannon-phase-label" data-cannon-label>KRAFT</div>
       <div class="cannon-gauge" data-cannon-gauge><div class="cannon-gauge-fill" data-cannon-fill></div></div>`;
@@ -647,6 +648,12 @@ export class CannonFly extends MinigameScene {
       return;
     }
     if (waiting.length && !finale) {
+      const own = arcade.players[f.controlledId];
+      const station = this.stations.get(f.controlledId);
+      if (station && own && !own.launchedAt) {
+        this.focus = { look: [station.x, 0.95, CANNON_Z + 0.2], frame: { w: 3.2, h: 2.7 }, keep: [this.kins.get(f.controlledId)].filter(Boolean) };
+        return;
+      }
       this.focus = { look: [0.3, 0.8, CANNON_Z + 0.3], frame: { w: count * LANE_GAP * 0.82 + 0.8, h: 2.4 }, keep: waiting.map((player) => this.kins.get(player.id)).filter(Boolean) };
       return;
     }
@@ -700,6 +707,20 @@ export class CannonFly extends MinigameScene {
       }
     }
     const banner = this.hud.querySelector("[data-cannon-banner]");
+    const aim = this.hud.querySelector('[data-cannon-aim]');
+    if (aim) {
+      const betweenRounds = now < (this.roundBannerUntil || 0);
+      aim.hidden = !own?.powerAt || betweenRounds || Boolean(minigame.finaleAt);
+      if (!aim.hidden) {
+        if (own.launchedAt) {
+          const difference = (own.distance || 0) - (arcade.target || 0);
+          aim.textContent = `${Number(own.distance || 0).toFixed(1)} m · ${Math.abs(difference) < 0.5 ? 'am Ziel' : `${Math.abs(difference).toFixed(1)} m ${difference < 0 ? 'zu kurz' : 'zu weit'}`}`;
+        } else {
+          const distance = shotDistance(own.power || 0, this.angleOf(own, arcade, now), 0, arcade.windM || 11);
+          aim.textContent = `Vorschau ohne Wind: ${Math.round(distance)} m`;
+        }
+      }
+    }
     if (banner) {
       const show = now < (this.roundBannerUntil || 0) && !minigame.finaleAt;
       banner.hidden = !show;

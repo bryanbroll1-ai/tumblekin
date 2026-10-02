@@ -22,6 +22,12 @@ async function runningRound(page, game) {
   await page.waitForTimeout(500);
   await page.waitForFunction(() => window.__tumblekinScene?.hudScore ||
     window.__tumblekinScene?.minigame?.type === 'nervenprobe');
+  // Board games reveal their task after a short lead-in. Capturing just the
+  // scorebar would otherwise approve a completely blank pipe board.
+  if (game === 'rohrsalat') await page.waitForFunction(() => window.__tumblekinScene.mazeGroup?.children.length);
+  if (game === 'grimassen') await page.waitForFunction(() => window.__tumblekinScene.canShape());
+  if (game === 'turmbau') await page.waitForFunction(() => window.__tumblekinScene.rig.current.frame.w < 4.1);
+  await page.waitForTimeout(500);
 }
 
 function inspectLayout() {
@@ -60,7 +66,8 @@ function inspectLayout() {
 
 try {
   const pages = [];
-  for (let i = 0; i < Math.min(2, games.length); i++) {
+  const workers = Math.max(1, Math.min(2, Number(process.env.TUMBLEKIN_BROWSER_WORKERS) || 2));
+  for (let i = 0; i < Math.min(workers, games.length); i++) {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     // Exercise the supported mobile quality tier. Software-rendered Chromium
     // otherwise spends whole short rounds drawing screenshots on a busy host.

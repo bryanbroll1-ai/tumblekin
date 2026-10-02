@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin205";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
-import { frameLerp } from "./Quality.js?v=tumblekin205";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin206";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
+import { frameLerp } from "./Quality.js?v=tumblekin206";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin206";
 
 // Grimassen: oben hängt ein verzogenes Gesicht im Goldrahmen, davor steht die
 // eigene Gummimaske — erst neutral —, und man zieht sie an sechs Punkten
@@ -28,7 +28,6 @@ const OWN_POS = new THREE.Vector3(0, 2.2, 0);
 const TARGET_SCALE = 0.56;
 const TARGET_POS = new THREE.Vector3(0, 3.92, -0.12);
 const MINI_SCALE = 0.3;
-const PICK_RADIUS = 0.42;
 const SEND_EVERY_MS = 70;
 
 let faceTexture = null;
@@ -36,7 +35,9 @@ let faceTexture = null;
 export class FaceLift extends MinigameScene {
   constructor(ctx) {
     super(ctx);
+    this.ownInView = false;
     this.masks = new Map();       // playerId → Maske (klein oder gross)
+    this.peerDecor = [];
     this.shapes = new Map();      // geglättete Anzeige je Spieler
     this.drag = null;
     this.localShape = null;
@@ -75,6 +76,7 @@ export class FaceLift extends MinigameScene {
     // Das Vorbild im Goldrahmen.
     this.target = this.makeMask(TARGET_SCALE, TARGET_POS);
     const rahmen = new THREE.Group();
+    this.targetFrame = rahmen;
     rahmen.position.copy(TARGET_POS).add(new THREE.Vector3(0, 0, -0.08));
     const gold = lambert("#e9b949");
     [[0, 0.63, 1.34, 0.12], [0, -0.63, 1.34, 0.12], [-0.63, 0, 0.12, 1.34], [0.63, 0, 0.12, 1.34]].forEach(([x, y, w, h]) => {
@@ -87,6 +89,7 @@ export class FaceLift extends MinigameScene {
     rahmen.add(leinwand);
     scene.add(rahmen);
     const schild = createNameLabel("VORBILD", "#e9b949");
+    this.targetLabel = schild;
     schild.position.copy(TARGET_POS).add(new THREE.Vector3(0, 0.82, 0.05));
     schild.scale.multiplyScalar(0.8);
     scene.add(schild);
@@ -107,9 +110,11 @@ export class FaceLift extends MinigameScene {
       tag.position.set(x, y - 0.42, 0.02);
       tag.scale.multiplyScalar(0.7);
       scene.add(tag);
+      this.peerDecor.push(tag);
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.33, 0.37, 24), new THREE.MeshBasicMaterial({ color: player.color }));
       ring.position.set(x, y, -0.14);
       scene.add(ring);
+      this.peerDecor.push(ring);
     });
     // Geister-Vorbild für die Auflösung: legt sich halb durchsichtig über die
     // eigene Maske, damit man sieht, wo es gehapert hat.
@@ -269,13 +274,39 @@ export class FaceLift extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 2.35, 0],
-      frame: { w: 3.5, h: 4.9 },
-      pitch: 0.06,
+      look: [0, 2.85, 0],
+      frame: { w: 3.5, h: 3.95 },
+      fill: 0.96,
+      pitch: 0,
       fov: 38,
       intro: { yaw: 0.35, pitch: 0.12, zoom: 1.3 },
       finale: { pull: 0.9, zoom: 0.85, lift: 0.1, orbit: 0.08 }
     };
+  }
+
+  rigOptions() {
+    const r = this.webglCanvas.getBoundingClientRect();
+    const wide = r.width > r.height;
+    // Beim Drehen waehrend eines Zugs bleibt die Maske am Finger verankert:
+    // erst nach dem Loslassen neu anordnen.
+    if (!this.drag && this.wideLayout !== wide) {
+      this.wideLayout = wide;
+      this.peerDecor.forEach(object => { object.visible = !wide; });
+      this.masks.forEach((mask, id) => { if (id !== this.own) mask.mesh.visible = !wide; });
+      const own = this.masks.get(this.own);
+      const ownPos = wide ? new THREE.Vector3(1.15, 2.85, 0) : OWN_POS;
+      own.mesh.position.copy(ownPos);
+      this.ghost.mesh.position.copy(ownPos).z += 0.04;
+      const pos = wide ? new THREE.Vector3(-1.4, 2.85, -0.12) : TARGET_POS;
+      this.target.mesh.position.copy(pos);
+      this.target.mesh.scale.setScalar(wide ? 0.88 : TARGET_SCALE);
+      this.targetFrame.position.copy(pos).z -= 0.08;
+      this.targetFrame.scale.setScalar(wide ? 0.88 / TARGET_SCALE : 1);
+      this.targetLabel.position.copy(pos).add(new THREE.Vector3(0, wide ? -1.2 : 0.82, 0.05));
+    }
+    return this.wideLayout
+      ? { look: [0, 2.9, 0], frame: { w: 5.35, h: 2.9 } }
+      : { look: [0, 2.85, 0], frame: { w: 3.5, h: 3.95 } };
   }
 
   keepInView() {
@@ -303,11 +334,12 @@ export class FaceLift extends MinigameScene {
       const mask = this.masks.get(this.own);
       if (!hit || !mask) return;
       let best = -1;
-      let bestDist = PICK_RADIUS;
+      let bestDist = 24; // Trefferradius in CSS-Pixeln, auch bei kleiner Maske.
       const at = new THREE.Vector3();
       HANDLES.forEach((_, i) => {
         this.handleWorld(mask, i, this.localShape, at);
-        const d = Math.hypot(at.x - hit.x, at.y - hit.y);
+        const screen = this.rig.toScreen(at);
+        const d = Math.hypot(screen.x - event.clientX, screen.y - event.clientY);
         if (d < bestDist) { bestDist = d; best = i; }
       });
       if (best < 0) return;
@@ -345,6 +377,7 @@ export class FaceLift extends MinigameScene {
     this.on(this.webglCanvas, "lostpointercapture", release);
     const interrupt = () => { if (this.drag) release({ pointerId: this.drag.pointerId }); };
     this.on(window, "blur", interrupt);
+    this.on(window, "resize", interrupt);
     this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
@@ -468,7 +501,10 @@ export class FaceLift extends MinigameScene {
       this.handleWorld(ownMask, i, ownMask.shape, knob.position);
       const active = this.drag?.index === i;
       const pulse = 1 + Math.sin(now / 180 + i) * 0.12;
-      knob.scale.setScalar(active ? 1.5 : pulse);
+      const p = this.rig.toScreen(knob.position);
+      const edge = this.rig.toScreen(knob.position.clone().add(new THREE.Vector3(0.075, 0, 0)));
+      const size = Math.max(1, 7 / Math.max(1, Math.abs(edge.x - p.x)));
+      knob.scale.setScalar(size * (active ? 1.5 : pulse));
       knob.material.color.set(active ? "#ffffff" : "#ffe25c");
       knob.children[0].lookAt(this.camera.position);
     });
@@ -513,7 +549,7 @@ export class FaceLift extends MinigameScene {
         if (isOwn) {
           this.feedback?.sound(points >= 70 ? "perfect" : points >= 40 ? "coin" : "error");
           this.feedback?.vibrate(points >= 70 ? [10, 30, 10] : 12);
-          if (points >= 70) this.burst(OWN_POS.clone().add(new THREE.Vector3(0, 0.4, 0.6)), ["#ffe25c", "#ff5d73", "#28c7d9", "#ffffff"], { count: 24, speed: 2.2, up: 1.8, size: 0.07, life: 1 });
+          if (points >= 70) this.burst(this.masks.get(controlledId).mesh.position.clone().add(new THREE.Vector3(0, 0.4, 0.6)), ["#ffe25c", "#ff5d73", "#28c7d9", "#ffffff"], { count: 24, speed: 2.2, up: 1.8, size: 0.07, life: 1 });
         }
       });
     }
@@ -551,7 +587,7 @@ export class FaceLift extends MinigameScene {
     let message = null;
     let tone = "#12aaff";
     if (phase === "lead") message = "Gleich hängt das Vorbild …";
-    else if (phase === "show") { message = `Gesicht ${round + 1}/${face.rounds}: Merk es dir!`; tone = "#b57bff"; }
+    else if (phase === "show") { message = `Gesicht ${round + 1}/${face.rounds}: Schau genau hin!`; tone = "#b57bff"; }
     else if (phase === "shape") {
       const secs = Math.ceil((left || 0) / 1000);
       message = since < 1400 ? "Zieh die Maske zurecht!" : secs <= 0 ? "Stopp!" : secs <= 3 ? `Noch ${secs} …` : null;

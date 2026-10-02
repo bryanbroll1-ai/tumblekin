@@ -31,6 +31,8 @@ Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
 
 Die Spielauswahl lässt sich nach **Reaktion**, **Geschick**, **Denken** und **Miteinander** filtern und nach Namen durchsuchen. Bei einer eigenen Auswahl fügt **Sichtbare wählen** die gefilterten Spiele hinzu, ohne die übrige Auswahl zu löschen.
 
+Alle 40 Spiele zeigen ihre tatsächliche Spielansicht in der Auswahl und auf der Startkarte. Bei **Eisstock**, **Ballonfahrt**, **Kanonenflug** und **Fassmut** lässt sich vor **Bereit!** mit **Steuerung ausprobieren** ein eigener Versuch starten. **Neu** setzt ihn zurück, **Fertig** oder Escape kehrt zur Startkarte zurück. Die Übung verwendet dieselben Regeln und Szenen wie die Partie; Punkte und Bereitstatus der Partie bleiben unverändert. Ihre Zeit läuft erst nach dem Szenenaufbau und einem kurzen Countdown.
+
 Eine Partie braucht mindestens zwei Teilnehmer. Wer allein ist, holt sich mit **+ Bot** Mitspieler dazu — die Bots spielen jedes Minispiel mit, in drei Stärken; dass die stärkere in jedem Minispiel tatsächlich häufiger gewinnt, misst `npm run bot-sim` nach.
 
 Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung automatisch wieder her. Es gibt bewusst keine Host-Migration: Bleibt der Host offline, werden Host-Aktionen gesperrt und alle Spieler sehen eine Fehlermeldung.
@@ -42,7 +44,7 @@ Nach jedem Minispiel gibt es Punkte nach Platz: der Letzte bekommt 0, jeder Plat
 - **🏃 Marathon:** 5, 10 oder 15 Minispiele. Die meisten Punkte gewinnen, bei Gleichstand die meisten Siege.
 - **🎯 Punktejagd:** Wer als Erster allein die Zielpunktzahl erreicht, gewinnt — 4 Punkte je Gegner, bei vier Spielern also 12. Springen zwei gleichzeitig darüber, geht es weiter bis einer vorn liegt.
 - **💥 K.O.:** Jeder startet mit 2, 3 oder 5 Leben. Nach jedem Spiel verliert, wer unter den Verbliebenen Letzter wurde, eines; liegen alle gleichauf, niemand. Ausgeschiedene spielen weiter mit, zählen aber nicht mehr — niemand sitzt am Handy und schaut nur zu.
-- **🎮 Einzelspiel:** Ein Minispiel, ausgewählt oder zufällig, danach zurück in die Lobby.
+- **🎮 Ein Spiel:** Ein Minispiel, ausgewählt oder zufällig, danach zurück in die Lobby.
 
 Für Marathon, Punktejagd und K.O. lässt sich der Spielvorrat einschränken (mindestens zwei Spiele). Innerhalb eines Durchgangs durch den Vorrat kommt kein Spiel doppelt, und nie dasselbe zweimal hintereinander. Punktejagd und K.O. haben Notbremsen nach 30 bzw. 40 Spielen; dass sie praktisch nie greifen, misst `npm run match-sim` nach.
 
@@ -278,6 +280,8 @@ npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
 npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
+npm run practice-check       # vier Übungen mit echten Eingaben, Neustart, Aufräumen und Isolation von zwei Geräten
+npm run pipe-check           # fünf echte Rohrsalat-Runden, sechs Ventile, kleine Bildschirme und Texturfreigabe
 npm run feedback-check       # Landungen, Landering, Insel-Vorwarnung und reduzierte Bewegung
 npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unterbrechung
 npm run gesture-check        # sieben Wisch-/Ziehspiele: zweiter Finger, Loslassen und Unterbrechung
@@ -291,14 +295,16 @@ npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnista
 npm run session-sim          # viele Spiele hintereinander: wächst etwas, das nicht wachsen darf?
 npm run session-sim -- 60 --quick # nur Aufbau/Abbau: alle Spiele plus Wiederholungen, alte Szenen und Speicher
 npm run gallery              # Bilder aller Minispiele nach galerie/
+npm run game-previews        # echte Szenen als Auswahlbilder unter client/assets/games/
 ```
 
 Die Browserprüfungen brauchen einmalig einen Browser:
 
 ```bash
-npm install --no-save playwright
 npx playwright install chromium
 ```
+
+Nach Änderungen an den Serverregeln oder am Übungs-Worker erzeugt `npm run build:practice` das eingecheckte Browser-Bündel neu. Es ersetzt Netzwerk und HTTP durch lokale Stubs; Übungseingaben gelangen ausschließlich in den eigenen Worker. `TUMBLEKIN_BROWSER_WORKERS=1 npm run refinement-check` prüft die Ansichten nacheinander, wenn paralleles Software-Rendering kurze Spielrunden aufbraucht.
 
 Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIUM_PATH=/pfad/zu/chrome` verwenden. Der Exit-Code ist 0 nur, wenn alles sauber durchläuft.
 

@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin205";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin205";
-import { frameLerp } from "./Quality.js?v=tumblekin205";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin206";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin206";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin206";
+import { frameLerp } from "./Quality.js?v=tumblekin206";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin206";
 
 // Turmbau: wie bei den Stapelspielen gleitet der nächste Block direkt auf der
 // nächsten Ebene über den Turm hin und her, ein Tipp setzt ihn ab. Was
@@ -262,8 +262,9 @@ export class TowerStack extends MinigameScene {
     hook.add(edges);
     hook.visible = false;
     group.add(hook);
-    // Der Baumeister vor dem Turm.
-    this.addKin(player, index, { x, ground: 0, z: group.position.z + 0.95, facing: 0, scale: 0.9 });
+    // Der eigene Baumeister steht dahinter: vor dem Sockel verdeckte er
+    // genau die Schnittkante, an der der erste Block platziert werden soll.
+    this.addKin(player, index, { x, ground: 0, z: group.position.z + (isOwn ? -1.1 : 0.95), facing: 0, scale: 0.9 });
     this.towers.set(player.id, { group, blocks: [], hook, slider, edges, x, isOwn, color: player.color, dropping: null, flagged: false });
   }
 
@@ -432,8 +433,11 @@ export class TowerStack extends MinigameScene {
     }
     const topY = STACK_Y + this.smoothTop * BLOCK_H;
     return {
-      look: [0, Math.max(1.4, topY + 0.2), OWN_Z * 0.4],
-      frame: { w: 4.6, h: 4.4 }
+      look: [0, Math.max(1.15, topY + 0.35), OWN_Z],
+      // Slider: +/-1.15 plus halbe Blockbreite (0.675) und Rand.
+      frame: { w: 4.0, h: 2.7 },
+      pitch: 0.08,
+      yaw: 0
     };
   }
 

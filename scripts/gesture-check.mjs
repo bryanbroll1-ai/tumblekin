@@ -62,11 +62,22 @@ try{
    const v=new THREE.Vector3();s.handleWorld(s.masks.get(s.own),0,s.localShape,v);v.project(s.camera);
    const r=s.webglCanvas.getBoundingClientRect();return {x:r.left+(v.x+1)*r.width/2,y:r.top+(1-v.y)*r.height/2};
   },game);
-  await page.mouse.move(at.x,at.y);await page.mouse.down();
+  // Grimassen's handle stays reachable within its CSS-pixel hit area.
+  await page.mouse.move(at.x+(game==='grimassen'?18:0),at.y);await page.mouse.down();
   await page.waitForFunction(()=>Boolean(window.__tumblekinScene.drag));
+  if(game==='grimassen'){
+   assert.equal(await page.evaluate(()=>window.__tumblekinScene.drag.index),0);
+   await page.mouse.move(at.x+35,at.y-20,{steps:4});
+   await page.waitForFunction(()=>{const s=window.__tumblekinScene;return s.update.arcade.players[s.own].shape.some(v=>Math.abs(v)>.1);});
+  }
   const original=await page.evaluate(()=>window.__tumblekinScene.drag.id??window.__tumblekinScene.drag.pointerId);
   await pointer('canvas.kinetic-webgl','pointerdown',22,180,440);
   assert.equal(await page.evaluate(()=>window.__tumblekinScene.drag.id??window.__tumblekinScene.drag.pointerId),original);
+  if(game==='grimassen'){
+   await page.setViewportSize({width:844,height:390});
+   await page.waitForFunction(()=>!window.__tumblekinScene.drag && window.__tumblekinScene.wideLayout);
+   console.log('✓ Grimassen: Griff aus 18px Entfernung, echte Formänderung am Server, Drehen beendet den Zug und ordnet Masken neu');
+  }
   await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
   assert.equal(await page.evaluate(()=>window.__tumblekinScene.drag),null);
   await page.mouse.up();

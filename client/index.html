@@ -12,9 +12,9 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin205">
-    <link rel="stylesheet" href="/minigames.css?v=tumblekin205">
-    <link rel="stylesheet" href="/press-feedback.css?v=tumblekin205">
+    <link rel="stylesheet" href="/style.css?v=tumblekin206">
+    <link rel="stylesheet" href="/minigames.css?v=tumblekin206">
+    <link rel="stylesheet" href="/press-feedback.css?v=tumblekin206">
   </head>
   <body data-screen="start">
     <main id="app">
@@ -126,7 +126,7 @@
             <button type="button" role="tab" data-mode="marathon"><b>🏃</b><span>Marathon</span></button>
             <button type="button" role="tab" data-mode="hunt"><b>🎯</b><span>Punktejagd</span></button>
             <button type="button" role="tab" data-mode="knockout"><b>💥</b><span>K.O.</span></button>
-            <button type="button" role="tab" data-mode="single"><b>🎮</b><span>Einzel</span></button>
+            <button type="button" role="tab" data-mode="single"><b>🎮</b><span>Ein Spiel</span></button>
           </div>
           <p id="mode-description" class="mode-description"></p>
           <div id="mode-options" class="mode-options"></div>
@@ -146,6 +146,7 @@
           <div class="intro-card">
             <p class="intro-round" id="intro-reason">Spiel 1</p>
             <h2 id="intro-title">Minispiel</h2>
+            <img id="intro-preview" class="intro-preview" alt="">
             <div class="intro-gesture">
               <span id="intro-gesture-icon" class="intro-gesture-icon">👆</span>
               <strong id="intro-gesture-label">Tippen</strong>
@@ -157,8 +158,11 @@
               <p id="intro-rules"></p>
             </details>
             <div id="intro-extra" class="intro-extra"></div>
-            <button id="intro-ready" type="button" class="btn btn-primary">Bereit!</button>
-            <p id="intro-ready-status" class="intro-ready-status" role="status" aria-live="polite"></p>
+            <div class="intro-actions">
+              <button id="intro-practice" type="button" class="btn btn-secondary" hidden>Steuerung ausprobieren</button>
+              <button id="intro-ready" type="button" class="btn btn-primary">Bereit!</button>
+              <p id="intro-ready-status" class="intro-ready-status" role="status" aria-live="polite"></p>
+            </div>
           </div>
           <div id="intro-count" class="intro-count" hidden></div>
         </div>
@@ -198,6 +202,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin205"></script>
+    <script type="module" src="/src/main.js?v=tumblekin206"></script>
   </body>
 </html>
