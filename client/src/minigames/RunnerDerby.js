@@ -1,10 +1,9 @@
 import * as THREE from '/vendor/three/three.module.js';
-import { MinigameScene } from './MinigameScene.js?v=tumblekin208';
-import { standOn } from './VoxelKit.js?v=tumblekin208';
-import { bindHoldInput } from './HoldInput.js?v=tumblekin208';
-import { kiste, lambert, viele } from './Kulisse.js?v=tumblekin208';
-import { frameLerp } from './Quality.js?v=tumblekin208';
-import './SprintPhysics.js?v=tumblekin208';
+import { MinigameScene } from './MinigameScene.js?v=tumblekin209';
+import { standOn } from './VoxelKit.js?v=tumblekin209';
+import { kiste, lambert, viele } from './Kulisse.js?v=tumblekin209';
+import { frameLerp } from './Quality.js?v=tumblekin209';
+import './SprintPhysics.js?v=tumblekin209';
 
 const P = globalThis.TumblekinSprintPhysics;
 const METRE = 0.62;
@@ -12,7 +11,7 @@ const LANE = 1.55;
 const footBounds = new THREE.Box3();
 const timeText = ms => `${(ms / 1000).toFixed(2).replace('.', ',')} s`;
 
-// A personal 100 m hurdles race: the course is equal, the timing is yours.
+// A shared three-lane race: swipe to dodge, jump and slide; hold to sprint.
 export class RunnerDerby extends MinigameScene {
   constructor(ctx) {
     super(ctx);
@@ -24,12 +23,12 @@ export class RunnerDerby extends MinigameScene {
     this.hurdles = new Map();
     this.rivals = new Map();
     this.verdicts = new Map();
-    this.localJump = null;
+    this.localJump = null; this.localSlide = null; this.pointer = null; this.holdDelay = null;
     this.labelY = 0.9;
   }
 
   stage() {
-    return { label: '3D Zielgerade – 100-Meter-Hürdensprint', background: '#b9e4ef',
+    return { label: '3D Zielgerade – 100-Meter-Swipe-Rennen', background: '#b9e4ef',
       fog: ['#b9e4ef', 24, 78], lights: { sunPosition: [-8, 14, 8],
         skyColor: 0xe8f7ff, groundColor: 0x729579, sunIntensity: 2.5 } };
   }
@@ -40,23 +39,23 @@ export class RunnerDerby extends MinigameScene {
       <div class="sprint-rivals" aria-label="Rennstand"></div>`;
   }
 
-  laneX(lane) { return (lane - (this.getState().players.length - 1) / 2) * LANE; }
+  laneX(lane) { return (lane - 1) * LANE; }
   groundHeightAt() { return 0; }
 
   build() {
     const players = this.getState().players;
-    const width = players.length * LANE;
+    const width = 3 * LANE;
     const length = P.C.LENGTH * METRE;
     kiste(this.scene, width + 16, 0.4, length + 22, '#83b079', [0, -0.23, -length / 2]);
     kiste(this.scene, width + 0.2, 0.3, length + 8, '#b85b50', [0, -0.15, -length / 2]);
-    const stripes = Array.from({ length: players.length + 1 }, (_, i) => ({ p: [(i - players.length / 2) * LANE, 0.006, -length / 2] }));
+    const stripes = Array.from({ length: 4 }, (_, i) => ({ p: [(i - 1.5) * LANE, 0.006, -length / 2] }));
     viele(this.scene, new THREE.BoxGeometry(0.035, 0.012, length + 7), lambert('#fff3d6'), stripes);
     const marks = [];
     for (let m = 10; m < 100; m += 10) marks.push({ p: [0, 0.009, -m * METRE] });
     viele(this.scene, new THREE.BoxGeometry(width, 0.014, 0.045), lambert('#e8bcaa'), marks);
     kiste(this.scene, width, 0.018, 0.1, '#fff8e2', [0, 0.009, 0.45]);
     const checks = [[], []];
-    for (let i = 0; i < players.length * 6; i++) for (let j = 0; j < 2; j++) {
+    for (let i = 0; i < 3 * 6; i++) for (let j = 0; j < 2; j++) {
       checks[(i + j) % 2].push({ p: [-width / 2 + (i + 0.5) * LANE / 6, 0.015, -length + (j - 0.5) * 0.26] });
     }
     checks.forEach((parts, i) => viele(this.scene, new THREE.BoxGeometry(LANE / 6, 0.025, 0.26), lambert(i ? '#fffaf0' : '#263641'), parts));
@@ -81,22 +80,12 @@ export class RunnerDerby extends MinigameScene {
       viele(this.scene, new THREE.BoxGeometry(0.23, 0.25, 0.23), lambert('#f0d5b1'), heads);
     });
     const course = this.minigame.arcade.hurdles;
-    this.courseKey = course.map(h => h.at).join(',');
+    this.courseKey = JSON.stringify(course);
     players.forEach((player, index) => {
       const entry = this.minigame.arcade.players[player.id];
       const x = this.laneX(entry.lane);
       this.addKin(player, index, { x, facing: Math.PI });
       this.shadows.get(player.id).userData.manual = true;
-      kiste(this.scene, 1.3, 0.016, 1.4, player.color, [x, 0.012, 0.9]);
-      for (const hurdle of course) {
-        const group = new THREE.Group(); group.position.set(x, 0, -hurdle.at * METRE);
-        for (const side of [-1, 1]) {
-          kiste(group, 0.06, P.C.HURDLE_HEIGHT, 0.06, '#fdf1d8', [side * 0.57, P.C.HURDLE_HEIGHT / 2, 0]);
-          kiste(group, 0.13, 0.05, 0.42, '#e8d4b9', [side * 0.57, 0.025, 0.1]);
-        }
-        kiste(group, 1.25, 0.08, 0.08, player.color, [0, P.C.HURDLE_HEIGHT - 0.04, 0]);
-        this.scene.add(group); this.hurdles.set(`${player.id}:${hurdle.index}`, group);
-      }
       const row = document.createElement('div'); row.className = 'sprint-rival';
       const name = document.createElement('span'); name.textContent = player.name;
       const value = document.createElement('b'); value.textContent = '0 m';
@@ -105,6 +94,28 @@ export class RunnerDerby extends MinigameScene {
       this.hud.querySelector('.sprint-rivals').appendChild(row);
       this.rivals.set(player.id, { row, value, fill });
     });
+    // One shared, readable course. Orange = jump, blue = duck, crate = dodge.
+    course.forEach(row => row.lanes.forEach((kind, lane) => {
+      if (!kind) return;
+      const group = new THREE.Group(); group.position.set(this.laneX(lane), 0, -row.at * METRE);
+      if (kind === 'block') {
+        kiste(group, 1.24, 1.8, .65, '#dc9770', [0, .9, 0]);
+        for (const side of [-1, 1]) kiste(group, .085, 1.8, .68, '#fbdca7', [side * .43, .9, 0]);
+        kiste(group, 1.27, .08, .68, '#fbdca7', [0, .3, 0]);
+        kiste(group, 1.27, .08, .68, '#fbdca7', [0, 1.5, 0]);
+      } else {
+        const height = kind === 'jump' ? P.C.HURDLE_HEIGHT : .86;
+        for (const side of [-1, 1]) kiste(group, .09, height, .09, '#fff5e5', [side * .61, height / 2, 0]);
+        kiste(group, 1.33, kind === 'jump' ? .1 : .30, .16, kind === 'jump' ? '#ffb858' : '#62cbdc', [0, kind === 'jump' ? height - .05 : .69, 0]);
+        if (kind === 'slide') kiste(group, .3, .055, .19, '#fff5e5', [0, .7, .09]);
+      }
+      group.userData.kind = kind; group.userData.row = row.index; group.userData.lane = lane;
+      this.scene.add(group); this.hurdles.set(`${row.index}:${lane}`, group);
+    }));
+    const ownColor = players.find(p => p.id === this.getControlledPlayerId())?.color || '#ffe07b';
+    const haloGeo = new THREE.RingGeometry(.32, .38, 24); haloGeo.userData.block = true;
+    this.ownHalo = new THREE.Mesh(haloGeo, new THREE.MeshBasicMaterial({color:ownColor,side:THREE.DoubleSide}));
+    this.ownHalo.rotation.x = -Math.PI / 2; this.ownHalo.position.y = .018; this.scene.add(this.ownHalo);
     this.energyFill = this.hud.querySelector('[data-sprint-fill]');
     this.energyText = this.hud.querySelector('[data-sprint-energy]');
     this.energyMeter = this.hud.querySelector('[role=meter]');
@@ -115,18 +126,18 @@ export class RunnerDerby extends MinigameScene {
   onUpdate(update) {
     const course = update.arcade?.hurdles;
     if (!course) return;
-    const key = course.map(h => h.at).join(',');
+    const key = JSON.stringify(course);
     if (key === this.courseKey) return;
     this.courseKey = key;
-    for (const player of this.getState().players) for (const hurdle of course) {
-      const group = this.hurdles.get(`${player.id}:${hurdle.index}`);
-      if (group) { group.position.z = -hurdle.at * METRE; group.rotation.x = 0; delete group.userData.fellAt; }
+    for (const hurdle of this.hurdles.values()) {
+      const row = course[hurdle.userData.row];
+      if (row) hurdle.position.z = -row.at * METRE;
     }
     this.verdicts.clear();
   }
 
   shot() {
-    return { look: [0, 0.3, -3.8], frame: { w: 4.2, h: 5.6 }, yaw: 0,
+    return { look: [0, 0.3, -3.8], frame: { w: 5.8, h: 6.6 }, yaw: 0,
       pitch: 0.55, fov: 44, ease: 0.25 };
   }
   keepInView() { return []; }
@@ -138,24 +149,73 @@ export class RunnerDerby extends MinigameScene {
     const controls = this.controls.getBoundingClientRect();
     this.rig.base.insets = { top: vitals.bottom - rect.top + 8,
       bottom: rect.bottom - controls.top + 8, left: 0, right: 0 };
-    return { look: [own?.position.x || 0, 0.35, (own?.position.z || 0) - (landscape ? 1.6 : 3.6)],
-      frame: { w: landscape ? Math.max(4.2, f.players.length * LANE + 1) : 4.2, h: landscape ? 3.4 : 5.6 } };
+    return { look: [0, 0.35, (own?.position.z || 0) - (landscape ? 2.3 : 4.4)],
+      frame: { w: 5.8, h: landscape ? 3.9 : 6.6 } };
   }
 
   bind() {
-    this.controls.innerHTML = `<div class="sprint-controls"><p class="sprint-cue" data-sprint-cue>100 m · sieben Hürden</p><div class="sprint-buttons"><button type="button" class="hold-button" data-sprint-hold aria-label="Sprint – gedrückt halten"><strong>SPRINT</strong><small>HALTEN · AUSDAUER</small></button><button type="button" class="nerve-button" data-sprint-jump aria-label="Sprung – einmal tippen"><strong>SPRUNG</strong><small>TIPPEN</small></button></div></div>`;
-    this.sprintButton = this.controls.querySelector('[data-sprint-hold]');
-    this.jumpButton = this.controls.querySelector('[data-sprint-jump]');
+    this.controls.innerHTML = `<div class="sprint-controls swipe-only"><p class="sprint-cue" data-sprint-cue>← → Spur · ↑ Sprung · ↓ Slide</p><p class="sprint-gesture-note">Auf dem Spielfeld halten: Sprint · loslassen: aufladen</p></div>`;
     this.cue = this.controls.querySelector('[data-sprint-cue]');
-    this.holdInput = bindHoldInput(this, [this.sprintButton], active => this.setHolding(active));
-    this.on(this.jumpButton, 'pointerdown', event => { event.preventDefault(); this.springen(); });
-    this.on(window, 'resize', () => this.holdInput.release());
+    this.gestureNote=this.controls.querySelector('.sprint-gesture-note');
+    const surface = this.webglCanvas; surface.style.touchAction = 'none'; surface.tabIndex=0;
+    surface.setAttribute('aria-label','Zielgerade: links/rechts wischen, hoch springen, runter sliden; halten sprintet.');
+    this.controls.style.pointerEvents='none';
+    this.on(surface, 'pointerdown', event => {
+      if (this.pointer !== null || !this.canAct()) return;
+      event.preventDefault(); surface.focus({preventScroll:true}); this.pointer = event.pointerId;
+      this.anchor = {x:event.clientX,y:event.clientY}; this.lastSwipe = -1000;
+      surface.setPointerCapture?.(event.pointerId);
+      this.holdDelay = setTimeout(() => { if (this.pointer !== null) this.setHolding(true); }, 170);
+      surface.classList.add('runner-touch'); this.feedback?.vibrate(6);
+    });
+    this.on(surface, 'pointermove', event => {
+      if (event.pointerId !== this.pointer) return;
+      event.preventDefault();
+      const dx = event.clientX - this.anchor.x, dy = event.clientY - this.anchor.y;
+      if (Math.hypot(dx,dy) < 28 || performance.now()-this.lastSwipe < 205) return;
+      this.lastSwipe = performance.now(); this.anchor = {x:event.clientX,y:event.clientY};
+      if (Math.abs(dx)>Math.abs(dy)) this.gesture('lane',dx<0?-1:1);
+      else this.gesture(dy<0?'jump':'slide');
+    });
+    const end = event => { if (event.pointerId === this.pointer) this.release(); };
+    for (const type of ['pointerup','pointercancel','lostpointercapture']) this.on(surface,type,end);
+    this.on(window,'blur',()=>this.release()); this.on(window,'resize',()=>this.release());
+    this.on(document,'visibilitychange',()=>{if(document.hidden)this.release();});
+    this.on(window,'keydown',event=>{
+      if(event.target?.closest('input,textarea,select,button') || !this.canAct())return;
+      if(['ArrowLeft','KeyA','ArrowRight','KeyD','ArrowUp','KeyW','ArrowDown','KeyS','Space','ShiftLeft','ShiftRight'].includes(event.code)) {
+        event.preventDefault();
+        if(['Space','ShiftLeft','ShiftRight'].includes(event.code)) {this.setHolding(true);return;}
+        if(event.repeat)return;
+        this.gesture(['ArrowLeft','KeyA','ArrowRight','KeyD'].includes(event.code)?'lane':['ArrowUp','KeyW'].includes(event.code)?'jump':'slide', ['ArrowLeft','KeyA'].includes(event.code)?-1:1);
+      }
+    });
+    this.on(window,'keyup',event=>{if(['Space','ShiftLeft','ShiftRight'].includes(event.code)){event.preventDefault();this.setHolding(false);}});
+  }
+  canAct() { const p=this.ownEntry(),g=this.update||this.minigame; return p && p.finishedAt===null && this.now()>=g.startedAt && !g.finaleAt && !this.controls.inert; }
+  release() {
+    clearTimeout(this.holdDelay); this.holdDelay=null;
+    const id=this.pointer; this.pointer=null;
+    if(id!==null && this.webglCanvas.hasPointerCapture?.(id))this.webglCanvas.releasePointerCapture(id);
+    this.webglCanvas.classList.remove('runner-touch'); this.setHolding(false);
+  }
+  gesture(action,dir) {
+    if(!this.canAct())return;
+    if(action==='jump'){this.springen();return;}
+    if(action==='slide'){
+      const now=this.now(),p=this.ownEntry();
+      if(now<p.slideReadyAt || now<p.stumbleUntil)return;
+      this.localJump=null;this.localSlide={slideAt:now,slideUntil:now+P.C.SLIDE_MS,until:now+300,from:p.slideAt};
+    }
+    this.feedback?.sound(action==='lane'?'move':'swish');this.feedback?.vibrate(6);
+    this.sendInput({action,...(action==='lane'?{dir}:{})}).catch(()=>{this.localSlide=null;});
   }
   ownEntry() { return (this.update || this.minigame)?.arcade?.players[this.getControlledPlayerId()]; }
   setHolding(active) {
     if (active && (this.ownEntry()?.finishedAt !== null || this.update?.finaleAt)) return;
+    if (active && (!this.canAct() || this.holding)) return;
     this.holding = active;
-    this.sprintButton?.classList.toggle('is-holding', active);
+    this.webglCanvas?.classList.toggle('runner-holding', active);
     clearInterval(this.holdTimer); this.holdTimer = null;
     this.sendInput({ action: 'sprint', hold: active }).catch(() => {});
     if (active) {
@@ -170,19 +230,21 @@ export class RunnerDerby extends MinigameScene {
     this.feedback?.sound('pop'); this.feedback?.vibrate(8);
     this.sendInput({ action: 'jump' }).catch(() => { this.localJump = null; });
   }
-  unbind() { clearInterval(this.holdTimer); this.holdTimer = null; this.holding = false; }
+  unbind() { clearTimeout(this.holdDelay); clearInterval(this.holdTimer); this.holdTimer = null; this.holding = false; this.pointer = null; this.controls.style.pointerEvents=""; }
+  onFinale() { this.release(); }
 
   tick(f) {
     if (!f.arcade) return;
     const own = f.arcade.players[f.controlledId];
-    if (this.holding && (f.finale || own?.finishedAt !== null)) this.holdInput.release();
+    if (this.holding && (f.finale || own?.finishedAt !== null)) this.release();
     if (this.localJump && (own?.jumpAt !== this.localJump.fromJump || f.now > this.localJump.until)) this.localJump = null;
+    if(this.localSlide && (own?.slideAt !== this.localSlide.from || f.now > this.localSlide.until))this.localSlide=null;
     f.players.forEach(player => {
       const entry = f.arcade.players[player.id]; if (!entry) return;
       const kin = this.kins.get(player.id), animator = this.animators.get(player.id);
       if (!kin) return;
       const predicted = Math.min(P.C.LENGTH, entry.progress + (f.started && entry.finishedAt === null ? entry.speed * Math.max(0, Math.min(0.1, (f.now - entry.updatedAt) / 1000)) : 0));
-      kin.position.x = this.laneX(entry.lane);
+      kin.position.x = this.laneX(P.lanePosition(entry, f.now));
       kin.rotation.y += ((entry.finishedAt !== null ? 0 : Math.PI) - kin.rotation.y) * frameLerp(0.16, f.dt);
       if (entry.finishedAt !== null && !this.celebrated.has(player.id)) {
         this.celebrated.add(player.id);
@@ -191,12 +253,14 @@ export class RunnerDerby extends MinigameScene {
       kin.position.z += (-predicted * METRE - kin.position.z) * frameLerp(0.45, f.dt);
       const jump = player.id === f.controlledId && this.localJump ? this.localJump : entry;
       const lift = P.height(jump, f.now);
+      const sliding = player.id === f.controlledId && this.localSlide ? this.localSlide : entry;
+      kin.userData.runnerSlide = P.slideFactor(sliding,f.now);
       const wasAir = kin.userData.sprintAir;
       kin.userData.sprintHeight = lift;
       kin.userData.sprintAir = lift > 0.01;
       animator.groundY = standOn(lift);
       animator.rate = Math.max(0.5, entry.speed / 5.8);
-      animator.set(entry.finishedAt !== null ? 'cheer' : f.now < entry.stumbleUntil ? 'stumble' : lift > 0.01 ? 'ready' : !f.started ? 'ready' : entry.sprinting ? 'sprint' : 'run');
+      animator.set(entry.finishedAt !== null ? 'cheer' : f.now < entry.stumbleUntil ? 'stumble' : lift > 0.01 ? 'ready' : kin.userData.runnerSlide > .05 ? 'slide' : !f.started ? 'ready' : entry.sprinting ? 'sprint' : 'run');
       if (wasAir && !kin.userData.sprintAir && f.now >= entry.stumbleUntil && entry.finishedAt === null) {
         animator.trigger('land');
         if (player.id === f.controlledId) this.feedback?.sound('land');
@@ -208,9 +272,6 @@ export class RunnerDerby extends MinigameScene {
       const verdict = entry.lastVerdict;
       if (verdict && this.verdicts.get(player.id) !== verdict.index) {
         this.verdicts.set(player.id, verdict.index);
-        if (verdict.kind === 'hit') {
-          const hurdle = this.hurdles.get(`${player.id}:${verdict.index}`); if (hurdle) hurdle.userData.fellAt = verdict.at;
-        }
         if (player.id === f.controlledId && f.now - verdict.at < 600) {
           this.feedback?.sound(verdict.kind === 'clear' ? 'coin' : 'impact');
           this.feedback?.vibrate(verdict.kind === 'clear' ? 6 : 18);
@@ -222,14 +283,14 @@ export class RunnerDerby extends MinigameScene {
       rival.value.textContent = entry.finishedAt !== null ? timeText(entry.finishMs) : `${Math.floor(entry.progress)} m`;
       rival.fill.style.width = `${entry.progress}%`;
     });
-    for (const hurdle of this.hurdles.values()) if (hurdle.userData.fellAt) {
-      const t = Math.min(1, Math.max(0, (f.now - hurdle.userData.fellAt) / 260));
-      hurdle.rotation.x = -Math.PI / 2 * (1 - Math.pow(1 - t, 3));
-    }
+    const kin = this.kins.get(f.controlledId);
+    if(kin)this.ownHalo.position.set(kin.position.x,.018,kin.position.z);
+
   }
 
   afterAnimate() {
     this.kins.forEach(kin => {
+      kin.scale.y = 1 - (kin.userData.runnerSlide || 0) * .38;
       if (kin.userData.sprintAir) {
         // The pose folds the legs; only the shared parabola moves the soles.
         kin.userData.legs[0].rotation.x = -0.65;
@@ -240,7 +301,7 @@ export class RunnerDerby extends MinigameScene {
       kin.userData.legs.forEach(leg => { sole = Math.min(sole, footBounds.setFromObject(leg).min.y); });
       if (Number.isFinite(sole)) {
         if (kin.userData.sprintAir) kin.position.y += kin.userData.sprintHeight - sole;
-        else if (sole < 0) kin.position.y -= sole;
+        else if (kin.userData.runnerSlide > .01 || sole < 0) kin.position.y -= sole;
       }
     });
   }
@@ -255,15 +316,15 @@ export class RunnerDerby extends MinigameScene {
     this.energyFill.style.width = `${own.energy}%`;
     this.energyMeter.setAttribute('aria-valuenow', Math.round(own.energy));
     this.energyFill.classList.toggle('is-low', own.energy < P.C.RESUME_ENERGY);
+    this.controls.classList.toggle('is-holding',this.holding);
+    this.gestureNote.textContent=this.holding ? own.exhausted?'Leer · loslassen zum Aufladen':'Sprint · Ausdauer wird verbraucht':'Auf dem Spielfeld halten: Sprint · loslassen: aufladen';
     const stumble = f.now < own.stumbleUntil;
-    this.status.textContent = own.finishedAt !== null ? 'Im Ziel' : !f.started ? 'Bereit am Start' : stumble ? 'Straucheln' : f.now < own.jumpUntil ? 'Im Sprung' : own.exhausted ? 'Erholen bis 30 %' : own.sprinting ? 'Sprint' : 'Erholen';
-    this.sprintButton.disabled = own.finishedAt !== null || f.finale;
-    this.jumpButton.disabled = own.finishedAt !== null || f.finale || !f.started || stumble || f.now < own.jumpReadyAt || Boolean(this.localJump);
-    const hurdle = f.arcade.hurdles[own.nextHurdle];
-    const predicted = { ...own, progress: own.progress + own.speed * Math.max(0, Math.min(0.1, (f.now - own.updatedAt) / 1000)) };
-    const ready = !this.jumpButton.disabled && P.jumpWindow(predicted, hurdle);
-    this.cue.classList.toggle('is-ready', ready);
-    this.jumpButton.classList.toggle('is-hint', ready);
-    this.cue.textContent = own.finishedAt !== null ? `${own.cleared}/7 Hürden · ${f.finale ? 'Rennen beendet' : 'Die anderen laufen noch'}` : !f.started ? 'Sprint halten · Sprung tippen' : stumble ? 'Hürde erwischt · weiter geht’s' : ready ? 'JETZT SPRINGEN' : hurdle ? `Hürde ${own.nextHurdle + 1}/7 · ${Math.ceil(Math.max(0, hurdle.at - own.progress))} m` : 'ZIELGERADE · Endspurt!';
+    this.status.textContent = own.finishedAt !== null ? 'Im Ziel' : !f.started ? 'Bereit am Start' : stumble ? 'Straucheln' : f.now < own.jumpUntil ? 'Im Sprung' : P.slideFactor(own,f.now)>.05 ? 'Slide' : own.exhausted ? own.holding ? 'Leer · loslassen!' : 'Ausdauer lädt'  : own.sprinting ? 'Sprint' : 'Erholen';
+    const row = f.arcade.hurdles[own.nextHurdle];
+    const kind = row?.lanes[own.lane];
+    const prediction = {...own,progress:own.progress+own.speed*Math.max(0,Math.min(.1,(f.now-own.updatedAt)/1000))};
+    const ready = kind==='jump' && P.jumpWindow(prediction,row) || kind==='slide' && (row.at-prediction.progress)/Math.max(1,prediction.speed)<.5;
+    this.cue.classList.toggle('is-ready',Boolean(ready));
+    this.cue.textContent = own.finishedAt!==null ? `${own.cleared}/${f.arcade.hurdles.length} sauber · ${f.finale?'Rennen beendet':'Andere laufen noch'}` : !f.started ? '← → Spur · ↑ Sprung · ↓ Slide' : stumble ? 'Erwischt · weiter geht’s' : ready ? kind==='jump'?'↑ JETZT SPRINGEN':'↓ JETZT SLIDEN' : row ? `${kind==='block'?'← → SPUR WECHSELN':kind==='jump'?'↑ SPRUNG':kind==='slide'?'↓ SLIDE':'Freie Spur'} · ${Math.ceil(Math.max(0,row.at-own.progress))} m` : 'ZIELGERADE · ENDSPURT!';
   }
 }

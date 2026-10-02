@@ -33,6 +33,7 @@ export class Feedback {
   vibrate(pattern = 18) {
     if (!this.vibrationEnabled) return;
     if (!("vibrate" in navigator)) return;
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     const softened = Array.isArray(pattern)
       ? pattern.map((value, index) => Math.min(value, index % 2 === 0 ? 32 : 24))
       : Math.min(pattern, 28);

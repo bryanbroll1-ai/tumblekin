@@ -1,29 +1,27 @@
-# Zielgerade: 100-Meter-Hürdensprint
+# Zielgerade: Wischen, Slide und Sprung
 
-Die bisherige Mischung aus wechselnden Belägen, Bahnwechseln, Heuballen und Hürden wurde ersetzt. Vier Personen hatten nur drei Bahnen; die Trefferprüfung akzeptierte jeden laufenden Sprung, während die Szene Figuren vor Hürden zusätzlich anhob. Damit erklärten sichtbare Bewegung und tatsächliches Ergebnis einander nicht zuverlässig.
+Zielgerade ist ein 100-Meter-Rennen gegen die anderen auf drei gemeinsamen Spuren. Jede Person sieht dieselben zwölf Hindernisreihen. Die Rennen verwenden neu gemischte, lösbare Muster: hohe Kisten umfahren, orange Hürden überspringen und unter blauen Toren sliden. Figuren blockieren einander nicht; die schnellste Zielzeit gewinnt. Gleiche angezeigte Hundertstel teilen den Platz.
 
-## Neuer Ablauf
+## Eine Fläche als Steuerung
 
-- Jede Person erhält eine eigene, farblich markierte Bahn. Alle laufen denselben 100-Meter-Kurs mit sieben Hürden; kleine Abstandsvariationen gelten für alle gleich.
-- Ohne Eingabe wird gejoggt. SPRINT halten beschleunigt und verbraucht Ausdauer; Loslassen regeneriert am Boden. Ganz leere Ausdauer schaltet den Sprint bis 30 % Erholung ab.
-- SPRUNG tippen startet eine ballistische Flugbahn. Absprunggeschwindigkeit bleibt während des Sprungs erhalten. Sprünge kosten Ausdauer, bleiben aber auch bei leerer Ausdauer möglich.
-- Der grüne Hinweis sagt, wann ein jetzt gestarteter Sprung die nächste Hürde überqueren würde. Früh oder spät kann die Latte getroffen werden. Ein Treffer klappt nur die eigene Hürde um und kostet Tempo; niemand scheidet aus.
-- Die schnellste Zielzeit gewinnt. Angezeigte und gewertete Zeit verwenden dieselben Hundertstelsekunden; gleiche Zeiten teilen sich den Platz. Noch laufende Personen werden nach präzisem Fortschritt gewertet. Ein untätiger Spieler kann den Kurs innerhalb der 32 Sekunden absolvieren.
+Es gibt keine Spielknöpfe. Links/rechts wischen wechselt um eine Spur; hoch startet einen Sprung; runter startet den Slide. Runter während des Sprungs führt über einen kurzen, kontinuierlichen Abstieg zum Boden. Ein Finger, der länger als 170 ms auf dem Spielfeld bleibt, sprintet. Während des Haltens sind Wischaktionen mit demselben Finger möglich. Ein zweiter Finger übernimmt den aktiven Finger nicht und beendet seinen Sprint nicht.
 
-## Darstellung und Bedienung
+Sprint verbraucht Ausdauer. Bei leerer Ausdauer wird gejoggt, bis der Finger losgelassen und mindestens 30 Prozent Ausdauer am Boden nachgeladen wurden. Halten bei leerer Anzeige lädt nichts nach. Wischen, Springen und Sliden kosten keine Sprint-Ausdauer. Absprungtempo bleibt zunächst erhalten; mit leerer Sprint-Ausdauer wird auch in der Luft abgebremst, damit Dauerspringen keinen kostenlosen Dauersprint erzeugt.
 
-Die Kamera folgt der eigenen Bahn und reserviert Platz für Ausdaueranzeige und Steuerung. Im Querformat blickt sie weniger weit voraus, damit die eigene Figur sichtbar bleibt. Kompakte Fortschrittsleisten zeigen den gesamten Rennstand, auch wenn andere Figuren außerhalb des Bildes laufen.
+Blur, versteckter Tab, Größenänderung, Fingerabbruch und Finale lösen Sprint und ausstehende Halte-Timer. Ohne frischen Kontakt endet der serverseitige Haltezustand nach 420 ms. Tastatur: Pfeile/WASD für die Wischaktionen, Leertaste/Shift halten zum Sprinten.
 
-Zwei große Knöpfe geben sichtbaren Druckzustand, Ton und kurze Vibration. Der Finger auf SPRUNG kann losgelassen werden, während der andere SPRINT weiter hält. Tastaturbedienung funktioniert auch im optionalen Übungsversuch. Tabwechsel, Fingerabbruch und Größenänderung lösen gehaltenes Sprinten; zusätzlich läuft der serverseitige Haltezustand ohne frischen Kontakt aus.
+## Sichtbare und tatsächliche Bewegung
 
-Laufen, Sprinten, Hürdensprung, Stolpern und Zieljubel besitzen unterscheidbare Posen. Die sichtbaren Sohlen im Sprung folgen derselben Formel wie die Trefferprüfung. Es gibt keine künstliche Anhebung an einer Hürde. Stadionplätze und Zuschauer verwenden Instanzen statt vieler einzelner Figuren.
+Die gemeinsame Regelschicht `client/src/minigames/SprintPhysics.js` wird auf Server, im Übungs-Worker und zur Darstellung genutzt. Spurwechsel dauern 200 ms und besitzen eine kontinuierliche seitliche Position: mitten zwischen zwei Spuren können beide Hindernisse berührt werden. Auch während des Stolperns kann noch seitlich gelenkt werden. Sprünge folgen einer gemeinsamen Parabel; die sichtbaren Sohlen liegen auf derselben Höhe. Der Slide tritt ein und aus, und die sichtbare Kopfhöhe passt unter das blaue Tor. Die Sohlen werden auch beim Ducken am Boden gehalten.
 
-## Regeln und Prüfung
+Kontakte werden am tatsächlichen Überqueren einer Hindernisreihe geprüft. Die Simulation integriert danach den übrigen Zeitschritt mit dem neuen Zustand weiter. Ein spät eintreffender Wisch oder Sprung kann einen bereits erfolgten Treffer nicht nachträglich verhindern. Ein Treffer kostet Tempo und unterbricht den Sprung; die Person bleibt im Rennen. Hindernisse bleiben für nachfolgende Rivalen erhalten.
 
-`client/src/minigames/SprintPhysics.js` ist die gemeinsame, abhängigkeitenfreie Regelschicht für Server, Browserdarstellung und Übungs-Worker. Die Simulation integriert bis zum tatsächlichen Hürden- oder Zielkontakt und anschließend mit dem neuen Bewegungszustand weiter. Eine spät eingetroffene Sprungeingabe kann eine bereits überquerte Hürde nicht nachträglich retten.
+Die Kamera zeigt alle drei Spuren und folgt nach vorne der eigenen Figur. Die eigene Bodenmarkierung und farbige Namensanzeige unterscheiden sie von den anderen. Kompakte Rennstände und Ausdauer bleiben auf kleinen und quer gehaltenen Geräten lesbar. Die unteren Hinweise empfangen keine Zeigereingaben und lassen die Spielfläche bedienbar.
 
-Gezielte Tests prüfen eigene Bahnen, gleiche lösbare Kurse, Countdown, Sprint/Erholung, Abbruch eines gehaltenen Knopfs, Ausdauererschöpfung, Sprungbogen, Absprungtempo, frühe/späte Sprünge, doppelte Tipps, genau einen Treffer pro Hürde, Zielzeiten und identische Ergebnisse bei verschiedenen Tickraten. Echte Epoch-Zeitstempel sind zusätzlich geprüft, damit Rundungsgrenzen keinen Zeitschritt blockieren.
+## Übung und Prüfung
 
-Browserprüfungen erfassen zwei Finger, Tastatur, Blur, Größenänderung, sichtbare Sprunghöhe, Kamerarahmen, Übung, Wiederholung und unveränderte Partiepunkte. Mobile Layouts werden bei 390 × 844, 844 × 390 und 320 × 568 geprüft. Bot-Simulationen vergleichen die tatsächlichen Platzierungen verschiedener Spielstärken.
+Die Übung besitzt einen wiederholbaren Einstieg. Der beim Aufbau erzeugte Kurs bleibt beim Countdown derselbe; sichtbare Hindernisse und Regeln wechseln nicht gegeneinander. Neu setzt alle Werte zurück. Partiepunkte und Bereitstatus bleiben unverändert. Die übrigen Übungen wurden auf diese Kurs-Erhaltung ebenfalls geprüft.
 
-Der nächste menschliche Spieltest sollte vor allem klären, wie gut der grüne Absprunghinweis mit dem Daumengefühl zusammenpasst und ob Ausdauerwechsel auf einem echten Handy schnell genug lesbar sind.
+442 Regeltests bestehen, darunter je 25 Sprint- und Bumper-Prüfungen. Für beide Spiele bestehen 54 vollständige Simulationen bei 2/3/4 Personen und unterschiedlichen Takten. Der echte Chromium-Touchtest prüft seitliches Wischen, Sprung, Abstieg/Slide, Halten, zweiten Finger, Kopf-/Sohlenhöhe, Loslassen, Tastatur, Blur, Orientierung, Wiederholen und die anschließende Partie. 390 × 844, 844 × 390 und 320 × 568 sind auf HUD-Überlappung, abgeschnittene Steuerung und Finale-Sperre geprüft. Je 120 Renn-Botrunden bei 2/3/4 Personen belohnen die stärkere Spielweise.
+
+Der Handytest sollte vor allem zeigen, wie sich der Übergang zwischen kurzem Wischen und gehaltenem Sprint anfühlt und ob die Spur-, Sprung- und Slide-Hindernisse schnell genug lesbar sind.

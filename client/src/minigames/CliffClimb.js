@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin208";
-import { addStageLights } from "./SceneKit.js?v=tumblekin208";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
-import { frameLerp } from "./Quality.js?v=tumblekin208";
+import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin209";
+import { addStageLights } from "./SceneKit.js?v=tumblekin209";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
+import { frameLerp } from "./Quality.js?v=tumblekin209";
 
 // Bergsteiger — die Wand zeigt, welche Hand als Nächstes greifen muss. Der
 // richtige Griff zieht eine Sprosse hoch, der falsche rutscht eine ab. Oben

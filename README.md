@@ -60,7 +60,7 @@ Alle 40 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern
 
 Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Kulisse bewegt sich etwas: Fahnen wehen, Rauch steigt, Lichterketten laufen, Enten treiben vorbei.
 
-- Bumper Pool — Freibad mit Badeinsel, Liegen und Rutsche
+- Bumper Pool — gekachelte Badeinsel, Kurvenmarkierungen, Palmen und Liegen
 - Zielgerade — Laufbahn im Stadion mit Tribünen
 - Farbflucht — Farbfest mit Pulverwolken
 - Nervenprobe — Fernsehstudio mit Publikum und Kamera
@@ -117,15 +117,15 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️ Stick ziehen
 
-- **Bumper Pool:** Nur der Stick: Lenken, Anlauf nehmen und rammen. Loslassen bremst. Schubs die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
+- **Bumper Pool:** Nur der Stick: Lenken, Anlauf nehmen und rammen. Loslassen bremst. Fahr eine gleichmäßige Kurve, um Schwung aufzubauen: Du wirst schneller und rammst kräftiger. Schnelles Hin-und-her-Wackeln lädt ihn nicht. Schubs die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
 - **Tiefenrausch:** Tauch mit dem Stick nach Gold — je tiefer, desto wertvoller, ganz unten wartet eine Truhe. Die Luft wird knapp, und zwar unten schneller: Die weisse Marke im Luftbalken zeigt, was der Weg nach oben kostet — kommt die Luft ihr nahe, tauch auf. Oben füllt sie sich wieder, und dein Gold ist sicher eingezahlt. Quallen kosten Luft und etwas Gold. Geht dir die Luft aus, ist alles weg, was du trägst.
 - **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Auf deiner eigenen Farbe fährst du schneller, auf fremder langsamer — bau dir Bahnen und übermal die anderen. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Wer am Ende die meiste Fläche hat, gewinnt.
 - **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Lenk die Scheibe mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
 - **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
 
-### 👆⏺️ Sprint halten · Sprung tippen
+### 👆 Wischen · halten sprintet
 
-- **Zielgerade:** 100 Meter, sieben Hürden, eine eigene Bahn für jede Person. Halte SPRINT für mehr Tempo; Loslassen lädt am Boden die Ausdauer auf. Tippe SPRUNG vor der Hürde – der grüne Hinweis hilft beim Timing. Sprinten und Springen kosten Ausdauer. Ganz leer? Dein Sprint erholt sich bis 30 Prozent; springen kannst du trotzdem. Ein Hürdentreffer kostet Tempo, du bleibst im Rennen. Die schnellste Zielzeit gewinnt; gleiche Hundertstel teilen den Platz.
+- **Zielgerade:** 100 Meter gegen die anderen auf drei gemeinsamen Spuren. Wische links/rechts zum Spurwechsel, hoch zum Springen und runter zum Sliden; runter in der Luft zieht dich schnell zum Boden. Hohe Kisten umfahren, orange Hürden überspringen, blaue Tore unterrutschen. Halte auf dem Spielfeld für Sprint: Die Ausdauer geht leer; erst Loslassen lädt sie am Boden wieder auf. Treffer kosten Tempo, du bleibst im Rennen. Alle haben dieselben Hindernisse. Die schnellste Zielzeit gewinnt; gleiche Hundertstel teilen den Platz.
 
 ### 👆✳️ In jede Richtung wischen
 
@@ -282,7 +282,7 @@ npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur
 npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
 npm run practice-check       # vier Übungen mit echten Eingaben, Neustart, Aufräumen und Isolation von zwei Geräten
 npm run bumper-check         # nur Stick: echter Touch, Rammen, Klang, Übung und Fokusverlust
-npm run sprint-check         # Sprint/Sprung, Ausdauer, Kamera und isolierte Übung
+npm run sprint-check         # Wischen/Halten, Slide/Sprung, Ausdauer, Kamera und isolierte Übung
 npm run pipe-check           # fünf echte Rohrsalat-Runden, sechs Ventile, kleine Bildschirme und Texturfreigabe
 npm run feedback-check       # Landungen, Landering, Insel-Vorwarnung und reduzierte Bewegung
 npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unterbrechung

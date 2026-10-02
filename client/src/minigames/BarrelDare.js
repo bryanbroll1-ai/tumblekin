@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin208";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
-import { eventChance, frameLerp } from "./Quality.js?v=tumblekin208";
+import { reachArm } from "./VoxelKit.js?v=tumblekin209";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
+import { eventChance, frameLerp } from "./Quality.js?v=tumblekin209";
 
 // Fassmut — über jedem hängt ein Fass am Seil, das Seil läuft über eine Rolle
 // am Galgen und hinunter in die eigenen Hände. Das Fass wird losgelassen und

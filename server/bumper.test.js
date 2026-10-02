@@ -138,3 +138,26 @@ test('bumper: two protected rings bounce without assigning knock-out credit',()=
   assert.ok(a.players.a.vx<0 && a.players.b.vx>0);
   assert.equal(a.players.a.lastHitBy,null);assert.equal(a.players.b.lastHitBy,null);
 });
+function curvedRing(zigzag=false){
+  const p=P.create([{id:'a'}],START).players.a;Object.assign(p,{x:0,y:0,vx:1.016,vy:-.709});
+  for(let ms=0;ms<2200;ms+=8){const angle=zigzag?(Math.floor(ms/80)%2?-.65:.65):ms/1000*Math.PI;
+    P.thrust(p,Math.cos(angle),Math.sin(angle),START+ms);P.motion(p,.008,START+ms);}
+  return p;
+}
+test('bumper: a sustained moving arc builds charge and genuine extra velocity',()=>{
+  const curved=curvedRing();assert.ok(curved.swing>.9);assert.ok(Math.hypot(curved.vx,curved.vy)>1.9);
+  const straight=P.create([{id:'a'}],START).players.a;
+  for(let ms=0;ms<2200;ms+=8){P.thrust(straight,1,0,START+ms);P.motion(straight,.008,START+ms);}
+  assert.equal(straight.swing,0);assert.ok(Math.hypot(curved.vx,curved.vy)>straight.vx+.3);
+});
+test('bumper: short stick wiggles cannot build arc charge',()=>{assert.equal(curvedRing(true).swing,0);});
+test('bumper: curved run-up launches the target farther and consumes charge',()=>{
+  function impact(speed,swing){const a=arena();Object.assign(a.players.a,{x:0,y:0,vx:speed,vy:0,swing});Object.assign(a.players.b,{x:.25,y:0});P.collision(a,'a','b',START+1000);return a;}
+  const p=curvedRing(),strong=impact(Math.hypot(p.vx,p.vy),p.swing),normal=impact(1.51,0);
+  assert.ok(strong.players.b.vx>normal.players.b.vx+.3);assert.equal(strong.players.a.swing,0);
+});
+test('bumper: releasing brakes and clears curve charge, without permanent boost',()=>{
+  const p=curvedRing();P.thrust(p,0,0,START+2200);
+  for(let ms=2200;ms<3000;ms+=8)P.motion(p,.008,START+ms);
+  assert.equal(p.swing,0);assert.ok(Math.hypot(p.vx,p.vy)<.001);
+});

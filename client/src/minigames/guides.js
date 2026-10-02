@@ -40,8 +40,8 @@ export const MINIGAME_TIEBREAKERS = {
 };
 
 export const MINIGAME_GUIDES = {
-  bounceArena: guide("together", "Ramm die anderen von der Insel. Übrige Leben entscheiden, danach Rauswürfe.", "Nur der Stick: Anlauf nehmen, rammen, zum Bremsen loslassen. Drei Leben; am Ende schrumpft die Insel."),
-  finishRush: guide("skill", "Laufe 100 Meter: halte SPRINT und tippe SPRUNG vor jeder Hürde.", "Loslassen lädt Ausdauer auf. Bei grünem Hinweis passt der Sprung; gleiche Hundertstel teilen den Platz."),
+  bounceArena: guide("together", "Ramm die anderen von der Insel. Übrige Leben entscheiden, danach Rauswürfe.", "Nur der Stick: Kurven bauen Schwung auf, Anlauf rammt stärker, Loslassen bremst. Drei Leben; am Ende schrumpft die Insel."),
+  finishRush: guide("skill", "100 Meter gegen die anderen: ← → Spur wechseln, ↑ springen, ↓ sliden.", "Auf dem Spielfeld halten sprintet; Loslassen lädt Ausdauer. Kisten umfahren, orange überspringen, unter Blau sliden."),
   colorEscape: guide("reaction", "Wisch auf die angesagte Farbe, bevor die anderen Felder wegbrechen.", "Jede Runde wird schneller. Ein Sturz beendet dein Spiel."),
   nervenprobe: guide("thinking", "Stoppe deine unsichtbare Uhr möglichst genau bei der Zielzeit.", "Nach zwei Sekunden verschwindet die Uhr. Zähl im Kopf weiter."),
   lichtwaechter: guide("reaction", "Halte zum Laufen. Erreiche das Tor vor den anderen.", "Bei Gelb loslassen: Bewegung bei Rot wirft dich zurück."),

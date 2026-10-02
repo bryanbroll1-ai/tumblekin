@@ -629,7 +629,7 @@ function seekFindValue(probes) {
 }
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
-// Zielgerade: personal lanes, shared 100 m course and ballistic hurdles.
+// Zielgerade: shared three-lane obstacle race, swipe actions and held sprint.
 const RUNNER_LENGTH = Sprint.C.LENGTH;
 // Farbflucht — eine Farbe wird angesagt, alle anderen Felder fallen weg.
 //
@@ -4560,12 +4560,13 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "runner") {
-    if (!["sprint", "jump"].includes(input.action)) {
-      return { ok: false, error: "Sprint halten, Sprung tippen." };
+    if (!["sprint", "jump", "slide", "lane"].includes(input.action)) {
+      return { ok: false, error: "Wische zum Ausweichen, Springen oder Sliden; halten sprintet." };
     }
     if (input.action === "sprint" && typeof input.hold !== "boolean") {
       return { ok: false, error: "Haltezustand fehlt." };
     }
+    if (input.action === "lane" && ![-1, 1].includes(input.dir)) return { ok: false, error: "Spurwechsel braucht eine Richtung." };
     // Apply the time before an input under the previous input state. In
     // particular, a late jump cannot retroactively clear a crossed hurdle.
     updateRunner(room, minigame, arcade, now);
@@ -4574,7 +4575,9 @@ function handleArcadeInput(room, player, rawInput) {
       arcadePlayer.holding = input.hold;
       arcadePlayer.sprintAt = now;
     } else if (now >= minigame.startedAt) {
-      Sprint.jump(arcadePlayer, now);
+      if (input.action === "jump") Sprint.jump(arcadePlayer, now);
+      else if (input.action === "slide") Sprint.slide(arcadePlayer, now);
+      else Sprint.changeLane(arcadePlayer, input.dir, now);
     }
     arcadePlayer.hasMoved = true;
     return { ok: true };
@@ -8045,20 +8048,25 @@ function arcadeBotStep(room, bot) {
       || (player.botSprinting ? player.energy > low : player.energy >= high);
     player.botSprinting = sprint;
     handleArcadeInput(room, bot, { action: "sprint", hold: sprint && !(hard && now < player.jumpUntil) });
-    const hurdle = arcade.hurdles[player.nextHurdle];
-    if (!hurdle) return;
-    if (player.botHurdle !== hurdle.index) {
-      player.botHurdle = hurdle.index;
-      player.botWillJump = Math.random() > (hard ? 0.02 : easy ? 0.32 : 0.12);
-      player.botJumpLead = (hard ? 0.45 : easy ? 0.25 : 0.38)
-        + (Math.random() - 0.5) * (hard ? 0.08 : easy ? 0.42 : 0.22);
+    const row = arcade.hurdles[player.nextHurdle];
+    if (!row) return;
+    const distance = row.at - player.progress, arrival = distance / Math.max(1, player.speed);
+    if (player.botHurdle !== row.index) {
+      player.botHurdle = row.index;
+      player.botWillJump = Math.random() > (hard ? .02 : easy ? .32 : .12);
+      player.botJumpLead = (hard ? .42 : easy ? .24 : .36) + (Math.random() - .5) * (hard ? .06 : easy ? .3 : .16);
     }
-    if (player.botWillJump && (hurdle.at - player.progress) / Math.max(1, player.speed) <= player.botJumpLead) {
-      handleArcadeInput(room, bot, { action: "jump" });
-      player.botWillJump = false;
-      // A strong runner releases during flight: momentum is already fixed,
-      // so holding would spend energy without adding speed.
-      if (hard && now < player.jumpUntil) handleArcadeInput(room, bot, { action: "sprint", hold: false });
+    const kind = row.lanes?.[player.lane] || (!row.lanes ? 'jump' : null);
+    if (player.botWillJump && kind === 'block' && arrival < (hard ? .85 : easy ? .25 : .6)) {
+      const escape = [player.lane - 1, player.lane + 1].filter(lane => lane >= 0 && lane <= 2 && !row.lanes[lane]);
+      if (escape.length) handleArcadeInput(room, bot, { action: "lane", dir: escape[0] - player.lane });
+    }
+    if (player.botWillJump && kind === 'slide' && arrival <= player.botJumpLead && arrival > .02) {
+      handleArcadeInput(room, bot, { action: "slide" }); player.botWillJump = false;
+    }
+    if (player.botWillJump && kind === 'jump' && arrival <= player.botJumpLead && arrival > .02) {
+      handleArcadeInput(room, bot, { action: "jump" }); player.botWillJump = false;
+      if (hard) handleArcadeInput(room, bot, { action: "sprint", hold: false });
     }
     return;
   }

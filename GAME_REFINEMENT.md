@@ -18,8 +18,8 @@ Alle Zeilen enthalten die gemeinsame Anzeige- und Finale-Verfeinerung. Zusätzli
 
 | Spiel | Einzeln betrachtete Mechanik | Anzeige und zusätzliche Änderung |
 | --- | --- | --- |
-| Bumper Pool | Rempler, drei Leben, Rauswürfe, schrumpfende Insel | Komplett erneuert: ausschließlich Joystick, gemeinsame Ringphysik, gerichtete Treffer, Gummi-/Wasserklänge, Namen/Leben, Training; siehe BUMPER_POOL_REWORK.md |
-| Zielgerade | Neuer 100-Meter-Hürdensprint: eigene Bahn, Ausdauer, gehaltenes Sprinten, getimte Sprünge | Gemeinsame Sprungphysik und kontinuierliche Treffer-/Zielprüfung; zwei unabhängige Druckknöpfe; Übung und Kamera in Hoch-/Querformat |
+| Bumper Pool | Rempler, drei Leben, Rauswürfe, schrumpfende Insel | Komplett erneuert: ausschließlich Joystick, gemeinsame Ringphysik, Kurven-Schwung, schönere Badeinsel, gerichtete Treffer, Gummi-/Wasserklänge, Namen/Leben, Training; siehe BUMPER_POOL_REWORK.md |
+| Zielgerade | 100 Meter auf drei gemeinsamen Spuren: Wischen, Sprung, Slide, gehaltenes Sprinten | Gemeinsame Sprungphysik und kontinuierliche Treffer-/Zielprüfung; keine Spielknöpfe; eine Wisch-/Haltefläche, Übung und Kamera in Hoch-/Querformat |
 | Farbflucht | Farbansage, Feldwechsel, Sturz und steigendes Tempo | Runden; Mehrfinger- und Unterbrechungsschutz für die Wischgeste |
 | Nervenprobe | Sichtbare Startuhr, verdecktes Weiterzählen, Stoppabweichung | Eigene Zielzeit erhalten; keine verräterische zweite Uhr |
 | Lichtwächter | Halten, Gelb-/Rotwechsel, Rückwurf und Zieleinlauf | Weg; Halteunterbrechung erneut geprüft |

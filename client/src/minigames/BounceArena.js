@@ -1,11 +1,11 @@
 import * as THREE from '/vendor/three/three.module.js';
-import { MinigameScene } from './MinigameScene.js?v=tumblekin208';
-import { standOn, createCloud } from './VoxelKit.js?v=tumblekin208';
-import { VirtualJoystick } from './VirtualJoystick.js?v=tumblekin208';
-import { frameLerp, prefersReducedMotion } from './Quality.js?v=tumblekin208';
-import { arenaShrinkCue } from './FeedbackCues.js?v=tumblekin208';
-import { kiste, viele, lambert } from './Kulisse.js?v=tumblekin208';
-import './BumperPhysics.js?v=tumblekin208';
+import { MinigameScene } from './MinigameScene.js?v=tumblekin209';
+import { standOn, createCloud } from './VoxelKit.js?v=tumblekin209';
+import { VirtualJoystick } from './VirtualJoystick.js?v=tumblekin209';
+import { frameLerp, prefersReducedMotion } from './Quality.js?v=tumblekin209';
+import { arenaShrinkCue } from './FeedbackCues.js?v=tumblekin209';
+import { kiste, viele, lambert } from './Kulisse.js?v=tumblekin209';
+import './BumperPhysics.js?v=tumblekin209';
 const P = globalThis.TumblekinBumperPhysics;
 const SCALE = 3.4, DECK = .25, WATER = -.12;
 const RING = P.C.BALL_RADIUS * SCALE;
@@ -42,7 +42,7 @@ export class BounceArena extends MinigameScene {
     viele(this.scene, new THREE.BoxGeometry(.74, .2, .74), lambert('#faf1d9'), tiles);
     this.island = new THREE.Group(); this.scene.add(this.island);
     const geo = new THREE.CylinderGeometry(SCALE, SCALE, .28, 64); geo.userData.block = true;
-    const disk = new THREE.Mesh(geo, lambert('#d6ede5')); disk.position.y = DECK - .14;
+    const disk = new THREE.Mesh(geo, lambert('#fff1d2')); disk.position.y = DECK - .14;
     disk.receiveShadow = true; this.island.add(disk);
     const rimGeo = new THREE.RingGeometry(SCALE - .06, SCALE, 64); rimGeo.userData.block = true;
     this.rim = new THREE.Mesh(rimGeo, new THREE.MeshLambertMaterial({ color: '#f7b675', emissive: '#ff794d', emissiveIntensity: .12, side: THREE.DoubleSide }));
@@ -50,6 +50,33 @@ export class BounceArena extends MinigameScene {
     const centerGeo = new THREE.RingGeometry(.24, .29, 32); centerGeo.userData.block = true;
     const center = new THREE.Mesh(centerGeo, new THREE.MeshBasicMaterial({ color: '#a4c9c1', side: THREE.DoubleSide }));
     center.rotation.x = -Math.PI / 2; center.position.y = DECK + .01; this.island.add(center);
+    // Warm tiled island, curved inlays, resort edges: colour without visual
+    // obstacles that would falsely suggest a collision or hide a ring.
+    ['#ffd7c4','#ffe9b3','#d6eee2','#fbd8dd','#e5e3f6','#d3e9ee'].forEach((color,i)=>{
+      const g = new THREE.RingGeometry(.48,SCALE-.18,12,1,i*Math.PI/3+.035,Math.PI/3-.07);g.userData.block=true;
+      const tile = new THREE.Mesh(g,new THREE.MeshLambertMaterial({color,side:THREE.DoubleSide}));
+      tile.rotation.x=-Math.PI/2;tile.position.y=DECK+.002;this.island.add(tile);
+    });
+    for(let i=0;i<3;i++){
+      const g=new THREE.RingGeometry(1.92,1.965,32,1,i*Math.PI*2/3+.25,1.5);g.userData.block=true;
+      const arc=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:'#fffaf0',side:THREE.DoubleSide}));
+      arc.rotation.x=-Math.PI/2;arc.position.y=DECK+.006;this.island.add(arc);
+    }
+    const edging=[];
+    for(let i=0;i<24;i++){const a=i*Math.PI/12;edging.push({p:[Math.sin(a)*(SCALE-.12),DECK+.012,Math.cos(a)*(SCALE-.12)],r:[0,a,0]});}
+    viele(this.island,new THREE.BoxGeometry(.18,.016,.055),lambert('#fffdf2'),edging);
+    for(const side of [-1,1]){
+      const x=side*6.6,z=-4.6;
+      kiste(this.scene,.2,2.3,.2,'#ad7855',[x,1.06,z]);
+      const leaves=[];for(let i=0;i<5;i++){const a=i*Math.PI*2/5;leaves.push({p:[x+Math.sin(a)*.45,2.15,z+Math.cos(a)*.45],r:[0,a,side*.15]});}
+      viele(this.scene,new THREE.BoxGeometry(.24,.12,1.3),lambert('#4aaf83'),leaves);
+      kiste(this.scene,.95,.035,1.6,side===1?'#faadb7':'#fff0ae',[x-.4*side,-.01,3.6]);
+    }
+    const canopy=[];for(let i=0;i<14;i++)canopy.push({p:[-5.2+i*.8,1.45,-6.6]});
+    viele(this.scene,new THREE.BoxGeometry(.72,.13,1.2),lambert('#fff3d8'),canopy.filter((_,i)=>i%2===0));
+    viele(this.scene,new THREE.BoxGeometry(.72,.13,1.2),lambert('#f1a3ac'),canopy.filter((_,i)=>i%2===1));
+    for(const side of [-1,1])kiste(this.scene,.13,1.45,.13,'#e8dbb4',[side*5.65,.7,-6.6]);
+    this.wakes=[];
     // A few quiet pool details; the surface and ring contact remain prominent.
     for (const side of [-1, 1]) for (let i = 0; i < 3; i++) {
       const x = side * 6, z = -3 + i * 2.2;
@@ -80,6 +107,9 @@ export class BounceArena extends MinigameScene {
       shield.rotation.x = -Math.PI / 2; shield.position.y = .015; ring.add(shield);
       this.state.set(player.id, { inPlay: p.inPlay, fallAt: 0, hit: null, facing: 0, shield, splash: false, index });
       kin.userData.bumperRing = ring;
+      const wakeGeo=new THREE.RingGeometry(.47,.49,28,1,0,Math.PI*1.2);wakeGeo.userData.block=true;
+      const wake=new THREE.Mesh(wakeGeo,new THREE.MeshBasicMaterial({color:player.color,transparent:true,opacity:0,side:THREE.DoubleSide}));
+      wake.rotation.x=-Math.PI/2;wake.position.y=DECK+.02;this.scene.add(wake);this.wakes.push({id:player.id,mesh:wake});
       const card = document.createElement('div'); card.className = 'bumper-player'; card.style.setProperty('--chip', player.color);
       const name = document.createElement('span'); name.textContent = player.name;
       const lives = document.createElement('strong'); lives.textContent = '♥ ♥ ♥'; card.append(name, lives);
@@ -115,7 +145,8 @@ export class BounceArena extends MinigameScene {
     return { frame: { w: Math.max(5.4, 7.8 * radius), h: Math.max(4.6, (landscape ? 5.9 : 6.5) * radius) }, look: [0, .2, 0] };
   }
   bind() {
-    this.controls.innerHTML = `<div class="mobile-stick-controls joystick-only bumper-controls"><div class="joystick-slot"></div><p class="bumper-control-note">Lenken · Anlauf nehmen · Rammen<br>Loslassen bremst</p></div>`;
+    this.controls.innerHTML = `<div class="mobile-stick-controls joystick-only bumper-controls"><div class="joystick-slot"></div><p class="bumper-control-note">Lenken · Anlauf nehmen · Rammen<br>Loslassen bremst</p><p class="bumper-momentum" data-bumper-momentum>Kurven geben Schwung</p></div>`;
+    this.momentum = this.controls.querySelector("[data-bumper-momentum]");
     this.joystick = new VirtualJoystick({ root: this.controls.querySelector('.joystick-slot'), label: 'Schwimmring lenken und zielen', intervalMs: 70,
       feedback: this.feedback, onVector: (x, y) => this.steer(x, y) });
     this.on(window, 'keydown', event => {
@@ -252,6 +283,11 @@ export class BounceArena extends MinigameScene {
       s.shield.visible = f.now < p.invulnUntil;
       const shadow = this.shadows.get(player.id); shadow.visible = true; shadow.position.set(ring.position.x, DECK + .012, ring.position.z); shadow.material.opacity = .22;
     });
+    for(const {id,mesh} of this.wakes){
+      const p=arena.players[id],ring=this.blooms.get(id);
+      mesh.visible=Boolean(p?.inPlay && p.swing>.08);
+      if(mesh.visible){mesh.position.set(ring.position.x,DECK+.021,ring.position.z);mesh.rotation.z=-Math.atan2(p.vx,p.vy);mesh.scale.setScalar(1+p.swing*.5);mesh.material.opacity=.15+p.swing*.5;}
+    }
     this.island.scale.set(arena.radius, 1, arena.radius);
     const cue = f.finale ? { phase: 'none' } : arenaShrinkCue(arena, f.now);
     this.rim.material.emissiveIntensity = cue.phase === 'active' ? .55 + (reduced() ? 0 : Math.sin(f.now / 650) * .1) : cue.phase === 'soon' ? .32 : .12;
@@ -268,6 +304,8 @@ export class BounceArena extends MinigameScene {
     const arena = f.minigame.arena, own = arena?.players[f.controlledId]; if (!own) return;
     this.hudScore.textContent = own.lives;
     this.kosNode.textContent = `${own.knockouts} raus`;
+    this.momentum.textContent = own.swing > .08 ? `Schwung ${Math.round(own.swing*100)} % · mehr Wucht` : "Kurven geben Schwung";
+    this.momentum.classList.toggle("is-charged",own.swing>.5);
     f.players.forEach(p => {
       const entry = arena.players[p.id], card = this.cards.get(p.id);
       card.lives.textContent = entry.lives ? '♥ '.repeat(entry.lives).trim() : 'RAUS';

@@ -34,7 +34,7 @@ self.onmessage = ({ data }) => {
       };
       const players = game.type === "bounceArena" ? [player, rules.createPlayer({ id: "trainer", name: "Trainingsring", color: "#28c7d9" })] : [player];
       if (game.type === "bounceArena") currentMinigame.arena = rules.createArenaState(players, startedAt, game.duration);
-      else currentMinigame.arcade = rules.createArcadeState(game.type, players, startedAt);
+      else currentMinigame.arcade = rules.createArcadeState(game.type, players, startedAt, {seed: game.type === "finishRush" ? 39 : undefined});
       room = { code: 'PRACTICE', status: 'minigame', phase: 'playingMinigame',
         players, currentMinigame, timers: new Set() };
       prepared = true;
@@ -46,7 +46,7 @@ self.onmessage = ({ data }) => {
       const startedAt = Date.now() + 1800;
       currentMinigame.startedAt = startedAt;
       if (currentMinigame.arena) currentMinigame.arena = rules.createArenaState(room.players, startedAt, currentMinigame.duration);
-      else currentMinigame.arcade = rules.createArcadeState(currentMinigame.type, room.players, startedAt);
+      else currentMinigame.arcade = rules.createArcadeState(currentMinigame.type, room.players, startedAt, {seed: currentMinigame.arcade.seed});
       publish();
       timer = setInterval(() => {
         try {

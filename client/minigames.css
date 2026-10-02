@@ -2872,10 +2872,15 @@ canvas.is-stunned {
 .sprint-controls { width: min(100%, 460px); justify-self: center; display: grid; gap: 8px; }
 .sprint-cue { margin: 0; padding: 9px 12px; border-radius: 11px; background: #253844ee; color: #fff6dc; text-align: center; font-size: .86rem; font-weight: 850; }
 .sprint-cue.is-ready { color: #183f28; background: #a9f0b8; }
-.sprint-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding-bottom: 6px; }
-.sprint-buttons button { width: 100%; min-height: 78px; border-width: 3px; border-radius: 18px; gap: 3px; padding: 12px 4px; font-size: 1.1rem; touch-action: none; }
-.sprint-buttons small { font-size: .62rem; letter-spacing: .02em; font-weight: 700; }
-.sprint-buttons .is-hint { border-color: #c0ffc4; }
+.sprint-controls.swipe-only { pointer-events: none; }
+.sprint-gesture-note { margin: 0; color: white; text-align: center; font-size: .71rem; text-shadow: 0 1px 4px #152d3c; }
+.kinetic-webgl.runner-holding { outline: 0; }
+.bumper-momentum { margin: 0; color: #fff3c2; font-size: .7rem; font-weight: 850; text-align: center; text-shadow: 0 1px 4px #142f39; }
+.bumper-momentum.is-charged { color: #ffdd6d; }
+@media (orientation: landscape) and (max-height: 520px) {
+ .bumper-controls .bumper-control-note { bottom: 19px; }
+ .bumper-controls .bumper-momentum { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 240px; }
+}
 .kinetic-hud.dev-mode:has(.sprint-vitals) .kinetic-scorebar { top: 150px; }
 .kinetic-hud.dev-mode .sprint-vitals { top: 208px; }
 .kinetic-hud.dev-mode .sprint-rivals { top: 264px; }
@@ -2884,5 +2889,7 @@ canvas.is-stunned {
   .sprint-rivals { top: 70px; }
   .sprint-controls { width: min(100%, 410px); gap: 5px; }
   .sprint-cue { padding: 6px 12px; }
-  .sprint-buttons button { min-height: 62px; padding: 8px 4px; }
+
 }
+
+.sprint-controls.is-holding .sprint-gesture-note { color: #ffe29b; font-weight: 850; }

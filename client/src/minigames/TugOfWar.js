@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin208";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin208";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
-import { frameLerp } from "./Quality.js?v=tumblekin208";
-import { kiste, lambert, zaun, wimpel, heuballen, scheune, sonnenblumen, wolken, himmel, viele, streuer } from "./Kulisse.js?v=tumblekin208";
+import { reachArm } from "./VoxelKit.js?v=tumblekin209";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin209";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
+import { frameLerp } from "./Quality.js?v=tumblekin209";
+import { kiste, lambert, zaun, wimpel, heuballen, scheune, sonnenblumen, wolken, himmel, viele, streuer } from "./Kulisse.js?v=tumblekin209";
 
 // Tauziehen auf dem Dorffest: zwei Teams am Seil, dazwischen die Schlammgrube.
 // Die Seilmitte trägt ein rotes Band; wird es über die Kante der Grube auf

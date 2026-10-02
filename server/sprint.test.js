@@ -16,13 +16,14 @@ function room(count = 2) {
   return { players, currentMinigame: game, timers: new Set() };
 }
 
-test('sprint: unique personal lanes and equal, reachable hurdle course at every table size', () => {
+test('sprint: three shared lanes and equal, reachable obstacle course at every table size', () => {
   for (const count of [1, 2, 3, 4]) {
     const r = room(count), a = r.currentMinigame.arcade;
     assert.equal(a.trackLength, 100);
-    assert.equal(new Set(Object.values(a.players).map(p => p.lane)).size, count);
+    assert.ok(Object.values(a.players).every(p=>p.lane>=0 && p.lane<3));
     assert.equal(a.segments, undefined);
-    assert.equal(a.hurdles.length, 7);
+    assert.equal(a.hurdles.length, 12);
+    assert.ok(a.hurdles.every(row=>row.lanes.length===3 && !row.lanes.every(kind=>kind==='block')));
     for (let i = 1; i < a.hurdles.length; i++) assert.ok(a.hurdles[i].at - a.hurdles[i - 1].at > P.C.SPRINT * (P.AIR_MS + P.C.REST_MS) / 1000);
   }
   assert.deepEqual(P.course(77), P.course(77));
@@ -53,12 +54,12 @@ test('sprint: missing heartbeat releases hold at the deadline even across a long
   assert.equal(e.holding, false); assert.ok(e.energy > 95); assert.ok(e.speed < 4.6);
 });
 
-test('sprint: empty energy needs 30 percent recovery, but never locks out jumping', () => {
-  const e = entry(); e.energy = 0; e.exhausted = true; e.holding = true; e.sprintAt = START + 2000;
-  assert.equal(P.jump(e, START), true);
-  advance(e, 1100); assert.equal(e.exhausted, true); assert.equal(e.sprinting, false);
-  advance(e, 2300); assert.equal(e.exhausted, false); assert.equal(e.sprinting, true);
-  assert.ok(e.energy > 20 && e.energy < 30);
+test('sprint: depleted held sprint stays empty until release, and never blocks jumping', () => {
+  const e = entry();e.energy=0;e.exhausted=true;
+  assert.equal(P.jump(e,START),true);
+  for(let ms=0;ms<2000;ms+=100){advance(e,ms);e.holding=true;e.sprintAt=START+ms;}
+  assert.equal(e.energy,0);assert.equal(e.sprinting,false);assert.equal(e.exhausted,true);
+  e.holding=false;advance(e,3500);assert.ok(e.energy>=30);assert.equal(e.exhausted,false);
 });
 
 test('sprint: take-off keeps horizontal momentum and parabola ends on the ground', () => {
@@ -113,9 +114,9 @@ test('sprint: late server input cannot clear a hurdle that was crossed before th
   assert.equal(e.stumbles, 1); assert.equal(e.jumps, 0);
 });
 
-test('sprint: lane switches, attacks and non-boolean holds do not change the race', () => {
+test('sprint: invalid lane switches, attacks and non-boolean holds do not change the race', () => {
   const r = room(), e = r.currentMinigame.arcade.players.p0;
-  for (const input of [{ action: 'lane', dir: 1 }, { action: 'attack' }, { action: 'sprint', hold: 'true' }, null]) {
+  for (const input of [{ action: 'lane', dir: 9 }, { action: 'attack' }, { action: 'sprint', hold: 'true' }, null]) {
     withClock(0, () => assert.equal(rules.handleArcadeInput(r, r.players[0], input).ok, false));
   }
   assert.equal(e.lane, 0); assert.equal(e.holding, false); assert.equal(e.progress, 0);
@@ -147,7 +148,7 @@ test('sprint: same inputs produce the same race at 30/60/120 Hz and with delayed
 
 test('sprint: even an idle player finishes the complete course within the limit', () => {
   const e = entry(); advance(e, 32000, P.course(367));
-  assert.equal(e.progress, 100); assert.equal(e.stumbles, 7); assert.ok(e.finishMs < 32000);
+  assert.equal(e.progress, 100); assert.ok(e.stumbles > 0); assert.ok(e.finishMs < 32000);
 });
 
 test('sprint: exact finish crossing outranks progress, visible equal times share the rank', () => {
@@ -197,14 +198,56 @@ test('sprint: properly timed jumps and pacing beat permanent sprint and jump spa
       advance(e, ms, hurdles);
       e.holding = mode !== 'timed' || (e.energy > 24 && !e.exhausted);
       e.sprintAt = START + ms;
-      if (mode === 'spam' || mode === 'timed' && P.jumpWindow(e, hurdles[e.nextHurdle])) P.jump(e, START + ms);
+      const row=hurdles[e.nextHurdle],kind=row?.lanes[e.lane],arrival=row?(row.at-e.progress)/Math.max(1,e.speed):Infinity;
+      if(mode==='spam')P.jump(e,START+ms);
+      if(mode==='timed' && kind==='jump' && P.jumpWindow(e,row))P.jump(e,START+ms);
+      if(mode==='timed' && kind==='slide' && arrival<.42 && arrival>.1)P.slide(e,START+ms);
+      if(mode==='timed' && kind==='block' && arrival<.8 && row.lanes.indexOf(null)>=0)P.changeLane(e,Math.sign(row.lanes.indexOf(null)-e.lane),START+ms);
     }
     return e;
   }
   for (const seed of [37, 367, 509, 1203]) {
     const timed = race(seed, 'timed');
-    assert.equal(timed.cleared, 7); assert.equal(timed.stumbles, 0);
+    assert.equal(timed.cleared, 12); assert.equal(timed.stumbles, 0);
     assert.ok(timed.finishMs < race(seed, 'sprint').finishMs);
     assert.ok(timed.finishMs < race(seed, 'spam').finishMs);
   }
+});
+test('sprint: a lane swipe animates across the real collision lanes',()=>{
+  const e=entry();e.speed=4.4;assert.ok(P.changeLane(e,1,START));
+  assert.ok(P.lanePosition(e,START+100)>.49 && P.lanePosition(e,START+100)<.51);
+  assert.equal(P.changeLane(e,1,START+100),false);
+  assert.equal(P.obstacle(e,{lanes:['block',null,null]},START+100),'block');
+  assert.equal(P.obstacle(e,{lanes:['block',null,null]},START+200),null);
+  assert.ok(P.changeLane(e,1,START+200));assert.equal(e.lane,2);
+  assert.equal(P.changeLane(e,1,START+400),false);
+});
+test('sprint: only a timed slide clears an overhead gate',()=>{
+  const row={index:0,at:2.64,lanes:['slide','slide','slide']};
+  const good=entry();good.speed=4.4;advance(good,300,[row]);P.slide(good,START+300);advance(good,650,[row]);
+  assert.equal(good.cleared,1);assert.equal(good.stumbles,0);
+  const standing=entry();standing.speed=4.4;advance(standing,650,[row]);assert.equal(standing.stumbles,1);
+  const late=entry();late.speed=4.4;advance(late,590,[row]);P.slide(late,START+590);advance(late,650,[row]);assert.equal(late.stumbles,1);
+});
+test('sprint: downward swipe in the air descends continuously before crouching',()=>{
+  const e=entry();e.speed=7.8;P.jump(e,START);advance(e,300);
+  const before=P.height(e,START+300);assert.ok(before>.9);P.slide(e,START+300);
+  assert.equal(P.height(e,START+300),before);assert.ok(P.height(e,START+360)<before*.51);
+  assert.equal(P.height(e,START+420),0);assert.equal(P.slideFactor(e,START+430),1);
+});
+test('sprint: jumping cannot clear the tall crate; changing to its empty lane can',()=>{
+  const row={index:0,at:2.64,lanes:['block',null,'jump']};
+  const jump=entry();jump.speed=4.4;P.jump(jump,START+200);advance(jump,650,[row]);assert.equal(jump.stumbles,1);
+  const lane=entry();lane.speed=4.4;P.changeLane(lane,1,START+200);advance(lane,650,[row]);assert.equal(lane.cleared,1);
+});
+test('sprint: slide and lateral changes do not spend sprint stamina',()=>{
+  const e=entry();P.slide(e,START);P.changeLane(e,1,START);assert.equal(e.energy,100);
+});
+test('sprint: jumping with an empty held sprint cannot preserve free sprint speed',()=>{
+ const e=entry();e.energy=0;e.exhausted=true;e.speed=7.8;e.holding=true;e.sprintAt=START;
+ P.jump(e,START);advance(e,400);assert.ok(e.speed<5.2);assert.equal(e.energy,0);
+});
+test('sprint: a collision slows the runner but still permits steering away',()=>{
+ const e=entry();e.stumbleUntil=START+750;
+ assert.equal(P.changeLane(e,1,START),true);assert.equal(P.jump(e,START),false);
 });

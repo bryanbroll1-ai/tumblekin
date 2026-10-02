@@ -2,7 +2,7 @@
 (function (root) {
   const C = Object.freeze({ RADIUS: 1, BALL_RADIUS: 0.13, LIVES: 3,
     ACCEL: 6.8, DRAG: 4.5, BRAKE: 12, HIT_DRAG: 2.4,
-    RUBBER_KICK: 0.5,
+    RUBBER_KICK: 0.5, CURVE_GAIN: .85, CURVE_POWER: .65, CURVE_SETTLE_MS: 250,
     HIT_STUN: 220, RESTITUTION: 0.82, MAX_SPEED: 3.4,
     STEER_TTL: 350, RESPAWN_MS: 1700, INVULN_MS: 900,
     SHRINK_MS: 15000, SHRINK_TO: 0.62, CREDIT_MS: 1600,
@@ -19,7 +19,7 @@
       arena.players[p.id] = { x, y, vx: 0, vy: 0, thrustX: 0, thrustY: 0,
         aimX: -Math.cos(angle), aimY: -Math.sin(angle), lastThrustAt: 0,
         inPlay: true, lives: C.LIVES, ejecting: false, launchedUntil: 0,
-        hitUntil: 0, outUntil: 0, invulnUntil: startedAt + C.INVULN_MS,
+        hitUntil: 0, swing: 0, curveMs: 0, curveSign: 0, outUntil: 0, invulnUntil: startedAt + C.INVULN_MS,
         score: 0, playMs: 0, knockouts: 0, falls: 0, lastHitBy: null,
         lastHitAt: 0, lastCollisionAt: 0, collisionCount: 0,
         knockedAt: 0, spawnedAt: startedAt, outAt: null, fall: null };
@@ -58,7 +58,7 @@
     if (credited) { hitter.knockouts++; hitter.score += 60; }
     event(arena, { kind: 'fall', at: now, player: id, attacker: credited, x: p.x, y: p.y, vx: p.vx, vy: p.vy });
     p.vx = 0; p.vy = 0; p.thrustX = 0; p.thrustY = 0;
-    p.lastHitBy = null;
+    p.lastHitBy = null; p.swing = 0; p.curveMs = 0; p.curveSign = 0;
   }
   function collision(arena, idA, idB, now) {
     const a = arena.players[idA], b = arena.players[idB];
@@ -98,6 +98,7 @@
       }
     }
     for (const p of [a, b]) {
+      p.swing = 0; p.curveMs = 0; p.curveSign = 0;
       const speed = Math.hypot(p.vx, p.vy);
       if (speed > C.MAX_SPEED) { p.vx *= C.MAX_SPEED / speed; p.vy *= C.MAX_SPEED / speed; }
     }
@@ -118,7 +119,24 @@
     const steering = !stunned && at - p.lastThrustAt < C.STEER_TTL;
     const input = steering ? Math.hypot(p.thrustX, p.thrustY) : 0;
     const drag = stunned ? C.HIT_DRAG : input > .08 ? C.DRAG : C.BRAKE;
-    const ax = steering ? p.thrustX * C.ACCEL : 0, ay = steering ? p.thrustY * C.ACCEL : 0;
+    const speedBefore = Math.hypot(p.vx, p.vy);
+    const turn = speedBefore > .55 && input > .7 ? (p.vx * p.thrustY - p.vy * p.thrustX) / (speedBefore * input) : 0;
+    const forward = speedBefore > .55 && input > .7 ? (p.vx * p.thrustX + p.vy * p.thrustY) / (speedBefore * input) : 0;
+    const turning = !stunned && Math.abs(turn) > .12 && forward > .5 && forward < .99;
+    p.swing ||= 0; p.curveMs ||= 0;
+    if (turning) {
+      const sign = Math.sign(turn);
+      if (p.curveSign !== sign) { p.curveSign = sign; p.curveMs = 0; }
+      p.curveMs += dt * 1000;
+      if (p.curveMs >= C.CURVE_SETTLE_MS) p.swing = Math.min(1, p.swing + C.CURVE_GAIN * dt * Math.min(1, Math.abs(turn) / .4));
+    } else {
+      p.curveMs = 0;
+      p.swing = Math.max(0, p.swing - dt * (stunned ? 2 : input < .7 ? 1.5 : forward < 0 ? 2 : .38));
+    }
+    // Curves build real velocity. The eventual straight run-up keeps it
+    // briefly; contact consumes the accumulated curve and transfers momentum.
+    const force = C.ACCEL * (1 + p.swing * C.CURVE_POWER);
+    const ax = steering ? p.thrustX * force : 0, ay = steering ? p.thrustY * force : 0;
     const decay = Math.exp(-drag * dt), f = (1 - decay) / drag;
     p.x += ax / drag * dt + (p.vx - ax / drag) * f;
     p.y += ay / drag * dt + (p.vy - ay / drag) * f;
@@ -141,7 +159,7 @@
         const p = arena.players[id];
         if (!p.inPlay && p.lives > 0 && at >= p.outUntil) {
           Object.assign(p, spawnPoint(arena, p), { vx: 0, vy: 0, thrustX: 0, thrustY: 0,
-            inPlay: true, ejecting: false, hitUntil: 0,
+            inPlay: true, ejecting: false, hitUntil: 0, swing: 0, curveMs: 0, curveSign: 0,
             invulnUntil: at + C.INVULN_MS, spawnedAt: at, lastHitBy: null });
           const aim = unit(-p.x, -p.y); p.aimX = aim?.x ?? 0; p.aimY = aim?.y ?? -1;
           event(arena, { kind: 'spawn', at, player: id, x: p.x, y: p.y });

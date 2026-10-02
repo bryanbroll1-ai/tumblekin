@@ -50,6 +50,15 @@ try{
  const id=await page.evaluate(()=>window.__tumblekin.ui.practice.state.currentMinigame.id);
  await page.click('[data-practice-retry]');await page.waitForFunction(id=>window.__tumblekin.ui.practice.state.currentMinigame.id!==id && !document.querySelector('[data-practice-retry]').disabled,id);
  assert.equal((await practice()).players.practice.lives,3);
+ await page.waitForFunction(()=>Date.now()>=window.__tumblekin.ui.practice.state.currentMinigame.startedAt+950);
+ await pointer('pointerdown',51,1,0);const start=Date.now();let charge=0,speed=0;
+ while(Date.now()-start<1400){
+  const angle=(Date.now()-start)/1000*Math.PI;await pointer('pointermove',51,Math.cos(angle),Math.sin(angle));
+  const p=(await practice()).players.practice;charge=Math.max(charge,p.swing);speed=Math.max(speed,Math.hypot(p.vx,p.vy));
+  await page.waitForTimeout(35);
+ }
+ await pointer('pointerup',51);assert.ok(charge>.25,`charge ${charge}`);assert.ok(speed>1.6,`speed ${speed}`);
+ console.log(`✓ Genuine joystick arc builds ${Math.round(charge*100)}% swing and ${speed.toFixed(2)} speed`);
  await page.click('[data-practice-close]');await page.waitForSelector('.practice-layer',{state:'detached'});
  assert.equal(await mainState(),original);assert.equal(await page.evaluate(()=>window.__tumblekin.state().readyForMinigame.length),0);
  assert.deepEqual(errors,[]);assert.deepEqual(server.errorOutput,[]);

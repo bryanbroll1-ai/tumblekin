@@ -3,31 +3,43 @@
 (function (root) {
   const C = Object.freeze({
     LENGTH: 100, JOG: 4.4, SPRINT: 7.8, ACCEL_TIME: 0.25,
-    ENERGY: 100, DRAIN: 30, RECOVER: 22, JUMP_COST: 12,
+    ENERGY: 100, DRAIN: 30, RECOVER: 22, JUMP_COST: 0,
     JUMP_V: 5.3, GRAVITY: 13.8, REST_MS: 160,
     HURDLE_HEIGHT: 0.64, CLEARANCE: 0.74,
     STUMBLE_MS: 750, STUMBLE_SPEED: 1.9, HOLD_TTL: 420,
-    RESUME_ENERGY: 30, STEP_MS: 10
+    RESUME_ENERGY: 30, STEP_MS: 10, LANES: 3, LANE_MS: 200, SLIDE_MS: 700
   });
   const AIR_MS = 2000 * C.JUMP_V / C.GRAVITY;
   function course(seed) {
-    return Array.from({ length: 7 }, (_, index) => ({ index,
-      at: (index + 1) * 12 + Math.sin(seed * 0.73 + index * 17.31) * 0.8 }));
+    const patterns = [['jump', null, 'block'], ['slide', 'jump', null],
+      ['slide', 'slide', 'slide'], ['block', null, 'jump'],
+      ['jump', 'jump', 'jump'], [null, 'block', 'slide']];
+    return Array.from({ length: 12 }, (_, index) => {
+      const pattern = patterns[index % patterns.length];
+      const rotation = Math.abs(Math.floor(seed * 7 + index * 13)) % 3;
+      return { index, at: 8 + index * 7.7 + Math.sin(seed * .73 + index * 17.31) * .18,
+        lanes: pattern.map((_, lane) => pattern[(lane + rotation) % 3]) };
+    });
   }
   function player(lane, startedAt) {
-    return { lane, progress: 0, speed: 0, energy: C.ENERGY, holding: false,
+    lane = Math.max(0, Math.min(2, lane % 3));
+    return { lane, laneFrom: lane, laneAt: startedAt, laneUntil: startedAt,
+      slideAt: null, slideUntil: 0, slideReadyAt: 0, slides: 0,
+      diveAt: 0, diveUntil: 0, diveHeight: 0, progress: 0, speed: 0, energy: C.ENERGY, holding: false,
       sprintAt: 0, sprinting: false, exhausted: false, jumpAt: null,
       jumpUntil: 0, jumpReadyAt: 0, jumpSpeed: 0, stumbleUntil: 0,
       nextHurdle: 0, cleared: 0, stumbles: 0, jumps: 0,
       finishedAt: null, finishMs: null, updatedAt: startedAt, lastVerdict: null };
   }
   function height(entry, now) {
+    if (now >= entry.diveAt && now < entry.diveUntil) return Math.max(0, entry.diveHeight * (1 - (now - entry.diveAt) / (entry.diveUntil - entry.diveAt)));
     if (entry.jumpAt === null || now < entry.jumpAt || now >= entry.jumpUntil) return 0;
     const t = (now - entry.jumpAt) / 1000;
     return Math.max(0, C.JUMP_V * t - C.GRAVITY * t * t / 2);
   }
   function jump(entry, now) {
     if (entry.finishedAt !== null || now < entry.jumpReadyAt || now < entry.stumbleUntil) return false;
+    entry.slideUntil = 0; entry.diveUntil = 0;
     entry.jumpAt = now;
     entry.jumpUntil = now + AIR_MS;
     entry.jumpReadyAt = entry.jumpUntil + C.REST_MS;
@@ -36,6 +48,44 @@
     if (!entry.energy) entry.exhausted = true;
     entry.jumps++;
     return true;
+  }
+  function lanePosition(entry, now) {
+    if (now >= entry.laneUntil) return entry.lane;
+    const u = Math.max(0, Math.min(1, (now - entry.laneAt) / C.LANE_MS));
+    return entry.laneFrom + (entry.lane - entry.laneFrom) * u * u * (3 - 2 * u);
+  }
+  function changeLane(entry, dir, now) {
+    if (![1, -1].includes(dir) || entry.finishedAt !== null || now < entry.laneUntil) return false;
+    const target = Math.max(0, Math.min(2, entry.lane + dir));
+    if (target === entry.lane) return false;
+    entry.laneFrom = lanePosition(entry, now); entry.lane = target;
+    entry.laneAt = now; entry.laneUntil = now + C.LANE_MS;
+    return true;
+  }
+  function slide(entry, now) {
+    if (entry.finishedAt !== null || now < entry.slideReadyAt || now < entry.stumbleUntil) return false;
+    const lift = height(entry, now);
+    entry.slideAt = now; entry.slideUntil = now + C.SLIDE_MS;
+    entry.slideReadyAt = entry.slideUntil + 120; entry.slides++;
+    if (lift > .01) {
+      entry.diveAt = now; entry.diveHeight = lift; entry.diveUntil = now + 120;
+      entry.jumpAt = null; entry.jumpUntil = entry.diveUntil;
+      entry.jumpReadyAt = entry.diveUntil + 120;
+    }
+    return true;
+  }
+  function slideFactor(entry, now) {
+    if (entry.slideAt === null) return 0;
+    return Math.max(0, Math.min(1, (now - entry.slideAt) / 60, (entry.slideUntil - now) / 60));
+  }
+  function obstacle(entry, row, now) {
+    if (!row) return null;
+    const lanes = row.lanes || ['jump', 'jump', 'jump'];
+    const position = lanePosition(entry, now);
+    const touching = lanes.filter((kind, lane) => kind && Math.abs(position - lane) < .55);
+    const lift = height(entry, now);
+    return touching.find(kind => kind === 'block' || kind === 'jump' && lift < C.CLEARANCE ||
+      kind === 'slide' && !(slideFactor(entry, now) >= .85 && lift < .16)) || null;
   }
   function rank(entry) {
     return entry.finishedAt !== null
@@ -58,14 +108,14 @@
         entry.holding ? entry.sprintAt + C.HOLD_TTL : 0]) {
         if (boundary > at) end = Math.min(end, boundary);
       }
-      const rate = entry.sprinting ? -C.DRAIN : airborne ? 0 : C.RECOVER;
+      const rate = entry.sprinting ? -C.DRAIN : airborne || entry.holding ? 0 : C.RECOVER;
       const energyBoundary = rate < 0 ? entry.energy / -rate :
         rate > 0 && entry.exhausted ? (C.RESUME_ENERGY - entry.energy) / rate : Infinity;
       if (energyBoundary > 0.000001) end = Math.min(end, at + energyBoundary * 1000);
       let dt = (end - at) / 1000;
       const before = entry.progress;
       const target = stumble ? C.STUMBLE_SPEED : entry.sprinting ? C.SPRINT : C.JOG;
-      const distanceAt = seconds => airborne && !stumble ? entry.jumpSpeed * seconds :
+      const distanceAt = seconds => airborne && !stumble && !entry.exhausted ? entry.jumpSpeed * seconds :
         target * seconds + (entry.speed - target) * C.ACCEL_TIME * (1 - Math.exp(-seconds / C.ACCEL_TIME));
       const hurdle = hurdles[entry.nextHurdle];
       const boundary = Math.min(C.LENGTH, hurdle?.at ?? C.LENGTH);
@@ -82,7 +132,7 @@
       }
       const decay = Math.exp(-dt / C.ACCEL_TIME);
       const distance = distanceAt(dt);
-      entry.speed = airborne && !stumble ? entry.jumpSpeed : target + (entry.speed - target) * decay;
+      entry.speed = airborne && !stumble && !entry.exhausted ? entry.jumpSpeed : target + (entry.speed - target) * decay;
       entry.progress = crossing ? boundary : Math.min(C.LENGTH, before + distance);
       entry.energy = Math.min(C.ENERGY, Math.max(0, entry.energy + rate * dt));
       if (entry.energy < 1e-8) { entry.energy = 0; entry.exhausted = true; }
@@ -91,14 +141,15 @@
       }
       if (hurdle && before <= hurdle.at && entry.progress >= hurdle.at) {
         const crossAt = at + (end - at) * (hurdle.at - before) / Math.max(1e-9, distance);
-        const clear = height(entry, crossAt) >= C.CLEARANCE;
+        const collision = obstacle(entry, hurdle, crossAt);
+        const clear = !collision;
         entry.nextHurdle++;
-        entry.lastVerdict = { index: hurdle.index, at: crossAt, kind: clear ? 'clear' : 'hit' };
+        entry.lastVerdict = { index: hurdle.index, at: crossAt, kind: clear ? 'clear' : 'hit', obstacle: collision };
         if (clear) entry.cleared++;
         else {
           entry.stumbles++;
           entry.stumbleUntil = crossAt + C.STUMBLE_MS;
-          entry.jumpAt = null; entry.jumpUntil = 0;
+          entry.jumpAt = null; entry.jumpUntil = 0; entry.diveUntil = 0; entry.slideUntil = 0;
           entry.jumpReadyAt = entry.stumbleUntil;
           entry.speed = C.STUMBLE_SPEED;
           entry.flash = 'bad'; entry.lastHitAt = crossAt;
@@ -121,7 +172,7 @@
     const t = (hurdle.at - entry.progress) / entry.speed;
     return t > 0 && C.JUMP_V * t - C.GRAVITY * t * t / 2 >= C.CLEARANCE;
   }
-  const api = Object.freeze({ C, AIR_MS, course, player, height, jump, rank, advance, jumpWindow });
+  const api = Object.freeze({ C, AIR_MS, course, player, height, jump, slide, slideFactor, changeLane, lanePosition, obstacle, rank, advance, jumpWindow });
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TumblekinSprintPhysics = api;
 })(globalThis);

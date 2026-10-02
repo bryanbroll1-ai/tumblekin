@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin208";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin208";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin208";
+import { createCloud } from "./VoxelKit.js?v=tumblekin209";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin209";
 
 // Blitzreflex: zwei rote Lampen, dann Grün — wer am schnellsten tippt, hat
 // die beste Reaktionszeit. Drei Versuche, gewertet wird der BESTE (Best of 3);

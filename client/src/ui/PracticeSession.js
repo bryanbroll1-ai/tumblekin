@@ -1,9 +1,9 @@
-import { BounceArena } from '../minigames/BounceArena.js?v=tumblekin208';
-import { RunnerDerby } from '../minigames/RunnerDerby.js?v=tumblekin208';
-import { IceStock } from '../minigames/IceStock.js?v=tumblekin208';
-import { BalloonGlide } from '../minigames/BalloonGlide.js?v=tumblekin208';
-import { CannonFly } from '../minigames/CannonFly.js?v=tumblekin208';
-import { BarrelDare } from '../minigames/BarrelDare.js?v=tumblekin208';
+import { BounceArena } from '../minigames/BounceArena.js?v=tumblekin209';
+import { RunnerDerby } from '../minigames/RunnerDerby.js?v=tumblekin209';
+import { IceStock } from '../minigames/IceStock.js?v=tumblekin209';
+import { BalloonGlide } from '../minigames/BalloonGlide.js?v=tumblekin209';
+import { CannonFly } from '../minigames/CannonFly.js?v=tumblekin209';
+import { BarrelDare } from '../minigames/BarrelDare.js?v=tumblekin209';
 const SCENES = { bounceArena: BounceArena, finishRush: RunnerDerby, eisstock: IceStock, ballonfahrt: BalloonGlide, kanonenflug: CannonFly, fassmut: BarrelDare };
 export const canPractice = type => Boolean(SCENES[type]);
 
@@ -65,7 +65,7 @@ export class PracticeSession {
     this.onChange();
     this.closeButton.focus();
     try {
-      this.worker = new Worker('/src/practice/engine-worker.js?v=tumblekin208');
+      this.worker = new Worker('/src/practice/engine-worker.js?v=tumblekin209');
       this.worker.onerror = () => this.fail('Die Übung konnte nicht geladen werden.');
       this.bootTimer = setTimeout(() => this.fail('Die Übung konnte nicht geladen werden.'), 10000);
       this.worker.onmessage = ({ data }) => {
