@@ -4289,7 +4289,12 @@ function handleArcadeInput(room, player, rawInput) {
   // Tipp schon der erste gewertete Versuch). Er ändert nichts und darf keinen
   // Cooldown auslösen, sonst schluckte er den echten Tipp danach.
   if (input.action === "ping") return { ok: true };
-  const exempt = input.action === "lift";
+  // Beim Lichtwächter gilt dasselbe fürs Loslassen: Das Gerät pingt alle
+  // 90 ms „halte noch“, und lag der letzte Ping keine 60 ms zurück, fraß der
+  // Cooldown die Loslass-Meldung. Der Server hielt den Finger dann noch bis zu
+  // 450 ms für gedrückt — gemessen wurde so erwischt, wer 60 ms nach dem Rot
+  // losgelassen hatte, selbst ohne jede Netzverzögerung.
+  const exempt = input.action === "lift" || (arcade.family === "redlight" && input.hold === false);
   const party = PARTY_FAMILIES[arcade.family];
   const cooldown = exempt ? 0 : (cooldowns[arcade.family] ?? party?.cooldown ?? 100);
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
@@ -8735,6 +8740,16 @@ function publicArcade(arcade) {
     return rest;
   }
   if (PARTY_FAMILIES[arcade.family]?.publicView) return PARTY_FAMILIES[arcade.family].publicView(arcade);
+  // Zündstoff: Der Knall-Zeitpunkt bleibt auf dem Server. Die Geräte zeigten
+  // die Zündzeit zwei Sekunden lang in ganzen Sekunden und dann „?“ — mit
+  // `fuseAt` auf die Millisekunde im Paket konnte aber jedes Gerät die Bombe
+  // exakt bis kurz vor dem Knall halten. Es bekommt nur, was auch zu sehen ist.
+  // Wann sie gezündet wurde, sieht jeder (die Bombe kommt aus dem Feuer) —
+  // zusammen mit ganzen Sekunden verrät das nichts.
+  if (arcade.family === "bomb") {
+    const { fuseAt, fuseMs, ...rest } = arcade;
+    return { ...rest, fuseSecs: Math.round((fuseMs || 0) / 1000), litAt: (fuseAt || 0) - (fuseMs || 0) };
+  }
   // Pump-Panik: Eimerstand und Bot-Tempo sind Rechenwerte des Servers — sie
   // mit elf Bildern je Sekunde an jedes Gerät zu schicken, kostete ein Drittel
   // des Pakets.

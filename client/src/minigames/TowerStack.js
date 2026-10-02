@@ -311,7 +311,11 @@ export class TowerStack extends MinigameScene {
     if (this.craneJib) this.craneJib.rotation.y = 0.5 + Math.sin(now / 5200) * 0.45;
     this.siteLamps?.forEach((lampe, i) => { lampe.material.emissiveIntensity = Math.floor(now / 450 + i) % 2 ? 1.4 : 0.1; });
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    // Der gleitende Stein steht zur Ankunftszeit (arrivalNow) im Bild: dort,
+    // wo er beim Server ist, wenn ein JETZT getippter Abwurf ankommt. Vorher
+    // lag, wer weiter weg sass, um eine Rundreise daneben — bei 200 ms ein
+    // Vielfaches der 0,05 Breite, die für „perfekt“ zählt.
+    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
     let topHeight = 0;
     players.forEach((player) => {
       const entry = arcade.players[player.id];

@@ -430,7 +430,9 @@ export class RedLightGate extends MinigameScene {
     });
     if (this.palaceFlag) this.palaceFlag.rotation.y = Math.sin(now / 400) * 0.3;
     if (!arcade) return;
-    const phase = this.phaseAt(arcade, minigame, now);
+    // Die Ampel läuft auf Ankunftszeit: Wer beim Umschalten auf Rot loslässt,
+    // dessen Meldung kommt auch rechtzeitig an — die Gnade bleibt für den Finger.
+    const phase = this.phaseAt(arcade, minigame, this.arrivalNow());
     const kind = finale ? "green" : phase.kind;
     const key = `${phase.index}:${kind}`;
     if (key !== this.lastPhaseKey) {
@@ -572,7 +574,7 @@ export class RedLightGate extends MinigameScene {
     const { arcade, controlledId, minigame, now, state } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
-    const kind = this.phaseAt(arcade, minigame, now).kind;
+    const kind = this.phaseAt(arcade, minigame, this.arrivalNow()).kind;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = `${Math.round(own?.progress || 0)}m`;
 

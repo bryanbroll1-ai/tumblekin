@@ -287,7 +287,9 @@ export class RopeSkip extends MinigameScene {
     const arcade = (this.update || this.minigame)?.arcade;
     const own = arcade?.players?.[this.getControlledPlayerId()];
     if (!own || own.eliminated) return;
-    const nowT = this.now();
+    // Der Server springt, wenn der Tipp ankommt — genau dann, wenn das Bild
+    // (zur Ankunftszeit gezeigt) den Sprung beginnen lässt.
+    const nowT = this.arrivalNow();
     if (nowT < Math.max(own.jumpUntil || 0, this.localJumpUntil)) return;
     this.localJumpUntil = nowT + (arcade?.jumpMs || 650);
     this.feedback?.sound("move");
@@ -317,7 +319,12 @@ export class RopeSkip extends MinigameScene {
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    // Seil und Sprünge laufen zur Ankunftszeit: so steht das Seil im Bild dort,
+    // wo es beim Server ist, wenn ein JETZT getippter Sprung ankommt. Vorher
+    // musste, wer weiter weg sass, um eine Rundreise früher springen, als er
+    // es sah — und verlor die Feinwertung „mittig über dem Seil“.
+    const at = this.arrivalNow();
+    const elapsed = Math.max(0, at - minigame.startedAt);
     const angle = this.ropeAngle(arcade, elapsed);
     const swing = Math.cos(angle);
     const depth = Math.sin(angle);
@@ -382,10 +389,10 @@ export class RopeSkip extends MinigameScene {
       const out = Boolean(entry.eliminated);
       const jumpUntil = isOwn ? Math.max(entry.jumpUntil || 0, this.localJumpUntil) : (entry.jumpUntil || 0);
       const jumpStart = jumpUntil - arcade.jumpMs;
-      const jumping = !out && now >= jumpStart && now < jumpUntil;
+      const jumping = !out && at >= jumpStart && at < jumpUntil;
       let y = KIN_Y;
       if (jumping) {
-        const t = (now - jumpStart) / arcade.jumpMs;
+        const t = (at - jumpStart) / arcade.jumpMs;
         y += Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * JUMP_HEIGHT;
         if (!kin.userData.inAir) animator.trigger("jump");
       }
@@ -469,10 +476,10 @@ export class RopeSkip extends MinigameScene {
   }
 
   drawHud(f) {
-    const { arcade, minigame, now, controlledId } = f;
+    const { arcade, minigame, controlledId } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
     // Nur ein Doppelschlag wird angesagt — der bricht den Takt. Das frühere
     // "JETZT!" vor JEDEM Durchgang hat den Sprung vorgesagt, und schneller als
     // eine Sekunde stand es dauernd da.

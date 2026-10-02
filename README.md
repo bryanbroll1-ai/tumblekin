@@ -299,6 +299,7 @@ Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
 
 - Express liefert PWA, Three.js und Clientmodule aus.
 - Socket.io synchronisiert Raum, Modus, Minispiel-Eingaben, Ergebnisse und Reconnects. Der Server ist massgeblich: er wertet jedes Minispiel, die Clients zeigen nur an.
+- Timing-Spiele zeigen ihren entscheidenden Moment zur **Ankunftszeit** (`MinigameScene.arrivalNow()`): der Serverzeit, zu der ein jetzt geschickter Tipp ankommt. Jedes Bild trägt seine Absendezeit, jede Eingabe misst nebenbei die Rundreise. So kommt ein Tipp, der im Bild genau passt, auch beim Server genau an — bei 100 ms Verzögerung je Richtung gemessen auf wenige Millisekunden (Seilspringen, Fassmut, Turmbau, Kanonenflug, Lichtwächter, Nervenprobe, Blob-Klopfe, Zündstoff, Münzregen, Farbflucht). Der Server traut dabei keiner Zeitangabe des Geräts; er wertet weiter zur Ankunft. Spurwechsel (Münzregen) und Schritte (Farbflucht) zeigt das Gerät sofort und gleicht sie mit dem nächsten Serverbild ab.
 - `server/modes.js` enthält die Regeln der Modi — Spielliste, Punkte, Leben, Ende — ohne Sockets und Timer, damit jede Regel ohne laufenden Server prüfbar ist.
 - Three.js rendert die Menübühne (Lobby, Podest, Siegerehrung) und alle 40 Minispiele mit denselben Figuren.
 - Service Worker, Manifest und App-Icon erlauben die Installation auf dem Homescreen.

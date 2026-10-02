@@ -338,7 +338,10 @@ export class BarrelDare extends MinigameScene {
     this.on(this.webglCanvas, "pointerdown", brake);
   }
 
-  // Sekunden seit dem Loslassen, aus der eigenen Uhr.
+  // Sekunden seit dem Loslassen — zur Ankunftszeit (arrivalNow): das Fass
+  // steht im Bild dort, wo es beim Server ist, wenn ein JETZT getippter Zug
+  // ankommt. Vorher bremste, wer weiter weg sass, eine Rundreise zu spät: bei
+  // 200 ms und vollem Tempo gut einen Meter.
   fallTime(arcade, minigame, now) {
     return (now - minigame.startedAt - (arcade.leadIn || 0)) / 1000;
   }
@@ -348,7 +351,7 @@ export class BarrelDare extends MinigameScene {
     const arcade = minigame?.arcade;
     if (!minigame || minigame.finaleAt || !arcade) return;
     const own = arcade.players?.[this.getControlledPlayerId()];
-    const t = this.fallTime(arcade, minigame, this.now());
+    const t = this.fallTime(arcade, minigame, this.arrivalNow());
     const rolling = t >= 0 && t * 1000 < (arcade.rollMs || 4200);
     if (!own || own.brakeAt !== null || own.hit || this.localBrake !== null || !rolling) {
       this.feedback?.sound("clack");
@@ -366,7 +369,7 @@ export class BarrelDare extends MinigameScene {
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
     const startM = arcade.startM || this.startM;
-    const t = this.fallTime(arcade, minigame, now);
+    const t = this.fallTime(arcade, minigame, this.arrivalNow());
     const rollMs = arcade.rollMs || 4200;
     const falling = t >= 0 && t * 1000 < rollMs;
     // Das Loslassen hört und sieht man: ein Klacken und Staub an den Rollen.
@@ -600,7 +603,7 @@ export class BarrelDare extends MinigameScene {
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(Math.round(own?.points || 0));
 
-    const t = this.fallTime(arcade, minigame, now);
+    const t = this.fallTime(arcade, minigame, this.arrivalNow());
     const falling = t >= 0 && t * 1000 < (arcade.rollMs || 4200);
     const braked = (own?.brakeAt !== null && own?.brakeAt !== undefined) || this.localBrake !== null;
     const readout = this.hud.querySelector("[data-dare-distance]");

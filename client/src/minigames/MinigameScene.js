@@ -46,11 +46,24 @@ export function kinVariant(player, index = 0) {
 //
 // `this.hud` ist das HUD-Element (so legt mountHud es ab; CameraRig misst daran
 // das freie Band).
+// Die zuletzt gemessene Rundreise — das nächste Minispiel beginnt damit,
+// statt die ersten Hundert Millisekunden ohne Ausgleich zu laufen.
+let lastRoundTrip = 0;
+
 export class MinigameScene {
   constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
     this.canvas = canvas;
     this.controls = controls;
-    this.sendInput = sendInput;
+    // Jede Eingabe misst nebenbei die Rundreise (siehe arrivalNow). Der
+    // Rückgabewert bleibt die Antwort des Servers — Szenen hängen ihr .catch an.
+    this.net = { samples: [], lagOffset: null, roundTrip: lastRoundTrip, lastSentAt: 0, used: false };
+    this.sendInput = (input) => {
+      const clock = performance.now();
+      this.net.lastSentAt = clock;
+      const reply = sendInput(input);
+      reply?.then?.(() => this.noteNetRoundTrip(performance.now() - clock), () => {});
+      return reply;
+    };
     this.now = now;
     this.getState = getState;
     this.myPlayerId = myPlayerId;
@@ -88,7 +101,51 @@ export class MinigameScene {
 
   handleUpdate(update) {
     this.update = update;
+    // Jedes Bild trägt die Serverzeit, zu der es abging. Das am wenigsten
+    // verspätete der letzten Sekunden sagt, wie weit dieses Gerät hinter dem
+    // Server liegt (die allgemeine Uhr gleicht sich nur mit den seltenen vollen
+    // Raumständen ab und lag gemessen um 50 ms daneben).
+    if (Number.isFinite(update?.sentAt)) {
+      const clock = performance.now();
+      const net = this.net;
+      net.samples.push({ clock, sample: update.sentAt - Date.now() });
+      while (net.samples.length > 1 && net.samples[0].clock < clock - 4000) net.samples.shift();
+      net.lagOffset = Math.max(...net.samples.map((item) => item.sample));
+    }
     this.onUpdate?.(update);
+  }
+
+  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
+  noteNetRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.net.roundTrip = this.net.roundTrip ? this.net.roundTrip * 0.8 + clamped * 0.2 : clamped;
+    lastRoundTrip = this.net.roundTrip;
+  }
+
+  // Serverzeit, zu der ein JETZT geschickter Tipp beim Server ankommt: die
+  // Bilder zeigen den Server um den Hinweg verspätet, der Tipp braucht noch
+  // einmal so lange. Spiele, deren Server einen Tipp sofort bei Ankunft wertet
+  // (Seil, Fass, Stopp-Uhr …), zeigen ihr zeitkritisches Bild zu dieser Zeit
+  // — sonst muss, wer weiter weg sitzt, um eine Rundreise früher tippen, als
+  // er es sieht. Im Finale steht die Uhr: dann gilt die gewöhnliche Zeit.
+  arrivalNow() {
+    const net = this.net;
+    net.used = true;
+    const minigame = this.update || this.minigame;
+    if (minigame?.finaleAt) return this.now();
+    const seen = net.lagOffset === null ? this.now() : Date.now() + net.lagOffset;
+    return seen + net.roundTrip;
+  }
+
+  // Wer die Ankunftszeit nutzt, braucht die Rundreise auch, wenn gerade
+  // nichts getippt wird: dann misst ein Ping, höchstens jede Sekunde.
+  pingNetIfIdle(minigame) {
+    const net = this.net;
+    if (!net.used || !minigame || minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - net.lastSentAt < 1000) return;
+    this.sendInput({ action: "ping" })?.catch?.(() => {});
   }
 
   destroy() {
@@ -142,6 +199,7 @@ export class MinigameScene {
       remaining: Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000))
     };
 
+    this.pingNetIfIdle(minigame);
     if (finale && !this.finaleStarted) {
       this.finaleStarted = true;
       this.onFinale?.(f);

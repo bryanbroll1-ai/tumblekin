@@ -40,6 +40,7 @@ export class ColorRush extends MinigameScene {
     this.fallAt = new Map();
     this.lastRound = -1;
     this.swipe = null;
+    this.stepInputs = [];
     this.lastPhaseName = null;
     this.labelY = 0.74;
   }
@@ -248,6 +249,26 @@ export class ColorRush extends MinigameScene {
     this.tiles = [];
   }
 
+  // Bestätigte Schritte stecken ab dem nächsten Bild im Feld des Servers.
+  onUpdate() {
+    if (this.stepInputs.some((input) => input.acked)) this.stepInputs = this.stepInputs.filter((input) => !input.acked);
+  }
+
+  // Das Feld einer Figur; das eigene samt der noch offenen Schritte. Auf ein
+  // fremdes Feld springt der Server nicht — die Vorhersage auch nicht.
+  cellOf(id, arcade, controlledId) {
+    const entry = arcade.players[id];
+    const cell = { gx: entry?.gx ?? 2, gy: entry?.gy ?? 2 };
+    if (id !== controlledId || !entry || entry.eliminated) return cell;
+    this.stepInputs.forEach((input) => {
+      const gx = Math.max(0, Math.min(COLS - 1, cell.gx + input.step[0]));
+      const gy = Math.max(0, Math.min(ROWS - 1, cell.gy + input.step[1]));
+      const besetzt = Object.entries(arcade.players).some(([otherId, other]) => otherId !== id && !other.eliminated && other.gx === gx && other.gy === gy);
+      if (!besetzt) { cell.gx = gx; cell.gy = gy; }
+    });
+    return cell;
+  }
+
   sendStep(dir) {
     const arcade = (this.update || this.minigame)?.arcade;
     const id = this.getControlledPlayerId();
@@ -257,8 +278,9 @@ export class ColorRush extends MinigameScene {
     // gibt es einen kleinen Ruck statt eines Schrittes, damit der Wisch nicht
     // ins Leere läuft.
     const step = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[dir];
-    const gx = own.gx + step[0];
-    const gy = own.gy + step[1];
+    const from = this.cellOf(id, arcade, id);
+    const gx = from.gx + step[0];
+    const gy = from.gy + step[1];
     const drin = gx >= 0 && gx < COLS && gy >= 0 && gy < ROWS;
     const besetzt = drin && Object.entries(arcade.players).some(([otherId, other]) => otherId !== id && !other.eliminated && other.gx === gx && other.gy === gy);
     if (!drin || besetzt) {
@@ -268,7 +290,12 @@ export class ColorRush extends MinigameScene {
     }
     this.feedback?.sound("move");
     this.feedback?.vibrate(8);
-    this.sendInput({ action: "step", dir }).catch(() => {});
+    // Die eigene Figur hüpft sofort. Nach dem Fall nimmt der Server keinen
+    // Schritt mehr an; dann wird auch nichts vorhergesagt.
+    const pending = { step, acked: false };
+    const settle = () => { pending.acked = true; };
+    if (this.phase?.name === "announce") this.stepInputs.push(pending);
+    this.sendInput({ action: "step", dir }).then(settle, settle);
   }
 
   // Runde und Phase kommen aus dem Zeitplan, den der Server mitschickt — dieselbe
@@ -281,8 +308,15 @@ export class ColorRush extends MinigameScene {
     let round = 0;
     schedule.forEach((slot, index) => { if (elapsed >= slot.start) round = index; });
     // Weiter als der Server ist man nie: gibt es keine Entscheidung, bleibt
-    // er in der achten Runde, und dann ist das Spiel vorbei.
-    if (round > (arcade.round ?? round)) return { name: "over", t: 1, left: 0, round: arcade.round };
+    // er in der achten Runde, und dann ist das Spiel vorbei. Sonst ist nur
+    // seine neue Runde noch unterwegs — die Ankunftszeit läuft ihm um die
+    // Netzlaufzeit voraus, und die neue Zielfarbe kennt man erst mit ihr. Bis
+    // dahin bleibt das Ende des letzten Falls stehen.
+    if (round > (arcade.round ?? round)) {
+      const standing = Object.values(arcade.players || {}).filter((entry) => !entry.eliminated).length;
+      if (round >= (arcade.roundCount ?? 8) && standing < 2) return { name: "over", t: 1, left: 0, round: arcade.round };
+      return { name: "drop", t: 1, left: 0, round: arcade.round };
+    }
     const slot = schedule[round];
     if (!slot) return { name: "announce", t: 0, left: 0, round };
     if (elapsed < slot.dropAt) {
@@ -301,7 +335,9 @@ export class ColorRush extends MinigameScene {
     });
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
-    const phase = this.computePhase(arcade, minigame, now);
+    // Ansage und Fall laufen auf Ankunftszeit: Der Countdown zeigt, wie lange
+    // ein Schritt noch rechtzeitig beim Server ankommt.
+    const phase = this.computePhase(arcade, minigame, this.arrivalNow());
     this.phase = phase;
 
     if (arcade.round !== this.lastRound) {
@@ -392,15 +428,16 @@ export class ColorRush extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const fallen = Boolean(entry.eliminated);
-      const targetX = tileX(entry.gx);
-      const targetZ = tileZ(entry.gy);
+      const { gx, gy } = this.cellOf(player.id, arcade, controlledId);
+      const targetX = tileX(gx);
+      const targetZ = tileZ(gy);
 
       // Ein Schritt ist ein Hüpfer in Sprungrichtung.
-      const cell = `${entry.gx},${entry.gy}`;
+      const cell = `${gx},${gy}`;
       const last = this.lastCell.get(player.id);
       if (last && last !== cell && !fallen) {
         const [lx, ly] = last.split(",").map(Number);
-        kin.userData.hopFacing = Math.atan2(entry.gx - lx, entry.gy - ly);
+        kin.userData.hopFacing = Math.atan2(gx - lx, gy - ly);
         kin.userData.hopAt = now;
         animator.trigger("hop", { height: 0.28 });
       }
@@ -474,14 +511,14 @@ export class ColorRush extends MinigameScene {
       // Zielfelder wippen in der Ansage bis zu sechs Zentimeter hoch — mit
       // fester Standhöhe steckten die Füsse genau dann im Block, wenn man
       // sich endlich auf das richtige Feld gerettet hatte.
-      const under = this.tiles[entry.gy * COLS + entry.gx];
+      const under = this.tiles[gy * COLS + gx];
       animator.groundY = Math.max(0, under?.position.y ?? 0) + TILE_TOP_Y + 0.3;
       kin.visible = true;
       setKinOpacity(kin, 1);
       if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
       if (finale) return;
 
-      const onTarget = arcade.grid[entry.gy * COLS + entry.gx] === arcade.targetColor;
+      const onTarget = arcade.grid[gy * COLS + gx] === arcade.targetColor;
       if (phase.name === "announce" && !onTarget) {
         animator.set(phase.t > 0.5 ? "panic" : "ready");
         if (phase.t > 0.5) animator.expression("scared", 200);

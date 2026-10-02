@@ -616,7 +616,10 @@ export class Nervenprobe extends MinigameScene {
     }
     if (this.tally) this.tally.visible = Math.floor(now / 700) % 2 === 0;
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    // Die Uhr läuft auf Ankunftszeit: Wer im Kopf weiterzählt und beim
+    // Zielwert tippt, dessen Tipp kommt beim Server auch bei diesem Wert an —
+    // sonst zählte die Netzlaufzeit hin und zurück als eigener Fehler.
+    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
     const hidden = elapsed >= arcade.hideAfterMs;
     const revealAll = Boolean(minigame.finaleAt);
     if (hidden && !this.hidAt) {
@@ -782,9 +785,9 @@ export class Nervenprobe extends MinigameScene {
   }
 
   drawHud(f) {
-    const { arcade, minigame, now } = f;
+    const { arcade, minigame } = f;
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
     const hidden = elapsed >= arcade.hideAfterMs;
     const revealAll = Boolean(minigame.finaleAt);
     // Die Rundenuhr oben links zählt hier NICHT mit — sie verriete die Zeit,
