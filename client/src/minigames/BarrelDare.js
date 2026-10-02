@@ -246,6 +246,7 @@ export class BarrelDare extends MinigameScene {
       ghost.userData.mats = [ghostMat, rimMat];
       ghost.visible = false;
       ghost.renderOrder = 2;
+      ghost.userData.isFx = true;          // ein Hinweis, kein Körper
       this.scene.add(ghost);
     }
 
@@ -460,7 +461,9 @@ export class BarrelDare extends MinigameScene {
 
       // Der Schatten: Haltepunkt bei einem Zug JETZT.
       if (lane.ghost) {
-        const aiming = falling && !hit && (brakeAt === null || brakeAt === undefined);
+        // Im Finale ist nichts mehr zu zielen — der rote Schatten stand dort
+        // sonst noch auf Kopfhöhe, und wer jubelnd hochsprang, landete darin.
+        const aiming = falling && !finale && !hit && (brakeAt === null || brakeAt === undefined);
         lane.ghost.visible = aiming;
         if (aiming) {
           const rest = restingDistance(t, startM);
@@ -503,7 +506,10 @@ export class BarrelDare extends MinigameScene {
       // Getroffen.
       if (hit && !this.lastHitAt.get(player.id)) {
         this.lastHitAt.set(player.id, now);
-        animator.trigger("knockback");
+        // Ein Ruck nach hinten, kein Salto: das Fass sitzt auf dem Kopf und
+        // staucht die Figur. Der Rückwärtssalto hob sie dabei 0.45 hoch —
+        // mitten hinein ins Fass, die Beine steckten im Holz.
+        animator.trigger("hit");
         animator.expression("dizzy", 2600);
         const at = kin.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.9, 0));
         this.burst(at, [player.color, "#c9a26f", "#ffffff"], { count: 18, speed: 2.6, up: 2.2, size: 0.09, life: 0.8, drag: 1.3 });

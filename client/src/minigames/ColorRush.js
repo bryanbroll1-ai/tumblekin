@@ -22,6 +22,54 @@ const TILE_TOP_Y = TILE_H / 2;
 const WATER_Y = -3.9;
 const COLORS = ["#f23f6c", "#2a9ff0", "#f7c21e", "#3cbf58"];
 const COLOR_NAMES = ["Pink", "Blau", "Gelb", "Grün"];
+// Jede Farbe trägt ein eigenes Zeichen auf dem Feld. Pink und Grün sind
+// genau das Paar, das bei einer Rot-Grün-Schwäche verschwimmt — mit Kreis
+// und Kreuz bleiben die Felder trotzdem unterscheidbar.
+const COLOR_SYMBOLS = ["●", "■", "▲", "✚"];
+const SYMBOL_PIXELS = [
+  ["..####..", ".######.", "########", "########", "########", "########", ".######.", "..####.."],
+  ["########", "########", "########", "########", "########", "########", "########", "########"],
+  ["...##...", "...##...", "..####..", "..####..", ".######.", ".######.", "########", "########"],
+  ["..####..", "..####..", "########", "########", "########", "########", "..####..", "..####.."]
+];
+
+// Weiss mit einem grauen Pixelzeichen: die Textur multipliziert die
+// Feldfarbe, das Zeichen erscheint als dunklere Form derselben Farbe.
+function symbolTexture(rows) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = "#b4b4b4";
+  rows.forEach((row, y) => [...row].forEach((pixel, x) => {
+    if (pixel === "#") ctx.fillRect(16 + x * 4, 16 + y * 4, 4, 4);
+  }));
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  return texture;
+}
+
+// Ein Feld aus zwei Teilen: die Seiten und Unterseite in einem Zug, die
+// Oberseite mit dem Zeichen im zweiten. Mit den sechs Flächen der Box als
+// eigene Gruppen zeichnete das Feld sonst sechsmal statt zweimal (gemessen
+// 399 statt rund 100 Aufrufe je Bild).
+function tileGeometry() {
+  const geo = new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08);
+  const index = Array.from(geo.index.array);
+  const rest = [];
+  const up = [];
+  geo.groups.forEach((group, face) => {
+    (face === 2 ? up : rest).push(...index.slice(group.start, group.start + group.count));
+  });
+  geo.setIndex([...rest, ...up]);
+  geo.clearGroups();
+  geo.addGroup(0, rest.length, 0);
+  geo.addGroup(rest.length, up.length, 1);
+  return geo;
+}
 
 function tileX(gx) {
   return (gx - (COLS - 1) / 2) * TILE;
@@ -115,17 +163,18 @@ export class ColorRush extends MinigameScene {
       scene.add(bar);
     });
 
-    // Das Farbfeld.
+    // Das Farbfeld. Oben trägt jedes Feld das Zeichen seiner Farbe.
+    this.symbolMaps = SYMBOL_PIXELS.map(symbolTexture);
+    const tileGeo = tileGeometry();
     for (let gy = 0; gy < ROWS; gy += 1) {
       for (let gx = 0; gx < COLS; gx += 1) {
-        const tile = new THREE.Mesh(
-          new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08),
-          new THREE.MeshLambertMaterial({ color: COLORS[0] })
-        );
+        const side = new THREE.MeshLambertMaterial({ color: COLORS[0] });
+        const top = new THREE.MeshLambertMaterial({ color: COLORS[0], map: this.symbolMaps[0], emissiveMap: this.symbolMaps[0] });
+        const tile = new THREE.Mesh(tileGeo, [side, top]);
         tile.position.set(tileX(gx), 0, tileZ(gy));
         tile.receiveShadow = true;
         tile.castShadow = true;
-        tile.userData = { gx, gy, restY: 0 };
+        tile.userData = { gx, gy, restY: 0, side, top };
         scene.add(tile);
         this.tiles[gy * COLS + gx] = tile;
       }
@@ -375,7 +424,9 @@ export class ColorRush extends MinigameScene {
 
     this.tiles.forEach((tile, index) => {
       const color = arcade.grid[index];
-      tile.material.color.set(COLORS[color] || COLORS[0]);
+      const { side, top } = tile.userData;
+      let shown = color;
+      side.color.set(COLORS[color] || COLORS[0]);
       const isTarget = color === arcade.targetColor;
       const gx = index % COLS;
       const gy = Math.floor(index / COLS);
@@ -394,7 +445,7 @@ export class ColorRush extends MinigameScene {
       } else if (phase.name === "announce") {
         // Zu Beginn der Ansage kommen die gefallenen Felder in neuer Farbe
         // wieder hoch.
-        opacity = Math.min(1, (tile.material.opacity ?? 1) + dt * 4);
+        opacity = Math.min(1, (side.opacity ?? 1) + dt * 4);
       }
       // Im Finale kommen alle Felder in einer Welle zurück, vom Sieger aus —
       // statt ihn allein auf einem Feld über dem leeren Loch stehen zu lassen.
@@ -405,20 +456,33 @@ export class ColorRush extends MinigameScene {
         if (u > 0) {
           targetY = Math.sin(Math.min(1, u * 2.2) * Math.PI) * 0.18 * Math.max(0, 1 - u);
           opacity = Math.min(1, u * 4);
-          tile.material.color.set(COLORS[(color + Math.floor(u * 6)) % COLORS.length] || COLORS[0]);
+          shown = (color + Math.floor(u * 6)) % COLORS.length;
+          side.color.set(COLORS[shown] || COLORS[0]);
         }
       }
       tile.position.x = tileX(gx) + jitterX;
       tile.position.z = tileZ(gy) + jitterZ;
       tile.position.y = THREE.MathUtils.lerp(tile.position.y, targetY, frameLerp(0.3, dt));
-      tile.material.transparent = opacity < 1;
-      tile.material.opacity = opacity;
+      side.transparent = opacity < 1;
+      side.opacity = opacity;
       if (isTarget && phase.name !== "over" && !finale) {
-        tile.material.emissive.set(COLORS[color]);
-        tile.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(now / 150)) * 0.7;
+        side.emissive.set(COLORS[color]);
+        side.emissiveIntensity = 0.5 + Math.abs(Math.sin(now / 150)) * 0.7;
         if (phase.name === "announce") tile.position.y += Math.abs(Math.sin(now / 150 + gx + gy)) * 0.06;
       } else {
-        tile.material.emissiveIntensity = 0;
+        side.emissiveIntensity = 0;
+      }
+      // Die Oberseite folgt den Seiten, mit dem Zeichen der gezeigten Farbe.
+      top.color.copy(side.color);
+      top.emissive.copy(side.emissive);
+      top.emissiveIntensity = side.emissiveIntensity;
+      top.transparent = side.transparent;
+      top.opacity = side.opacity;
+      const map = this.symbolMaps[shown] || this.symbolMaps[0];
+      if (top.map !== map) {
+        top.map = map;
+        top.emissiveMap = map;
+        top.needsUpdate = true;
       }
     });
 
@@ -555,9 +619,10 @@ export class ColorRush extends MinigameScene {
         } else {
           const secs = Math.max(0, phase.left / 1000).toFixed(1);
           const entscheidung = arcade.round >= (arcade.roundCount ?? 8);
+          const symbol = COLOR_SYMBOLS[arcade.targetColor] || "";
           banner.textContent = phase.name === "drop"
-            ? `${name}!`
-            : entscheidung ? `ENTSCHEIDUNG — nur ein Feld! ${name}  ${secs}` : `Lauf auf ${name}!  ${secs}`;
+            ? `${symbol} ${name}!`
+            : entscheidung ? `ENTSCHEIDUNG — nur ein Feld! ${symbol} ${name}  ${secs}` : `Lauf auf ${symbol} ${name}!  ${secs}`;
           banner.style.background = COLORS[arcade.targetColor];
           banner.style.color = arcade.targetColor === 2 ? "#5c4508" : "#1b2530";
         }

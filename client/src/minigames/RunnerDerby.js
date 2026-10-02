@@ -42,6 +42,7 @@ const KICK_MS = 700;                // so lange wirkt der Anschub im Bild nach
 const TRAIL_POOL = 14;
 const HURDLE_CLEAR = 0.78;           // so hoch sind die Füsse über einer Hürde mindestens
 const HURDLE_CLEAR_REACH = 0.9;      // ab diesem Abstand zur Hürde gilt das
+const JUMP_TAIL_MS = 200;            // so lange gilt die Mindesthöhe nach dem Sprung noch
 const KIN_Y = standOn(FLOOR_Y);
 // Die Zuschauer sind kleiner — und weil der Sohlenabstand mitskaliert,
 // muss auch er mit dem Massstab multipliziert werden.
@@ -511,7 +512,8 @@ export class RunnerDerby extends MinigameScene {
     for (let i = 0; i < 22; i += 1) {
       const streak = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.9), streakMat);
       streak.position.set((Math.random() - 0.5) * 7, 0.3 + Math.random() * 3.2, Math.random() * 16);
-      streak.userData = { speed: 14 + Math.random() * 10 };
+      // Fahrtwind ist ein Effekt, nichts, worauf man steht.
+      streak.userData = { speed: 14 + Math.random() * 10, isFx: true };
       scene.add(streak);
       this.streaks.push(streak);
     }
@@ -638,7 +640,8 @@ export class RunnerDerby extends MinigameScene {
       if (Math.abs(wall.x - at.x) > LANE_WIDTH * 0.6 || dz > 1.6) return;
       if (!best || dz < Math.abs(best.z - at.z)) best = wall;
     });
-    if (best) best.hitAt = now;
+    // Fliegt der Stapel schon, beginnt er nicht von vorn (siehe touchObstacles).
+    if (best && !(now - best.hitAt >= 0 && now - best.hitAt <= 1500)) best.hitAt = now;
     return best;
   }
 
@@ -692,7 +695,28 @@ export class RunnerDerby extends MinigameScene {
       if (Math.abs(hurdle.x - at.x) > LANE_WIDTH * 0.6 || dz > 1.4) return;
       if (!best || dz < Math.abs(best.z - at.z)) best = hurdle;
     });
-    if (best) best.hitAt = now;
+    if (best && !(now - best.hitAt >= 0 && now - best.hitAt <= 1300)) best.hitAt = now;
+  }
+
+  // Wer durch ein stehendes Hindernis läuft, reisst es um. Der Server zählt
+  // einen zweiten Aufprall nicht, solange man vom ersten noch benommen ist —
+  // dann kam keine Meldung, der Stapel blieb stehen, und die purzelnde Figur
+  // steckte mitten im Stroh (Prüfung: 0.39 im Ballen).
+  touchObstacles(at, now) {
+    this.walls?.forEach((wall) => {
+      // Etwas vor dem Ballen: bei wenigen Bildern je Sekunde rückt eine Figur
+      // in einem Bild über einen halben Meter vor.
+      if (Math.abs(wall.x - at.x) > LANE_WIDTH * 0.5 || Math.abs(wall.z - at.z) > 0.7) return;
+      if (now - wall.hitAt >= 0 && now - wall.hitAt <= 1500) return;
+      wall.hitAt = now;
+      wall.group.userData.isFx = true;     // ab sofort kein fester Körper mehr
+    });
+    this.hurdles?.forEach((hurdle) => {
+      if (Math.abs(hurdle.x - at.x) > LANE_WIDTH * 0.5 || Math.abs(hurdle.z - at.z) > 0.3) return;
+      if (now - hurdle.hitAt >= 0 && now - hurdle.hitAt <= 1300) return;
+      hurdle.hitAt = now;
+      hurdle.group.userData.isFx = true;
+    });
   }
 
   tipHurdles(now) {
@@ -889,8 +913,15 @@ export class RunnerDerby extends MinigameScene {
       // wer springt und gerade über einer stehenden Hürde ist, ist mindestens
       // so hoch, dass die Füsse über der Stange bleiben.
       let lift = 0;
-      if (jumping) {
-        const phase = Math.max(0, entry.jumpUntil - now) / 650;
+      // Die Figur läuft ihrem Serverstand ein paar Bilder hinterher. Endet der
+      // Sprung, ist sie oft noch über der Latte — die Mindesthöhe über einer
+      // Hürde gilt darum noch kurz nach (sonst Füsse 0.37 in der Stange).
+      if (now < (entry.jumpUntil || 0) + JUMP_TAIL_MS) {
+        // Auf 0..1 begrenzt: stellt sich die Uhr des Geräts um ein paar
+        // Millisekunden zurück, lag der Sprungbeginn sonst "in der Zukunft",
+        // der Sinus wurde negativ und Math.pow(…, 0.6) ergab NaN — die Figur
+        // verschwand ein Bild lang (Prüfung: "Position ist keine Zahl").
+        const phase = Math.min(1, Math.max(0, entry.jumpUntil - now) / 650);
         lift = Math.pow(Math.sin(phase * Math.PI), 0.6) * 1.25;
         // Auch beim Bahnwechsel: wer zwischen zwei Bahnen über eine Hürde
         // springt, streift sonst ihren Seitenpfosten.
@@ -902,6 +933,7 @@ export class RunnerDerby extends MinigameScene {
         }
       }
       animator.groundY = standOn(FLOOR_Y) + lift;
+      if (!finished && lift < HURDLE_CLEAR * 0.8) this.touchObstacles(kin.position, now);
 
       // Die letzten 25 Meter: einmal kurz ansagen, dass es jetzt zählt.
       if (isOwn && !finished && !this.endspurt && entry.progress >= (arcade.trackLength || 150) - 25) {
