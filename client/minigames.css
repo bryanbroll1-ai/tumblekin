@@ -686,6 +686,7 @@
   pointer-events: none;
 }
 
+.virtual-joystick:focus-visible { outline: 3px solid #ffe08b; outline-offset: 5px; }
 .virtual-joystick.active .joystick-knob {
   background: var(--yellow);
   transition: background 120ms ease;

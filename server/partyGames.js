@@ -942,6 +942,11 @@ const honey = {
     });
   },
   input(ctx, player, entry, input) {
+    const currentTurn = ctx.arcade.honey.turn;
+    if (currentTurn && ctx.elapsed >= currentTurn.until + HONEY_GRACE_MS) {
+      honey.update(ctx);
+      return { ok: true };
+    }
     if (input.action === "pass") {
       const turn = ctx.arcade.honey.turn;
       if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
@@ -2868,6 +2873,10 @@ const boat = {
     const turn = ctx.arcade.boat.turn;
     if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
     if (ctx.elapsed < turn.from) return { ok: true };
+    if (ctx.elapsed >= turn.until && !(player.isBot && Number.isFinite(input.botAt) && input.botAt < turn.until)) {
+      boatDrop(ctx, player, entry, true, turn.until);
+      return { ok: true };
+    }
     // Bots planen ihren Tipp wie ein Mensch auf die Millisekunde; ihr Takt ist
     // aber grob (alle 120–180 ms), darum zählt der geplante Augenblick. Nur für
     // Bots — ein Gerät kann keine Zeit mitschicken.

@@ -1,7 +1,10 @@
 // Isolated practice uses the real rules. No socket or multiplayer room is
 // created; terminating this Worker discards every practice score and timer.
 const { testRules: rules } = require('../server/server.js');
-const TYPES = new Set(['bounceArena', 'finishRush', 'eisstock', 'ballonfahrt', 'kanonenflug', 'fassmut']);
+const TYPES = new Set(rules.MINIGAMES.map(game => game.type));
+// Kontakt-, Team- und Zugspiele brauchen echte Gegenüber zum Üben.
+const WITH_BOTS = new Set(['colorEscape', 'fassrolle', 'zuendstoff', 'farbenjagd', 'tauziehen', 'honigwabe', 'schneeball', 'luftpuck', 'buecherwurm', 'schnappschuss', 'kippboot']);
+let nextBotAt = 0;
 let room = null;
 let timer = null;
 let generation = 0;
@@ -33,6 +36,9 @@ self.onmessage = ({ data }) => {
         startedAt, duration: game.duration, scores: {}, lastInputAt: {}
       };
       const players = game.type === "bounceArena" ? [player, rules.createPlayer({ id: "trainer", name: "Trainingsring", color: "#28c7d9" })] : [player];
+      if (WITH_BOTS.has(game.type)) {
+        for (let index = 0; index < 3; index++) players.push(rules.createPlayer({ id: 'trainer-' + index, name: ['Mika', 'Lumi', 'Pip'][index], color: ['#28c7d9', '#ffd15c', '#71d97b'][index], isBot: true }));
+      }
       if (game.type === "bounceArena") currentMinigame.arena = rules.createArenaState(players, startedAt, game.duration);
       else currentMinigame.arcade = rules.createArcadeState(game.type, players, startedAt, {seed: game.type === "finishRush" ? 39 : undefined});
       room = { code: 'PRACTICE', status: 'minigame', phase: 'playingMinigame',
@@ -47,15 +53,20 @@ self.onmessage = ({ data }) => {
       currentMinigame.startedAt = startedAt;
       if (currentMinigame.arena) currentMinigame.arena = rules.createArenaState(room.players, startedAt, currentMinigame.duration);
       else currentMinigame.arcade = rules.createArcadeState(currentMinigame.type, room.players, startedAt, {seed: currentMinigame.arcade.seed});
+      nextBotAt = startedAt;
       publish();
       timer = setInterval(() => {
         try {
+          if (Date.now() >= nextBotAt && !currentMinigame.finaleAt) {
+            nextBotAt = Date.now() + 150;
+            room.players.filter(player => player.isBot).forEach(player => rules.arcadeBotStep(room, player));
+          }
           if (currentMinigame.arena) rules.updateBounceArena(room);
           else rules.updateArcade(room);
           // Finales schedule multiplayer result timers. Practice only needs
           // the locked final state and leaves the scene visible for review.
           if (currentMinigame.finaleAt || Date.now() >= startedAt + currentMinigame.duration) {
-            if (!currentMinigame.finaleAt) currentMinigame.finaleAt = Date.now();
+            if (!currentMinigame.finaleAt) rules.beginMinigameFinale(room, currentMinigame);
             stop();
           }
           publish();

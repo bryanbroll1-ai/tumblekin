@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin209";
-import { addStageLights } from "./SceneKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
+import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin210";
+import { addStageLights } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
 
 // Bergsteiger — die Wand zeigt, welche Hand als Nächstes greifen muss. Der
 // richtige Griff zieht eine Sprosse hoch, der falsche rutscht eine ab. Oben
@@ -462,7 +462,7 @@ export class CliffClimb extends MinigameScene {
   // rechte. Das ist dieselbe Geste, aber sie zeigt direkt auf das, was man
   // meint — und der Blick bleibt oben an der Wand.
   bind() {
-    this.controls.innerHTML = `<p class="trace-hint" data-climb-hint>Abwechselnd links und rechts tippen</p>`;
+    this.controls.innerHTML = `<p class="trace-hint" data-climb-hint>Auf die Bildhälfte mit dem leuchtenden Griff tippen</p>`;
     this.controls.style.pointerEvents = "none";
     this.on(this.webglCanvas, "pointerdown", (event) => {
       event.preventDefault();

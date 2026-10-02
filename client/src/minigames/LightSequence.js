@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin209";
-import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin209";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin210";
 
 // Leuchtfolge: die Pilze leuchten in einer Folge auf, danach tippt man sie in
 // derselben Reihenfolge nach. Jede Runde wird die Folge länger.

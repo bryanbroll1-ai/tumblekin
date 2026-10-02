@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin209";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { bindHoldInput } from "./HoldInput.js?v=tumblekin209";
-import { baeume, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin209";
+import { createCloud, KIN_SOLE, setKinOpacity } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin210";
+import { baeume, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Fassrolle — alle stehen auf einem Riesenfass über dem Fluss. Die Strömung
 // dreht es mal so, mal so; mit ◀ oder ▶ läuft man dagegen an. Aber wer läuft,
@@ -553,6 +553,8 @@ export class BarrelRoll extends MinigameScene {
       this.feedback?.vibrate(8);
       this.sendRun();
       this.holdTimer = setInterval(() => this.sendRun(), RUN_PING_MS);
+    } else {
+      this.sendInput({ action: "run", hold: false }).catch(() => {});
     }
   }
 

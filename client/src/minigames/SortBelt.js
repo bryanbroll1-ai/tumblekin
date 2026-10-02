@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createShadowBlob } from "./VoxelKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin209";
+import { createShadowBlob } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin210";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
 // wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt
@@ -417,7 +417,7 @@ export class SortBelt extends MinigameScene {
   }
 
   bind() {
-    this.controls.innerHTML = `<p class="trace-hint">Wisch jedes Teil in die passende Rutsche</p>`;
+    this.controls.innerHTML = `<p class="trace-hint">← Links · ↓ Mitte · → Rechts — passende Rutsche wählen</p>`;
     this.controls.style.pointerEvents = "none";
     this.bindGestures();
   }
@@ -460,6 +460,10 @@ export class SortBelt extends MinigameScene {
         return;
       }
       if (dist < 26) return;
+      if (dy < -Math.abs(dx) * 0.9) {
+        this.feedback?.sound("clack");
+        return;
+      }
       if (dy > Math.abs(dx) * 0.9) {
         this.sortTo(1);           // nach unten = Mitte
         return;
@@ -476,6 +480,7 @@ export class SortBelt extends MinigameScene {
     this.on(window, "pointerup", this.onUp);
     this.on(window, "pointercancel", this.onCancel);
     this.on(window, "blur", this.onCancel);
+    this.on(window, "resize", this.onCancel);
     this.on(document, "visibilitychange", () => { if (document.hidden) this.onCancel(); });
   }
 

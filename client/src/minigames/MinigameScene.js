@@ -11,12 +11,12 @@ import {
   applyFinaleMood,
   setKinOpacity,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin209";
-import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin209";
-import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin209";
-import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin209";
-import { frameChance } from "./Quality.js?v=tumblekin209";
-import { verblocke } from "./Blockform.js?v=tumblekin209";
+} from "./VoxelKit.js?v=tumblekin210";
+import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin210";
+import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin210";
+import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin210";
+import { frameChance } from "./Quality.js?v=tumblekin210";
+import { verblocke } from "./Blockform.js?v=tumblekin210";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
@@ -55,7 +55,7 @@ export class MinigameScene {
     this.sendInput = (input) => {
       // Auch Tippen auf die Bühne drückt den zugehörigen Aktionsknopf.
       // Dauersteuerung und Laufzeit-Pings erzeugen keinen Knopfimpuls.
-      if (!["ping", "steer", "thrust", "hold", "lift", "release"].includes(input.action)) {
+      if (!["ping", "steer", "thrust", "hold", "lift", "release", "run", "reel", "sprint"].includes(input.action)) {
         const buttons = [...this.controls.querySelectorAll("button")];
         if (buttons.length === 1) feedback?.buttons?.pulse(buttons[0]);
       }
@@ -132,6 +132,8 @@ export class MinigameScene {
       const handler = fn;
       fn = event => {
         if (event.button > 0 || event.target?.closest?.("button:disabled, [inert]")) return;
+        const game = this.update || this.minigame;
+        if (!game || game.finaleAt || this.now() < game.startedAt) return;
         handler(event);
       };
     }

@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin209";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin209";
+import { createCloud } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Turmbau: wie bei den Stapelspielen gleitet der nächste Block direkt auf der
 // nächsten Ebene über den Turm hin und her, ein Tipp setzt ihn ab. Was
@@ -324,16 +324,26 @@ export class TowerStack extends MinigameScene {
       // Neue Blöcke fallen vom Haken, die Figur springt hinauf.
       while (tower.blocks.length < (entry.height || 0)) {
         const level = tower.blocks.length;
+        const layer = entry.layers?.[level] || entry;
         const block = new THREE.Mesh(
-          new THREE.BoxGeometry(Math.max(0.1, entry.width * WORLD_W), BLOCK_H, 1),
+          new THREE.BoxGeometry(Math.max(0.1, layer.width * WORLD_W), BLOCK_H, 1),
           new THREE.MeshLambertMaterial({ color: tower.color, emissive: tower.color, emissiveIntensity: level % 2 ? 0.1 : 0.03 })
         );
         const restY = blockCenterY(level);
-        block.position.set(entry.offset * WORLD_W, restY, 0);
+        block.position.set(layer.offset * WORLD_W, restY, 0);
         block.castShadow = true;
         block.receiveShadow = true;
         tower.group.add(block);
         tower.blocks.push(block);
+        this.offcuts ||= [];
+        (layer.cuts || []).forEach(cut => {
+          const piece = new THREE.Mesh(new THREE.BoxGeometry(cut.width * WORLD_W, BLOCK_H, 1), block.material.clone());
+          piece.userData.isFx = true;
+          piece.castShadow = true;
+          piece.position.set(cut.offset * WORLD_W, restY, 0);
+          tower.group.add(piece);
+          this.offcuts.push({ piece, x: piece.position.x, y: restY, direction: Math.sign(cut.offset - layer.offset), at: now });
+        });
         tower.dropping = { block, from: restY + 0.1, to: restY, at: now };
         animator.trigger("hop", { height: 0.2 });
       }
@@ -373,7 +383,7 @@ export class TowerStack extends MinigameScene {
       if (capped && !this.lastToppled.get(player.id)) {
         this.lastToppled.set(player.id, true);
         const complete = !entry.toppled || height >= arcade.total;
-        if (top) {
+        if (top && complete) {
           const pole = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), new THREE.MeshLambertMaterial({ color: "#5a4a3a" }));
           pole.position.set(top.position.x + 0.42, top.position.y + BLOCK_H / 2 + 0.4, -0.2);
           tower.group.add(pole);
@@ -382,10 +392,15 @@ export class TowerStack extends MinigameScene {
           tower.group.add(flag);
           this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), complete ? "🏆" : "🚩", { size: complete ? 0.6 : 0.42, life: 1.1, rise: 1.1 });
         }
-        animator.trigger(complete ? "celebrate" : "wave");
+        if (!complete) {
+          const at = tower.group.localToWorld(tower.hook.position.clone());
+          this.burst(at, [tower.color, "#ffffff"], { count: 18, speed: 1.6, up: 0.5, gravity: 6, size: 0.12, life: 0.8 });
+          this.pop(at.clone().add(new THREE.Vector3(0, 0.4, 0)), "DANEBEN", { color: "#ff6b7f", size: isOwn ? 0.42 : 0.24, life: 0.9 });
+        }
+        animator.trigger(complete ? "celebrate" : "flinch");
         if (isOwn) {
           this.rig.shake(0.5);
-          this.feedback?.sound(entry.toppled && height < arcade.total ? "pop" : "win");
+          this.feedback?.sound(complete ? "win" : "error");
           this.feedback?.vibrate(entry.toppled && height < arcade.total ? 12 : [20, 20, 40]);
         }
       }
@@ -413,6 +428,16 @@ export class TowerStack extends MinigameScene {
     // Spitze aller Türme: baute ein Bot schneller, fuhr die Kamera an der
     // eigenen Spitze vorbei nach oben.
     this.smoothTop += (topHeight - this.smoothTop) * frameLerp(0.08, dt);
+    this.offcuts = (this.offcuts || []).filter(cut => {
+      const age = Math.max(0, (now - cut.at) / 1000);
+      cut.piece.position.set(cut.x + cut.direction * age * 0.6, cut.y - 4.2 * age * age, age * 0.2);
+      cut.piece.rotation.z = cut.direction * age * 1.4;
+      cut.piece.material.transparent = true;
+      cut.piece.material.opacity = Math.max(0, 1 - Math.max(0, age - 0.55) / 0.35);
+      if (age < 0.9) return true;
+      this.removeObject(cut.piece);
+      return false;
+    });
   }
 
   // Die Kamera steigt mit der Spitze des EIGENEN Turms — wie beim Handyspiel
@@ -477,8 +502,8 @@ export class TowerStack extends MinigameScene {
         banner.style.color = "#5c4508";
       } else if (own?.toppled) {
         banner.hidden = false;
-        banner.textContent = "Turm gesetzt 🚩";
-        banner.style.background = "#12aaff";
+        banner.textContent = `Daneben — ${own.height} Etagen bleiben stehen`;
+        banner.style.background = "#c7465c";
         banner.style.color = "#ffffff";
       } else {
         banner.hidden = true;

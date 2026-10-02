@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin209";
+import { flashKin } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin210";
 
 // Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
 // Bomben ausspuckt. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den
@@ -372,6 +372,7 @@ export class CoinRain extends MinigameScene {
     // jeder Augenblick. Wer weiterzieht, wechselt noch eine Spur weiter.
     this.on(this.webglCanvas, "pointerdown", (event) => {
       if (this.swipe) return;
+      this.webglCanvas.setPointerCapture?.(event.pointerId);
       this.swipe = { pointerId: event.pointerId, x: event.clientX, steps: 0 };
     });
     this.on(window, "pointermove", (event) => {
@@ -384,14 +385,18 @@ export class CoinRain extends MinigameScene {
       this.sendLane(dx > 0 ? 1 : -1);
     });
     const end = (event) => { if (event.pointerId === this.swipe?.pointerId) this.swipe = null; };
-    const interrupt = () => { this.swipe = null; };
+    const interrupt = () => { this.swipe = null; this.laneQueue = []; clearTimeout(this.laneTimer); this.laneTimer = null; };
     this.on(window, "pointerup", end);
     this.on(window, "pointercancel", end);
     this.on(window, "blur", interrupt);
+    this.on(window, "resize", interrupt);
+    this.on(this.webglCanvas, "lostpointercapture", end);
     this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {
+    clearTimeout(this.laneTimer);
+    this.laneQueue = [];
     this.controls.style.pointerEvents = "";
     this.dropMeshes.clear();
   }
@@ -400,19 +405,27 @@ export class CoinRain extends MinigameScene {
   // zweite aus einem durchgezogenen Wisch schneller, wird er kurz gehalten
   // statt verschluckt.
   sendLane(dir) {
+    this.laneQueue ||= [];
+    if (this.laneQueue.length >= 3) return;
+    this.laneQueue.push(dir);
+    this.flushLane();
+  }
+
+  flushLane() {
+    if (this.laneInFlight || this.laneTimer || !this.laneQueue?.length) return;
+    const game = this.update || this.minigame;
+    if (!this.frame || game.finaleAt || this.now() < game.startedAt) { this.laneQueue.length = 0; return; }
+    const wait = Math.max(0, (this.lastLaneAt || 0) + 125 - performance.now());
+    if (wait) {
+      this.laneTimer = setTimeout(() => { this.laneTimer = null; this.flushLane(); }, wait);
+      return;
+    }
+    const dir = this.laneQueue.shift();
+    this.lastLaneAt = performance.now();
     this.feedback?.sound("move");
     this.feedback?.vibrate(8);
-    const wait = (this.lastLaneAt || 0) + 125 - performance.now();
-    const send = () => {
-      this.lastLaneAt = performance.now();
-      this.sendInput({ action: "lane", dir }).catch(() => {});
-    };
-    if (wait > 0) {
-      this.lastLaneAt = performance.now() + wait;
-      setTimeout(() => { if (this.frame) send(); }, wait);
-    } else {
-      send();
-    }
+    this.laneInFlight = true;
+    this.sendInput({ action: "lane", dir }).finally(() => { this.laneInFlight = false; this.flushLane(); }).catch(() => {});
   }
 
   tick(f) {

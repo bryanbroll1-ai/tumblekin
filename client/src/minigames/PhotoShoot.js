@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin209";
-import { forecastPhoto, photoRules, canShove } from "./Fotobuehne.js?v=tumblekin209";
+import { createNameLabel, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin210";
+import { forecastPhoto, photoRules, canShove } from "./Fotobuehne.js?v=tumblekin210";
 
 // Schnappschuss — Premierenabend auf dem roten Teppich. Ein Fotograf vorn
 // am Bühnenrand zeigt einen Bildausschnitt, zählt herunter und blitzt. Wer im

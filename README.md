@@ -129,7 +129,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆✳️ In jede Richtung wischen
 
-- **Farbflucht:** Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
+- **Farbflucht:** Eine Farbe samt Form wird angesagt: Pink ●, Blau ▲, Gelb ■, Grün ✚. Wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
 
 ### 👆 Tippen
 
@@ -140,7 +140,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Seilspringen:** Die zwei Dreher schwingen das Riesenseil, und es wird immer schneller. Tipp, wenn es unter dir durchgeht — du bist nur kurz in der Luft. Achtung bei DOPPELT: dann kommt es zweimal kurz hintereinander. Einmal hängen geblieben und du bist raus.
 - **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Winkel. Drei Schuss: triff die Zielflagge — sie steht jeden Schuss woanders, und der Windsack zeigt, ob Wind dich weiter trägt oder bremst. Beim Winkel zeigt ein Ring, wo du ohne Wind landen würdest. Die Punkte aller drei zählen zusammen.
 - **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt, jeder dreht sich anders. Äpfel bringen Extrapunkte. Ein Klirren kostet den Stamm — und alle Punkte, die er dir schon gebracht hat.
-- **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
+- **Turmbau:** Tippe, um den gleitenden Block auf deinem Turm zu stapeln. Ein perfekter Treffer rastet ein; Überstände werden abgeschnitten und fallen herunter. Verfehlst du den Turm ganz, endet dein Bauversuch — die geschafften Etagen zählen weiter. Der höchste Turm gewinnt!
 - **Kippboot:** Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker: der Streifen an der Bordwand zeigt, wo er sicher landet (grün) und wo das Boot kentern würde (rot). Wer es zum Kentern bringt, verliert 30 Punkte. Gespielt wird in Runden — jeder ist einmal dran, alle mit demselben Tier, vom Küken bis zum Schwein. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu.
 
 ### 👆⏺️ Knopf gedrückt halten
@@ -164,7 +164,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🎵 Im Takt tippen
 
-- **Trampolin:** Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller!
+- **Trampolin:** Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller! Ein Fehlversuch oder ausgelassener Schlag bricht die Serie und kostet aktuelle Höhe; deine höchste erreichte Höhe bleibt als Ergebnis stehen.
 
 ### 👆⚡ Blitzschnell tippen
 
@@ -280,7 +280,8 @@ npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
 npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
-npm run practice-check       # vier Übungen mit echten Eingaben, Neustart, Aufräumen und Isolation von zwei Geräten
+npm run practice-check       # vier gezielte Übungen samt Isolation von zwei Geräten
+npm run all-practice-check   # echte Eingabe, Regelwirkung und Aufräumen für alle 40 Übungen
 npm run bumper-check         # nur Stick: echter Touch, Rammen, Klang, Übung und Fokusverlust
 npm run sprint-check         # Wischen/Halten, Slide/Sprung, Ausdauer, Kamera und isolierte Übung
 npm run pipe-check           # fünf echte Rohrsalat-Runden, sechs Ventile, kleine Bildschirme und Texturfreigabe
@@ -356,3 +357,5 @@ Gemeinsame Bausteine der Minispiele:
 - `ui/MenuStage.js` — die Bühne hinter den Menüs.
 
 Alle Namen, Figuren, Regeln und visuellen Motive sind eigenständige Entwürfe für Tumblekin.
+
+Die Einzelentscheidungen und Korrekturen zu allen 40 Spielen stehen in [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md). Jede Startkarte bietet einen getrennten Übungsversuch; Kontakt-, Team- und Zugspiele enthalten passende Bot-Gegenüber.

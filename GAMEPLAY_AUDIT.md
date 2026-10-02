@@ -1,63 +1,62 @@
-# Gameplay-Prüfung – 1. Oktober 2026
+# Einzelprüfung der 40 Spiele · 2. Oktober 2026
 
-Geprüfte Basis ist Claudes neuester Branch `claude/modest-archimedes-pwhcvy`, Commit `3b6330c` vom 30. September 2026. Der ältere `main`-Stand vom August wurde nicht als Spielbasis verwendet. Korrekturen liegen im PR #2 auf `codex/improve-party-onboarding`.
+Grundlage ist der aktuelle Codex-Entwurf auf dem neuesten geprüften Claude-Stand. Für jedes Spiel wurden Ziel, Eingabe, sichtbare Folge, Risiko und Wertung gegenübergestellt. Die Tabelle beschreibt die Entscheidung dieses Durchgangs. Eine unveränderte Mechanik ist eine bewusste Entscheidung, kein pauschal behaupteter neuer Rework. Zielgerade und Bumper Pool behalten ihre zuletzt überarbeiteten Grundmechaniken.
 
-## Behobene Fehler
+Alle 40 Startkarten bieten jetzt **Üben**. Übungen verwenden die aktuellen Serverregeln in einem eigenen Worker; Scores und Bereitstatus der Partie bleiben unverändert. Kontakt-, Team- und Zugspiele haben drei Bot-Gegenüber; Bumper behält den stationären Trainingsring. Neustart verwirft den alten Versuch. Aufbauzeit wird nicht von der Spielzeit abgezogen; Seed und Spielfeld bleiben beim Start konsistent. Partie und Übung verwenden eine gemeinsame Szenenliste.
 
-- **Wertung während der Siegeranimation:** Nach Beginn des Finales nahmen die Eingabehandler weiterhin Aktionen an. Zum Beispiel konnte Pump-Panik nach Festlegung der Plätze noch Pumpstöße zählen. Zentrale Eingaben, Arcade-Regeln und Arena-Regeln lehnen solche Aktionen jetzt ab. Tests prüfen für alle 40 Spiele, dass Siegerpose und Ergebnistafel dieselben Plätze behalten.
-- **Mehrfinger-Steuerung:** Ein zweiter Finger konnte beim Loslassen den gehaltenen Brenner der Ballonfahrt oder die Angel stoppen. Nur Finger auf der jeweiligen Haltefläche zählen jetzt. Bei Fassrolle gewinnt die zuletzt gehaltene Richtung; lässt man sie los, gilt wieder der weiterhin gedrückte andere Knopf.
-- **Unterbrochene Eingaben:** Tabwechsel und Fensterwechsel lösen gehaltene Knöpfe und Joysticks. Spurmaler verwirft außerdem Tastaturbewegung und Zeichnen, Eisstock einen begonnenen Wurf und Zielgerade einen gehaltenen Sprint. So läuft keine alte Bewegung unbeabsichtigt weiter.
-- **Fußkontakt in Zielgerade:** Laufposen dürfen die Schuhe nicht unter die Laufbahn kippen. Die Szene hebt die Figur nach der Pose um genau die Überschneidung an. Figuren in der Luft folgen jetzt mit den Sohlen genau der gemeinsamen ballistischen Sprungformel. Der Bodenprüfer nutzt die tatsächliche Laufbahn statt umfallender Hürden als Standfläche.
-- **Entwickleransicht:** Der Verweis auf die aktive Szene wird beim Beenden gelöscht. Der Langzeittest prüft per schwachen Referenzen, dass alte Spielszenen nach dem Wechsel in die Lobby nicht mehr erreichbar sind.
+## Entscheidungen pro Spiel
 
-Bereits im selben PR: gemeinsame Bereit-Phase und kurze Regeln für alle Spiele, gefilterte Spielauswahl, Steuerung im Querformat, kräftigere Landungen, Ballon-Landering und Sacklandung, Vorwarnung beim Schrumpfen der Bumper-Insel sowie der NaN-Fix bei vorauslaufender Serverzeit im Sprungbogen.
+| Spiel | Geprüfte Logik und Entscheidung | Umsetzung in diesem Durchgang |
+| --- | --- | --- |
+| Bumper Pool | Geschwindigkeit aus gefahrenen Kurven bestimmt Stoßwucht; Loslassen bremst. Joystick reicht. | Mechanik erhalten; feinere analoge Stickmeldungen, fokussierter Stick auch per Tastatur bedienbar. |
+| Zielgerade | Drei gemeinsame Spuren, Kiste umfahren, Hürde springen, Tor sliden. Halten verbraucht Ausdauer. | Wisch-/Haltemechanik erhalten und erneut auf Eingaben geprüft. |
+| Farbflucht | Farbe finden, Weg ablaufen, Besetzung beachten, vor dem Fall ankommen. | Alle Farben zusätzlich mit festen Formen markiert: ● Pink, ▲ Blau, ■ Gelb, ✚ Grün. Schnelle Wischschritte geordnet versendet; neue Runde vor dem Schritt aktualisiert. Drehung/Abbruch verwerfen alte Gesten. |
+| Nervenprobe | Zeit im Kopf zählen; ein einziger Stopp. Eine zusätzliche Uhr würde die Aufgabe auflösen. | Stopp wird lokal sofort verriegelt und angezeigt, statt bis zur Serverantwort nochmals auslösbar zu bleiben. Getrennt je gesteuerter Figur. |
+| Lichtwächter | Halten läuft, Loslassen stoppt; Gelb warnt, Rot bestraft. | Haltezustandsmeldungen haben keine Aktionssperrzeit mehr. Ein Loslassen direkt nach einem Ping geht sofort durch. |
+| Pump-Panik | Tippzahl ist die Leistung, zwei Finger sind legitim. | Bestehende Pumpanimation, Tokenbegrenzung und Druckrückmeldung erhalten; isolierte Übung ergänzt. |
+| Fassmut | Der Bremszeitpunkt bestimmt den tatsächlichen Nachlauf; Halteschatten erklärt ihn. | Geteilte Physik und Bremsvorschau erhalten; Übung mit konsistent vorbereitetem Seed. |
+| Fassrolle | Gegen Drehung laufen beeinflusst das gemeinsame Fass; letzter gehaltener Finger entscheidet. | Explizite Loslassmeldung beendet den Serverlauf sofort. Die bisherige 220-ms-Frist bleibt nur zur Erkennung verlorener Haltepings. |
+| Zündstoff | Nur Halter beim Knall verliert Leben; Weitergeben setzt die Zündzeit nicht zurück. | Ablauf der Zündschnur wird vor einer Weitergabe geprüft. Ein später Pass verschiebt keinen bereits fälligen Knall auf den nächsten Spieler. |
+| Münzregen | Beim Fangzeitpunkt zählt die damalige Spur, nicht eine nachträgliche Bewegung. | Fällige Münzen/Bomben vor Spurwechsel gewertet. Schnelle Spurwechsel seriell versendet; Abbruch, Drehung und Schließen räumen die Warteschlange auf. |
+| Blob-Klopfe | Direkter Treffer auf sichtbaren Blob; falsche Blobs sind das Risiko. | Sichtbare Trefferflächen, Leerloch-Staub und Trefferwertung erhalten; Übung ergänzt. Kein zusätzliches Neuner-Tastenfeld. |
+| Seilspringen | Ein zeitlich begrenzter Sprung muss die Seilpassage überdecken. | Knopf erklärt „IN DER LUFT“ bzw. „GESTOLPERT“ und ist währenddessen gesperrt. Kein wirkungsloser weiterer Sprungdruck. |
+| Kanonenflug | Zwei zeitliche Entscheidungen: Kraft, danach Winkel; Wind bleibt eine echte Korrektur. | Phasenknopf, Windsack und Landering erhalten. Übung prüft tatsächliches Stoppen der Kraft. |
+| Messerwurf | Werfen ist diskret; Klirren und Stammwechsel haben echte Wartezeit. | „NEUER STAMM …“ statt scheinbar bereitem Wurfknopf während Sperre/Wechsel. Eigener Wurf fliegt weiterhin sofort. |
+| Turmbau | Überlappung bestimmt verbleibende Breite; perfekte Treffer müssen tatsächlich einrasten. | Perfektes Zentrum bleibt unverändert. Jede gesetzte Ebene speichert eigene Maße, sodass nach verspäteten Bildern nicht mehrere identische falsche Blöcke erscheinen. Exakt abgeschnittene Überstände fallen als Stücke ab. Fehlstapel zeigt „DANEBEN“, Fehlerklang und verbleibende Etagen statt Erfolgsflagge. |
+| Bergsteiger | Die sichtbare Griffolge bestimmt die Hand; die Folge ist nicht immer abwechselnd. | Irreführendes „abwechselnd“ im dauerhaften Hinweis durch „Bildhälfte mit dem leuchtenden Griff“ ersetzt. |
+| Ballonfahrt | Brennerhaltung und gezielter Abwurf sind unabhängige Entscheidungen. Ein einzelner Knopf würde eine davon entfernen. | Bestehende Bildhaltung und Abwurfknopf erhalten; gemeinsames Druckfeedback pulsiert nicht zusätzlich bei Zustandsmeldungen. |
+| Trampolin | Resonanz verlangt eine zusammenhängende Rhythmusserie. Auslassen darf kein kostenloses Halten der Serie sein. | Verpasste Schläge brechen die Serie und senken die aktuelle Höhe, einmal je Schlag und unabhängig vom Tick. Besthöhe bleibt gespeichert. Regeln und Starttipp angepasst. |
+| Falschsignal | Früh tippen ist riskant; gesperrte Fehlversuche können nichts auslösen. | Gesperrter Knopf zeigt „ERHOLEN“ und wird tatsächlich deaktiviert. Täuschungen und frühes Risiko bleiben bestehen. |
+| Spurmaler | Relatives Ziehen lenkt ohne Sprung beim Fingeraufsetzen; Qualität wird entlang der Spur gewertet. | Relative Steuerung und kontinuierliche Wertung erhalten; Übung ergänzt. |
+| Sortierband | Drei Rutschen verlangen links, unten oder rechts. Oben ist keine vierte Rutsche. | Ein Wisch nach oben wird verworfen und quittiert, statt unbeabsichtigt rechts zu sortieren. Hinweis benennt alle drei Richtungen; Drehung bricht die Geste ab. |
+| Angelduell | Halten holt ein, Loslassen entspannt; Zug des Fisches macht die Entscheidung. | Bestehende ausdrückliche Freigabe und Spannungsprognose erhalten. Haltepings erzeugen keine zusätzlichen Knopfpulse. |
+| Leuchtfolge | Gedächtnisleistung soll entscheiden, nicht Präzision kleiner perspektivischer Trefferflächen. | Direkte Pilze und vier beschriftete Farbknöpfe erhalten; Sperren bei Vorführung, Fehler und Abschluss bleiben verbindlich. |
+| Blitzreflex | Ein Fehlstart ist ein Fehlstart; beste von drei gültigen Reaktionen entscheidet. | Keine Vor-Grün-Pufferung eingeführt; reale Fehlstart-/Versuchslogik in der Übung geprüft. |
+| Nagelbrett | Abwurfposition und ein Stups bestimmen die Bahn; fünf Kugeln sind ein echtes Budget. | Bei verbrauchtem Budget kein neuer scheinbarer Abwurf samt Serverfehlermeldung. Tipp wird kurz quittiert; Kugel-/Stupsphysik bleibt erhalten. |
+| Eisstock | Wischrichtung und Länge bestimmen echten Steinflug; nur ein eigener Stein darf rollen. | Gemeinsame Landungs-/Kontaktregeln und Kraftvorschau erhalten; Übung prüft real verbrauchten Stein. |
+| Tiefenrausch | Getragenes Gold ist erst an der Oberfläche gesichert; Luftreserve bestimmt Rückweg. | Physik, Abgabe und weiße Rückwegmarke erhalten. Stick reagiert feiner und ist per Tastatur erreichbar. |
+| Farbenjagd | Eigene Bahnen geben Geschwindigkeit, Übermalen verändert Besitz. Joystick reicht. | Feinere Stickmeldungen; Übung gegen drei tatsächliche Gegner statt leerer Leinwand. |
+| Spürsinn | Entfernungszahlen sind Gitterwege; bereits getippte Felder dürfen nicht nochmals kosten. | Geheimhaltung, Rundennummer und kostenlose Wiederholung erhalten; echte Feldprobe im Training. |
+| Augenmaß | Erst schauen, dann schätzen; letzter Reglerstand muss gewertet werden. | Phasen und sofortige Freigabe des Reglerstands erhalten. Übungsdialog nimmt auch Regler in die Tastatur-Fokusfolge auf. |
+| Tauziehen | Griffreserve und gemeinsame Züge bestimmen das Teamresultat. | Gemeinsame Teamplätze erhalten. Übung enthält zwei echte Zweierteams; Training zeigt somit Hau-Ruck und Gegenzug. |
+| Grimassen | Direktes Ziehen der sechs Griffe bildet die Formaufgabe ohne zusätzliche Achsenknöpfe ab. | Bestehende CSS-Pixel-Trefferflächen, Endsendung und Rotation erhalten; gleiche Aufgabe in Übung. |
+| Flaggen hoch | Rot/Blau/beide und Täuschung verlangen zwei unabhängige Flaggen. | Zweiflaggenbedienung und Fehler-/Lebenslogik erhalten. Keine automatisch richtig vorausgewählte Aktion. |
+| Honigwabe | Einer oder zwei, einmal passen; Zugdeadline bestimmt automatische Pflückaktion. | Abgelaufener Zug wird zuerst automatisch abgeschlossen. Ein verspäteter Doppelpflücker kann die automatische Einzelaktion nicht ersetzen. Zeitbalken sitzt unter der tatsächlichen Ansage statt sie auf kleinen Displays zu überlagern. Übung mit echten Zuggegnern. |
+| Schneeballhang | Rollen wächst Kugel; bewusster Wurf ist eine zweite Entscheidung. | Bereitschaft „ROLLEN/ERHOLEN/LÄDT“, Wurf und Schildphysik erhalten; Stick verfeinert und Training mit Gegnern. |
+| Luftpuck | Geschwindigkeit der Scheibe überträgt sich auf Puck; Teams gewinnen gemeinsam. | Begrenzte Rollen/Zonen und Teamwertung erhalten; feinere Stickbedienung und Training mit allen vier Rollen. |
+| Bücherwurm | Der tatsächliche Lochschatten entscheidet sichere Position; freies Schieben gehört zum Spiel. | Gemeinsame Seiten-/Kontaktphysik erhalten; feinere Stickbedienung und Übung mit Gedränge. |
+| Schnappschuss | Im Bild stehen und gezielt schubsen sind verschiedene Entscheidungen. | Freie Bewegung, Schubspause und gemeinsame Fotowertung erhalten; feinere Stickbedienung und Übungsgegner. |
+| Kippboot | Abwurfzeit bestimmt Hakenposition und Kippmoment; Ablauf muss für alle gleich gelten. | Ein verspäteter menschlicher Abwurf wird als automatische Aktion am exakten Deadline-Ort abgeschlossen, statt am späteren Hakenort. Übung mit Zugwechseln. |
+| Rohrsalat | Am Querrohr wechseln; gewählt wird genau ein Ventil, Lösung bleibt bis zur Auflösung verborgen. | Direkte Ventile, Phasen und verdeckte Wahl erhalten; Übung mit tatsächlicher Ventilwertung. |
 
-## Umfang und Ergebnisse
+## Gemeinsame Eingabegrenzen
 
-| Prüfung | Ergebnis |
-| --- | --- |
-| Server- und Eingaberegressionen | 396 Tests bestanden; zweiter Durchgang siehe Einzelbericht |
-| Ganze Regelrunden | 1080 bestanden: jedes Spiel mit 2/3/4 Spielern, drei Zeitschritten und drei Seeds; fehlerhafte Eingaben eingeschlossen |
-| Browser-Rauchtest | Alle 40 Spiele einschließlich Finale ohne Render- oder Konsolenfehler |
-| Szenenprüfung | Alle 40; eigene Figur sichtbar, zulässige Standflächen geprüft |
-| Physik über ganze Runden | Alle 40 abgedeckt; ursprünglicher Befund in Zielgerade nach Korrektur im vollständigen Wiederholungslauf behoben |
-| Animationen | 64 Zustände, insgesamt 384 Varianten bei 30/60/120 Hz mit und ohne reduzierte Bewegung; keine ungültigen Transformationen |
-| Mehrfinger und Unterbrechungen | Ballonfahrt, Angelduell, Lichtwächter, Fassrolle und Bumper-Joystick im Browser bestanden |
-| Anzeige gegen Rangfolge | Alle 40: angezeigte Wertung entscheidet auch die Plätze |
-| Leerlauf am Ende | 39 Arcade-Spiele ohne gemeldete lange Leerphase; Arena hat einen separaten Ablauf |
-| Langzeitprüfung | 60 Auf-/Abbauwechsel bestanden; keine alten Spielszenen erreichbar, kein Canvas-/Listener-Zuwachs; JS-Heap 8 → 15 MB, Puffer nach dem ersten Durchlauf 17 MB |
-| Partiemodi | Simulation mit 10.000 Partien je geprüfter Einstellung; Terminierung und Spielreihenfolge geprüft |
-| Bot-Balance | 39 Arcade-Spiele mit 2/3/4 Spielern; bei zwei Spielern überall Vorteil für die starke gegenüber der schwachen Stufe |
+Pointeraktionen vor dem Countdownende und im Finale lösen auch lokal keine Spielszenenaktion aus. Gehaltene Zustandsmeldungen für Sprint, Laufen und Einholen erzeugen keine künstlichen Druckimpulse. Der virtuelle Stick meldet analoge Änderungen innerhalb einer Richtung direkt, statt bis zum nächsten 70–105-ms-Ping zu warten. Seine Tastatursteuerung gilt nur bei fokussiertem Stick; Loslassen, Blur und versteckter Tab setzen die Richtung zurück. Die sichtbare Bewegung wird weiterhin durch die echte Spielphysik begrenzt.
 
-Bewusst fliegende, tauchende oder sitzende Figuren werden nicht als bodenstehende Figuren bewertet. Prüfungen auf ungültige Koordinaten und auffällige Positionssprünge bleiben dabei aktiv. Die Animationsprüfung ist eine Stabilitätsprüfung und bewertet keinen ästhetischen Geschmack.
+## Prüfung und Grenzen
 
-### Speicherbefund
+Die reproduzierbaren Prüfungen sind `npm test`, `npm run gameplay-check`, `npm run anzeige-check`, `npm run all-practice-check`, `npm run press-check`, `npm run input-check`, `npm run sprint-check`, `npm run bumper-check` und `TUMBLEKIN_BROWSER_WORKERS=1 npm run refinement-check`. Die neuen Regeltests prüfen konkrete Zeitgrenzen und Invarianten: späte Spurwechsel, abgelaufene Bombe/Züge, sofortiges Loslassen, gespeicherte Turmgeometrie samt erhaltenem Gesamtmaterial sowie ausgelassene Rhythmusschläge.
 
-Der erste 42-Runden-Test meldete bei `performance.memory` einen Anstieg von etwa 13 auf 39 MB. Die Detailprüfung trennte JS-Objekte und Geometriepuffer: nach einmaligem Aufbau aller Spiele blieb der gemeinsame Blockform-Vorrat über weitere Wiederholungen bei 469 Einträgen und 13,12 MB. Vergleichbare wiederholte Spiele schwankten nach Garbage Collection nur gering; es blieb jeweils die zuletzt gestartete Szene über die Entwickleransicht erreichbar. Dieser Verweis wird jetzt beim Beenden ebenfalls gelöscht.
+Bestanden: 453 Regel-/Komponententests, 1.080 vollständige Runden über alle 40 Spiele und der Vergleich aller Wertungsanzeigen mit der Rangfolge. Alle 40 Übungen wurden über echte Touch-/Tastatureingaben ausgelöst, einschließlich Nachweis unveränderter Partiestände. Alle 120 Ansichten (390×844, 844×390, 320×568) sind nach Korrektur des Honigwabe-Zeitbalkens frei von gemessenen HUD-Überlagerungen, abgeschnittenen Bedienelementen und zu kleinen aktiven Knöpfen. Die Zusatzprüfungen für Drücken, Loslassen, Zielgerade und Bumper sind bestanden; Bumper baut in der echten Stickübung 45 % Schwung und 1,84 Geschwindigkeit auf.
 
-Der Langzeittest misst deshalb JS-Heap und Puffer separat, erzwingt Garbage Collection und prüft zusätzlich alte Szenen. Der schnelle Lauf prüft Aufbau und Abbau, nicht den vollständigen Spielverlauf. Der ursprüngliche längere Lauf spielte 42 Runden auf derselben Seite ohne Browserfehler; Canvas-, Textur- und Listenerzahlen blieben im erwarteten Bereich. Im zweiten Durchgang wurde dieser Geometriecache auf 8 MiB und 256 Einträge begrenzt und seine Verdrängung geprüft. Das Budget gilt für die dort gehaltenen CPU-Geometriepuffer; aktive Szenen und GPU-Speicher sind davon getrennt. Weitere Änderungen und Einzelbefunde zu allen Spielen stehen in [GAME_REFINEMENT.md](GAME_REFINEMENT.md).
-
-## Nächste Verbesserungen nach Priorität
-
-1. **Kurzer optionaler Übungsversuch für komplexe Gesten.** Eisstock, Ballonfahrt und Rohrsalat verlangen mehr als bloßes Tippen. Eine ungewertete Probe vor der ersten Begegnung könnte Fehlversuche reduzieren. Die gemeinsame Bereit-Phase liefert bereits den passenden Einstieg; eine Probe müsste für alle Geräte denselben Ablauf bieten.
-2. **Schwierigkeit mit menschlichen Spielern abstimmen.** Die Bot-Waage zeigt bei vier Spielern noch unsichere Abstände zwischen benachbarten Stufen in Lichtwächter, Zündstoff, Münzregen, Tauziehen, Honigwabe, Luftpuck und Kippboot. Besonders Teamspiele brauchen zusätzlich einen Vergleich mit gleichen Teams und wechselnden Sitzpositionen. Aus diesen Stichproben lässt sich kein belastbarer Parameter-Fix ableiten.
-3. **Treffer- und Fehlerrückmeldung auf kleinen Geräten vergleichen.** Bei Zielgerade, Bumper Pool und Fassrolle sollte ein kurzer Handytest prüfen, ob Richtung und Ursache eines Remplers sofort erkennbar sind. Kurze gerichtete Effekte und ein eindeutiger Ton helfen mehr als zusätzliche dauerhafte HUD-Texte. Reduzierte Bewegung muss erhalten bleiben.
-4. **Latenz und echte Handys getrennt prüfen.** Die Serverregeln und Browserprüfung decken viele Fehler ab. Spielgefühl, Berührungsflächen, thermisches Drosseln und Fairness bei unterschiedlichen Verbindungen brauchen ergänzend zwei echte Mobilgeräte und kontrollierte Verzögerungen. Automatische Bot-Ergebnisse ersetzen diesen Vergleich nicht.
-
-## Reproduzieren
-
-```bash
-npm test
-npm run gameplay-check
-npm run input-check
-npm run animation-check
-npm run smoke
-npm run scene-check
-npm run boden-check
-npm run anzeige-check
-npm run leerlauf-check
-npm run bot-sim
-npm run session-sim -- 60 --quick
-```
-
-Die Browserprüfungen starten und beenden eigene lokale Server. Einrichtung siehe README. Die zeitweilige öffentliche Vorschau läuft ohne freigegebene Entwicklerwerkzeuge und unterstützt Socket.io-Polling; sie ist kein dauerhaftes Hosting.
+Browserprüfungen decken die Eingabe und Wirkung jedes Spiels sowie drei Ansichten ab. Sie ersetzen keinen menschlichen Komfort-/Spaßtest auf einem echten Telefon. Netzbedingte Timing-Unterschiede, Drei-Spieler-Teambalance und die Stärkeverteilung der Bumper-Bots bleiben praktische Testfragen. Die veröffentlichte Browserfassung spielt lokal gegen Bots; sie belegt kein Mehrgeräte-Netzspiel.

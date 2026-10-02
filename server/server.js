@@ -3057,6 +3057,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       const entry = arcade.players[player.id];
       entry.height = 0;
       entry.width = 1;                   // current top-block width (0..1)
+      entry.layers = [];                // unveränderte Maße jeder gesetzten Ebene
       entry.offset = 0;                  // logical x-centre of the tower
       entry.dir = index % 2 === 0 ? 1 : -1;
       entry.phase = arcadeNoise(arcade.seed + index * 7);
@@ -3312,6 +3313,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.perfects = 0;
       entry.misses = 0;
       entry.lastBeatIndex = -1;        // je Schlag nur ein Versuch
+      entry.nextBeatToClose = 1;       // der Startschlag ist kein Pflichtversuch
       entry.lastTap = null;            // { beat, offsetMs, grade, at }
     });
   }
@@ -3853,7 +3855,7 @@ function handleArcadeInput(room, player, rawInput) {
   // Das Finale zeigt bereits festgelegte Plätze. Auch direkte Aufrufe aus
   // Bots oder Werkzeugen dürfen diesen Stand nicht nachträglich verändern.
   if (minigameFrozen(minigame, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 110, stopclock: 60, redlight: 0, wave: 200, pump: 0, barrel: 0, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -3998,6 +4000,7 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "barrel") {
     if (input.action !== "run") return { ok: false, error: "Halte links oder rechts, um zu laufen." };
+    if (input.hold === false) { arcadePlayer.lastRunAt = 0; return { ok: true }; }
     if (arcadePlayer.fallenAt) return { ok: true };
     arcadePlayer.lastRunAt = now;
     arcadePlayer.runDir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
@@ -4007,6 +4010,8 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "catchfall") {
     if (input.action !== "lane") return { ok: false, error: "Wechsle die Spur mit links/rechts." };
+    // Bereits gelandete Gegenstände gehören zur vorherigen Spur.
+    updateCatchfall(room, minigame, arcade, now);
     const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
     arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
     arcadePlayer.hasMoved = true;
@@ -4147,6 +4152,8 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "bomb") {
     if (input.action !== "pass") return { ok: false, error: "Tippe, um die Bombe weiterzugeben." };
+    // Die abgelaufene Zündschnur explodiert beim bisherigen Halter.
+    updateBomb(room, minigame, arcade, now);
     if (arcadePlayer.outAt) return { ok: true };
     if (arcade.holderId !== player.id) return { ok: true };
     if (now < arcade.canPassAt) return { ok: true };
@@ -4240,9 +4247,15 @@ function handleArcadeInput(room, player, rawInput) {
       arcadePlayer.lastHitAt = now;
     } else {
       const perfect = Math.abs(blockCentre - arcadePlayer.offset) < 0.05;
+      const cuts = perfect ? [] : [
+        [blockCentre - arcadePlayer.width / 2, overlapLeft],
+        [overlapRight, blockCentre + arcadePlayer.width / 2]
+      ].filter(([left, right]) => right - left > 0.001)
+        .map(([left, right]) => ({ width: right - left, offset: (left + right) / 2 }));
       arcadePlayer.width = perfect ? arcadePlayer.width : overlap;
-      arcadePlayer.offset = (overlapLeft + overlapRight) / 2;
+      arcadePlayer.offset = perfect ? arcadePlayer.offset : (overlapLeft + overlapRight) / 2;
       arcadePlayer.height += 1;
+      arcadePlayer.layers.push({ width: arcadePlayer.width, offset: arcadePlayer.offset, perfect, cuts });
       if (perfect) arcadePlayer.perfects += 1;
       arcadePlayer.score = arcadePlayer.height * 100 + arcadePlayer.perfects * 20;
       arcadePlayer.flash = perfect ? "good" : null;
@@ -4256,6 +4269,7 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "bounce") {
     if (input.action !== "jump") return { ok: false, error: "Tippe im Takt." };
     const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
+    closeBounceBeats(arcadePlayer, elapsed, minigame.startedAt);
     const beat = bounceNearestBeat(elapsed);
     // Pro Schlag zählt nur der erste Versuch — sonst würde Dauerfeuer treffen.
     if (beat.index === arcadePlayer.lastBeatIndex) return { ok: true };
@@ -4585,6 +4599,8 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "colorgrid") {
     if (input.action !== "step") return { ok: false, error: "Wische in eine Richtung." };
+    updateColorGrid(room, minigame, arcade, now);
+    if (minigame.finaleAt) return { ok: true };
     if (arcadePlayer.eliminated) return { ok: true };
     // Laufen darf man während der ganzen Ansage, gesperrt ist nur der Fall.
     const phase = colorGridPhaseAt(arcade, now - room.currentMinigame.startedAt);
@@ -5068,6 +5084,16 @@ function updateArcade(room) {
       const before = entry.times.length;
       fillReactMisses(arcade, entry, elapsed);
       if (entry.times.length !== before) syncArcadeScore(minigame, player, entry);
+    });
+  }
+
+  if (arcade.family === "bounce") {
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    room.players.forEach(player => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      closeBounceBeats(entry, elapsed, minigame.startedAt);
+      syncArcadeScore(minigame, player, entry);
     });
   }
 
@@ -6978,6 +7004,25 @@ function bounceNearestBeat(elapsed) {
     time += bounceInterval(index);
   }
   return { index: bestIndex, offsetMs: elapsed - bounceBeatTime(bestIndex) };
+}
+
+// Eine Resonanzserie braucht jeden Schlag. Auslassen darf sie nicht kostenlos
+// erhalten; die erreichte Besthöhe bleibt dabei als Ergebnis gespeichert.
+function closeBounceBeats(entry, elapsed, startedAt) {
+  let index = entry.nextBeatToClose ?? 1;
+  while (bounceBeatTime(index) + BOUNCE_GOOD_MS < elapsed) {
+    if (index > entry.lastBeatIndex) {
+      entry.lastBeatIndex = index;
+      entry.streak = 0;
+      entry.misses += 1;
+      entry.height = Math.max(0, entry.height - BOUNCE_MISS_PENALTY - entry.height * BOUNCE_MISS_SCALE);
+      entry.lastTap = { beat: index, offsetMs: BOUNCE_GOOD_MS + 1, grade: "miss", skipped: true, at: startedAt + bounceBeatTime(index) + BOUNCE_GOOD_MS };
+      entry.lastHitAt = entry.lastTap.at;
+      entry.flash = "bad";
+    }
+    index += 1;
+  }
+  entry.nextBeatToClose = index;
 }
 
 

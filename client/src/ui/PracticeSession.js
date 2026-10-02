@@ -1,10 +1,4 @@
-import { BounceArena } from '../minigames/BounceArena.js?v=tumblekin209';
-import { RunnerDerby } from '../minigames/RunnerDerby.js?v=tumblekin209';
-import { IceStock } from '../minigames/IceStock.js?v=tumblekin209';
-import { BalloonGlide } from '../minigames/BalloonGlide.js?v=tumblekin209';
-import { CannonFly } from '../minigames/CannonFly.js?v=tumblekin209';
-import { BarrelDare } from '../minigames/BarrelDare.js?v=tumblekin209';
-const SCENES = { bounceArena: BounceArena, finishRush: RunnerDerby, eisstock: IceStock, ballonfahrt: BalloonGlide, kanonenflug: CannonFly, fassmut: BarrelDare };
+import { MINIGAME_SCENES as SCENES } from "../minigames/scenes.js?v=tumblekin210";
 export const canPractice = type => Boolean(SCENES[type]);
 
 export class PracticeSession {
@@ -53,7 +47,7 @@ export class PracticeSession {
     this.keys = event => {
       if (event.key === 'Escape') { event.preventDefault(); this.close(); return; }
       if (event.key !== 'Tab') return;
-      const buttons = [...layer.querySelectorAll('button:not(:disabled)')].filter(el => el.getClientRects().length);
+      const buttons = [...layer.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]')].filter(el => el.getClientRects().length);
       const first = buttons[0], last = buttons[buttons.length - 1];
       if (event.shiftKey && (document.activeElement === first || !layer.contains(document.activeElement))) {
         event.preventDefault(); last?.focus();
@@ -65,7 +59,7 @@ export class PracticeSession {
     this.onChange();
     this.closeButton.focus();
     try {
-      this.worker = new Worker('/src/practice/engine-worker.js?v=tumblekin209');
+      this.worker = new Worker('/src/practice/engine-worker.js?v=tumblekin210');
       this.worker.onerror = () => this.fail('Die Übung konnte nicht geladen werden.');
       this.bootTimer = setTimeout(() => this.fail('Die Übung konnte nicht geladen werden.'), 10000);
       this.worker.onmessage = ({ data }) => {

@@ -47,17 +47,26 @@ try{
  await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.keyboard.up('a');
  await page.waitForFunction(()=>!window.__tumblekin.ui.practice.state.currentMinigame.arena.players.practice.thrustX);
  console.log('✓ Pointer and keyboard steering both release on blur');
+ await page.locator('.practice-layer .virtual-joystick').focus();
+ await page.keyboard.down('ArrowRight');
+ await page.waitForFunction(()=>window.__tumblekin.ui.practice.state.currentMinigame.arena.players.practice.thrustX>0);
+ await page.keyboard.press('Tab');await page.keyboard.up('ArrowRight');
+ await page.waitForFunction(()=>{const s=window.__tumblekin.ui.practice.scene,p=window.__tumblekin.ui.practice.state.currentMinigame.arena.players.practice;return !p.thrustX&&!p.thrustY&&s.joystick.timer===null&&s.keyTimer===null;});
+ console.log('✓ Leaving the focused joystick stops keyboard motion without a second steering timer');
+
  const id=await page.evaluate(()=>window.__tumblekin.ui.practice.state.currentMinigame.id);
  await page.click('[data-practice-retry]');await page.waitForFunction(id=>window.__tumblekin.ui.practice.state.currentMinigame.id!==id && !document.querySelector('[data-practice-retry]').disabled,id);
  assert.equal((await practice()).players.practice.lives,3);
  await page.waitForFunction(()=>Date.now()>=window.__tumblekin.ui.practice.state.currentMinigame.startedAt+950);
- await pointer('pointerdown',51,1,0);const start=Date.now();let charge=0,speed=0;
- while(Date.now()-start<1400){
-  const angle=(Date.now()-start)/1000*Math.PI;await pointer('pointermove',51,Math.cos(angle),Math.sin(angle));
+ await pointer('pointerdown',51,0,1);await page.waitForTimeout(250);const start=Date.now();let charge=0,speed=0,runUp=null;
+ while(Date.now()-start<2200){
+  const angle=Math.PI/2+(Date.now()-start)/1000*Math.PI;await pointer('pointermove',51,Math.cos(angle),Math.sin(angle));
   const p=(await practice()).players.practice;charge=Math.max(charge,p.swing);speed=Math.max(speed,Math.hypot(p.vx,p.vy));
+  if(p.swing>.4 && p.inPlay){runUp=p;break;}
   await page.waitForTimeout(35);
  }
- await pointer('pointerup',51);assert.ok(charge>.25,`charge ${charge}`);assert.ok(speed>1.6,`speed ${speed}`);
+ if(runUp){const n=Math.hypot(runUp.vx,runUp.vy);await pointer('pointermove',51,runUp.vx/n,runUp.vy/n);const straight=Date.now();while(Date.now()-straight<300){const p=(await practice()).players.practice;speed=Math.max(speed,Math.hypot(p.vx,p.vy));await page.waitForTimeout(30);}}
+ await pointer('pointerup',51);assert.ok(charge>.25,`charge ${charge}`);assert.ok(speed>1.6,`speed ${speed}, charge ${charge}, runUp ${JSON.stringify(runUp)}`);
  console.log(`✓ Genuine joystick arc builds ${Math.round(charge*100)}% swing and ${speed.toFixed(2)} speed`);
  await page.click('[data-practice-close]');await page.waitForSelector('.practice-layer',{state:'detached'});
  assert.equal(await mainState(),original);assert.equal(await page.evaluate(()=>window.__tumblekin.state().readyForMinigame.length),0);

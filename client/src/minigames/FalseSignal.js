@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { kiste, lambert, viele, streuer, himmel, zaun } from "./Kulisse.js?v=tumblekin209";
+import { flashKin } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, himmel, zaun } from "./Kulisse.js?v=tumblekin210";
 
 // Falschsignal: ein Ring wächst in der Signaltafel. Schafft er die Marke,
 // muss man drücken — bleibt er vorher stehen, war es eine Finte.
@@ -561,6 +561,8 @@ export class FalseSignal extends MinigameScene {
     const banner = this.hud.querySelector("[data-signal-banner]");
     if (!banner) return;
     const locked = (own?.lockUntil || 0) > now;
+    this.button.disabled = locked || f.finale;
+    this.button.querySelector(".nerve-button-face").textContent = locked ? "ERHOLEN" : "JETZT!";
     // Bewusst KEIN "JETZT!"-Banner beim echten Signal: der Banner sitzt mittig
     // und lag damit genau auf der Linse — er verdeckte das Signal, auf das man
     // reagieren soll. Die Lampe ist die Ansage, der Banner nur Beiwerk.

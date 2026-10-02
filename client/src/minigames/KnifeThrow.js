@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin209";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin209";
+import { createCloud } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Messerwurf — wie die bekannten Handyspiele: vor dir dreht sich DEIN Stamm,
 // jeder Tipp wirft ein Messer von unten hinein. Sind alle Messer drin,
@@ -571,6 +571,10 @@ export class KnifeThrow extends MinigameScene {
         banner.style.color = "#ffffff";
       }
     }
-    if (this.throwButton) this.throwButton.disabled = !own || now < (own.stunUntil || 0) || Boolean(own.nextStageAt);
+    if (this.throwButton) {
+      const waiting = !own || now < (own.stunUntil || 0) || Boolean(own.nextStageAt) || own.knivesLeft <= 0;
+      this.throwButton.disabled = f.finale || waiting;
+      this.throwButton.querySelector(".nerve-button-face").textContent = waiting ? "NEUER STAMM …" : "WERFEN";
+    }
   }
 }

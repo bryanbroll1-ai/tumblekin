@@ -1,48 +1,9 @@
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin209";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin209";
-import { MenuStage } from "./ui/MenuStage.js?v=tumblekin209";
-import { Feedback } from "./game/Feedback.js?v=tumblekin209";
-import { ButtonFeedback } from "./game/ButtonFeedback.js?v=tumblekin209";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin209";
-import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin209";
-import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin209";
-import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin209";
-import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin209";
-import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin209";
-import { BarrelDare } from "./minigames/BarrelDare.js?v=tumblekin209";
-import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin209";
-import { BombPass } from "./minigames/BombPass.js?v=tumblekin209";
-import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin209";
-import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin209";
-import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin209";
-import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin209";
-import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin209";
-import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin209";
-import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin209";
-import { BalloonGlide } from "./minigames/BalloonGlide.js?v=tumblekin209";
-import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin209";
-import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin209";
-import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin209";
-import { SortBelt } from "./minigames/SortBelt.js?v=tumblekin209";
-import { SeekGrid } from "./minigames/SeekGrid.js?v=tumblekin209";
-import { SwarmCount } from "./minigames/SwarmCount.js?v=tumblekin209";
-import { LightSequence } from "./minigames/LightSequence.js?v=tumblekin209";
-import { FlashReflex } from "./minigames/FlashReflex.js?v=tumblekin209";
-import { PegBoard } from "./minigames/PegBoard.js?v=tumblekin209";
-import { IceStock } from "./minigames/IceStock.js?v=tumblekin209";
-import { DeepDig } from "./minigames/DeepDig.js?v=tumblekin209";
-import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin209";
-import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin209";
-import { TugOfWar } from "./minigames/TugOfWar.js?v=tumblekin209";
-import { FaceLift } from "./minigames/FaceLift.js?v=tumblekin209";
-import { FlagCaller } from "./minigames/FlagCaller.js?v=tumblekin209";
-import { HoneyVine } from "./minigames/HoneyVine.js?v=tumblekin209";
-import { SnowSummit } from "./minigames/SnowSummit.js?v=tumblekin209";
-import { AirHockey } from "./minigames/AirHockey.js?v=tumblekin209";
-import { BookSquirm } from "./minigames/BookSquirm.js?v=tumblekin209";
-import { PhotoShoot } from "./minigames/PhotoShoot.js?v=tumblekin209";
-import { BalanceBoat } from "./minigames/BalanceBoat.js?v=tumblekin209";
-import { PipeMaze } from "./minigames/PipeMaze.js?v=tumblekin209";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin210";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin210";
+import { MenuStage } from "./ui/MenuStage.js?v=tumblekin210";
+import { Feedback } from "./game/Feedback.js?v=tumblekin210";
+import { ButtonFeedback } from "./game/ButtonFeedback.js?v=tumblekin210";
+import { MINIGAME_SCENES as MINIGAMES } from "./minigames/scenes.js?v=tumblekin210";
 
 // socket.io kommt als eigenes Skript vom Server. Fehlt es, würde
 // `new ClientNetwork()` beim Laden werfen — der Startbildschirm stünde schon im
@@ -58,48 +19,7 @@ if (typeof window.io !== "function") {
   throw new Error("socket.io konnte nicht geladen werden — Spielserver nicht erreichbar.");
 }
 
-const MINIGAMES = {
-  bounceArena: BounceArena,
-  finishRush: RunnerDerby,
-  colorEscape: ColorRush,
-  nervenprobe: Nervenprobe,
-  lichtwaechter: RedLightGate,
-  ballonPump: BalloonPump,
-  fassmut: BarrelDare,
-  fassrolle: BarrelRoll,
-  zuendstoff: BombPass,
-  muenzregen: CoinRain,
-  blobklopfe: WhackBlob,
-  seilspringen: RopeSkip,
-  kanonenflug: CannonFly,
-  messerwurf: KnifeThrow,
-  turmbau: TowerStack,
-  bergsteiger: CliffClimb,
-  ballonfahrt: BalloonGlide,
-  trampolin: Trampoline,
-  falschsignal: FalseSignal,
-  spurmaler: TracePainter,
-  sortierband: SortBelt,
-  leuchtfolge: LightSequence,
-  blitzreflex: FlashReflex,
-  nagelbrett: PegBoard,
-  eisstock: IceStock,
-  tiefenrausch: DeepDig,
-  angelduell: FishDuel,
-  farbenjagd: ColorHunt,
-  spuersinn: SeekGrid,
-  augenmass: SwarmCount,
-  tauziehen: TugOfWar,
-  grimassen: FaceLift,
-  flaggenhoch: FlagCaller,
-  honigwabe: HoneyVine,
-  schneeball: SnowSummit,
-  luftpuck: AirHockey,
-  buecherwurm: BookSquirm,
-  schnappschuss: PhotoShoot,
-  kippboot: BalanceBoat,
-  rohrsalat: PipeMaze
-};
+
 
 const network = new ClientNetwork();
 const feedback = new Feedback();

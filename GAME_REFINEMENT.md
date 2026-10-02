@@ -1,5 +1,6 @@
 # Einzelprüfung und Verfeinerung – 1. Oktober 2026
 
+Aktueller Einzelprüfungs- und Korrekturdurchgang: [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md). Alle 40 Spiele sind jetzt separat übbar.
 Basis bleibt Claudes Branch `claude/modest-archimedes-pwhcvy` vom 30. September. Der zweite Durchgang umfasst Quellcode, Eingaben, Regelrunden, Figurenbewegung und die Anzeige jedes der 40 Spiele. Vor der Änderung wurden 120 Ansichten aufgenommen: 390 × 844, 844 × 390 und 320 × 568. Die bestehenden Spielideen und Kulissen bleiben erhalten; die Änderungen beheben konkrete Bedienungs- und Darstellungsprobleme.
 
 ## Gemeinsame Änderungen

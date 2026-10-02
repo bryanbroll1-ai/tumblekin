@@ -9,11 +9,11 @@ import {
   joinUrlFor,
   sortByStanding,
   minigameTitle
-} from "../game/GameState.js?v=tumblekin209";
-import { playerStatus } from "../game/Player.js?v=tumblekin209";
-import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin209";
-import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin209";
-import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin209';
+} from "../game/GameState.js?v=tumblekin210";
+import { playerStatus } from "../game/Player.js?v=tumblekin210";
+import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin210";
+import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin210";
+import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin210';
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.

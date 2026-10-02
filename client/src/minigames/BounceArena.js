@@ -1,11 +1,11 @@
 import * as THREE from '/vendor/three/three.module.js';
-import { MinigameScene } from './MinigameScene.js?v=tumblekin209';
-import { standOn, createCloud } from './VoxelKit.js?v=tumblekin209';
-import { VirtualJoystick } from './VirtualJoystick.js?v=tumblekin209';
-import { frameLerp, prefersReducedMotion } from './Quality.js?v=tumblekin209';
-import { arenaShrinkCue } from './FeedbackCues.js?v=tumblekin209';
-import { kiste, viele, lambert } from './Kulisse.js?v=tumblekin209';
-import './BumperPhysics.js?v=tumblekin209';
+import { MinigameScene } from './MinigameScene.js?v=tumblekin210';
+import { standOn, createCloud } from './VoxelKit.js?v=tumblekin210';
+import { VirtualJoystick } from './VirtualJoystick.js?v=tumblekin210';
+import { frameLerp, prefersReducedMotion } from './Quality.js?v=tumblekin210';
+import { arenaShrinkCue } from './FeedbackCues.js?v=tumblekin210';
+import { kiste, viele, lambert } from './Kulisse.js?v=tumblekin210';
+import './BumperPhysics.js?v=tumblekin210';
 const P = globalThis.TumblekinBumperPhysics;
 const SCALE = 3.4, DECK = .25, WATER = -.12;
 const RING = P.C.BALL_RADIUS * SCALE;
@@ -150,7 +150,7 @@ export class BounceArena extends MinigameScene {
     this.joystick = new VirtualJoystick({ root: this.controls.querySelector('.joystick-slot'), label: 'Schwimmring lenken und zielen', intervalMs: 70,
       feedback: this.feedback, onVector: (x, y) => this.steer(x, y) });
     this.on(window, 'keydown', event => {
-      if (event.target?.closest('input,textarea,select') || this.controls.inert || !this.ownEntry()?.inPlay) return;
+      if (event.defaultPrevented || event.target?.closest('input,textarea,select') || this.controls.inert || !this.ownEntry()?.inPlay) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(event.code)) {
         event.preventDefault(); this.keys.add(event.code); this.keyboardSteer();
         if (!this.keyTimer) this.keyTimer = setInterval(() => this.keyboardSteer(), 70);

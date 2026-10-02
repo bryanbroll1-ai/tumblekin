@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin209";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin210";
 
 // Augenmaß: ein Schwarm Glühwürmchen leuchtet kurz auf — wie viele waren es?
 // Geschätzt wird mit dem Schieber.

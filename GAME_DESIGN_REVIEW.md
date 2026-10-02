@@ -1,5 +1,6 @@
 # Kritische Spielprüfung – 1. Oktober 2026
 
+Aktueller Einzelprüfungs- und Korrekturdurchgang: [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md). Alle 40 Spiele sind jetzt separat übbar.
 Dieser Durchgang betrachtet jedes der 40 Spiele als Eingabe → Entscheidung → erkennbare Folge → verständliche Wertung. Grundlage sind der aktuelle Claude-Zweig und die darauf aufbauenden Korrekturen. Geprüft wurden Katalog und Startkarten, die Eingabe- und Anzeigewege aller Szenen, Rangbildung und Regelsimulationen. Browserprüfungen ergänzen die Quellcodeprüfung. Ein bestandener Test ist kein Beleg dafür, dass ein Spiel auf jedem Handy Spaß macht.
 
 ## Jetzt umgesetzt

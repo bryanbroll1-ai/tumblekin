@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, setKinOpacity, standOn } from "./VoxelKit.js?v=tumblekin209";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { baeume, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin209";
+import { createCloud, createKin, KinAnimator, setKinOpacity, standOn } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { baeume, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin210";
 
 // Seilspringen: zwei drehen das Seil, alle anderen springen. Wer hängen
 // bleibt, ist raus.
@@ -496,6 +496,10 @@ export class RopeSkip extends MinigameScene {
         banner.hidden = true;
       }
     }
-    if (this.jumpButton) this.jumpButton.disabled = Boolean(own?.eliminated);
+    if (this.jumpButton) {
+      const jumping = now < Math.max(own?.jumpUntil || 0, this.localJumpUntil || 0);
+      this.jumpButton.disabled = f.finale || Boolean(own?.eliminated) || jumping;
+      this.jumpButton.querySelector(".jump-button-face").textContent = own?.eliminated ? "GESTOLPERT" : jumping ? "IN DER LUFT" : "SPRUNG";
+    }
   }
 }

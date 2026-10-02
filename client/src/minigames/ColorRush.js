@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin209";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin209";
-import { frameLerp } from "./Quality.js?v=tumblekin209";
-import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin209";
+import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
 // Wischen hüpft man Feld für Feld. Runde und Phase kommen aus dem Zeitplan des
@@ -22,6 +22,21 @@ const TILE_TOP_Y = TILE_H / 2;
 const WATER_Y = -3.9;
 const COLORS = ["#f23f6c", "#2a9ff0", "#f7c21e", "#3cbf58"];
 const COLOR_NAMES = ["Pink", "Blau", "Gelb", "Grün"];
+const COLOR_SYMBOLS = ["●", "▲", "■", "✚"];
+
+function symbolMaterial(index) {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fffaf0";
+  ctx.strokeStyle = "#fffaf0";
+  ctx.lineWidth = 12;
+  if (index === 0) { ctx.beginPath(); ctx.arc(32, 32, 19, 0, Math.PI * 2); ctx.fill(); }
+  if (index === 1) { ctx.beginPath(); ctx.moveTo(32, 9); ctx.lineTo(55, 53); ctx.lineTo(9, 53); ctx.closePath(); ctx.fill(); }
+  if (index === 2) ctx.fillRect(13, 13, 38, 38);
+  if (index === 3) { ctx.fillRect(26, 8, 12, 48); ctx.fillRect(8, 26, 48, 12); }
+  return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false });
+}
 
 function tileX(gx) {
   return (gx - (COLS - 1) / 2) * TILE;
@@ -61,6 +76,7 @@ export class ColorRush extends MinigameScene {
 
   build() {
     const scene = this.scene;
+    this.symbolMaterials = COLORS.map((_color, index) => symbolMaterial(index));
     const spanX = COLS * TILE;
     const spanZ = ROWS * TILE;
     // Die Grube liegt in einer Wiese: vier Erdblöcke mit Grasdecke rundum.
@@ -125,6 +141,11 @@ export class ColorRush extends MinigameScene {
         tile.receiveShadow = true;
         tile.castShadow = true;
         tile.userData = { gx, gy, restY: 0 };
+        const symbol = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), this.symbolMaterials[0]);
+        symbol.rotation.x = -Math.PI / 2;
+        symbol.position.y = TILE_TOP_Y + 0.006;
+        tile.add(symbol);
+        tile.userData.symbol = symbol;
         scene.add(tile);
         this.tiles[gy * COLS + gx] = tile;
       }
@@ -225,6 +246,7 @@ export class ColorRush extends MinigameScene {
     // das mehr Fingerarbeit als Entscheidung.
     this.on(this.webglCanvas, "pointerdown", (event) => {
       if (this.swipe) return;
+      this.webglCanvas.setPointerCapture?.(event.pointerId);
       this.swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, steps: 0 };
     });
     this.on(window, "pointermove", (event) => {
@@ -241,23 +263,44 @@ export class ColorRush extends MinigameScene {
       this.sendStep(dir);
     });
     const end = (event) => { if (event.pointerId === this.swipe?.pointerId) this.swipe = null; };
-    const interrupt = () => { this.swipe = null; };
+    const interrupt = () => { this.swipe = null; this.stepQueue = []; clearTimeout(this.stepTimer); this.stepTimer = null; };
     this.on(window, "pointerup", end);
     this.on(window, "pointercancel", end);
     this.on(window, "blur", interrupt);
+    this.on(window, "resize", interrupt);
+    this.on(this.webglCanvas, "lostpointercapture", end);
     this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {
+    clearTimeout(this.stepTimer);
+    this.stepQueue = [];
     this.controls.style.pointerEvents = "";
     this.tiles = [];
   }
 
   sendStep(dir) {
+    this.stepQueue ||= [];
+    if (this.stepQueue.length >= 3) return;
+    this.stepQueue.push(dir);
+    this.flushStep();
+  }
+
+  flushStep() {
+    if (this.stepInFlight || this.stepTimer || !this.stepQueue?.length) return;
+    const wait = Math.max(0, (this.lastStepSentAt || 0) + 125 - performance.now());
+    if (wait > 0) {
+      this.stepTimer = setTimeout(() => { this.stepTimer = null; this.flushStep(); }, wait);
+      return;
+    }
+    const dir = this.stepQueue.shift();
     const arcade = (this.update || this.minigame)?.arcade;
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
-    if (!own || own.eliminated) return;
+    if (!this.frame || !own || own.eliminated || (this.update || this.minigame).finaleAt || this.computePhase(arcade, this.update || this.minigame, this.now()).name !== "announce") {
+      this.stepQueue.length = 0;
+      return;
+    }
     // Wohin es ginge — und ob es geht. Am Rand und vor einem besetzten Feld
     // gibt es einen kleinen Ruck statt eines Schrittes, damit der Wisch nicht
     // ins Leere läuft.
@@ -269,11 +312,14 @@ export class ColorRush extends MinigameScene {
     if (!drin || besetzt) {
       this.feedback?.sound("clack");
       this.bump = { at: performance.now(), dx: step[0], dz: step[1] };
+      this.flushStep();
       return;
     }
     this.feedback?.sound("move");
     this.feedback?.vibrate(8);
-    this.sendInput({ action: "step", dir }).catch(() => {});
+    this.lastStepSentAt = performance.now();
+    this.stepInFlight = true;
+    this.sendInput({ action: "step", dir }).finally(() => { this.stepInFlight = false; this.flushStep(); }).catch(() => {});
   }
 
   // Runde und Phase kommen aus dem Zeitplan, den der Server mitschickt — dieselbe
@@ -382,6 +428,8 @@ export class ColorRush extends MinigameScene {
       tile.position.y = THREE.MathUtils.lerp(tile.position.y, targetY, frameLerp(0.3, dt));
       tile.material.transparent = opacity < 1;
       tile.material.opacity = opacity;
+      tile.userData.symbol.material = this.symbolMaterials[color] || this.symbolMaterials[0];
+      tile.userData.symbol.visible = opacity > 0.35;
       if (isTarget && phase.name !== "over" && !finale) {
         tile.material.emissive.set(COLORS[color]);
         tile.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(now / 150)) * 0.7;
@@ -515,7 +563,7 @@ export class ColorRush extends MinigameScene {
       const show = (phase.name === "announce" || phase.name === "drop") && !f.finale;
       banner.hidden = !show;
       if (show) {
-        const name = COLOR_NAMES[arcade.targetColor];
+        const name = `${COLOR_SYMBOLS[arcade.targetColor]} ${COLOR_NAMES[arcade.targetColor]}`;
         if (own?.eliminated) {
           banner.textContent = "Reingefallen — schau zu";
           banner.style.background = "#0b1419";

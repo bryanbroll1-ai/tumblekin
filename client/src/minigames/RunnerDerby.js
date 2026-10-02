@@ -1,9 +1,9 @@
 import * as THREE from '/vendor/three/three.module.js';
-import { MinigameScene } from './MinigameScene.js?v=tumblekin209';
-import { standOn } from './VoxelKit.js?v=tumblekin209';
-import { kiste, lambert, viele } from './Kulisse.js?v=tumblekin209';
-import { frameLerp } from './Quality.js?v=tumblekin209';
-import './SprintPhysics.js?v=tumblekin209';
+import { MinigameScene } from './MinigameScene.js?v=tumblekin210';
+import { standOn } from './VoxelKit.js?v=tumblekin210';
+import { kiste, lambert, viele } from './Kulisse.js?v=tumblekin210';
+import { frameLerp } from './Quality.js?v=tumblekin210';
+import './SprintPhysics.js?v=tumblekin210';
 
 const P = globalThis.TumblekinSprintPhysics;
 const METRE = 0.62;

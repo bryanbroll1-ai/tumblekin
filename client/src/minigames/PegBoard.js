@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin209";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin209";
-import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin209";
-import { Nachlauf } from "./Nachlauf.js?v=tumblekin209";
-import { landingX } from "./Nagelbahn.js?v=tumblekin209";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin210";
+import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin210";
+import { landingX } from "./Nagelbahn.js?v=tumblekin210";
 
 // Eine Kugel-Form für alle Kugeln: vorher bekam jede Kugel eigene Geometrie,
 // und beim Landen wurde sie nur aus der Szene genommen, nie freigegeben.
@@ -387,6 +387,10 @@ export class PegBoard extends MinigameScene {
       this.feedback?.vibrate(12);
       const sentAt = performance.now();
       this.sendInput({ action: "nudge", dir: share < ballShare ? -1 : 1 }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
+      return;
+    }
+    if ((arcade.players[this.getControlledPlayerId()]?.ballsLeft || 0) <= 0) {
+      this.feedback?.sound("clack");
       return;
     }
     this.feedback?.sound("tap");
