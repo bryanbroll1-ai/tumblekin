@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin200";
+import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin210";
 
 // Die Kamera der Minispiele.
 //
@@ -81,10 +81,14 @@ export class CameraRig {
     const rect = canvas?.getBoundingClientRect() || { top: 0, left: 0, width, height };
     let top = 0;
     let bottom = height;
+    let left = 0;
+    let right = width;
     const insets = this.base.insets;
     if (insets) {
       top = insets.top ?? 0;
       bottom = height - (insets.bottom ?? 0);
+      left = insets.left ?? 0;
+      right = width - (insets.right ?? 0);
     } else {
       const bar = this.host.hud?.querySelector(".kinetic-scorebar");
       if (bar && bar.offsetParent !== null) {
@@ -92,23 +96,32 @@ export class CameraRig {
       }
       const controls = this.host.controls;
       if (controls && controls.children.length) {
+        // Im flachen Querformat stehen Stick und Aktionsknopf seitlich.
+        // Reserviere ihre Breite, statt die ganze untere Bildhälfte zu sperren.
+        const sideControls = width > height && height <= 520
+          ? controls.querySelector(".mobile-stick-controls") : null;
+        const children = sideControls ? [...sideControls.children] : [...controls.children];
         let highest = Infinity;
-        [...controls.children].forEach((child) => {
+        children.forEach((child) => {
           if (child.offsetParent === null) return;
           const r = child.getBoundingClientRect();
-          if (r.height > 8) highest = Math.min(highest, r.top - rect.top);
+          if (r.height <= 8) return;
+          const center = (r.left + r.right) / 2 - rect.left;
+          if (sideControls && center < width / 3) left = Math.max(left, r.right - rect.left + 10);
+          else if (sideControls && center > width * 2 / 3) right = Math.min(right, r.left - rect.left - 10);
+          else highest = Math.min(highest, r.top - rect.top);
         });
         if (Number.isFinite(highest)) bottom = Math.min(bottom, highest - 8);
       }
     }
-    // Nie weniger als die Hälfte des Bildes: lieber etwas unter einem Knopf
-    // als eine Szene im Briefschlitz.
-    if (bottom - top < height * 0.5) {
+    // Automatic estimates retain a useful image area. Explicit reservations
+    // must stay exact: enlarging them would put a puzzle behind its own HUD.
+    if (!insets && bottom - top < height * 0.5) {
       const mid = (top + bottom) / 2;
       top = Math.max(0, mid - height * 0.25);
       bottom = Math.min(height, top + height * 0.5);
     }
-    return { top, bottom, left: 0, right: width };
+    return { top, bottom, left, right };
   }
 
   resize() {

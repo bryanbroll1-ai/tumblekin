@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
-import { ringband } from "./Blockform.js?v=tumblekin200";
+import { setKinOpacity, flashKin } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { eventChance, frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
+import { ringband } from "./Blockform.js?v=tumblekin210";
 
 // Zündstoff — heisse Kartoffel mit einer Bombe. Die Zündzeit blinkt kurz auf,
 // dann heisst es: merken und rechtzeitig weitergeben. Wer sie beim Knall hält,
@@ -371,10 +371,7 @@ export class BombPass extends MinigameScene {
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
     if (!own || own.outAt || arcade.holderId !== id) return;
-    // Die Sperre endet zur Ankunftszeit: Der Wurf, der jetzt losgeht, kommt
-    // beim Server an, wenn sie dort vorbei ist — auf der verzögerten Uhr hielt
-    // jeder die Bombe die Netzlaufzeit hin und zurück länger als nötig.
-    const wait = (arcade.canPassAt || 0) + 30 - this.arrivalNow();
+    const wait = (arcade.canPassAt || 0) + 30 - this.now();
     if (wait > 0) {
       // Nur die kurze Sperre nach dem Fangen puffern — ein Tipp im Vorlauf
       // vor dem Start ist ein Versehen und soll nicht beim Start zünden.
@@ -528,11 +525,8 @@ export class BombPass extends MinigameScene {
     // Zündzeit: kurz die Sekunden, dann "?".
     // Die Zahl erscheint mit der Ankunft (im Anflug schon ein Stück vorher)
     // und zählt von der vollen Zündzeit herunter.
-    // Der Server schickt nur die gezeigten ganzen Sekunden, nicht den Knall-
-    // Zeitpunkt — gezählt wird ab der Zündung, über jedes Weitergeben hinweg.
     const revealing = arcade.revealUntil && now < arcade.revealUntil && breakLeft < 260;
-    const shown = arcade.fuseSecs || 0;
-    const secs = Math.max(0, Math.min(shown, Math.ceil(shown - (now - (arcade.litAt ?? now)) / 1000)));
+    const secs = Math.max(0, Math.min(Math.round((arcade.fuseMs || 0) / 1000), Math.ceil((arcade.fuseAt - now) / 1000)));
     this.timerSprite.visible = this.bomb.visible && (!inBreak || breakLeft < 260);
     this.timerSprite.position.copy(this.bomb.position).y += 0.95 * this.bomb.scale.y;
     const text = revealing ? `${secs}s` : "?";
@@ -556,11 +550,11 @@ export class BombPass extends MinigameScene {
     }
     this.spark.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(now / (150 - tension * 100))) * (0.8 + tension * 1.4);
     this.spark.scale.setScalar(1 + tension * 0.7);
-    if (this.bomb.visible && Math.random() < frameChance(0.3 + tension * 2.2, dt)) {
+    if (this.bomb.visible && !finale && Math.random() < eventChance(0.3 + tension * 2.2, dt)) {
       this.burst(this.bomb.position.clone().add(new THREE.Vector3(0, 0.55, 0)), ["#ffd15c", "#ff8b2e"], { count: 1 + Math.round(tension * 2), speed: 0.5 + tension, up: 0.6 + tension * 0.8, size: 0.04, life: 0.3 });
     }
     // Schweiss vom Träger, und der eigene Puls in der Hand.
-    if (holderKin && !finale && tension > 0.25 && Math.random() < frameChance(tension * 5, dt)) {
+    if (holderKin && !finale && tension > 0.25 && Math.random() < eventChance(tension * 5, dt)) {
       const brow = holderKin.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.72, 0.18));
       this.burst(brow, ["#bfe9ff", "#8fd4ff"], { count: 1, speed: 0.35, up: 0.5, size: 0.045, life: 0.45, gravity: 5 });
     }
@@ -701,7 +695,7 @@ export class BombPass extends MinigameScene {
 
     // Sperre nach dem Fangen: der Balken läuft voll, dann ist der Knopf scharf.
     const lockMs = Math.max(1, (arcade.canPassAt || 0) - (arcade.holderSince || 0));
-    const left = (arcade.canPassAt || 0) + 30 - this.arrivalNow();
+    const left = (arcade.canPassAt || 0) + 30 - now;
     const locked = isHolder && left > 0;
     const arm = locked ? 1 - Math.min(1, left / (lockMs + 30)) : 1;
     if (this.armNode) this.armNode.style.transform = `scaleX(${arm.toFixed(3)})`;

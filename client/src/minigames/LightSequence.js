@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin200";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin210";
 
 // Leuchtfolge: die Pilze leuchten in einer Folge auf, danach tippt man sie in
 // derselben Reihenfolge nach. Jede Runde wird die Folge länger.
@@ -281,8 +281,16 @@ export class LightSequence extends MinigameScene {
   }
 
   bind() {
-    this.controls.innerHTML = `<p class="trace-hint">Erst zuschauen, dann in derselben Reihenfolge tippen</p>`;
-    this.controls.style.pointerEvents = "none";
+    const names = ["Rot", "Blau", "Gelb", "Grün"];
+    this.controls.innerHTML = `<div class="memory-controls">${names.map((name, index) =>
+      `<button type="button" data-memory-pad="${index}" style="--memory-color:${COLOURS[index]}" disabled>${name}</button>`
+    ).join("")}</div>`;
+    this.controls.querySelectorAll("[data-memory-pad]").forEach(button => {
+      this.on(button, "pointerdown", event => {
+        event.preventDefault();
+        this.pressPad(Number(button.dataset.memoryPad));
+      });
+    });
     this.on(this.webglCanvas, "pointerdown", (event) => {
       event.preventDefault();
       this.tapAt(event);
@@ -313,6 +321,13 @@ export class LightSequence extends MinigameScene {
     const hits = this.raycaster.intersectObjects(this.hitTargets, false);
     if (hits.length === 0) return;
     const index = hits[0].object.userData.padIndex;
+    this.pressPad(index);
+  }
+
+  pressPad(index) {
+    const minigame = this.update || this.minigame;
+    if (!minigame || minigame.finaleAt || !this.acceptingInput() || !this.pads[index]) return;
+    this.feedback?.buttons?.pulse(this.controls.querySelector(`[data-memory-pad="${index}"]`));
     this.pads[index].press = 1;
     this.feedback?.sound("tap");
     const sentAt = performance.now();
@@ -384,7 +399,12 @@ export class LightSequence extends MinigameScene {
 
   acceptingInput() {
     const active = this.activeRound();
-    return Boolean(active && active.elapsed >= active.round.inputFrom);
+    if (!active || active.elapsed < active.round.inputFrom) return false;
+    const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
+    if (!own) return false;
+    if (own.currentRound === active.round.index && (own.roundFailed || own.roundProgress >= active.round.sequence.length)) return false;
+    const local = this.local.round === active.round.index ? this.local : null;
+    return !local || (!local.failed && local.count < active.round.sequence.length);
   }
 
   playSequence(active, now) {
@@ -511,6 +531,12 @@ export class LightSequence extends MinigameScene {
     if (this.hintNode) this.hintNode.hidden = Boolean(f.finale);
     const own = arcade.players[f.controlledId];
     const active = this.activeRound();
+    const accepting = !f.finale && this.acceptingInput();
+    const lit = this.shownStep >= 0 ? active?.round.sequence[this.shownStep] : -1;
+    this.controls.querySelectorAll("[data-memory-pad]").forEach(button => {
+      button.disabled = !accepting;
+      button.classList.toggle("is-lit", Number(button.dataset.memoryPad) === lit);
+    });
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.survived || 0);
     const roundLabel = this.hud.querySelector("[data-simon-round]");
@@ -562,7 +588,7 @@ export class LightSequence extends MinigameScene {
     } else {
       banner.hidden = false;
       const done = Math.max(own?.currentRound === active.round.index ? (own.roundProgress || 0) : 0, local?.count || 0);
-      banner.textContent = `Nachtippen: ${done}/${active.round.sequence.length}`;
+      banner.textContent = done >= active.round.sequence.length ? "Geschafft — nächste Folge folgt" : `Nachtippen: ${done}/${active.round.sequence.length}`;
       banner.style.background = "#7fe06f";
       banner.style.color = "#14361a";
     }

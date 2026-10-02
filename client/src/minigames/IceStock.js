@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { himmel, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
-import { Nachlauf } from "./Nachlauf.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { himmel, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin210";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin210";
 
 // Eisstock: nach vorn wischen schiebt den Stein los — länger heisst weiter.
 // Wer seine Steine am nächsten ans Zentrum bringt, gewinnt.
@@ -395,11 +395,12 @@ export class IceStock extends MinigameScene {
 
   bindDrag() {
     this.onDown = (event) => {
+      if (this.drag) return;
       event.preventDefault();
-      this.drag = { x: event.clientX, y: event.clientY };
+      this.drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     };
     this.onMove = (event) => {
-      if (!this.drag) return;
+      if (!this.drag || this.drag.pointerId !== event.pointerId) return;
       this.drag.cx = event.clientX;
       this.drag.cy = event.clientY;
       // Kraft und Richtung stehen schon WÄHREND des Ziehens da: der Balken
@@ -407,7 +408,7 @@ export class IceStock extends MinigameScene {
       this.showPower(this.aimFrom(this.drag));
     };
     this.onUp = (event) => {
-      if (!this.drag) return;
+      if (!this.drag || this.drag.pointerId !== event.pointerId) return;
       this.drag.cx = event.clientX;
       this.drag.cy = event.clientY;
       const aim = this.aimFrom(this.drag);
@@ -433,12 +434,18 @@ export class IceStock extends MinigameScene {
       this.releaseFlash(aim);
       this.sendInput({ action: "flick", dx: clamp(dx, -1, 1), dy: clamp(dy, -1, -0.02) }).catch(() => {});
     };
-    this.onCancel = () => { this.drag = null; this.hidePower(); };
+    this.onCancel = (event) => {
+      if (event?.pointerId !== undefined && this.drag?.pointerId !== event.pointerId) return;
+      this.drag = null;
+      this.hidePower();
+    };
 
     this.on(this.webglCanvas, "pointerdown", this.onDown);
     this.on(this.webglCanvas, "pointermove", this.onMove);
     this.on(window, "pointerup", this.onUp);
     this.on(window, "pointercancel", this.onCancel);
+    this.on(window, "blur", this.onCancel);
+    this.on(document, "visibilitychange", () => { if (document.hidden) this.onCancel(); });
   }
 
   // Radius eines Steins im Bild: genau so gross, wie er auf dem Server stösst.

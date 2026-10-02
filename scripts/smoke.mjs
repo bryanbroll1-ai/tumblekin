@@ -76,6 +76,8 @@ for (const game of games) {
       if (!scene?.renderer) { resolve(null); return; }
       // Zwei Bilder abwarten, damit die Statistik ein volles Bild beschreibt.
       requestAnimationFrame(() => requestAnimationFrame(() => {
+        // A short round may have ended between scheduling and this frame.
+        if (!scene.renderer) { resolve(null); return; }
         const info = scene.renderer.info;
         let objects = 0;
         scene.scene?.traverse(() => { objects += 1; });

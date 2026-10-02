@@ -1,8 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin210";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Lichtwächter — "Ochs am Berg": halten heisst laufen. Solange der Riese am
 // Ende der Wiese wegschaut und summt, ist Grün. Bevor er sich umdreht, sieht
@@ -372,15 +373,7 @@ export class RedLightGate extends MinigameScene {
         <span class="hold-button-face">HALTEN = LAUFEN</span>
       </button>`;
     this.holdButton = this.controls.querySelector("[data-hold-run]");
-    this.on(this.holdButton, "pointerdown", (event) => {
-      event.preventDefault();
-      this.holdButton.setPointerCapture?.(event.pointerId);
-      this.setHolding(true);
-    });
-    const up = () => this.setHolding(false);
-    this.on(this.holdButton, "pointerup", up);
-    this.on(this.holdButton, "pointercancel", up);
-    this.on(this.holdButton, "lostpointercapture", up);
+    this.holdInput = bindHoldInput(this, [this.holdButton], (active) => this.setHolding(active));
   }
 
   unbind() {
@@ -430,9 +423,7 @@ export class RedLightGate extends MinigameScene {
     });
     if (this.palaceFlag) this.palaceFlag.rotation.y = Math.sin(now / 400) * 0.3;
     if (!arcade) return;
-    // Die Ampel läuft auf Ankunftszeit: Wer beim Umschalten auf Rot loslässt,
-    // dessen Meldung kommt auch rechtzeitig an — die Gnade bleibt für den Finger.
-    const phase = this.phaseAt(arcade, minigame, this.arrivalNow());
+    const phase = this.phaseAt(arcade, minigame, now);
     const kind = finale ? "green" : phase.kind;
     const key = `${phase.index}:${kind}`;
     if (key !== this.lastPhaseKey) {
@@ -574,7 +565,7 @@ export class RedLightGate extends MinigameScene {
     const { arcade, controlledId, minigame, now, state } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
-    const kind = this.phaseAt(arcade, minigame, this.arrivalNow()).kind;
+    const kind = this.phaseAt(arcade, minigame, now).kind;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = `${Math.round(own?.progress || 0)}m`;
 

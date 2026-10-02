@@ -9,12 +9,14 @@ import {
   FloatingText,
   standOn,
   applyFinaleMood,
-  setKinOpacity
-} from "./VoxelKit.js?v=tumblekin200";
-import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin200";
-import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin200";
-import { frameChance } from "./Quality.js?v=tumblekin200";
-import { verblocke } from "./Blockform.js?v=tumblekin200";
+  setKinOpacity,
+  disposeScene
+} from "./VoxelKit.js?v=tumblekin210";
+import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin210";
+import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin210";
+import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin210";
+import { frameChance } from "./Quality.js?v=tumblekin210";
+import { verblocke } from "./Blockform.js?v=tumblekin210";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
@@ -46,23 +48,24 @@ export function kinVariant(player, index = 0) {
 //
 // `this.hud` ist das HUD-Element (so legt mountHud es ab; CameraRig misst daran
 // das freie Band).
-// Die zuletzt gemessene Rundreise — das nächste Minispiel beginnt damit,
-// statt die ersten Hundert Millisekunden ohne Ausgleich zu laufen.
-let lastRoundTrip = 0;
-
 export class MinigameScene {
   constructor({ canvas, controls, sendInput, now, getState, getControlledPlayerId, myPlayerId, feedback }) {
     this.canvas = canvas;
     this.controls = controls;
-    // Jede Eingabe misst nebenbei die Rundreise (siehe arrivalNow). Der
-    // Rückgabewert bleibt die Antwort des Servers — Szenen hängen ihr .catch an.
-    this.net = { samples: [], lagOffset: null, roundTrip: lastRoundTrip, lastSentAt: 0, used: false };
     this.sendInput = (input) => {
-      const clock = performance.now();
-      this.net.lastSentAt = clock;
-      const reply = sendInput(input);
-      reply?.then?.(() => this.noteNetRoundTrip(performance.now() - clock), () => {});
-      return reply;
+      // Auch Tippen auf die Bühne drückt den zugehörigen Aktionsknopf.
+      // Dauersteuerung und Laufzeit-Pings erzeugen keinen Knopfimpuls.
+      if (!["ping", "steer", "thrust", "hold", "lift", "release", "run", "reel", "sprint"].includes(input.action)) {
+        const buttons = [...this.controls.querySelectorAll("button")];
+        if (buttons.length === 1) feedback?.buttons?.pulse(buttons[0]);
+      }
+      return sendInput(input).catch(error => {
+        if (input.action !== "ping" && performance.now() - (this.inputErrorAt || -1000) > 1000) {
+          this.inputErrorAt = performance.now();
+          this.onInputError?.(error);
+        }
+        throw error;
+      });
     };
     this.now = now;
     this.getState = getState;
@@ -96,64 +99,24 @@ export class MinigameScene {
     this.build();
     this.rig = new CameraRig(this, this.shot());
     this.bind?.();
+    this.prepareHud();
     this.loop();
   }
 
   handleUpdate(update) {
     this.update = update;
-    // Jedes Bild trägt die Serverzeit, zu der es abging. Das am wenigsten
-    // verspätete der letzten Sekunden sagt, wie weit dieses Gerät hinter dem
-    // Server liegt (die allgemeine Uhr gleicht sich nur mit den seltenen vollen
-    // Raumständen ab und lag gemessen um 50 ms daneben).
-    if (Number.isFinite(update?.sentAt)) {
-      const clock = performance.now();
-      const net = this.net;
-      net.samples.push({ clock, sample: update.sentAt - Date.now() });
-      while (net.samples.length > 1 && net.samples[0].clock < clock - 4000) net.samples.shift();
-      net.lagOffset = Math.max(...net.samples.map((item) => item.sample));
-    }
     this.onUpdate?.(update);
   }
 
-  // Rundreise zum Server, geglättet und wie überall auf 250 ms gedeckelt.
-  noteNetRoundTrip(ms) {
-    if (!Number.isFinite(ms)) return;
-    const clamped = Math.max(0, Math.min(250, ms));
-    this.net.roundTrip = this.net.roundTrip ? this.net.roundTrip * 0.8 + clamped * 0.2 : clamped;
-    lastRoundTrip = this.net.roundTrip;
-  }
-
-  // Serverzeit, zu der ein JETZT geschickter Tipp beim Server ankommt: die
-  // Bilder zeigen den Server um den Hinweg verspätet, der Tipp braucht noch
-  // einmal so lange. Spiele, deren Server einen Tipp sofort bei Ankunft wertet
-  // (Seil, Fass, Stopp-Uhr …), zeigen ihr zeitkritisches Bild zu dieser Zeit
-  // — sonst muss, wer weiter weg sitzt, um eine Rundreise früher tippen, als
-  // er es sieht. Im Finale steht die Uhr: dann gilt die gewöhnliche Zeit.
-  arrivalNow() {
-    const net = this.net;
-    net.used = true;
-    const minigame = this.update || this.minigame;
-    if (minigame?.finaleAt) return this.now();
-    const seen = net.lagOffset === null ? this.now() : Date.now() + net.lagOffset;
-    return seen + net.roundTrip;
-  }
-
-  // Wer die Ankunftszeit nutzt, braucht die Rundreise auch, wenn gerade
-  // nichts getippt wird: dann misst ein Ping, höchstens jede Sekunde.
-  pingNetIfIdle(minigame) {
-    const net = this.net;
-    if (!net.used || !minigame || minigame.finaleAt || this.now() < minigame.startedAt) return;
-    const clock = performance.now();
-    if (clock - net.lastSentAt < 1000) return;
-    this.sendInput({ action: "ping" })?.catch?.(() => {});
-  }
-
   destroy() {
+    this.feedback?.buttons?.reset();
     cancelAnimationFrame(this.frame);
     this.frame = null;
     this.listeners.forEach(({ target, type, fn, options }) => target.removeEventListener(type, fn, options));
     this.listeners = [];
     this.unbind?.();
+    this.hudObserver?.disconnect();
+    this.controls.inert = false;
     this.controls.innerHTML = "";
     teardownStage(this);
     this.kins.clear();
@@ -165,6 +128,15 @@ export class MinigameScene {
   // Zuhörer, die beim Abbau von selbst wieder abgehängt werden.
   on(target, type, fn, options) {
     if (!target) return;
+    if (type === "pointerdown") {
+      const handler = fn;
+      fn = event => {
+        if (event.button > 0 || event.target?.closest?.("button:disabled, [inert]")) return;
+        const game = this.update || this.minigame;
+        if (!game || game.finaleAt || this.now() < game.startedAt) return;
+        handler(event);
+      };
+    }
     target.addEventListener(type, fn, options);
     this.listeners.push({ target, type, fn, options });
   }
@@ -199,7 +171,6 @@ export class MinigameScene {
       remaining: Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000))
     };
 
-    this.pingNetIfIdle(minigame);
     if (finale && !this.finaleStarted) {
       this.finaleStarted = true;
       this.onFinale?.(f);
@@ -256,8 +227,48 @@ export class MinigameScene {
   updateHudBasics(f) {
     if (!this.hud) return;
     this.hudTime ||= this.hud.querySelector("[data-kinetic-time]");
-    if (this.hudTime) this.hudTime.textContent = `${f.remaining}s`;
+    if (this.hudTime) this.hudTime.textContent = f.finale ? "Ende" : `${f.remaining}s`;
     this.hud.classList.toggle("dev-mode", Boolean(f.state.devMode));
+    this.controls.inert = f.finale;
+    this.webglCanvas.style.pointerEvents = f.finale ? "none" : "";
+    const score = this.hudScore;
+    if (score) {
+      const text = score.textContent;
+      if (text !== this.hudScoreText) {
+        score.setAttribute("aria-label", `${score.dataset.metric}: ${text}`);
+        if (this.hudScoreText !== undefined && !f.finale && f.now - (this.metricPulseAt || 0) > 400) {
+          this.metricPulseAt = f.now;
+          score.classList.remove("metric-change");
+          // Zwei aufeinanderfolgende Änderungen brauchen keinen Layout-Flush.
+          score.classList.add("metric-change");
+        }
+        this.hudScoreText = text;
+      }
+      if (f.now - (this.metricPulseAt || 0) > 220) score.classList.remove("metric-change");
+    }
+  }
+
+  prepareHud() {
+    this.hudScore = this.hud.querySelector("[data-kinetic-score]");
+    if (this.hudScore) this.hudScore.dataset.metric = MINIGAME_METRICS[this.minigame.type] || "Punkte";
+    const time = this.hud.querySelector("[data-kinetic-time]");
+    if (time) time.dataset.metric = "Zeit";
+    const chips = this.hud.querySelector(".hud-chips");
+    if (!chips) return;
+    const refresh = () => {
+      const bottom = chips.getBoundingClientRect().bottom - this.hud.getBoundingClientRect().top;
+      this.hud.style.setProperty("--hud-chips-bottom", `${Math.ceil(bottom)}px`);
+    };
+    refresh();
+    this.hudObserver = new ResizeObserver(refresh);
+    this.hudObserver.observe(chips);
+  }
+
+  // Dynamische Objekte verschwinden auch aus dem GPU-Vorrat. Ressourcen,
+  // die ein anderes Objekt der Szene noch benutzt, bleiben erhalten.
+  removeObject(object) {
+    object.removeFromParent();
+    disposeScene(object, { retain: this.scene });
   }
 
   // --- Figuren ------------------------------------------------------------------

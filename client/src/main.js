@@ -1,47 +1,9 @@
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin200";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin200";
-import { MenuStage } from "./ui/MenuStage.js?v=tumblekin200";
-import { Feedback } from "./game/Feedback.js?v=tumblekin200";
-import { BounceArena } from "./minigames/BounceArena.js?v=tumblekin200";
-import { RunnerDerby } from "./minigames/RunnerDerby.js?v=tumblekin200";
-import { ColorRush } from "./minigames/ColorRush.js?v=tumblekin200";
-import { Nervenprobe } from "./minigames/Nervenprobe.js?v=tumblekin200";
-import { RedLightGate } from "./minigames/RedLightGate.js?v=tumblekin200";
-import { BalloonPump } from "./minigames/BalloonPump.js?v=tumblekin200";
-import { BarrelDare } from "./minigames/BarrelDare.js?v=tumblekin200";
-import { BarrelRoll } from "./minigames/BarrelRoll.js?v=tumblekin200";
-import { BombPass } from "./minigames/BombPass.js?v=tumblekin200";
-import { CoinRain } from "./minigames/CoinRain.js?v=tumblekin200";
-import { WhackBlob } from "./minigames/WhackBlob.js?v=tumblekin200";
-import { RopeSkip } from "./minigames/RopeSkip.js?v=tumblekin200";
-import { CannonFly } from "./minigames/CannonFly.js?v=tumblekin200";
-import { KnifeThrow } from "./minigames/KnifeThrow.js?v=tumblekin200";
-import { TowerStack } from "./minigames/TowerStack.js?v=tumblekin200";
-import { CliffClimb } from "./minigames/CliffClimb.js?v=tumblekin200";
-import { BalloonGlide } from "./minigames/BalloonGlide.js?v=tumblekin200";
-import { Trampoline } from "./minigames/Trampoline.js?v=tumblekin200";
-import { FalseSignal } from "./minigames/FalseSignal.js?v=tumblekin200";
-import { TracePainter } from "./minigames/TracePainter.js?v=tumblekin200";
-import { SortBelt } from "./minigames/SortBelt.js?v=tumblekin200";
-import { SeekGrid } from "./minigames/SeekGrid.js?v=tumblekin200";
-import { SwarmCount } from "./minigames/SwarmCount.js?v=tumblekin200";
-import { LightSequence } from "./minigames/LightSequence.js?v=tumblekin200";
-import { FlashReflex } from "./minigames/FlashReflex.js?v=tumblekin200";
-import { PegBoard } from "./minigames/PegBoard.js?v=tumblekin200";
-import { IceStock } from "./minigames/IceStock.js?v=tumblekin200";
-import { DeepDig } from "./minigames/DeepDig.js?v=tumblekin200";
-import { FishDuel } from "./minigames/FishDuel.js?v=tumblekin200";
-import { ColorHunt } from "./minigames/ColorHunt.js?v=tumblekin200";
-import { TugOfWar } from "./minigames/TugOfWar.js?v=tumblekin200";
-import { FaceLift } from "./minigames/FaceLift.js?v=tumblekin200";
-import { FlagCaller } from "./minigames/FlagCaller.js?v=tumblekin200";
-import { HoneyVine } from "./minigames/HoneyVine.js?v=tumblekin200";
-import { SnowSummit } from "./minigames/SnowSummit.js?v=tumblekin200";
-import { AirHockey } from "./minigames/AirHockey.js?v=tumblekin200";
-import { BookSquirm } from "./minigames/BookSquirm.js?v=tumblekin200";
-import { PhotoShoot } from "./minigames/PhotoShoot.js?v=tumblekin200";
-import { BalanceBoat } from "./minigames/BalanceBoat.js?v=tumblekin200";
-import { PipeMaze } from "./minigames/PipeMaze.js?v=tumblekin200";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin210";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin210";
+import { MenuStage } from "./ui/MenuStage.js?v=tumblekin210";
+import { Feedback } from "./game/Feedback.js?v=tumblekin210";
+import { ButtonFeedback } from "./game/ButtonFeedback.js?v=tumblekin210";
+import { MINIGAME_SCENES as MINIGAMES } from "./minigames/scenes.js?v=tumblekin210";
 
 // socket.io kommt als eigenes Skript vom Server. Fehlt es, würde
 // `new ClientNetwork()` beim Laden werfen — der Startbildschirm stünde schon im
@@ -57,52 +19,12 @@ if (typeof window.io !== "function") {
   throw new Error("socket.io konnte nicht geladen werden — Spielserver nicht erreichbar.");
 }
 
-const MINIGAMES = {
-  bounceArena: BounceArena,
-  finishRush: RunnerDerby,
-  colorEscape: ColorRush,
-  nervenprobe: Nervenprobe,
-  lichtwaechter: RedLightGate,
-  ballonPump: BalloonPump,
-  fassmut: BarrelDare,
-  fassrolle: BarrelRoll,
-  zuendstoff: BombPass,
-  muenzregen: CoinRain,
-  blobklopfe: WhackBlob,
-  seilspringen: RopeSkip,
-  kanonenflug: CannonFly,
-  messerwurf: KnifeThrow,
-  turmbau: TowerStack,
-  bergsteiger: CliffClimb,
-  ballonfahrt: BalloonGlide,
-  trampolin: Trampoline,
-  falschsignal: FalseSignal,
-  spurmaler: TracePainter,
-  sortierband: SortBelt,
-  leuchtfolge: LightSequence,
-  blitzreflex: FlashReflex,
-  nagelbrett: PegBoard,
-  eisstock: IceStock,
-  tiefenrausch: DeepDig,
-  angelduell: FishDuel,
-  farbenjagd: ColorHunt,
-  spuersinn: SeekGrid,
-  augenmass: SwarmCount,
-  tauziehen: TugOfWar,
-  grimassen: FaceLift,
-  flaggenhoch: FlagCaller,
-  honigwabe: HoneyVine,
-  schneeball: SnowSummit,
-  luftpuck: AirHockey,
-  buecherwurm: BookSquirm,
-  schnappschuss: PhotoShoot,
-  kippboot: BalanceBoat,
-  rohrsalat: PipeMaze
-};
+
 
 const network = new ClientNetwork();
 const feedback = new Feedback();
 feedback.attachUnlock();
+feedback.buttons = new ButtonFeedback(feedback);
 
 let myPlayerId = null;
 let currentState = null;
@@ -147,7 +69,8 @@ const ui = new UIManager({
   startGame: () => request("startGame"),
   rematch: () => request("rematch"),
   restartGame: () => request("restartGame"),
-  readyForNext: () => request("readyForNext")
+  readyForNext: () => request("readyForNext"),
+  readyForMinigame: (minigameId) => request("readyForMinigame", { minigameId })
 }, feedback, stage);
 
 // Griff für die Prüfskripte: mit ?dev=1 lassen sich Räume und Spiele direkt
@@ -207,7 +130,7 @@ function handleState(state) {
   }
   ui.render(state, myPlayerId);
 
-  if (state.status === "minigame" && state.currentMinigame) {
+  if (state.status === "minigame" && state.phase !== "waitingReady" && state.currentMinigame) {
     startOrUpdateMinigame(state.currentMinigame);
   } else {
     stopMinigame();
@@ -243,6 +166,11 @@ function startOrUpdateMinigame(minigame) {
     myPlayerId,
     feedback
   });
+  activeMinigame.onInputError = error => {
+    if (activeMinigameId !== minigame.id || currentState?.phase !== "playingMinigame") return;
+    feedback.sound("error");
+    ui.showToast(error.message || "Die Aktion ist nicht angekommen. Versuch es noch einmal.");
+  };
   if (previousMinigameId !== minigame.id) {
     feedback.sound("countdown");
     feedback.vibrate(24);
@@ -255,6 +183,7 @@ function startOrUpdateMinigame(minigame) {
 function stopMinigame() {
   if (!activeMinigame) return;
   activeMinigame.destroy();
+  if (devMode && window.__activeMinigame === activeMinigame) window.__activeMinigame = null;
   activeMinigame = null;
   activeMinigameId = null;
 }

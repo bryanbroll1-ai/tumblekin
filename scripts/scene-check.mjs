@@ -47,6 +47,7 @@ const FLIEGT = {
 // Dort steht der Stand der anderen stattdessen in der Höhenleiste am Bildrand.
 // Die Prüfung auf die EIGENE Figur gilt weiterhin — das ist die harte Grenze.
 const NUR_EIGENE = {
+  finishRush: "die Kamera folgt dem eigenen Läufer; entfernte Mitspieler stehen in der Rennleiste",
   bergsteiger: "Mitspieler stehen in der Höhenleiste, nicht im Bild",
   kanonenflug: "die Kamera bleibt beim eigenen Rohr, bis man selbst geschossen hat — wer vorher fliegt, fliegt aus dem Bild",
   fassmut: "beim Fallen füllt die eigene Bahn das Bild, in der Auflösung zeigt die Kamera alle",
@@ -198,7 +199,10 @@ for (const game of liste) {
           }
           kandidaten.push(o);
         });
-        const boden = raycaster.intersectObjects(kandidaten, false)[0];
+        const knownGround = host.groundHeightAt?.(stand.x, stand.z);
+        const boden = Number.isFinite(knownGround)
+          ? { point: { y: knownGround } }
+          : raycaster.intersectObjects(kandidaten, false)[0];
         if (!boden) return;
         // Beide Richtungen zählen. Im Boden STECKEN sieht kaputt aus, darüber
         // SCHWEBEN aber genauso — und der zweite Fall ist der leisere: beim

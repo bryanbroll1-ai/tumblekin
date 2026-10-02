@@ -12,8 +12,9 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin200">
-    <link rel="stylesheet" href="/minigames.css?v=tumblekin200">
+    <link rel="stylesheet" href="/style.css?v=tumblekin210">
+    <link rel="stylesheet" href="/minigames.css?v=tumblekin210">
+    <link rel="stylesheet" href="/press-feedback.css?v=tumblekin210">
   </head>
   <body data-screen="start">
     <main id="app">
@@ -69,12 +70,16 @@
             <button id="picker-close" class="icon-btn" type="button" aria-label="Schliessen">✕</button>
           </div>
           <div class="picker-tools" id="picker-tools">
-            <button type="button" class="chip" data-picker-all>Alle</button>
-            <button type="button" class="chip" data-picker-reworked>Überarbeitete</button>
-            <button type="button" class="chip" data-picker-none>Keine</button>
+            <button type="button" class="chip" data-picker-all>Alle wählen</button>
+            <button type="button" class="chip" data-picker-visible>Sichtbare wählen</button>
+            <button type="button" class="chip" data-picker-none>Auswahl leeren</button>
             <span id="picker-count" class="picker-count"></span>
           </div>
-          <div id="picker-grid" class="picker-grid"></div>
+          <div class="picker-browse">
+            <input id="picker-search" type="search" placeholder="Spiel suchen …" aria-label="Spiel suchen" autocomplete="off">
+            <div id="picker-categories" class="picker-categories" aria-label="Spiele nach Kategorie filtern"></div>
+          </div>
+          <div id="picker-grid" class="picker-grid" tabindex="-1"></div>
           <button id="picker-done" class="btn btn-primary" type="button">Übernehmen</button>
         </div>
       </div>
@@ -121,7 +126,7 @@
             <button type="button" role="tab" data-mode="marathon"><b>🏃</b><span>Marathon</span></button>
             <button type="button" role="tab" data-mode="hunt"><b>🎯</b><span>Punktejagd</span></button>
             <button type="button" role="tab" data-mode="knockout"><b>💥</b><span>K.O.</span></button>
-            <button type="button" role="tab" data-mode="single"><b>🎮</b><span>Einzel</span></button>
+            <button type="button" role="tab" data-mode="single"><b>🎮</b><span>Ein Spiel</span></button>
           </div>
           <p id="mode-description" class="mode-description"></p>
           <div id="mode-options" class="mode-options"></div>
@@ -141,12 +146,23 @@
           <div class="intro-card">
             <p class="intro-round" id="intro-reason">Spiel 1</p>
             <h2 id="intro-title">Minispiel</h2>
+            <img id="intro-preview" class="intro-preview" alt="">
             <div class="intro-gesture">
               <span id="intro-gesture-icon" class="intro-gesture-icon">👆</span>
               <strong id="intro-gesture-label">Tippen</strong>
             </div>
             <p id="intro-goal" class="intro-goal">Ziel</p>
+            <p id="intro-tip" class="intro-tip"></p>
+            <details id="intro-details" class="intro-details">
+              <summary>Alle Regeln lesen</summary>
+              <p id="intro-rules"></p>
+            </details>
             <div id="intro-extra" class="intro-extra"></div>
+            <div class="intro-actions">
+              <button id="intro-practice" type="button" class="btn btn-secondary" hidden>Steuerung ausprobieren</button>
+              <button id="intro-ready" type="button" class="btn btn-primary">Bereit!</button>
+              <p id="intro-ready-status" class="intro-ready-status" role="status" aria-live="polite"></p>
+            </div>
           </div>
           <div id="intro-count" class="intro-count" hidden></div>
         </div>
@@ -160,6 +176,7 @@
         <div class="stage-spacer" data-stage-band></div>
         <div class="sheet result-sheet">
           <ol id="result-list" class="result-list"></ol>
+          <p id="result-ranking-note" class="result-ranking-note" hidden></p>
           <div id="standings" class="standings"></div>
           <div id="result-next" class="result-next"></div>
           <div class="result-timer" aria-hidden="true"><span></span></div>
@@ -185,6 +202,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin200"></script>
+    <script type="module" src="/src/main.js?v=tumblekin210"></script>
   </body>
 </html>

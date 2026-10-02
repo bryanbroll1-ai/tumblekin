@@ -79,6 +79,9 @@
   pointer-events: none;
 }
 
+.cannon-aim-readout { position: absolute; left: 12px; right: 74px; top: 108px; width: fit-content; max-width: calc(100% - 86px); padding: 8px 12px; border-radius: 12px; background: #fff9e7ed; color: #243040; font-weight: 850; font-size: 0.8rem; }
+@media (orientation: landscape) and (max-height: 520px) { .cannon-aim-readout { top: 80px; } }
+
 /* Time + score sit top-LEFT so the top-right stays clear for the ☰ menu. */
 .kinetic-scorebar {
   position: absolute;
@@ -111,6 +114,34 @@
   border-radius: 8px;
   font-size: 0.92rem;
   font-weight: 1000;
+}
+
+.kinetic-scorebar [data-metric] {
+  grid-template-rows: 18px 11px;
+  align-content: center;
+  padding: 0 5px;
+  line-height: 18px;
+}
+
+.kinetic-scorebar [data-metric]::after {
+  grid-row: 2;
+  content: attr(data-metric);
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 11px;
+  letter-spacing: 0.02em;
+  opacity: 0.8;
+}
+
+.kinetic-scorebar .metric-change { animation: metric-nudge 180ms ease-out; }
+@keyframes metric-nudge {
+  50% { transform: scale(1.06); }
+}
+
+.minigame-controls[inert] { opacity: 0.45; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kinetic-scorebar .metric-change { animation: none; }
 }
 
 .kinetic-scorebar span {
@@ -207,7 +238,45 @@
 .joystick-only .virtual-joystick {
   width: min(44vw, 174px);
   height: min(44vw, 174px);
-}.canopy-choice-controls button.pressed:not(:disabled) {
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .minigame-controls:has(.mobile-stick-controls) {
+    left: 0;
+    width: 100%;
+    transform: none;
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    pointer-events: none;
+  }
+  .minigame-controls .mobile-stick-controls {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    pointer-events: none;
+  }
+  .mobile-stick-controls > * { pointer-events: auto; }
+  .minigame-controls .mobile-stick-controls .virtual-joystick {
+    width: 116px;
+    height: 116px;
+    min-width: 116px;
+    min-height: 116px;
+  }
+  .minigame-controls .mobile-stick-controls > button {
+    width: 116px;
+    min-height: 88px;
+    padding: 10px;
+    font-size: 0.95rem;
+  }
+}
+
+.canopy-choice-controls button.pressed:not(:disabled) {
   transform: translateY(4px);
   background: #4fb87b;
   box-shadow: 0 3px 0 rgba(5, 18, 16, 0.88);
@@ -355,6 +424,7 @@
 
 .dare-distance.steht { color: #7fe0a8; }
 .dare-distance.ueberrollt { color: #ff6b7f; letter-spacing: 0.16em; }
+.dare-distance:empty { display: none; }
 
 /* Bergsteiger, Fassrolle und Münzregen brauchen weiterhin zwei grosse Flächen —
    dort sind es zwei GEGENSÄTZLICHE Dauerbefehle (links/rechts), und die als
@@ -616,11 +686,11 @@
   pointer-events: none;
 }
 
+.virtual-joystick:focus-visible { outline: 3px solid #ffe08b; outline-offset: 5px; }
 .virtual-joystick.active .joystick-knob {
   background: var(--yellow);
   transition: background 120ms ease;
-}.mobile-stick-controls .flux-burst,
-.mobile-stick-controls .bounce-bump {
+}.mobile-stick-controls .flux-burst {
   grid-column: auto;
   grid-row: auto;
   min-height: 146px;
@@ -1239,7 +1309,7 @@
    angeschnitten, eine Zeile darunter lag er hinter dem Hinweisbanner. */
 .trace-lapbar {
   position: absolute;
-  top: calc(56px + env(safe-area-inset-top));
+  top: calc(68px + env(safe-area-inset-top));
   left: 12px;
   display: flex;
   gap: 6px;
@@ -1271,7 +1341,7 @@
    die Zahl, auf die man beim Lenken nebenbei schielt. */
 .trace-combo {
   position: absolute;
-  top: calc(56px + env(safe-area-inset-top));
+  top: calc(68px + env(safe-area-inset-top));
   right: 12px;
   padding: 5px 12px;
   border-radius: 999px;
@@ -1361,56 +1431,6 @@
   height: 18px;
   border-color: #ffffff;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
-}
-
-/* Zielgerade: dieselbe Leiste als Rennverlauf, oben die Zielflagge. Die
-   Punkte gleiten, statt zu springen — der Server meldet alle 90 ms. */
-.race-rail i {
-  transition: bottom 180ms linear;
-}
-
-/* Liegen Punkte übereinander, liegt der eigene oben. */
-.race-rail i.is-own {
-  z-index: 2;
-}
-
-.race-rail .race-rail-flag {
-  position: absolute;
-  top: -24px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 1rem;
-  line-height: 1;
-}
-
-/* Der Platz ist die wichtigste Zahl im Rennen: gross in Gelb. Überholt man,
-   springt sie kurz grün, wird man überholt, rot. */
-.kinetic-scorebar .runner-place {
-  min-width: 40px;
-  font-size: 1.15rem;
-  transition: background 160ms ease;
-}
-
-.kinetic-scorebar .runner-place[data-move="up"] {
-  background: #4fdc8b;
-  animation: runner-place-pop 0.45s ease-out;
-}
-
-.kinetic-scorebar .runner-place[data-move="down"] {
-  background: #ff6b7d;
-  animation: runner-place-pop 0.45s ease-out;
-}
-
-@keyframes runner-place-pop {
-  0% { transform: scale(1); }
-  35% { transform: scale(1.22); }
-  100% { transform: scale(1); }
-}
-
-.kinetic-scorebar .runner-togo {
-  min-width: 64px;
-  padding: 0 8px;
-  font-size: 0.84rem;
 }
 
 /* --- Sortierband: Serie und Punktestände ------------------------------- */
@@ -1605,48 +1625,11 @@
    die Ecke, um die es gerade geht. */
 .kinetic-hud .color-banner.paint-banner,
 .kinetic-hud.dev-mode .color-banner.paint-banner {
-  top: calc(50px + env(safe-area-inset-top));
+  top: calc(70px + env(safe-area-inset-top));
   bottom: auto;
   padding: 7px 16px;
   font-size: clamp(0.8rem, 3.4vw, 1rem);
 }
-
-/* Zielgerade wird gewischt, nicht geknöpft. Der Hinweis steht dort, wo vorher
-   die Bahnknöpfe waren — er verschwindet nicht, weil die Geste sonst niemand
-   findet, aber er drängt sich auch nicht auf. */
-.runner-swipe-hint {
-  margin: 0;
-  flex: 1;
-  text-align: center;
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-/* Zielgerade: Fahrtwindlinien am Bildrand, solange man auf dem Boost läuft.
-   Strahlen aus der Bildmitte, in der Mitte ausgeblendet, damit Figur und
-   Bahn frei bleiben; sie zittern leicht, damit sie nach Tempo aussehen. */
-.runner-speed {
-  position: absolute;
-  inset: -6%;
-  pointer-events: none;
-  opacity: 0;
-  background: repeating-conic-gradient(from 0deg at 50% 58%, rgba(255, 255, 255, 0) 0deg 4deg, rgba(214, 255, 243, 0.75) 4deg 5deg, rgba(255, 255, 255, 0) 5deg 9deg);
-  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 58%, transparent 52%, #000 100%);
-  mask-image: radial-gradient(ellipse 60% 55% at 50% 58%, transparent 52%, #000 100%);
-  transition: opacity 120ms linear;
-}
-
-.runner-speed.is-on {
-  animation: runner-speed-flicker 0.14s steps(2) infinite;
-}
-
-@keyframes runner-speed-flicker {
-  from { transform: rotate(0deg) scale(1); }
-  to { transform: rotate(2.5deg) scale(1.03); }
-}
-
 
 /* Augenmaß: der Schieberegler ist hier das ganze Spielgerät, also darf er auch
    so aussehen. Gross genug für den Daumen, mit einer Zahl darüber, die man
@@ -1852,6 +1835,7 @@ canvas.is-stunned {
   display: flex;
   flex-direction: column-reverse;
   gap: 5px;
+  max-height: calc(100% - 160px);
 }
 .knife-ammo i {
   display: block;
@@ -1863,6 +1847,19 @@ canvas.is-stunned {
 }
 .knife-ammo i.used {
   opacity: 0.22;
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .knife-ammo {
+    top: calc(70px + env(safe-area-inset-top));
+    right: 12px;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .trace-combo { top: calc(112px + env(safe-area-inset-top)); }
 }
 
 /* --- Münzregen: Serie und Faktor ------------------------------------------- */
@@ -1901,60 +1898,26 @@ canvas.is-stunned {
   color: #ffffff;
 }
 
-/* --- Bumper Pool: Leben aller Spieler ------------------------------------ */
-/* Je Spieler ein Chip mit drei Punkten in seiner Farbe. Das IST die Wertung:
-   wer die meisten Punkte übrig hat, gewinnt. */
-.arena-lives {
-  position: absolute;
-  top: calc(60px + env(safe-area-inset-top));
-  left: 12px;
-  right: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  pointer-events: none;
-}
-
-.arena-life {
-  display: inline-flex;
-  gap: 4px;
-  padding: 5px 8px;
-  border-radius: 999px;
-  background: rgba(21, 33, 38, 0.82);
-  box-shadow: inset 0 0 0 2px var(--chip);
-}
-
-.arena-life i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.arena-life i.on {
-  background: var(--chip);
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
-}
-
-.arena-life.is-own {
-  box-shadow: inset 0 0 0 2px #ffffff;
-}
-
-.arena-life.is-out {
-  opacity: 0.45;
-}
-
-.kinetic-hud .color-banner.arena-banner {
-  top: calc(98px + env(safe-area-inset-top));
-  bottom: auto;
-  background: #ffd15c;
-  color: #4a3400;
-}
-
-.kinetic-hud .color-banner.arena-banner[data-tone="out"] {
-  background: #ff6b7f;
-  color: #42101a;
+/* Bumper Pool: one stick; names and lives stay readable above the pool. */
+.bumper-players { position: absolute; top: calc(62px + env(safe-area-inset-top)); left: 12px; right: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 6px; pointer-events: none; }
+.bumper-player { min-width: 0; display: grid; gap: 2px; padding: 5px 8px; border: 2px solid var(--chip); border-radius: 12px; background: rgba(21,33,38,.88); color: #fff; text-align: center; }
+.bumper-player span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .68rem; }
+.bumper-player strong { color: var(--chip); font-size: .82rem; }
+.bumper-player.is-own { outline: 2px solid white; }
+.bumper-player.is-out { opacity: .5; }
+.arena-shrink, .bumper-status { position: absolute; top: calc(120px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 7px 12px; border: 2px solid white; border-radius: 20px; background: #ffd15c; color: #3f2c00; font-size: .78rem; font-weight: 900; text-align: center; pointer-events: none; }
+.arena-shrink[data-phase="active"] { background: #ff6b7f; }
+.arena-shrink:not([hidden]) ~ .bumper-status { top: calc(162px + env(safe-area-inset-top)); }
+.mobile-stick-controls.joystick-only.bumper-controls { width: 100%; min-height: 0; gap: 5px; }
+.bumper-controls .virtual-joystick { width: 128px; height: 128px; min-width: 128px; min-height: 128px; }
+.bumper-control-note { margin: 0; font-size: .72rem; line-height: 1.4; color: white; text-align: center; text-shadow: 0 1px 4px #142f39; pointer-events: none; }
+.bumper-disabled .joystick-slot { pointer-events: none; opacity: .4; }
+@media (orientation: landscape) and (max-height: 520px) {
+ .bumper-players { top: calc(12px + env(safe-area-inset-top)); left: 205px; right: 70px; }
+ .arena-shrink, .bumper-status { top: calc(72px + env(safe-area-inset-top)); }
+ .arena-shrink:not([hidden]) ~ .bumper-status { top: calc(110px + env(safe-area-inset-top)); }
+ .minigame-controls .mobile-stick-controls.bumper-controls { position: relative; }
+ .bumper-controls .bumper-control-note { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 240px; }
 }
 
 /* --- Lichtwächter: Stand aller Läufer ----------------------------------- */
@@ -2227,7 +2190,23 @@ canvas.is-stunned {
 
 /* Steht eine Chip-Leiste oben, rückt das Banner darunter. */
 .kinetic-hud .hud-chips ~ .color-banner {
-  top: calc(98px + env(safe-area-inset-top));
+  top: calc(var(--hud-chips-bottom, 88px) + 10px);
+}
+
+.kinetic-hud .hud-chips ~ .flag-call {
+  top: calc(var(--hud-chips-bottom, 88px) + 10px);
+}
+
+.kinetic-hud .simon-chips ~ [data-seek-banner],
+.kinetic-hud .simon-chips ~ [data-swarm-banner] {
+  top: calc(86px + env(safe-area-inset-top));
+}
+
+.react-rounds {
+  top: calc(68px + env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  justify-content: center;
 }
 
 /* --- Fassrolle: Wellenwarnung ------------------------------------------- */
@@ -2866,3 +2845,52 @@ canvas.is-stunned {
   outline: 4px solid #ffe25c;
   outline-offset: 2px;
 }
+
+@media (max-width: 480px) {
+  .pipe-controls:has(button:nth-child(5)) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pipe-controls:has(button:nth-child(5)) button { min-height: 64px; }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .pipe-controls, .pipe-controls:has(button:nth-child(5)) { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 192px; margin: 0; }
+  .pipe-controls button, .pipe-controls:has(button:nth-child(5)) button { min-height: 44px; height: 44px; border-radius: 12px; font-size: 1.5rem; }
+  .kinetic-hud .color-banner.pipe-banner { top: calc(76px + env(safe-area-inset-top)); left: auto; right: max(12px, env(safe-area-inset-right)); max-width: 192px; width: 192px; transform: none; padding: 8px; font-size: 0.9rem; white-space: normal; }
+  .pipe-chips { display: none; }
+}
+
+/* Zielgerade: two independent thumbs, a quiet track and a readable energy bar. */
+.sprint-vitals { position: absolute; top: calc(70px + env(safe-area-inset-top)); left: 12px; width: min(250px, calc(100% - 86px)); padding: 9px 12px; border-radius: 12px; color: #fff9ed; background: #243641ed; }
+.sprint-vitals > div:first-child { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; margin-bottom: 6px; }
+.sprint-energy-track { height: 8px; overflow: hidden; background: #101e28; border-radius: 8px; }
+.sprint-energy-track i { display: block; width: 100%; height: 100%; background: #72e296; transition: width .1s linear; }
+.sprint-energy-track i.is-low { background: #ffce6a; }
+.sprint-rivals { position: absolute; right: 12px; top: calc(126px + env(safe-area-inset-top)); width: 126px; display: grid; gap: 4px; color: #fff9ed; font-size: .68rem; }
+.sprint-rival { padding: 5px 7px; border-radius: 7px; background: #263947d9; display: grid; grid-template-columns: 1fr auto; gap: 3px; }
+.sprint-rival.is-own { outline: 1px solid #ffe98e; }
+.sprint-rival span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sprint-rival > div { grid-column: 1 / -1; height: 3px; background: #0f202b; border-radius: 3px; overflow: hidden; }
+.sprint-rival i { display: block; height: 100%; }
+.sprint-controls { width: min(100%, 460px); justify-self: center; display: grid; gap: 8px; }
+.sprint-cue { margin: 0; padding: 9px 12px; border-radius: 11px; background: #253844ee; color: #fff6dc; text-align: center; font-size: .86rem; font-weight: 850; }
+.sprint-cue.is-ready { color: #183f28; background: #a9f0b8; }
+.sprint-controls.swipe-only { pointer-events: none; }
+.sprint-gesture-note { margin: 0; color: white; text-align: center; font-size: .71rem; text-shadow: 0 1px 4px #152d3c; }
+.kinetic-webgl.runner-holding { outline: 0; }
+.bumper-momentum { margin: 0; color: #fff3c2; font-size: .7rem; font-weight: 850; text-align: center; text-shadow: 0 1px 4px #142f39; }
+.bumper-momentum.is-charged { color: #ffdd6d; }
+@media (orientation: landscape) and (max-height: 520px) {
+ .bumper-controls .bumper-control-note { bottom: 19px; }
+ .bumper-controls .bumper-momentum { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 240px; }
+}
+.kinetic-hud.dev-mode:has(.sprint-vitals) .kinetic-scorebar { top: 150px; }
+.kinetic-hud.dev-mode .sprint-vitals { top: 208px; }
+.kinetic-hud.dev-mode .sprint-rivals { top: 264px; }
+@media (orientation: landscape) and (max-height: 520px) {
+  .sprint-vitals { top: calc(12px + env(safe-area-inset-top)); left: 198px; width: 220px; }
+  .sprint-rivals { top: 70px; }
+  .sprint-controls { width: min(100%, 410px); gap: 5px; }
+  .sprint-cue { padding: 6px 12px; }
+
+}
+
+.sprint-controls.is-holding .sprint-gesture-note { color: #ffe29b; font-weight: 850; }

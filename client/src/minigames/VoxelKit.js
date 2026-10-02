@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale } from "./Quality.js?v=tumblekin200";
+import { fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin210";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 //
@@ -17,7 +17,7 @@ export {
   finalePose,
   applyFinaleMood,
   reachArm
-} from "./Kin.js?v=tumblekin200";
+} from "./Kin.js?v=tumblekin210";
 
 // Weicher Kontaktschatten: eine runde Scheibe mit Verlauf nach aussen. Der
 // frühere Schatten war ein Quader mit harter Kante — unter jeder Figur lag ein
@@ -160,6 +160,7 @@ export class CubeBurst {
     // every spawn call in every minigame; at least one shard always survives so
     // the event stays readable.
     const total = Math.max(1, Math.round(count * fxScale()));
+    const rotation = prefersReducedMotion() ? 0 : spin;
     for (let index = 0; index < total; index += 1) {
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(size * (0.7 + Math.random() * 0.6), size, size),
@@ -176,8 +177,8 @@ export class CubeBurst {
         vx: Math.cos(angle) * radial,
         vy: up * (0.5 + Math.random() * 0.6),
         vz: Math.sin(angle) * radial,
-        spinX: (Math.random() - 0.5) * spin,
-        spinY: (Math.random() - 0.5) * spin,
+        spinX: (Math.random() - 0.5) * rotation,
+        spinY: (Math.random() - 0.5) * rotation,
         age: 0,
         life: life * (0.85 + Math.random() * 0.3),
         gravity,
@@ -212,16 +213,24 @@ export class CubeBurst {
         piece.mesh.material.dispose();
         return false;
       }
-      piece.vy -= piece.gravity * dt;
-      if (piece.drag) {
-        const damp = Math.max(0, 1 - piece.drag * dt);
+      if (piece.drag > 0) {
+        // Exakte Flugbahn mit Luftwiderstand: dieselbe Position nach derselben
+        // Zeit, unabhängig davon, ob das Gerät 30 oder 120 Bilder zeichnet.
+        const damp = Math.exp(-piece.drag * dt);
+        const travel = -Math.expm1(-piece.drag * dt) / piece.drag;
+        const terminal = -piece.gravity / piece.drag;
+        piece.mesh.position.x += piece.vx * travel;
+        piece.mesh.position.y += (piece.vy - terminal) * travel + terminal * dt;
+        piece.mesh.position.z += piece.vz * travel;
         piece.vx *= damp;
-        piece.vy *= damp;
+        piece.vy = terminal + (piece.vy - terminal) * damp;
         piece.vz *= damp;
+      } else {
+        piece.mesh.position.x += piece.vx * dt;
+        piece.mesh.position.y += piece.vy * dt - 0.5 * piece.gravity * dt * dt;
+        piece.mesh.position.z += piece.vz * dt;
+        piece.vy -= piece.gravity * dt;
       }
-      piece.mesh.position.x += piece.vx * dt;
-      piece.mesh.position.y += piece.vy * dt;
-      piece.mesh.position.z += piece.vz * dt;
       piece.mesh.rotation.x += piece.spinX * dt;
       piece.mesh.rotation.y += piece.spinY * dt;
       piece.mesh.material.opacity = Math.pow(Math.max(0, 1 - piece.age / piece.life), piece.fadePow);
@@ -346,6 +355,7 @@ export class FloatingText {
   // `camera` ist freiwillig, aber ohne sie kann der Text nicht im Bild gehalten
   // werden. Alle Szenen reichen sie durch.
   update(dt, camera = null) {
+    const reduced = prefersReducedMotion();
     this.items = this.items.filter((item) => {
       item.age += dt;
       const progress = item.age / item.life;
@@ -355,9 +365,9 @@ export class FloatingText {
         item.sprite.material.dispose();
         return false;
       }
-      item.sprite.position.y = item.baseY + item.rise * (1 - Math.pow(1 - progress, 2));
+      item.sprite.position.y = item.baseY + item.rise * (reduced ? 0.1 : 1) * (1 - Math.pow(1 - progress, 2));
       // Springy pop-in (overshoot) then settle; fade out over the final third.
-      const pop = progress < 0.22 ? Math.sin((progress / 0.22) * (Math.PI / 2)) * 1.15 : 1 + (0.15 * Math.max(0, 1 - (progress - 0.22) / 0.15));
+      const pop = reduced ? 1 : progress < 0.22 ? Math.sin((progress / 0.22) * (Math.PI / 2)) * 1.15 : 1 + (0.15 * Math.max(0, 1 - (progress - 0.22) / 0.15));
       const scale = item.size * pop;
       item.sprite.scale.set(scale * (item.aspect || 2), scale, 1);
       item.sprite.material.opacity = progress < 0.66 ? 1 : 1 - (progress - 0.66) / 0.34;
@@ -376,15 +386,25 @@ export class FloatingText {
   }
 }
 
-export function disposeScene(scene) {
-  scene.traverse((object) => {
-    object.geometry?.dispose?.();
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    materials.filter(Boolean).forEach((material) => {
-      material.map?.dispose?.();
-      material.dispose?.();
+export function disposeScene(scene, { retain = null } = {}) {
+  const collect = (root) => {
+    const resources = new Set();
+    root?.traverse((object) => {
+      if (object.geometry) resources.add(object.geometry);
+      if (object.isInstancedMesh) resources.add(object);
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      materials.filter(Boolean).forEach((material) => {
+        if (resources.has(material)) return;
+        resources.add(material);
+        Object.values(material).forEach((value) => { if (value?.isTexture) resources.add(value); });
+      });
     });
-  });
+    if (root?.background?.isTexture) resources.add(root.background);
+    if (root?.environment?.isTexture) resources.add(root.environment);
+    return resources;
+  };
+  const kept = collect(retain);
+  collect(scene).forEach((resource) => { if (!kept.has(resource)) resource.dispose?.(); });
 }
 
 export function noise(seed) {

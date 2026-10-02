@@ -33,6 +33,7 @@ export class Feedback {
   vibrate(pattern = 18) {
     if (!this.vibrationEnabled) return;
     if (!("vibrate" in navigator)) return;
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     const softened = Array.isArray(pattern)
       ? pattern.map((value, index) => Math.min(value, index % 2 === 0 ? 32 : 24))
       : Math.min(pattern, 28);
@@ -41,12 +42,13 @@ export class Feedback {
 
   // `pitch` hebt oder senkt alle Töne eines Klangs (1 = wie definiert) —
   // Pump-Panik lässt den Pumpenton mit dem Ballon steigen.
-  sound(name, { pan = 0, pitch = 1 } = {}) {
+  sound(name, { pan = 0, pitch = 1, strength = 1 } = {}) {
     if (!this.enabled) return;
     const context = this.ensureAudio();
     if (!context || context.state !== "running") return;
 
     const sequences = {
+      press: [tone(190, 110, 0.035, "triangle", 0.016)],
       tap: [tone(520, 410, 0.065, "sine", 0.022)],
       move: [tone(270, 390, 0.09, "sine", 0.022)],
       step: [tone(245, 330, 0.055, "triangle", 0.014)],
@@ -109,6 +111,17 @@ export class Feedback {
         { noise: true, duration: 0.11, gain: 0.018 },
         tone(130, 76, 0.2, "triangle", 0.038)
       ],
+      bumperTap: [{ ...tone(260, 145, .075, "sine", .018), attack: .004 }],
+      bumperHit: [
+        { ...tone(180, 68, .14, "triangle", .038), attack: .003 },
+        { ...tone(450, 130, .055, "sine", .017), attack: .003 },
+        { noise: true, duration: .035, gain: .012, filterStart: 1800, filterEnd: 300 }
+      ],
+      bumperSplash: [
+        { noise: true, duration: .18, gain: .032, filterStart: 1600, filterEnd: 200 },
+        tone(240, 90, .11, "sine", .022, .04),
+        tone(400, 180, .085, "sine", .015, .1)
+      ],
       collision: [
         { noise: true, duration: 0.095, gain: 0.022 },
         tone(185, 72, 0.18, "square", 0.025)
@@ -166,7 +179,9 @@ export class Feedback {
     const now = context.currentTime;
     const clampedPan = Math.max(-1, Math.min(1, pan));
     const factor = Number.isFinite(pitch) && pitch > 0 ? Math.max(0.25, Math.min(4, pitch)) : 1;
-    (sequences[name] || sequences.tap).forEach((preset) => {
+    const volume = Number.isFinite(strength) ? Math.max(.25, Math.min(1.35, strength)) : 1;
+    (sequences[name] || sequences.tap).forEach((definition) => {
+      const preset = { ...definition, gain: definition.gain * volume };
       const start = now + (preset.offset || 0);
       if (preset.noise) this.playNoise(context, start, preset, clampedPan);
       else this.playTone(context, start, factor === 1 ? preset : { ...preset, frequency: preset.frequency * factor, endFrequency: preset.endFrequency * factor }, clampedPan);
@@ -196,7 +211,7 @@ export class Feedback {
     filter.frequency.setValueAtTime(2400, start);
     filter.frequency.exponentialRampToValueAtTime(1100, start + preset.duration);
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(preset.gain, start + 0.018);
+    gain.gain.exponentialRampToValueAtTime(preset.gain, start + (preset.attack || .018));
     gain.gain.exponentialRampToValueAtTime(0.0001, start + preset.duration);
     oscillator.connect(filter);
     filter.connect(gain);
@@ -219,8 +234,8 @@ export class Feedback {
     const gain = context.createGain();
     const out = this.voiceOutput(context, pan);
     filter.type = "lowpass";
-    filter.frequency.setValueAtTime(760, start);
-    filter.frequency.exponentialRampToValueAtTime(150, start + preset.duration);
+    filter.frequency.setValueAtTime(preset.filterStart || 760, start);
+    filter.frequency.exponentialRampToValueAtTime(preset.filterEnd || 150, start + preset.duration);
     gain.gain.setValueAtTime(preset.gain, start);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + preset.duration);
     source.buffer = buffer;

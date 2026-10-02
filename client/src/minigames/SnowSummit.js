@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin200";
-import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin200";
+import { reachArm } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin210";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin210";
+import { forecastSnow, snowRules, canThrow, ballValue, STEP_MS } from "./Schneeball.js?v=tumblekin210";
 
 // Schneeballhang — ein Plateau auf dem Gipfel, rundherum ein Schneewall.
 // Jeder schiebt eine Kugel vor sich her, die beim Rollen wächst; ein Tipp
@@ -295,7 +295,7 @@ export class SnowSummit extends MinigameScene {
   // und gilt — dann fliegt die Kugel sofort, nicht eine Rundreise später.
   throwNow() {
     const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt) return;
+    if (!minigame || minigame.finaleAt || this.throwButton?.disabled) return;
     const own = this.view?.entries.get(this.getControlledPlayerId());
     const rules = snowRules(minigame.arcade);
     this.feedback?.vibrate(12);
@@ -457,7 +457,7 @@ export class SnowSummit extends MinigameScene {
     this.rolling.forEach((mesh, id) => {
       if (alive.has(id)) return;
       if (String(id).startsWith("p") && mesh.userData.owner === controlledId) orphans.push(mesh);
-      else this.scene.remove(mesh);
+      else this.removeObject(mesh);
       this.rolling.delete(id);
     });
     view.balls.forEach((ball) => {
@@ -482,12 +482,12 @@ export class SnowSummit extends MinigameScene {
       const dir = Math.atan2(ball.vx, ball.vz);
       mesh.rotation.set(ball.spin, dir, 0, "YXZ");
       // Pulverschnee hinter der Kugel.
-      if (Math.random() < 0.35) {
+      if (Math.random() < frameChance(0.35, dt)) {
         _v.set(mesh.position.x, 0.05, mesh.position.z);
         this.burst(_v, ["#ffffff", "#e3f0fa"], { count: 1, speed: 0.4, up: 0.5, size: 0.05, life: 0.4, gravity: 2 });
       }
     });
-    orphans.forEach((mesh) => this.scene.remove(mesh));
+    orphans.forEach((mesh) => this.removeObject(mesh));
 
     // Schneestaub gleich dort, wo die Vorausrechnung eine Kugel platzen sieht —
     // sonst verschwände sie eine Rundreise vor dem Staub.
@@ -585,11 +585,13 @@ export class SnowSummit extends MinigameScene {
       const mine = this.view?.entries.get(controlledId) || own;
       const rules = snowRules(arcade);
       const size = mine?.size ?? 0;
-      const ready = size >= rules.throwMin && !(this.view && this.view.at < (mine?.stunUntil || 0));
+      const at = this.view?.at ?? now;
+      const ready = Boolean(mine && canThrow(rules, mine, at));
       this.throwButton.classList.toggle("is-ready", ready);
       this.throwButton.dataset.value = String(ballValue(size, rules));
       this.throwButton.querySelector(".snow-meter i").style.width = `${Math.round(Math.min(1, size) * 100)}%`;
-      this.throwButton.disabled = Boolean(minigame.finaleAt);
+      this.throwButton.disabled = !ready || Boolean(minigame.finaleAt);
+      this.throwButton.querySelector("b").textContent = ready ? "WERFEN" : at < (mine?.stunUntil || 0) ? "ERHOLEN" : size < rules.throwMin ? "ROLLEN …" : "LÄDT …";
     }
   }
 }

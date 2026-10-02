@@ -1,0 +1,61 @@
+/* Die Knopffläche sinkt in ihren Sockel und kehrt kurz und ruhig zurück. */
+button {
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out, background-color 100ms;
+}
+body button.is-pressed:not(:disabled) {
+  transition-duration: 35ms;
+  transform: translateY(3px) scale(0.98);
+  box-shadow: 0 1px 0 rgba(8, 18, 28, 0.35), inset 0 2px 4px rgba(8, 18, 28, 0.18);
+}
+body #minigame-controls button.is-pressed:not(:disabled) {
+  transform: translateY(5px) scale(0.98);
+}
+button:focus-visible { outline: 3px solid #ffcf52; outline-offset: 4px; }
+#minigame-controls button:disabled { opacity: 0.55; cursor: default; }
+button[aria-busy="true"] { cursor: progress; position: relative; }
+button[aria-busy="true"]::after {
+  content: "";
+  display: inline-block;
+  position: absolute;
+  right: 10px;
+  top: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: button-wait 600ms linear infinite;
+}
+@keyframes button-wait { to { rotate: 360deg; } }
+.memory-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 340px);
+  margin: auto;
+}
+.memory-controls button {
+  min-height: 48px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  background: var(--memory-color);
+  color: #182b30;
+  font-size: 1rem;
+  font-weight: 900;
+  box-shadow: 0 4px 0 rgba(8, 18, 28, 0.55);
+  touch-action: manipulation;
+}
+.memory-controls button:disabled { opacity: 0.45; box-shadow: none; }
+.memory-controls button.is-lit { outline: 3px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
+.kinetic-hud .color-banner[data-simon-banner] { bottom: calc(130px + env(safe-area-inset-bottom)); }
+.result-ranking-note { margin: 8px 0; color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+@media (orientation: landscape) and (max-height: 520px) {
+  .memory-controls { grid-template-columns: repeat(4, minmax(0, 1fr)); width: min(100%, 480px); }
+  .kinetic-hud .color-banner[data-simon-banner] { bottom: calc(76px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+  body button.is-pressed:not(:disabled), body #minigame-controls button.is-pressed:not(:disabled) { transform: none; }
+  button[aria-busy="true"]::after { animation: none; }
+}

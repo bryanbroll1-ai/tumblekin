@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { prefersReducedMotion } from "./Quality.js?v=tumblekin200";
+import { prefersReducedMotion } from "./Quality.js?v=tumblekin210";
+import { landingCompression } from "./FeedbackCues.js?v=tumblekin210";
 
 // Die Tumblekin: Figur und Bewegung.
 //
@@ -621,12 +622,13 @@ const STATES = {
   land: {
     dur: 0.3,
     blend: 0.03,
-    pose(p, t) {
-      const squash = sin(clamp01(t / 0.3) * Math.PI);
+    pose(p, t, a) {
+      const impact = landingCompression(t * 1000);
+      const squash = a.reduced ? Math.max(0, impact) * 0.55 : impact;
       p.sq = 1 - squash * 0.2;
-      p.crouch = squash * 0.05;
-      p.aLr = 0.2 + squash * 0.9;
-      p.aRr = 0.2 + squash * 0.9;
+      p.crouch = Math.max(0, squash) * 0.05;
+      p.aLr = 0.2 + Math.max(0, squash) * 0.9;
+      p.aRr = 0.2 + Math.max(0, squash) * 0.9;
       face(p, "surprised");
     }
   },
@@ -1787,15 +1789,6 @@ export class KinAnimator {
     def.pose(this.target, t, this);
     if (def.dur && t >= def.dur) {
       this.enter(this.baseState, true);
-      // Ziel ist ab sofort die Grundhaltung, nicht mehr das letzte Bild der
-      // Handlung. Sonst blendete die Figur im Wechselbild von der gekürzten
-      // Neigung (0) zur ungekürzten des Saltos (-2π) — bei 20 Bildern je
-      // Sekunde stand sie ein Bild lang kopf, die Füsse 0.2 im Boden
-      // (Münzregen: Rückstoss nach einer Bombe, danach Ducken).
-      const next = STATES[this.state] || STATES.idle;
-      this.stateStart = nowS;
-      neutral(this.target);
-      next.pose(this.target, 0, this);
     }
 
     // Überblenden.

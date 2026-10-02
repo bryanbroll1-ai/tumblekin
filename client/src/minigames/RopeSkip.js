@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, setKinOpacity, standOn } from "./VoxelKit.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { baeume, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
+import { createCloud, createKin, KinAnimator, setKinOpacity, standOn } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { baeume, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin210";
 
 // Seilspringen: zwei drehen das Seil, alle anderen springen. Wer hängen
 // bleibt, ist raus.
@@ -287,9 +287,7 @@ export class RopeSkip extends MinigameScene {
     const arcade = (this.update || this.minigame)?.arcade;
     const own = arcade?.players?.[this.getControlledPlayerId()];
     if (!own || own.eliminated) return;
-    // Der Server springt, wenn der Tipp ankommt — genau dann, wenn das Bild
-    // (zur Ankunftszeit gezeigt) den Sprung beginnen lässt.
-    const nowT = this.arrivalNow();
+    const nowT = this.now();
     if (nowT < Math.max(own.jumpUntil || 0, this.localJumpUntil)) return;
     this.localJumpUntil = nowT + (arcade?.jumpMs || 650);
     this.feedback?.sound("move");
@@ -319,12 +317,7 @@ export class RopeSkip extends MinigameScene {
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale, minigame } = f;
     if (!arcade) return;
-    // Seil und Sprünge laufen zur Ankunftszeit: so steht das Seil im Bild dort,
-    // wo es beim Server ist, wenn ein JETZT getippter Sprung ankommt. Vorher
-    // musste, wer weiter weg sass, um eine Rundreise früher springen, als er
-    // es sah — und verlor die Feinwertung „mittig über dem Seil“.
-    const at = this.arrivalNow();
-    const elapsed = Math.max(0, at - minigame.startedAt);
+    const elapsed = Math.max(0, now - minigame.startedAt);
     const angle = this.ropeAngle(arcade, elapsed);
     const swing = Math.cos(angle);
     const depth = Math.sin(angle);
@@ -389,10 +382,10 @@ export class RopeSkip extends MinigameScene {
       const out = Boolean(entry.eliminated);
       const jumpUntil = isOwn ? Math.max(entry.jumpUntil || 0, this.localJumpUntil) : (entry.jumpUntil || 0);
       const jumpStart = jumpUntil - arcade.jumpMs;
-      const jumping = !out && at >= jumpStart && at < jumpUntil;
+      const jumping = !out && now >= jumpStart && now < jumpUntil;
       let y = KIN_Y;
       if (jumping) {
-        const t = (at - jumpStart) / arcade.jumpMs;
+        const t = (now - jumpStart) / arcade.jumpMs;
         y += Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * JUMP_HEIGHT;
         if (!kin.userData.inAir) animator.trigger("jump");
       }
@@ -476,10 +469,10 @@ export class RopeSkip extends MinigameScene {
   }
 
   drawHud(f) {
-    const { arcade, minigame, controlledId } = f;
+    const { arcade, minigame, now, controlledId } = f;
     if (!arcade) return;
     const own = arcade.players[controlledId];
-    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
+    const elapsed = Math.max(0, now - minigame.startedAt);
     // Nur ein Doppelschlag wird angesagt — der bricht den Takt. Das frühere
     // "JETZT!" vor JEDEM Durchgang hat den Sprung vorgesagt, und schneller als
     // eine Sekunde stand es dauernd da.
@@ -503,6 +496,10 @@ export class RopeSkip extends MinigameScene {
         banner.hidden = true;
       }
     }
-    if (this.jumpButton) this.jumpButton.disabled = Boolean(own?.eliminated);
+    if (this.jumpButton) {
+      const jumping = now < Math.max(own?.jumpUntil || 0, this.localJumpUntil || 0);
+      this.jumpButton.disabled = f.finale || Boolean(own?.eliminated) || jumping;
+      this.jumpButton.querySelector(".jump-button-face").textContent = own?.eliminated ? "GESTOLPERT" : jumping ? "IN DER LUFT" : "SPRUNG";
+    }
   }
 }

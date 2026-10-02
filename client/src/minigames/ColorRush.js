@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
 // Wischen hüpft man Feld für Feld. Runde und Phase kommen aus dem Zeitplan des
@@ -22,53 +22,20 @@ const TILE_TOP_Y = TILE_H / 2;
 const WATER_Y = -3.9;
 const COLORS = ["#f23f6c", "#2a9ff0", "#f7c21e", "#3cbf58"];
 const COLOR_NAMES = ["Pink", "Blau", "Gelb", "Grün"];
-// Jede Farbe trägt ein eigenes Zeichen auf dem Feld. Pink und Grün sind
-// genau das Paar, das bei einer Rot-Grün-Schwäche verschwimmt — mit Kreis
-// und Kreuz bleiben die Felder trotzdem unterscheidbar.
-const COLOR_SYMBOLS = ["●", "■", "▲", "✚"];
-const SYMBOL_PIXELS = [
-  ["..####..", ".######.", "########", "########", "########", "########", ".######.", "..####.."],
-  ["########", "########", "########", "########", "########", "########", "########", "########"],
-  ["...##...", "...##...", "..####..", "..####..", ".######.", ".######.", "########", "########"],
-  ["..####..", "..####..", "########", "########", "########", "########", "..####..", "..####.."]
-];
+const COLOR_SYMBOLS = ["●", "▲", "■", "✚"];
 
-// Weiss mit einem grauen Pixelzeichen: die Textur multipliziert die
-// Feldfarbe, das Zeichen erscheint als dunklere Form derselben Farbe.
-function symbolTexture(rows) {
+function symbolMaterial(index) {
   const canvas = document.createElement("canvas");
-  canvas.width = 64;
-  canvas.height = 64;
+  canvas.width = canvas.height = 64;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, 64, 64);
-  ctx.fillStyle = "#b4b4b4";
-  rows.forEach((row, y) => [...row].forEach((pixel, x) => {
-    if (pixel === "#") ctx.fillRect(16 + x * 4, 16 + y * 4, 4, 4);
-  }));
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.magFilter = THREE.NearestFilter;
-  return texture;
-}
-
-// Ein Feld aus zwei Teilen: die Seiten und Unterseite in einem Zug, die
-// Oberseite mit dem Zeichen im zweiten. Mit den sechs Flächen der Box als
-// eigene Gruppen zeichnete das Feld sonst sechsmal statt zweimal (gemessen
-// 399 statt rund 100 Aufrufe je Bild).
-function tileGeometry() {
-  const geo = new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08);
-  const index = Array.from(geo.index.array);
-  const rest = [];
-  const up = [];
-  geo.groups.forEach((group, face) => {
-    (face === 2 ? up : rest).push(...index.slice(group.start, group.start + group.count));
-  });
-  geo.setIndex([...rest, ...up]);
-  geo.clearGroups();
-  geo.addGroup(0, rest.length, 0);
-  geo.addGroup(rest.length, up.length, 1);
-  return geo;
+  ctx.fillStyle = "#fffaf0";
+  ctx.strokeStyle = "#fffaf0";
+  ctx.lineWidth = 12;
+  if (index === 0) { ctx.beginPath(); ctx.arc(32, 32, 19, 0, Math.PI * 2); ctx.fill(); }
+  if (index === 1) { ctx.beginPath(); ctx.moveTo(32, 9); ctx.lineTo(55, 53); ctx.lineTo(9, 53); ctx.closePath(); ctx.fill(); }
+  if (index === 2) ctx.fillRect(13, 13, 38, 38);
+  if (index === 3) { ctx.fillRect(26, 8, 12, 48); ctx.fillRect(8, 26, 48, 12); }
+  return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false });
 }
 
 function tileX(gx) {
@@ -88,7 +55,6 @@ export class ColorRush extends MinigameScene {
     this.fallAt = new Map();
     this.lastRound = -1;
     this.swipe = null;
-    this.stepInputs = [];
     this.lastPhaseName = null;
     this.labelY = 0.74;
   }
@@ -110,6 +76,7 @@ export class ColorRush extends MinigameScene {
 
   build() {
     const scene = this.scene;
+    this.symbolMaterials = COLORS.map((_color, index) => symbolMaterial(index));
     const spanX = COLS * TILE;
     const spanZ = ROWS * TILE;
     // Die Grube liegt in einer Wiese: vier Erdblöcke mit Grasdecke rundum.
@@ -163,18 +130,22 @@ export class ColorRush extends MinigameScene {
       scene.add(bar);
     });
 
-    // Das Farbfeld. Oben trägt jedes Feld das Zeichen seiner Farbe.
-    this.symbolMaps = SYMBOL_PIXELS.map(symbolTexture);
-    const tileGeo = tileGeometry();
+    // Das Farbfeld.
     for (let gy = 0; gy < ROWS; gy += 1) {
       for (let gx = 0; gx < COLS; gx += 1) {
-        const side = new THREE.MeshLambertMaterial({ color: COLORS[0] });
-        const top = new THREE.MeshLambertMaterial({ color: COLORS[0], map: this.symbolMaps[0], emissiveMap: this.symbolMaps[0] });
-        const tile = new THREE.Mesh(tileGeo, [side, top]);
+        const tile = new THREE.Mesh(
+          new THREE.BoxGeometry(TILE - 0.08, TILE_H, TILE - 0.08),
+          new THREE.MeshLambertMaterial({ color: COLORS[0] })
+        );
         tile.position.set(tileX(gx), 0, tileZ(gy));
         tile.receiveShadow = true;
         tile.castShadow = true;
-        tile.userData = { gx, gy, restY: 0, side, top };
+        tile.userData = { gx, gy, restY: 0 };
+        const symbol = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), this.symbolMaterials[0]);
+        symbol.rotation.x = -Math.PI / 2;
+        symbol.position.y = TILE_TOP_Y + 0.006;
+        tile.add(symbol);
+        tile.userData.symbol = symbol;
         scene.add(tile);
         this.tiles[gy * COLS + gx] = tile;
       }
@@ -274,11 +245,13 @@ export class ColorRush extends MinigameScene {
     // einen eigenen Wisch — bei drei, vier Feldern in anderthalb Sekunden war
     // das mehr Fingerarbeit als Entscheidung.
     this.on(this.webglCanvas, "pointerdown", (event) => {
-      this.swipe = { x: event.clientX, y: event.clientY, steps: 0 };
+      if (this.swipe) return;
+      this.webglCanvas.setPointerCapture?.(event.pointerId);
+      this.swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, steps: 0 };
     });
     this.on(window, "pointermove", (event) => {
       const swipe = this.swipe;
-      if (!swipe) return;
+      if (!swipe || swipe.pointerId !== event.pointerId) return;
       const dx = event.clientX - swipe.x;
       const dy = event.clientY - swipe.y;
       const noetig = swipe.steps === 0 ? 26 : 44;
@@ -289,62 +262,64 @@ export class ColorRush extends MinigameScene {
       swipe.steps += 1;
       this.sendStep(dir);
     });
-    this.on(window, "pointerup", () => { this.swipe = null; });
-    this.on(window, "pointercancel", () => { this.swipe = null; });
+    const end = (event) => { if (event.pointerId === this.swipe?.pointerId) this.swipe = null; };
+    const interrupt = () => { this.swipe = null; this.stepQueue = []; clearTimeout(this.stepTimer); this.stepTimer = null; };
+    this.on(window, "pointerup", end);
+    this.on(window, "pointercancel", end);
+    this.on(window, "blur", interrupt);
+    this.on(window, "resize", interrupt);
+    this.on(this.webglCanvas, "lostpointercapture", end);
+    this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {
+    clearTimeout(this.stepTimer);
+    this.stepQueue = [];
     this.controls.style.pointerEvents = "";
     this.tiles = [];
   }
 
-  // Bestätigte Schritte stecken ab dem nächsten Bild im Feld des Servers.
-  onUpdate() {
-    if (this.stepInputs.some((input) => input.acked)) this.stepInputs = this.stepInputs.filter((input) => !input.acked);
-  }
-
-  // Das Feld einer Figur; das eigene samt der noch offenen Schritte. Auf ein
-  // fremdes Feld springt der Server nicht — die Vorhersage auch nicht.
-  cellOf(id, arcade, controlledId) {
-    const entry = arcade.players[id];
-    const cell = { gx: entry?.gx ?? 2, gy: entry?.gy ?? 2 };
-    if (id !== controlledId || !entry || entry.eliminated) return cell;
-    this.stepInputs.forEach((input) => {
-      const gx = Math.max(0, Math.min(COLS - 1, cell.gx + input.step[0]));
-      const gy = Math.max(0, Math.min(ROWS - 1, cell.gy + input.step[1]));
-      const besetzt = Object.entries(arcade.players).some(([otherId, other]) => otherId !== id && !other.eliminated && other.gx === gx && other.gy === gy);
-      if (!besetzt) { cell.gx = gx; cell.gy = gy; }
-    });
-    return cell;
-  }
-
   sendStep(dir) {
+    this.stepQueue ||= [];
+    if (this.stepQueue.length >= 3) return;
+    this.stepQueue.push(dir);
+    this.flushStep();
+  }
+
+  flushStep() {
+    if (this.stepInFlight || this.stepTimer || !this.stepQueue?.length) return;
+    const wait = Math.max(0, (this.lastStepSentAt || 0) + 125 - performance.now());
+    if (wait > 0) {
+      this.stepTimer = setTimeout(() => { this.stepTimer = null; this.flushStep(); }, wait);
+      return;
+    }
+    const dir = this.stepQueue.shift();
     const arcade = (this.update || this.minigame)?.arcade;
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
-    if (!own || own.eliminated) return;
+    if (!this.frame || !own || own.eliminated || (this.update || this.minigame).finaleAt || this.computePhase(arcade, this.update || this.minigame, this.now()).name !== "announce") {
+      this.stepQueue.length = 0;
+      return;
+    }
     // Wohin es ginge — und ob es geht. Am Rand und vor einem besetzten Feld
     // gibt es einen kleinen Ruck statt eines Schrittes, damit der Wisch nicht
     // ins Leere läuft.
     const step = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[dir];
-    const from = this.cellOf(id, arcade, id);
-    const gx = from.gx + step[0];
-    const gy = from.gy + step[1];
+    const gx = own.gx + step[0];
+    const gy = own.gy + step[1];
     const drin = gx >= 0 && gx < COLS && gy >= 0 && gy < ROWS;
     const besetzt = drin && Object.entries(arcade.players).some(([otherId, other]) => otherId !== id && !other.eliminated && other.gx === gx && other.gy === gy);
     if (!drin || besetzt) {
       this.feedback?.sound("clack");
       this.bump = { at: performance.now(), dx: step[0], dz: step[1] };
+      this.flushStep();
       return;
     }
     this.feedback?.sound("move");
     this.feedback?.vibrate(8);
-    // Die eigene Figur hüpft sofort. Nach dem Fall nimmt der Server keinen
-    // Schritt mehr an; dann wird auch nichts vorhergesagt.
-    const pending = { step, acked: false };
-    const settle = () => { pending.acked = true; };
-    if (this.phase?.name === "announce") this.stepInputs.push(pending);
-    this.sendInput({ action: "step", dir }).then(settle, settle);
+    this.lastStepSentAt = performance.now();
+    this.stepInFlight = true;
+    this.sendInput({ action: "step", dir }).finally(() => { this.stepInFlight = false; this.flushStep(); }).catch(() => {});
   }
 
   // Runde und Phase kommen aus dem Zeitplan, den der Server mitschickt — dieselbe
@@ -357,15 +332,8 @@ export class ColorRush extends MinigameScene {
     let round = 0;
     schedule.forEach((slot, index) => { if (elapsed >= slot.start) round = index; });
     // Weiter als der Server ist man nie: gibt es keine Entscheidung, bleibt
-    // er in der achten Runde, und dann ist das Spiel vorbei. Sonst ist nur
-    // seine neue Runde noch unterwegs — die Ankunftszeit läuft ihm um die
-    // Netzlaufzeit voraus, und die neue Zielfarbe kennt man erst mit ihr. Bis
-    // dahin bleibt das Ende des letzten Falls stehen.
-    if (round > (arcade.round ?? round)) {
-      const standing = Object.values(arcade.players || {}).filter((entry) => !entry.eliminated).length;
-      if (round >= (arcade.roundCount ?? 8) && standing < 2) return { name: "over", t: 1, left: 0, round: arcade.round };
-      return { name: "drop", t: 1, left: 0, round: arcade.round };
-    }
+    // er in der achten Runde, und dann ist das Spiel vorbei.
+    if (round > (arcade.round ?? round)) return { name: "over", t: 1, left: 0, round: arcade.round };
     const slot = schedule[round];
     if (!slot) return { name: "announce", t: 0, left: 0, round };
     if (elapsed < slot.dropAt) {
@@ -384,9 +352,7 @@ export class ColorRush extends MinigameScene {
     });
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
-    // Ansage und Fall laufen auf Ankunftszeit: Der Countdown zeigt, wie lange
-    // ein Schritt noch rechtzeitig beim Server ankommt.
-    const phase = this.computePhase(arcade, minigame, this.arrivalNow());
+    const phase = this.computePhase(arcade, minigame, now);
     this.phase = phase;
 
     if (arcade.round !== this.lastRound) {
@@ -424,9 +390,7 @@ export class ColorRush extends MinigameScene {
 
     this.tiles.forEach((tile, index) => {
       const color = arcade.grid[index];
-      const { side, top } = tile.userData;
-      let shown = color;
-      side.color.set(COLORS[color] || COLORS[0]);
+      tile.material.color.set(COLORS[color] || COLORS[0]);
       const isTarget = color === arcade.targetColor;
       const gx = index % COLS;
       const gy = Math.floor(index / COLS);
@@ -445,7 +409,7 @@ export class ColorRush extends MinigameScene {
       } else if (phase.name === "announce") {
         // Zu Beginn der Ansage kommen die gefallenen Felder in neuer Farbe
         // wieder hoch.
-        opacity = Math.min(1, (side.opacity ?? 1) + dt * 4);
+        opacity = Math.min(1, (tile.material.opacity ?? 1) + dt * 4);
       }
       // Im Finale kommen alle Felder in einer Welle zurück, vom Sieger aus —
       // statt ihn allein auf einem Feld über dem leeren Loch stehen zu lassen.
@@ -456,33 +420,22 @@ export class ColorRush extends MinigameScene {
         if (u > 0) {
           targetY = Math.sin(Math.min(1, u * 2.2) * Math.PI) * 0.18 * Math.max(0, 1 - u);
           opacity = Math.min(1, u * 4);
-          shown = (color + Math.floor(u * 6)) % COLORS.length;
-          side.color.set(COLORS[shown] || COLORS[0]);
+          tile.material.color.set(COLORS[(color + Math.floor(u * 6)) % COLORS.length] || COLORS[0]);
         }
       }
       tile.position.x = tileX(gx) + jitterX;
       tile.position.z = tileZ(gy) + jitterZ;
       tile.position.y = THREE.MathUtils.lerp(tile.position.y, targetY, frameLerp(0.3, dt));
-      side.transparent = opacity < 1;
-      side.opacity = opacity;
+      tile.material.transparent = opacity < 1;
+      tile.material.opacity = opacity;
+      tile.userData.symbol.material = this.symbolMaterials[color] || this.symbolMaterials[0];
+      tile.userData.symbol.visible = opacity > 0.35;
       if (isTarget && phase.name !== "over" && !finale) {
-        side.emissive.set(COLORS[color]);
-        side.emissiveIntensity = 0.5 + Math.abs(Math.sin(now / 150)) * 0.7;
+        tile.material.emissive.set(COLORS[color]);
+        tile.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(now / 150)) * 0.7;
         if (phase.name === "announce") tile.position.y += Math.abs(Math.sin(now / 150 + gx + gy)) * 0.06;
       } else {
-        side.emissiveIntensity = 0;
-      }
-      // Die Oberseite folgt den Seiten, mit dem Zeichen der gezeigten Farbe.
-      top.color.copy(side.color);
-      top.emissive.copy(side.emissive);
-      top.emissiveIntensity = side.emissiveIntensity;
-      top.transparent = side.transparent;
-      top.opacity = side.opacity;
-      const map = this.symbolMaps[shown] || this.symbolMaps[0];
-      if (top.map !== map) {
-        top.map = map;
-        top.emissiveMap = map;
-        top.needsUpdate = true;
+        tile.material.emissiveIntensity = 0;
       }
     });
 
@@ -492,16 +445,15 @@ export class ColorRush extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const fallen = Boolean(entry.eliminated);
-      const { gx, gy } = this.cellOf(player.id, arcade, controlledId);
-      const targetX = tileX(gx);
-      const targetZ = tileZ(gy);
+      const targetX = tileX(entry.gx);
+      const targetZ = tileZ(entry.gy);
 
       // Ein Schritt ist ein Hüpfer in Sprungrichtung.
-      const cell = `${gx},${gy}`;
+      const cell = `${entry.gx},${entry.gy}`;
       const last = this.lastCell.get(player.id);
       if (last && last !== cell && !fallen) {
         const [lx, ly] = last.split(",").map(Number);
-        kin.userData.hopFacing = Math.atan2(gx - lx, gy - ly);
+        kin.userData.hopFacing = Math.atan2(entry.gx - lx, entry.gy - ly);
         kin.userData.hopAt = now;
         animator.trigger("hop", { height: 0.28 });
       }
@@ -575,14 +527,14 @@ export class ColorRush extends MinigameScene {
       // Zielfelder wippen in der Ansage bis zu sechs Zentimeter hoch — mit
       // fester Standhöhe steckten die Füsse genau dann im Block, wenn man
       // sich endlich auf das richtige Feld gerettet hatte.
-      const under = this.tiles[gy * COLS + gx];
+      const under = this.tiles[entry.gy * COLS + entry.gx];
       animator.groundY = Math.max(0, under?.position.y ?? 0) + TILE_TOP_Y + 0.3;
       kin.visible = true;
       setKinOpacity(kin, 1);
       if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
       if (finale) return;
 
-      const onTarget = arcade.grid[gy * COLS + gx] === arcade.targetColor;
+      const onTarget = arcade.grid[entry.gy * COLS + entry.gx] === arcade.targetColor;
       if (phase.name === "announce" && !onTarget) {
         animator.set(phase.t > 0.5 ? "panic" : "ready");
         if (phase.t > 0.5) animator.expression("scared", 200);
@@ -611,7 +563,7 @@ export class ColorRush extends MinigameScene {
       const show = (phase.name === "announce" || phase.name === "drop") && !f.finale;
       banner.hidden = !show;
       if (show) {
-        const name = COLOR_NAMES[arcade.targetColor];
+        const name = `${COLOR_SYMBOLS[arcade.targetColor]} ${COLOR_NAMES[arcade.targetColor]}`;
         if (own?.eliminated) {
           banner.textContent = "Reingefallen — schau zu";
           banner.style.background = "#0b1419";
@@ -619,10 +571,9 @@ export class ColorRush extends MinigameScene {
         } else {
           const secs = Math.max(0, phase.left / 1000).toFixed(1);
           const entscheidung = arcade.round >= (arcade.roundCount ?? 8);
-          const symbol = COLOR_SYMBOLS[arcade.targetColor] || "";
           banner.textContent = phase.name === "drop"
-            ? `${symbol} ${name}!`
-            : entscheidung ? `ENTSCHEIDUNG — nur ein Feld! ${symbol} ${name}  ${secs}` : `Lauf auf ${symbol} ${name}!  ${secs}`;
+            ? `${name}!`
+            : entscheidung ? `ENTSCHEIDUNG — nur ein Feld! ${name}  ${secs}` : `Lauf auf ${name}!  ${secs}`;
           banner.style.background = COLORS[arcade.targetColor];
           banner.style.color = arcade.targetColor === 2 ? "#5c4508" : "#1b2530";
         }

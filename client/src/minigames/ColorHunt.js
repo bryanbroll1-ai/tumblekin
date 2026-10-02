@@ -1,11 +1,11 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, KIN_SOLE, reachArm } from "./VoxelKit.js?v=tumblekin200";
-import { addStageLights } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
-import { forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin200";
+import { createCloud, KIN_SOLE, reachArm } from "./VoxelKit.js?v=tumblekin210";
+import { addStageLights } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin210";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
+import { forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin210";
 
 // Farbenjagd: jeder schiebt eine Farbwalze über eine grosse Leinwand. Was die
 // Walze überrollt, hat sofort seine Farbe, auch fremde. Auf der eigenen Farbe

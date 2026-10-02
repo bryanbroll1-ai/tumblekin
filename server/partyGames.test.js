@@ -49,6 +49,42 @@ function setup(type, n = 4, { bots = false } = {}) {
 
 // --- Tauziehen -------------------------------------------------------------
 
+test("Zündstoff: bei gleicher Überlebensleistung gewinnt hektisches Weitergeben keinen Stichentscheid", () => {
+  const g = setup("zuendstoff", 2);
+  try {
+    const [one, two] = g.players.map(p => g.arcade.players[p.id]);
+    one.passes = 2; two.passes = 99;
+    assert.equal(arcadeRankingScore(g.arcade, one), arcadeRankingScore(g.arcade, two));
+    two.lives = one.lives - 1;
+    assert.ok(arcadeRankingScore(g.arcade, one) > arcadeRankingScore(g.arcade, two));
+  } finally { g.restore(); }
+});
+
+for (const type of ["tauziehen", "luftpuck"]) {
+  for (const count of [2, 3, 4]) {
+    test(`${type}: ${count} Spieler teilen den Teamplatz unabhängig vom Einzelbeitrag`, () => {
+      const g = setup(type, count);
+      try {
+        if (type === "tauziehen") g.arcade.tug.wins = [2, 1];
+        else g.arcade.hockey.score = [5, 3];
+        g.players.forEach((p, i) => Object.assign(g.arcade.players[p.id], {
+          work: i * 90, touches: i * 20, goals: i
+        }));
+        const places = testRules.rankPlaces(g.players, p => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
+        const winners = g.players.filter(p => g.arcade.players[p.id].side === 0);
+        winners.forEach(p => assert.equal(places[p.id], 1));
+        const losers = g.players.filter(p => g.arcade.players[p.id].side === 1);
+        losers.forEach(p => assert.equal(places[p.id], winners.length + 1));
+        // Auch ein unentschiedener Teamstand bleibt für alle unentschieden.
+        if (type === "tauziehen") g.arcade.tug.wins = [1, 1];
+        else g.arcade.hockey.score = [3, 3];
+        const draw = testRules.rankPlaces(g.players, p => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
+        assert.deepEqual(Object.values(draw), Array(count).fill(1));
+      } finally { g.restore(); }
+    });
+  }
+}
+
 test("Tauziehen: vier Spieler ergeben zwei gegen zwei, drei einer gegen zwei", () => {
   const four = setup("tauziehen", 4);
   const sides = four.players.map((p) => four.arcade.players[p.id].side);
@@ -248,7 +284,17 @@ test("Flaggen hoch: richtig, falsch, zu spät und reingefallen", () => {
   assert.equal(g.arcade.players[b.id].lives, C.FLAG_LIVES - 1);
   // Eine Falle: wer drückt, fällt rein; wer stillhält, hat richtig.
   const fake = commands.find((command) => command.kind === "fake");
-  g.run(first.at + first.window + C.FLAG_GRACE_MS + 90, fake.at + 50, 30);
+  // Die Zwischenkommandos beantworten: sonst fallen die zwei anderen aus,
+  // das Finale beginnt vor der Falle und diese Eingabe ist zurecht gesperrt.
+  g.run(first.at + first.window + C.FLAG_GRACE_MS + 90, fake.at + 50, 30, (t) => {
+    const active = party.activeFlagCommand(commands, t);
+    if (!active || active === first || active === fake || active.kind === "fake") return;
+    g.players.forEach((player) => {
+      if (g.arcade.players[player.id].answers[active.index]) return;
+      const flags = active.kind === "both" ? ["red", "blue"] : [active.kind];
+      flags.forEach((flag) => g.input(player, { action: "flag", flag }));
+    });
+  });
   g.input(a, { action: "flag", flag: fake.side });
   g.run(fake.at + 80, fake.at + fake.window + 60, 30);
   assert.equal(g.arcade.players[a.id].answers[fake.index].result, "fooled");
@@ -263,9 +309,12 @@ test("Flaggen hoch: bei BEIDE zählt es erst, wenn beide Flaggen oben sind", () 
   // Bis dahin alles richtig beantworten, damit niemand vorher rausfliegt.
   g.run(0, both.at + 50, 20, (t) => {
     const active = party.activeFlagCommand(commands, t);
-    if (!active || active === both || g.arcade.players[p.id].answers[active.index]) return;
-    if (active.kind === "red" || active.kind === "blue") g.input(p, { action: "flag", flag: active.kind });
-    if (active.kind === "both" && t > active.at + 100) { g.input(p, { action: "flag", flag: "red" }); g.at(t + 50); g.input(p, { action: "flag", flag: "blue" }); }
+    if (!active || active === both || active.kind === "fake") return;
+    g.players.forEach((player) => {
+      if (g.arcade.players[player.id].answers[active.index]) return;
+      const flags = active.kind === "both" ? ["red", "blue"] : [active.kind];
+      flags.forEach((flag) => g.input(player, { action: "flag", flag }));
+    });
   });
   const vorher = g.arcade.players[p.id].correct;
   g.input(p, { action: "flag", flag: "red" });

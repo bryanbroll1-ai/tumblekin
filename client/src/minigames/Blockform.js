@@ -32,7 +32,14 @@ import * as THREE from "/vendor/three/three.module.js";
 
 const TAU = Math.PI * 2;
 const cache = new Map();
+const CACHE_BYTES = 8 * 1024 * 1024;
+const CACHE_ENTRIES = 256;
+let cachedBytes = 0;
 const geprueft = new WeakSet();
+
+export function blockformCacheInfo() {
+  return { entries: cache.size, bytes: cachedBytes, maxBytes: CACHE_BYTES, maxEntries: CACHE_ENTRIES };
+}
 
 // Einmal je Bild vor dem Zeichnen: neue runde Formen umbauen. Bereits
 // geprüfte Geometrien werden übersprungen, der Durchlauf kostet fast nichts.
@@ -59,7 +66,12 @@ export function blockform(geometry) {
   const type = geometry.type;
   if (!BAU[type]) return null;
   const key = `${type}|${JSON.stringify(geometry.parameters)}`;
-  if (cache.has(key)) return cache.get(key);
+  if (cache.has(key)) {
+    const entry = cache.get(key);
+    cache.delete(key);
+    cache.set(key, entry);
+    return entry.geometry;
+  }
   let block = null;
   try {
     block = BAU[type](geometry.parameters || {});
@@ -71,7 +83,21 @@ export function blockform(geometry) {
     block.computeBoundingBox();
     block.computeBoundingSphere();
   }
-  cache.set(key, block);
+  if (block) {
+    const bytes = Object.values(block.attributes).reduce((sum, attribute) => sum + attribute.array.byteLength, 0)
+      + (block.index?.array.byteLength || 0);
+    if (bytes <= CACHE_BYTES) {
+      while (cache.size >= CACHE_ENTRIES || cachedBytes + bytes > CACHE_BYTES) {
+        const oldest = cache.keys().next().value;
+        cachedBytes -= cache.get(oldest).bytes;
+        // Nur den Vorratsverweis entfernen. Eine aktive Szene kann dieselbe
+        // Geometrie noch zeichnen und räumt ihre GPU-Ressourcen selbst auf.
+        cache.delete(oldest);
+      }
+      cache.set(key, { geometry: block, bytes });
+      cachedBytes += bytes;
+    }
+  }
   return block;
 }
 

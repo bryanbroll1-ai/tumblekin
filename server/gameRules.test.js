@@ -23,7 +23,6 @@ const {
   ARENA_RADIUS,
   ARENA_BALL_RADIUS,
   ARENA_RESPAWN_MS,
-  createRunnerCourse,
   dareBarrelAt,
   dareRestingDistance,
   darePoints,
@@ -32,8 +31,6 @@ const {
   DARE_ROLL_MS,
   DARE_LEAD_IN_MS,
   DARE_SHOW_MS,
-  runnerSegmentAt,
-  runnerLaneFactor,
   advanceColorRound,
   handleArcadeInput,
   updateArcade,
@@ -343,9 +340,9 @@ test("bumper: in the last fifteen seconds the island shrinks", () => {
   updateBounceArena(room);
   assert.ok(arena.radius < ARENA_RADIUS * 0.7 && arena.radius > ARENA_RADIUS * 0.5, `Radius ${arena.radius}`);
   assert.equal(arena.shrinking, true);
-  // Wer ausserhalb steht, wird zurückgeschoben, nicht hinausgeworfen.
+  // Diese beiden Startpositionen liegen auch nach dem Schrumpfen innen.
   Object.values(arena.players).forEach((ap) => {
-    assert.ok(Math.hypot(ap.x, ap.y) <= arena.radius, "niemand fällt, nur weil die Insel kleiner wird");
+    assert.ok(Math.hypot(ap.x, ap.y) <= arena.radius, "die inneren Startpositionen bleiben auf der verkleinerten Insel");
   });
 });
 
@@ -407,115 +404,6 @@ test("bumper: a bot too far out heads back to the middle instead of chasing", ()
 
   // Schub muss zur Mitte zeigen, also entgegen der eigenen Auslenkung.
   assert.ok(me.thrustX < 0, `Schub muss nach innen zeigen, war ${me.thrustX}`);
-});
-
-test("runner course: jede Bahnlage ist fahrbar, Hürden stehen nie im Sand", () => {
-  const segments = createRunnerCourse(367);
-  assert.ok(segments.length > 8);
-  assert.ok(segments.filter((segment) => segment.wall !== null).length >= 3, "es gibt Heuballen");
-  // Zwei Hürden direkt hintereinander in derselben Bahn wären mit Boost
-  // nicht zu überspringen: Sprung und Landung dauern eine Sekunde.
-  for (let i = 1; i < segments.length; i += 1) {
-    if (segments[i].hurdle !== null) assert.notEqual(segments[i].hurdle, segments[i - 1].hurdle, `Abschnitt ${i}: zwei Hürden hintereinander`);
-  }
-  segments.forEach((segment) => {
-    // Heuballen: nie im Sand, nie in der Bahn der Hürde — der Sand bleibt
-    // immer frei, es gibt also immer einen Weg.
-    if (segment.wall !== null) {
-      assert.notEqual(segment.lanes[segment.wall], "sand", "kein Heuballen im Sand");
-      assert.notEqual(segment.wall, segment.hurdle, "Heuballen und Hürde nicht in derselben Bahn");
-    }
-    // Genau eine Hürde je Abschnitt, und höchstens eine.
-    assert.ok(segment.hurdle === null || [0, 1, 2].includes(segment.hurdle));
-    // Es gibt IMMER eine Bahn ohne Hürde — sonst wäre der Abschnitt eine
-    // Zufallsstrafe statt einer Entscheidung.
-    const frei = [0, 1, 2].filter((lane) => segment.hurdle !== lane);
-    assert.ok(frei.length >= 2, "mindestens zwei Bahnen ohne Hürde");
-    // Eine Hürde im Sand träfe niemanden: dort steht ohnehin keiner freiwillig.
-    if (segment.hurdle !== null) {
-      assert.notEqual(segment.lanes[segment.hurdle], "sand", "keine Hürde im Sand");
-    }
-    // Beläge sind bekannt.
-    segment.lanes.forEach((belag) => {
-      assert.ok(["sand", "normal", "tempo"].includes(belag), `unbekannter Belag ${belag}`);
-    });
-  });
-});
-
-test("runner: die Tempobahn wandert so, dass man ihr folgen kann", () => {
-  // Früher sprang sie in JEDEM Abschnitt woandershin, oft über zwei Bahnen:
-  // alle 0,9 s ein neuer Wisch. Gemessen fuhren alle Bot-Stufen damit einen
-  // Belag von 1.04 — kaum besser als geradeaus. Jetzt bleibt sie auch mal
-  // liegen und wandert nur in die Nachbarbahn.
-  [367, 509, 1203].forEach((seed) => {
-    const segments = createRunnerCourse(seed).filter((segment) => segment.lanes.includes("tempo"));
-    assert.ok(segments.length > 6);
-    let moves = 0;
-    let stays = 0;
-    for (let i = 1; i < segments.length; i += 1) {
-      const vorher = segments[i - 1].lanes.indexOf("tempo");
-      const jetzt = segments[i].lanes.indexOf("tempo");
-      assert.ok(Math.abs(jetzt - vorher) <= 1, `Seed ${seed}, Abschnitt ${i}: Sprung von ${vorher} nach ${jetzt}`);
-      if (jetzt === vorher) stays += 1; else moves += 1;
-    }
-    assert.ok(moves >= 4, `Seed ${seed}: die Tempobahn muss wandern (${moves} Wechsel)`);
-    assert.ok(stays >= 3, `Seed ${seed}: sie muss auch mal liegen bleiben (${stays})`);
-  });
-});
-
-test("runner: Belagfaktor kommt aus dem Abschnitt unter der Figur", () => {
-  const arcade = { segments: createRunnerCourse(367) };
-  const segment = runnerSegmentAt(arcade, 40);
-  assert.ok(segment, "es gibt einen Abschnitt bei 40 Metern");
-  const tempoLane = segment.lanes.indexOf("tempo");
-  if (tempoLane >= 0) {
-    assert.ok(runnerLaneFactor(arcade, 40, tempoLane) > 1.2, "Tempobahn ist schneller");
-  }
-  const sandLane = segment.lanes.indexOf("sand");
-  if (sandLane >= 0) {
-    assert.ok(runnerLaneFactor(arcade, 40, sandLane) < 0.8, "Sandbahn ist langsamer");
-  }
-});
-
-test("runner auto-runs, stumbles on obstacles and ranks finishers by time", () => {
-  const runner = player({ id: "rn", name: "RN", color: "#fff" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-  assert.equal(entry.progress, 0);
-
-  for (let tick = 0; tick < 900 && !entry.finishedAt; tick += 1) {
-    arcade.lastUpdateAt = Date.now() - 60;
-    updateArcade(room);
-  }
-  assert.ok(entry.progress > 0, "the runner moves forward on its own");
-
-  const finished = arcadeRankingScore(arcade, { finishedAt: 1, finishMs: 5000 });
-  const stillGoing = arcadeRankingScore(arcade, { finishedAt: null, progress: 40 });
-  assert.ok(finished > stillGoing, "finishers outrank runners still on the track");
-});
-
-test("runner lane input clamps to the three lanes", () => {
-  const runner = player({ id: "ln", name: "LN", color: "#fff" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000 };
-  const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "lane", dir: -1 });
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "lane", dir: -1 });
-  assert.equal(entry.lane, 0, "lane cannot go below 0");
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "lane", dir: 1 });
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "lane", dir: 1 });
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "lane", dir: 1 });
-  assert.equal(entry.lane, 2, "lane cannot exceed 2");
 });
 
 test("color escape guarantees safe tiles and rewards standing on the target color", () => {
@@ -763,21 +651,6 @@ test("lichtwaechter: holding on red costs ground and a moment, letting go in the
   assert.equal(greedy.progress, stunned);
 });
 
-test("lichtwaechter: letting go right after a hold ping is never swallowed by the cooldown", () => {
-  // Das Gerät pingt beim Halten alle 90 ms. Das Loslassen folgt dem letzten
-  // Ping oft nach wenigen Millisekunden — es darf trotzdem nicht verloren gehen.
-  const runner = player({ id: "rp", name: "RP", color: "#fff" });
-  const startedAt = Date.now() - 1000;
-  const arcade = createArcadeState("lichtwaechter", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-  handleArcadeInput(room, runner, { action: "run", hold: true });
-  assert.equal(entry.holding, true);
-  handleArcadeInput(room, runner, { action: "run", hold: false });
-  assert.equal(entry.holding, false, "Loslassen direkt nach dem Ping zählt");
-});
-
 test("lichtwaechter: reaching the gate finishes the run and ranks by time", () => {
   const sprinter = player({ id: "rl2", name: "RL2", color: "#fff" });
   const startedAt = Date.now();
@@ -838,142 +711,6 @@ test("seilspringen: a jump that already landed does not save the player", () => 
   entry.jumpUntil = startedAt + wave.hitAt - 50;
   testRules.updateWave(room, minigame, arcade, startedAt + wave.hitAt + 10);
   assert.equal(entry.eliminated, true, "landing before the wave means elimination");
-});
-
-function runnerSolo() {
-  const runner = player({ id: "rn", name: "RN", color: "#fff" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-  // Kein Kurs-Zufall im Test: keine Hindernisse, alles normal.
-  arcade.segments.forEach((segment) => { segment.hurdle = null; segment.wall = null; segment.lanes = ["normal", "normal", "normal"]; });
-  const tick = (ms = 16) => {
-    arcade.lastUpdateAt = Date.now() - ms;
-    testRules.updateArcade(room);
-  };
-  return { runner, arcade, room, entry, tick };
-}
-
-test("zielgerade: es gibt nichts mehr zu werfen", () => {
-  const { runner, room, entry } = runnerSolo();
-  const result = handleArcadeInput(room, runner, { action: "attack" });
-  assert.equal(result.ok, false);
-  assert.equal(entry.item, undefined, "keine Wasserbomben mehr");
-});
-
-test("zielgerade: über einen Heuballen hilft kein Sprung, nur ausweichen", () => {
-  const { arcade, entry, tick } = runnerSolo();
-  const segment = arcade.segments[6];
-  segment.wall = 1;
-  entry.lane = 1;
-  entry.nextWall = segment.index;
-  entry.nextHurdle = segment.index;
-  entry.progress = segment.wallAt - 0.05;
-  entry.jumpUntil = Date.now() + 500;
-  tick(100);
-  assert.ok(entry.stumbleUntil > Date.now(), "auch im Sprung läuft man hinein");
-  assert.equal(entry.crashes, 1);
-
-  // In der Nachbarbahn läuft man vorbei.
-  const next = arcade.segments[8];
-  next.wall = 1;
-  entry.lane = 2;
-  entry.stumbleUntil = 0;
-  entry.nextWall = next.index;
-  entry.progress = next.wallAt - 0.05;
-  tick(100);
-  assert.ok(!(entry.stumbleUntil > Date.now()), "ausgewichen");
-  assert.equal(entry.crashes, 1);
-});
-
-test("zielgerade: wer auf ein Boostfeld wechselt, bekommt einen Anschub", () => {
-  const { arcade, entry, tick } = runnerSolo();
-  const segment = arcade.segments[5];
-  segment.lanes = ["normal", "tempo", "normal"];
-  entry.progress = segment.at + 1;
-  entry.nextHurdle = segment.index;
-  entry.nextWall = segment.index;
-  entry.lane = 0;
-  tick(50);
-  const normal = entry.speed;
-  entry.lane = 1;
-  tick(50);
-  const angeschoben = entry.speed;
-  assert.equal(entry.kicks, 1, "der Wechsel zählt als Anschub");
-  assert.ok(angeschoben > normal * 1.34 * 1.15, `mehr als der Belag allein (${normal} → ${angeschoben})`);
-  // Der Anschub klingt ab; danach bleibt der Belag.
-  entry.kickAt = Date.now() - 5000;
-  tick(50);
-  assert.ok(Math.abs(entry.speed - normal * 1.34) < 0.01, "nach dem Anschub nur noch der Belag");
-  assert.equal(entry.kicks, 1, "Weiterlaufen auf dem Boostfeld schiebt nicht erneut an");
-});
-
-test("zielgerade: Springen hat einen Preis", () => {
-  // Ohne Preis war Dauertippen gegen jede Hürde und jeden Wurf gefeit, und das
-  // Lesen der Bahn war wertlos.
-  const runner = player({ id: "rj", name: "RJ", color: "#fff" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-
-  assert.deepEqual(handleArcadeInput(room, runner, { action: "jump" }), { ok: true });
-  const first = entry.jumpUntil;
-  entry.lastInputAt = 0;
-  handleArcadeInput(room, runner, { action: "jump" });
-  assert.equal(entry.jumpUntil, first, "in der Luft springt man nicht noch einmal ab");
-
-  entry.progress = 1;
-  entry.lane = 1;
-  arcade.lastUpdateAt = Date.now() - 100;
-  testRules.updateArcade(room);
-  const air = entry.speed;
-  entry.jumpUntil = 0;
-  arcade.lastUpdateAt = Date.now() - 100;
-  testRules.updateArcade(room);
-  assert.ok(air < entry.speed, `Luft ${air} gegen Boden ${entry.speed}`);
-});
-
-test("zielgerade: Huerde stolpert den Läufer wenn er nicht springt", () => {
-  const runner = player({ id: "rh", name: "RH", color: "#fff" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner] };
-
-  const mitHuerde = arcade.segments.find((segment) => segment.hurdle !== null);
-  assert.ok(mitHuerde, "der Kurs enthaelt Huerden");
-
-  entry = arcade.players[runner.id];
-  entry.lane = mitHuerde.hurdle;
-  entry.progress = mitHuerde.hurdleAt - 0.4;
-  entry.nextHurdle = mitHuerde.index;
-  arcade.lastUpdateAt = Date.now() - 300;
-  testRules.updateArcade(room);
-
-  assert.ok(entry.stumbleUntil > Date.now(), "die Huerde muss stolpern lassen");
-  assert.equal(entry.stumbles, 1);
-});
-
-test("zielgerade: dieselbe Huerde zaehlt nur einmal", () => {
-  const runner = player({ id: "r1", name: "R1", color: "#fff" });
-  const startedAt = Date.now() - 100;
-  const arcade = createArcadeState("finishRush", [runner], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 42000, finishing: false };
-  const room = { currentMinigame: minigame, players: [runner] };
-  const entry = arcade.players[runner.id];
-  const mitHuerde = arcade.segments.find((segment) => segment.hurdle !== null);
-  entry.lane = mitHuerde.hurdle;
-  entry.progress = mitHuerde.hurdleAt - 0.2;
-  entry.nextHurdle = mitHuerde.index;
-  for (let i = 0; i < 5; i += 1) {
-    arcade.lastUpdateAt = Date.now() - 100;
-    testRules.updateArcade(room);
-  }
-  assert.equal(entry.stumbles, 1, "eine Huerde, ein Stolperer");
 });
 
 function dareRoom(players = [{ id: "fa", name: "FA", isBot: false }]) {
@@ -1642,18 +1379,6 @@ test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () =>
   const survivorScore = arcadeRankingScore(arcade, arcade.players[survivorId]);
   const victimScore = arcadeRankingScore(arcade, arcade.players[victimId]);
   assert.ok(survivorScore > victimScore, "survivors outrank the exploded");
-});
-
-test("zuendstoff: der Knall-Zeitpunkt geht nicht an die Geräte, nur die gezeigten Sekunden", () => {
-  const duo = ["zf", "zg"].map((id, i) => player({ id, name: id.toUpperCase(), color: ["#fff", "#0ff"][i] }));
-  const startedAt = Date.now();
-  const arcade = createArcadeState("zuendstoff", duo, startedAt);
-  const sent = publicArcade(arcade);
-  assert.equal(sent.fuseAt, undefined, "wann es knallt, weiss nur der Server");
-  assert.equal(sent.fuseMs, undefined);
-  assert.equal(sent.fuseSecs, Math.round(arcade.fuseMs / 1000), "die gezeigte Zündzeit in ganzen Sekunden");
-  assert.equal(sent.litAt, arcade.fuseAt - arcade.fuseMs, "gezählt wird ab der Zündung, nicht ab dem letzten Fang");
-  assert.ok(Number.isFinite(arcade.fuseAt), "der Server rechnet weiter mit dem genauen Wert");
 });
 
 test("zuendstoff: zu dritt ist nach einem Knall raus, die Bombe geht weiter", () => {

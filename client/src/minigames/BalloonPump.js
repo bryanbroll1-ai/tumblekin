@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, reachArm } from "./VoxelKit.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createCloud, reachArm } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Pump-Panik — ein reiner Klicker: jeder Tipp pumpt den eigenen Ballon
 // grösser. Wer am Ende am meisten gepumpt hat, bringt seinen zum Platzen.
@@ -232,7 +232,6 @@ export class BalloonPump extends MinigameScene {
     const fill = station ? (station.radius - R0) / (R_MAX - R0) : 0;
     this.feedback?.sound("pump", { pitch: 1 + fill * 0.7, pan: station ? station.x / 4 : 0 });
     this.feedback?.vibrate(7);
-    this.pumpButton?.animate?.([{ transform: "translateY(5px) scale(0.975)" }, { transform: "none" }], { duration: 110, easing: "ease-out" });
     this.sendInput({ action: "pump" }).catch(() => {});
   }
 

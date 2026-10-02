@@ -281,7 +281,8 @@ const tug = {
   },
   rank(arcade, entry) {
     const wins = arcade.tug?.wins?.[entry.side] || 0;
-    return wins * 1000000 + Math.round((entry.work || 0) * 100);
+    // Der Teamsieg gehört beiden: eigener Arbeitseinsatz trennt keine Plätze.
+    return wins;
   },
   detail(arcade, entry) {
     return { kind: "points", value: arcade.tug?.wins?.[entry.side] || 0, label: "Runden" };
@@ -941,6 +942,11 @@ const honey = {
     });
   },
   input(ctx, player, entry, input) {
+    const currentTurn = ctx.arcade.honey.turn;
+    if (currentTurn && ctx.elapsed >= currentTurn.until + HONEY_GRACE_MS) {
+      honey.update(ctx);
+      return { ok: true };
+    }
     if (input.action === "pass") {
       const turn = ctx.arcade.honey.turn;
       if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
@@ -1921,9 +1927,8 @@ const hockey = {
   rank(arcade, entry) {
     const score = arcade.hockey?.score || [0, 0];
     const own = score[entry.side] || 0;
-    const other = score[1 - entry.side] || 0;
-    // Tore des Teams, dann Tordifferenz, dann eigene Tore, dann Ballkontakte.
-    return own * 1000000 + Math.max(0, 50 + own - other) * 10000 + (entry.goals || 0) * 100 + Math.min(99, entry.touches || 0);
+    // Tore und Kontakte sind Beiträge zum selben Teamsieg, keine Einzelplätze.
+    return own;
   },
   detail(arcade, entry) {
     return { kind: "points", value: arcade.hockey?.score?.[entry.side] || 0, label: "Tore" };
@@ -2868,6 +2873,10 @@ const boat = {
     const turn = ctx.arcade.boat.turn;
     if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
     if (ctx.elapsed < turn.from) return { ok: true };
+    if (ctx.elapsed >= turn.until && !(player.isBot && Number.isFinite(input.botAt) && input.botAt < turn.until)) {
+      boatDrop(ctx, player, entry, true, turn.until);
+      return { ok: true };
+    }
     // Bots planen ihren Tipp wie ein Mensch auf die Millisekunde; ihr Takt ist
     // aber grob (alle 120–180 ms), darum zählt der geplante Augenblick. Nur für
     // Bots — ein Gerät kann keine Zeit mitschicken.

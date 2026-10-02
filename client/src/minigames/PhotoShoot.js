@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin200";
-import { forecastPhoto, photoRules, canShove } from "./Fotobuehne.js?v=tumblekin200";
+import { createNameLabel, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin210";
+import { forecastPhoto, photoRules, canShove } from "./Fotobuehne.js?v=tumblekin210";
 
 // Schnappschuss — Premierenabend auf dem roten Teppich. Ein Fotograf vorn
 // am Bühnenrand zeigt einen Bildausschnitt, zählt herunter und blitzt. Wer im
@@ -323,7 +323,7 @@ export class PhotoShoot extends MinigameScene {
   // erst eine Rundreise später.
   shoveNow() {
     const minigame = this.update || this.minigame;
-    if (!minigame || minigame.finaleAt) return;
+    if (!minigame || minigame.finaleAt || this.shoveButton?.disabled) return;
     const own = this.view?.entries.get(this.getControlledPlayerId());
     const rules = photoRules(minigame.arcade);
     const clock = performance.now();
@@ -648,7 +648,9 @@ export class PhotoShoot extends MinigameScene {
       const ready = own ? Math.max(0, Math.min(1, (at - (own.lastShoveAt ?? -1e9)) / rules.cooldownMs)) : 1;
       this.shoveButton.classList.toggle("is-ready", ready >= 1 && !(own && at < (own.stunUntil || 0)));
       this.shoveButton.querySelector(".snow-meter i").style.width = `${Math.round(ready * 100)}%`;
-      this.shoveButton.disabled = Boolean(minigame.finaleAt);
+      const available = Boolean(own && canShove(rules, own, at));
+      this.shoveButton.disabled = !available || Boolean(minigame.finaleAt);
+      this.shoveButton.querySelector("b").textContent = available ? "SCHUBS!" : at < (own?.stunUntil || 0) ? "ERHOLEN" : "LÄDT …";
     }
   }
 }

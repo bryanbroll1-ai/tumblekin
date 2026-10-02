@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)
 // kommen Blobs. Wer schnell draufhaut, bekommt mehr (3/2/1 Punkte), der
@@ -438,7 +438,7 @@ export class WhackBlob extends MinigameScene {
       event.preventDefault();
       const cell = this.cellFromPointer(event);
       const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
-      if (this.arrivalNow() < (own?.stunUntil || 0)) {
+      if (this.now() < (own?.stunUntil || 0)) {
         this.feedback?.vibrate(4);
         return;
       }
@@ -515,11 +515,7 @@ export class WhackBlob extends MinigameScene {
       falter.userData.fluegel.forEach((f) => { f.rotation.z = schlag; });
     });
     if (!arcade) return;
-    // Die Blobs tauchen zur Ankunftszeit auf: Wer beim ersten Wippen
-    // draufhaut, dessen Schlag zählt beim Server auch als blitzschnell. Auf
-    // der verzögerten Uhr fehlte jedem die Netzlaufzeit hin und zurück am
-    // 450-ms-Fenster für drei Punkte.
-    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
+    const elapsed = Math.max(0, now - minigame.startedAt);
     const active = new Set();
     const popById = new Map();
     (arcade.pops || []).forEach((pop) => {
@@ -565,12 +561,12 @@ export class WhackBlob extends MinigameScene {
       }
       if (blob.userData.sparkle) {
         blob.userData.sparkle.rotation.y = now / 200;
-        if (Math.random() < 0.08) this.burst(blob.position.clone().add(new THREE.Vector3(0, 0.9, 0)), ["#ffe36b", "#ffffff"], { count: 1, speed: 0.6, up: 0.6, size: 0.05, life: 0.4 });
+        if (Math.random() < frameChance(0.08, dt)) this.burst(blob.position.clone().add(new THREE.Vector3(0, 0.9, 0)), ["#ffe36b", "#ffffff"], { count: 1, speed: 0.6, up: 0.6, size: 0.05, life: 0.4 });
       }
     });
     this.blobs.forEach((blob, id) => {
       if (active.has(id)) return;
-      this.scene.remove(blob);
+      this.removeObject(blob);
       this.blobs.delete(id);
     });
 
@@ -695,12 +691,11 @@ export class WhackBlob extends MinigameScene {
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.points || 0);
     this.stunNode ||= this.hud.querySelector("[data-whack-stun]");
-    const at = this.arrivalNow();
-    const stunned = at < (own?.stunUntil || 0);
+    const stunned = f.now < (own?.stunUntil || 0);
     this.stunNode.hidden = !stunned;
     if (stunned) {
       // Wie lange noch — in Zehnteln, damit man den Moment zum Weiterhauen sieht.
-      const text = `Aua! Benommen · ${((own.stunUntil - at) / 1000).toFixed(1)} s`;
+      const text = `Aua! Benommen · ${((own.stunUntil - f.now) / 1000).toFixed(1)} s`;
       if (this.stunNode.textContent !== text) this.stunNode.textContent = text;
     }
     this.webglCanvas?.classList.toggle("is-stunned", stunned);

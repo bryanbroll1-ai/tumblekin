@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { disposeScene } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Rohrsalat — im Kesselhaus hängt ein Gewirr aus Kupferrohren an der
 // Ziegelwand. Oben die Ventile, unten die Ausgänge; nur einer führt in die
@@ -23,9 +23,25 @@ const VALVE_COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b", "#b57bff", "#f
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const FLOW_MS = 1700;
 
+function valveLabel(letter, color) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff8df'; ctx.fillRect(4, 4, 120, 120);
+  ctx.strokeStyle = color; ctx.lineWidth = 12; ctx.strokeRect(10, 10, 108, 108);
+  ctx.fillStyle = '#17242b'; ctx.font = '900 82px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(letter, 64, 68);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false }));
+  sprite.scale.set(0.42, 0.42, 1);
+  return sprite;
+}
+
 export class PipeMaze extends MinigameScene {
   constructor(ctx) {
     super(ctx);
+    this.ownInView = false;
     this.mazeRound = -1;
     this.mazeGroup = null;
     this.seenScored = -1;
@@ -52,8 +68,8 @@ export class PipeMaze extends MinigameScene {
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-pipe-round>1/5</span><strong data-kinetic-score>0</strong></div>
-      <div class="hud-chips" data-pipe-chips></div>
-      <div class="color-banner" data-pipe-banner hidden></div>`;
+      <div class="hud-chips pipe-chips" data-pipe-chips></div>
+      <div class="color-banner pipe-banner" data-pipe-banner hidden></div>`;
   }
 
   build() {
@@ -163,7 +179,10 @@ export class PipeMaze extends MinigameScene {
   // Das Rohrnetz einer Runde: senkrechte Rohre, Querrohre, Muffen, oben
   // Ventilräder, unten die Ausgänge mit Truhe und Russtöpfen.
   buildMaze(maze, levels) {
-    if (this.mazeGroup) this.scene.remove(this.mazeGroup);
+    if (this.mazeGroup) {
+      this.scene.remove(this.mazeGroup);
+      disposeScene(this.mazeGroup, { retain: this.scene });
+    }
     const g = new THREE.Group();
     this.mazeGroup = g;
     this.maze = maze;
@@ -205,9 +224,8 @@ export class PipeMaze extends MinigameScene {
       rad.position.set(colX(c), TOP_Y + 0.28, 0.12);
       g.add(rad);
       kiste(g, 0.12, 0.25, 0.12, "#3b3f4a", [colX(c), TOP_Y + 0.1, 0.05], { schatten: false });
-      const tag = createNameLabel(LETTERS[c], VALVE_COLORS[c]);
+      const tag = valveLabel(LETTERS[c], VALVE_COLORS[c]);
       tag.position.set(colX(c), TOP_Y + 0.72, 0.15);
-      tag.scale.multiplyScalar(0.75);
       g.add(tag);
       rad.userData.column = c;
       (this.wheels ||= [])[c] = rad;
@@ -280,14 +298,27 @@ export class PipeMaze extends MinigameScene {
 
   rigOptions() {
     const cols = this.maze?.cols || 5;
-    return { frame: { w: cols * SPACING + 1.2, h: 6.2 } };
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const wide = rect.width > rect.height && rect.height <= 520;
+    // In landscape the task needs the full height; choices sit beside it.
+    // Reserving that column keeps labels and crossings out of the HUD.
+    const hudBottom = Math.max(...[...this.hud.children].filter(el => !el.hidden && el.offsetParent !== null)
+      .map(el => el.getBoundingClientRect().bottom - rect.top));
+    const insets = wide ? {
+      top: this.hud.querySelector('.kinetic-scorebar').getBoundingClientRect().bottom - rect.top + 8,
+      bottom: 12, left: 12, right: rect.right - this.buttonRow.getBoundingClientRect().left + 12
+    } : { top: hudBottom + 8, bottom: rect.bottom - this.buttonRow.getBoundingClientRect().top + 8, left: 0, right: 0 };
+    if (!this.rig.base.insets || Object.keys(insets).some(key => insets[key] !== this.rig.base.insets[key])) this.rig.band = null;
+    this.rig.base.insets = insets;
+    return { frame: { w: (cols - 1) * SPACING + 1.1, h: 5.6 } };
   }
 
   shot() {
     return {
-      look: [0, 3.35, 0],
-      frame: { w: 6.6, h: 6.2 },
-      pitch: 0.08,
+      look: [0, 3.8, 0],
+      frame: { w: 5.7, h: 5.6 },
+      fill: 0.97,
+      pitch: 0,
       fov: 38,
       intro: { yaw: 0.4, pitch: 0.2, zoom: 1.35 },
       finale: { pull: 0.85, zoom: 0.8, lift: 0.2, orbit: 0.1 }
@@ -385,7 +416,8 @@ export class PipeMaze extends MinigameScene {
       this.flows.forEach((flow) => {
         this.scene.remove(flow.dot);
         this.scene.remove(flow.line);
-        flow.line.geometry.dispose();
+        disposeScene(flow.dot, { retain: this.scene });
+        disposeScene(flow.line, { retain: this.scene });
       });
       this.flows = [];
       this.buttonsFor = -1;

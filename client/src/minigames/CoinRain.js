@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin200";
+import { flashKin } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin210";
 
 // Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
 // Bomben ausspuckt. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den
@@ -27,7 +27,6 @@ export class CoinRain extends MinigameScene {
     this.sootUntil = new Map();
     this.lastMult = new Map();
     this.swipe = null;
-    this.laneInputs = [];
     this.labelY = 0.74;
   }
 
@@ -372,71 +371,68 @@ export class CoinRain extends MinigameScene {
     // beim Loslassen — bei 300 ms zwischen zwei Münzen im Goldrausch zählt
     // jeder Augenblick. Wer weiterzieht, wechselt noch eine Spur weiter.
     this.on(this.webglCanvas, "pointerdown", (event) => {
-      this.swipe = { x: event.clientX, steps: 0 };
+      if (this.swipe) return;
+      this.webglCanvas.setPointerCapture?.(event.pointerId);
+      this.swipe = { pointerId: event.pointerId, x: event.clientX, steps: 0 };
     });
     this.on(window, "pointermove", (event) => {
       const swipe = this.swipe;
-      if (!swipe) return;
+      if (!swipe || swipe.pointerId !== event.pointerId) return;
       const dx = event.clientX - swipe.x;
       if (Math.abs(dx) < (swipe.steps === 0 ? 24 : 48)) return;
       swipe.x = event.clientX;
       swipe.steps += 1;
       this.sendLane(dx > 0 ? 1 : -1);
     });
-    this.on(window, "pointerup", () => { this.swipe = null; });
-    this.on(window, "pointercancel", () => { this.swipe = null; });
+    const end = (event) => { if (event.pointerId === this.swipe?.pointerId) this.swipe = null; };
+    const interrupt = () => { this.swipe = null; this.laneQueue = []; clearTimeout(this.laneTimer); this.laneTimer = null; };
+    this.on(window, "pointerup", end);
+    this.on(window, "pointercancel", end);
+    this.on(window, "blur", interrupt);
+    this.on(window, "resize", interrupt);
+    this.on(this.webglCanvas, "lostpointercapture", end);
+    this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
   unbind() {
+    clearTimeout(this.laneTimer);
+    this.laneQueue = [];
     this.controls.style.pointerEvents = "";
     this.dropMeshes.clear();
-  }
-
-  // Bestätigte Wechsel stecken ab dem nächsten Bild in der Spur des Servers.
-  onUpdate() {
-    if (this.laneInputs.some((input) => input.acked)) this.laneInputs = this.laneInputs.filter((input) => !input.acked);
-  }
-
-  // Die Spur einer Figur; die eigene samt der noch offenen Wechsel.
-  laneOf(id, arcade, controlledId) {
-    let lane = arcade.players[id]?.lane ?? 1;
-    if (id !== controlledId) return lane;
-    this.laneInputs.forEach((input) => { lane = Math.max(0, Math.min(2, lane + input.dir)); });
-    return lane;
   }
 
   // Der Server nimmt höchstens alle 110 ms einen Wechsel an. Kommt der
   // zweite aus einem durchgezogenen Wisch schneller, wird er kurz gehalten
   // statt verschluckt.
   sendLane(dir) {
+    this.laneQueue ||= [];
+    if (this.laneQueue.length >= 3) return;
+    this.laneQueue.push(dir);
+    this.flushLane();
+  }
+
+  flushLane() {
+    if (this.laneInFlight || this.laneTimer || !this.laneQueue?.length) return;
+    const game = this.update || this.minigame;
+    if (!this.frame || game.finaleAt || this.now() < game.startedAt) { this.laneQueue.length = 0; return; }
+    const wait = Math.max(0, (this.lastLaneAt || 0) + 125 - performance.now());
+    if (wait) {
+      this.laneTimer = setTimeout(() => { this.laneTimer = null; this.flushLane(); }, wait);
+      return;
+    }
+    const dir = this.laneQueue.shift();
+    this.lastLaneAt = performance.now();
     this.feedback?.sound("move");
     this.feedback?.vibrate(8);
-    const wait = (this.lastLaneAt || 0) + 125 - performance.now();
-    // Die eigene Figur wechselt sofort, nicht erst, wenn der Server es
-    // zurückmeldet: Der Wechsel gilt als offen, bis die Bestätigung da ist und
-    // danach das erste neue Bild — das enthält ihn dann schon.
-    const pending = { dir, acked: false };
-    this.laneInputs.push(pending);
-    const settle = () => { pending.acked = true; };
-    const send = () => {
-      this.lastLaneAt = performance.now();
-      this.sendInput({ action: "lane", dir }).then(settle, settle);
-    };
-    if (wait > 0) {
-      this.lastLaneAt = performance.now() + wait;
-      setTimeout(() => { if (this.frame) send(); else settle(); }, wait);
-    } else {
-      send();
-    }
+    this.laneInFlight = true;
+    this.sendInput({ action: "lane", dir }).finally(() => { this.laneInFlight = false; this.flushLane(); }).catch(() => {});
   }
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, finale } = f;
     this.mineLamps?.forEach((lampe, i) => lampe.scale.setScalar(1 + Math.sin(now / 90 + i * 2) * 0.04));
     if (!arcade) return;
-    // Münzen landen zur Ankunftszeit: Wer die Spur wechselt, solange die
-    // Münze im Bild noch fällt, steht beim Server auch rechtzeitig darunter.
-    const elapsed = Math.max(0, this.arrivalNow() - f.minigame.startedAt);
+    const elapsed = Math.max(0, now - f.minigame.startedAt);
     const fallMs = arcade.fallMs || 1400;
     this.machine.position.x = Math.sin(now / 1600) * 0.12;
     // Goldrausch: die Maschine blinkt golden, der Himmel wird warm.
@@ -484,7 +480,7 @@ export class CoinRain extends MinigameScene {
       mesh.rotation.y = drop.kind === "jackpot" ? Math.sin(now / 300) * 0.4 : now / 260 + drop.id;
       // Ob jemand in der Spur stand, entscheidet sich einmal, beim Fang.
       if (past >= 0 && mesh.userData.caught === undefined) {
-        mesh.userData.caught = players.some((player) => this.laneOf(player.id, arcade, controlledId) === drop.lane);
+        mesh.userData.caught = players.some((player) => arcade.players[player.id]?.lane === drop.lane);
       }
       const caught = past >= 0 && mesh.userData.caught;
       if (caught && drop.kind !== "bomb") {
@@ -549,8 +545,7 @@ export class CoinRain extends MinigameScene {
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
-      const lane = this.laneOf(player.id, arcade, controlledId);
-      const targetX = this.laneX(lane) + this.offset(index, players.length);
+      const targetX = this.laneX(entry.lane) + this.offset(index, players.length);
       const gap = targetX - kin.position.x;
       const moving = Math.abs(gap) > 0.06;
       kin.position.x += gap * frameLerp(0.22, dt);
@@ -572,7 +567,7 @@ export class CoinRain extends MinigameScene {
         // Münze ist — die einzelne fliegt sichtbar in den Zähler. Der Schatz
         // steht einmal da, nicht je Figur in der Spur übereinander.
         // Steht man selbst in der Spur, erscheint die Zahl über der eigenen Figur.
-        const ownThere = this.laneOf(controlledId, arcade, controlledId) === lane;
+        const ownThere = arcade.players[controlledId]?.lane === entry.lane;
         if (big && !this.jackpotPopped && (own || !ownThere)) {
           this.jackpotPopped = true;
           this.pop(at, `SCHATZ! +${gained}`, { color: "#ffe36b", size: 0.5, life: 1.3, rise: 0.75 });
@@ -617,7 +612,7 @@ export class CoinRain extends MinigameScene {
       flashKin(kin, "#1b2530", soot * 0.7);
 
       if (finale) return;
-      const next = nextInLane[lane];
+      const next = nextInLane[entry.lane];
       animator.lookAt(next ? next.mesh.position : null);
       if (moving) animator.set("run");
       else if (next && next.catchAt - elapsed < 450 && next.kind !== "bomb") animator.set("reach", { params: { side: 0 } });
@@ -649,7 +644,7 @@ export class CoinRain extends MinigameScene {
     }
     const banner = this.hud.querySelector("[data-coin-banner]");
     if (!banner || !arcade) return;
-    const elapsed = this.arrivalNow() - minigame.startedAt;
+    const elapsed = now - minigame.startedAt;
     if (this.jackpotLane !== null && this.jackpotLane !== undefined) {
       banner.hidden = false;
       banner.textContent = `SCHATZTRUHE! ${["links", "Mitte", "rechts"][this.jackpotLane]}`;

@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, zaun, wimpel, heuballen, scheune, sonnenblumen, wolken, himmel, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { reachArm } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, zaun, wimpel, heuballen, scheune, sonnenblumen, wolken, himmel, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Tauziehen auf dem Dorffest: zwei Teams am Seil, dazwischen die Schlammgrube.
 // Die Seilmitte trägt ein rotes Band; wird es über die Kante der Grube auf
@@ -264,7 +264,7 @@ export class TugOfWar extends MinigameScene {
     const press = (event) => {
       event.preventDefault();
       const minigame = this.update || this.minigame;
-      if (!minigame || minigame.finaleAt) return;
+      if (!minigame || minigame.finaleAt || this.pullButton?.disabled) return;
       this.feedback?.vibrate(8);
       const clock = performance.now();
       const at = this.now();
@@ -564,15 +564,15 @@ export class TugOfWar extends MinigameScene {
       this.pullButton.dataset.grip = grip < 0.25 ? "low" : grip < 0.55 ? "mid" : "high";
       const slipping = Boolean(own && now < (own.slipUntil || 0));
       this.pullButton.classList.toggle("is-slipping", slipping);
-      this.pullButton.disabled = Boolean(minigame.finaleAt);
       // Der Knopf sagt, was die Griffkraft sagt. Ist sie voll, wird Kraft
       // verschenkt — sie wächst nicht über voll hinaus; ist sie fast leer,
       // rutscht man gleich ab. Kurz vor Schluss lohnt es, alles zu geben, was
       // noch da ist.
       const pulling = state.phase === "pull" && elapsed >= state.leadMs;
+      this.pullButton.disabled = !pulling || slipping || Boolean(minigame.finaleAt);
       this.waste += ((grip >= 0.985 ? 1 : 0) - this.waste) * Math.min(1, f.dt * 2.2);
       const left = state.roundStartAt + (state.roundMs || 11000) - (elapsed + this.roundTrip);
-      let coach = "ZIEH!";
+      let coach = pulling ? "ZIEH!" : "WARTEN …";
       if (pulling && slipping) coach = "HALT!";
       else if (pulling && left < 2600 && grip > 0.3) coach = "ALLES!";
       else if (pulling && grip < 0.22) coach = "LANGSAM!";
@@ -610,4 +610,3 @@ function schildTextur(text) {
 function escapeName(name) {
   return String(name || "?").slice(0, 6).replace(/[&<>"']/g, "");
 }
-

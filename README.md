@@ -27,6 +27,11 @@ Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
 2. Auf einem Gerät eine Party starten.
 3. Den QR-Code scannen oder die WLAN-Adresse plus Raumcode verwenden.
 4. Der Host wählt einen Modus und tippt auf **Los geht's**.
+5. Vor jedem Spiel zeigt die Startkarte Ziel, Steuerung und einen Tipp. **Alle Regeln lesen** klappt die ausführliche Hilfe auf. Erst wenn alle verbundenen Menschen **Bereit!** tippen, beginnt der gemeinsame Countdown; Bots blockieren die Lesepause nicht.
+
+Die Spielauswahl lässt sich nach **Reaktion**, **Geschick**, **Denken** und **Miteinander** filtern und nach Namen durchsuchen. Bei einer eigenen Auswahl fügt **Sichtbare wählen** die gefilterten Spiele hinzu, ohne die übrige Auswahl zu löschen.
+
+Alle 40 Spiele zeigen ihre tatsächliche Spielansicht in der Auswahl und auf der Startkarte. Bei **Bumper Pool**, **Zielgerade**, **Eisstock**, **Ballonfahrt**, **Kanonenflug** und **Fassmut** lässt sich vor **Bereit!** mit **Steuerung ausprobieren** ein eigener Versuch starten. **Neu** setzt ihn zurück, **Fertig** oder Escape kehrt zur Startkarte zurück. Die Übung verwendet dieselben Regeln und Szenen wie die Partie; Punkte und Bereitstatus der Partie bleiben unverändert. Ihre Zeit läuft erst nach dem Szenenaufbau und einem kurzen Countdown.
 
 Eine Partie braucht mindestens zwei Teilnehmer. Wer allein ist, holt sich mit **+ Bot** Mitspieler dazu — die Bots spielen jedes Minispiel mit, in drei Stärken; dass die stärkere in jedem Minispiel tatsächlich häufiger gewinnt, misst `npm run bot-sim` nach.
 
@@ -39,7 +44,7 @@ Nach jedem Minispiel gibt es Punkte nach Platz: der Letzte bekommt 0, jeder Plat
 - **🏃 Marathon:** 5, 10 oder 15 Minispiele. Die meisten Punkte gewinnen, bei Gleichstand die meisten Siege.
 - **🎯 Punktejagd:** Wer als Erster allein die Zielpunktzahl erreicht, gewinnt — 4 Punkte je Gegner, bei vier Spielern also 12. Springen zwei gleichzeitig darüber, geht es weiter bis einer vorn liegt.
 - **💥 K.O.:** Jeder startet mit 2, 3 oder 5 Leben. Nach jedem Spiel verliert, wer unter den Verbliebenen Letzter wurde, eines; liegen alle gleichauf, niemand. Ausgeschiedene spielen weiter mit, zählen aber nicht mehr — niemand sitzt am Handy und schaut nur zu.
-- **🎮 Einzelspiel:** Ein Minispiel, ausgewählt oder zufällig, danach zurück in die Lobby.
+- **🎮 Ein Spiel:** Ein Minispiel, ausgewählt oder zufällig, danach zurück in die Lobby.
 
 Für Marathon, Punktejagd und K.O. lässt sich der Spielvorrat einschränken (mindestens zwei Spiele). Innerhalb eines Durchgangs durch den Vorrat kommt kein Spiel doppelt, und nie dasselbe zweimal hintereinander. Punktejagd und K.O. haben Notbremsen nach 30 bzw. 40 Spielen; dass sie praktisch nie greifen, misst `npm run match-sim` nach.
 
@@ -55,7 +60,7 @@ Alle 40 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern
 
 Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Kulisse bewegt sich etwas: Fahnen wehen, Rauch steigt, Lichterketten laufen, Enten treiben vorbei.
 
-- Bumper Pool — Freibad mit Badeinsel, Liegen und Rutsche
+- Bumper Pool — gekachelte Badeinsel, Kurvenmarkierungen, Palmen und Liegen
 - Zielgerade — Laufbahn im Stadion mit Tribünen
 - Farbflucht — Farbfest mit Pulverwolken
 - Nervenprobe — Fernsehstudio mit Publikum und Kamera
@@ -112,48 +117,54 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️ Stick ziehen
 
-- **Bumper Pool:** Lenk deinen Schwimmring mit dem Stick und ramm die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
+- **Bumper Pool:** Nur der Stick: Lenken, Anlauf nehmen und rammen. Loslassen bremst. Fahr eine gleichmäßige Kurve, um Schwung aufzubauen: Du wirst schneller und rammst kräftiger. Schnelles Hin-und-her-Wackeln lädt ihn nicht. Schubs die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
 - **Tiefenrausch:** Tauch mit dem Stick nach Gold — je tiefer, desto wertvoller, ganz unten wartet eine Truhe. Die Luft wird knapp, und zwar unten schneller: Die weisse Marke im Luftbalken zeigt, was der Weg nach oben kostet — kommt die Luft ihr nahe, tauch auf. Oben füllt sie sich wieder, und dein Gold ist sicher eingezahlt. Quallen kosten Luft und etwas Gold. Geht dir die Luft aus, ist alles weg, was du trägst.
 - **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Auf deiner eigenen Farbe fährst du schneller, auf fremder langsamer — bau dir Bahnen und übermal die anderen. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Wer am Ende die meiste Fläche hat, gewinnt.
 - **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Lenk die Scheibe mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
 - **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
 
+### 👆 Wischen · halten sprintet
+
+- **Zielgerade:** 100 Meter gegen die anderen auf drei gemeinsamen Spuren. Wische links/rechts zum Spurwechsel, hoch zum Springen und runter zum Sliden; runter in der Luft zieht dich schnell zum Boden. Hohe Kisten umfahren, orange Hürden überspringen, blaue Tore unterrutschen. Halte auf dem Spielfeld für Sprint: Die Ausdauer geht leer; erst Loslassen lädt sie am Boden wieder auf. Treffer kosten Tempo, du bleibst im Rennen. Alle haben dieselben Hindernisse. Die schnellste Zielzeit gewinnt; gleiche Hundertstel teilen den Platz.
+
 ### 👆✳️ In jede Richtung wischen
 
-- **Zielgerade:** Wisch nach links oder rechts auf die Boostplatten: grüne Platten mit Pfeilen schieben dich an, Matsch bremst. Tippen springt über Hürden — in der Luft bist du etwas langsamer, also nur, wenn es nötig ist. Heuballen sind zu hoch zum Springen, da hilft nur ausweichen.
-- **Farbflucht:** Eine Farbe wird angesagt — wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Farbe trägt ihr Zeichen (● ■ ▲ ✚). Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
+- **Farbflucht:** Eine Farbe samt Form wird angesagt: Pink ●, Blau ▲, Gelb ■, Grün ✚. Wisch dich Feld für Feld auf ein Feld dieser Farbe, bevor der Rest wegbricht. Jede Runde gibt es weniger Zeit und weniger sichere Felder; wer fällt, ist raus.
 
 ### 👆 Tippen
 
 - **Nervenprobe:** Die Zielzeit liegt zwischen 4 und 8 Sekunden. Nach 2 Sekunden verschwindet jede Uhr — zähl im Kopf weiter und drück so nah wie möglich an der Zielzeit.
-- **Pump-Panik:** Tippe so schnell du kannst, gern mit zwei Fingern — jeder Tipp pumpt deinen Ballon dicker. Wer am Ende am meisten gepumpt hat, lässt seinen Ballon platzen und gewinnt.
 - **Fassmut:** Über dir hängt ein Fass am Seil. Irgendwann wird es losgelassen und fällt — EIN Tipp spannt das Seil, doch das Fass rutscht noch ein Stück nach. Der Schatten zeigt, wo es stehen bliebe: zieh, wenn er im Grünen dicht über deinem Kopf ist. Wer es am dichtesten über dem Kopf stoppt, gewinnt — zu spät gezogen gibt eine Beule.
 - **Zündstoff:** Die Zündzeit blinkt kurz auf – merk sie dir und gib die Bombe rechtzeitig weiter! Wer sie beim Knall hält, ist raus – zu zweit erst beim zweiten Treffer.
 - **Blob-Klopfe:** Blobs poppen aus den Löchern — tipp drauf, bevor sie abtauchen. Je schneller, desto mehr: 3, 2 oder 1 Punkt, der goldene bringt 5. Finger weg von den dunkelroten mit Stachelkrone: zwei Punkte weg und kurz benommen.
 - **Seilspringen:** Die zwei Dreher schwingen das Riesenseil, und es wird immer schneller. Tipp, wenn es unter dir durchgeht — du bist nur kurz in der Luft. Achtung bei DOPPELT: dann kommt es zweimal kurz hintereinander. Einmal hängen geblieben und du bist raus.
+- **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Winkel. Drei Schuss: triff die Zielflagge — sie steht jeden Schuss woanders, und der Windsack zeigt, ob Wind dich weiter trägt oder bremst. Beim Winkel zeigt ein Ring, wo du ohne Wind landen würdest. Die Punkte aller drei zählen zusammen.
 - **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt, jeder dreht sich anders. Äpfel bringen Extrapunkte. Ein Klirren kostet den Stamm — und alle Punkte, die er dir schon gebracht hat.
-- **Turmbau:** Tippe im richtigen Moment, um den gleitenden Block zu stapeln. Der höchste Turm gewinnt!
+- **Turmbau:** Tippe, um den gleitenden Block auf deinem Turm zu stapeln. Ein perfekter Treffer rastet ein; Überstände werden abgeschnitten und fallen herunter. Verfehlst du den Turm ganz, endet dein Bauversuch — die geschafften Etagen zählen weiter. Der höchste Turm gewinnt!
 - **Kippboot:** Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker: der Streifen an der Bordwand zeigt, wo er sicher landet (grün) und wo das Boot kentern würde (rot). Wer es zum Kentern bringt, verliert 30 Punkte. Gespielt wird in Runden — jeder ist einmal dran, alle mit demselben Tier, vom Küken bis zum Schwein. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu.
 
 ### 👆⏺️ Knopf gedrückt halten
 
 - **Lichtwächter:** Halte den Knopf, um zu laufen. Wenn die Lampe gelb blinkt, dreht sich der Wächter um — lass bis dahin los. Wer bei Rot noch läuft, fliegt fünf Meter zurück und ist kurz benommen. Manchmal täuscht er nur an. Wer zuerst am Tor ist, gewinnt.
 - **Fassrolle:** Alle stehen auf einem Riesenfass über dem Fluss. Halte ◀ oder ▶ und lauf gegen die Drehung an — aber wer läuft, dreht das Fass auch unter den anderen. Wellen kündigen sich an: lauf ihnen entgegen. Wer fällt, schwimmt zurück — doch in den letzten 12 Sekunden kommt das Wildwasser, und wer dann fällt, ist raus. Unter den Übrigen zählt die Zeit im grünen Streifen oben.
-- **Ballonfahrt:** Halte den Finger auf dem Bild, dann heizt der Brenner und du steigst — loslassen lässt sinken. Mit ABWURF fällt ein Sandsack: er fliegt mit, während er fällt, also je höher, desto früher werfen. Triff die Zielscheiben auf den Feldern und sammle unterwegs Sterne.
+
+### 👆👆 Schnell tippen
+
+- **Pump-Panik:** Tippe so schnell du kannst, gern mit zwei Fingern — jeder Tipp pumpt deinen Ballon dicker. Wer am Ende am meisten gepumpt hat, lässt seinen Ballon platzen und gewinnt.
+- **Bergsteiger:** Tippe auf die Bildhälfte, auf der der nächste Griff leuchtet — jede Seite ist eine Hand, die falsche kostet den Griff. Der Gipfel liegt auf 70: wer am schnellsten oben ist, gewinnt. Wer nicht ankommt, zählt nach Höhe.
+- **Tauziehen:** Zwei Teams, ein Seil, dazwischen die Schlammgrube. Jeder Tipp zieht — aber jeder Zug kostet Griffkraft (der Balken im Knopf), und die wächst nur langsam nach. Der Knopf sagt dir, wie du ziehen sollst: wer wild hämmert, rutscht ab und schenkt den anderen einen Ruck (LANGSAM!), wer zu zaghaft zieht, verschenkt Kraft (SCHNELLER!), und kurz vor Schluss heisst es ALLES! Zieht ihr fast gleichzeitig, gibt es ein HAU-RUCK. Wer zuerst zwei Runden holt, gewinnt — die anderen landen im Schlamm.
 
 ### 👆↔️ Links/Rechts wischen
 
 - **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang Münzen und weich den Bomben aus — fünf Fänge in Folge verdoppeln jede Münze, zehn verdreifachen sie. Am Ende kommt der Goldrausch, und eine Schatztruhe fällt in die angesagte Spur.
 
-### 👆👆 Schnell tippen
+### 👆⏺️ Bild halten · Knopf abwerfen
 
-- **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Winkel. Drei Schuss: triff die Zielflagge — sie steht jeden Schuss woanders, und der Windsack zeigt, ob Wind dich weiter trägt oder bremst. Beim Winkel zeigt ein Ring, wo du ohne Wind landen würdest. Die Punkte aller drei zählen zusammen.
-- **Bergsteiger:** Tippe auf die Bildhälfte, auf der der nächste Griff leuchtet — jede Seite ist eine Hand, die falsche kostet den Griff. Der Gipfel liegt auf 70: wer am schnellsten oben ist, gewinnt. Wer nicht ankommt, zählt nach Höhe.
-- **Tauziehen:** Zwei Teams, ein Seil, dazwischen die Schlammgrube. Jeder Tipp zieht — aber jeder Zug kostet Griffkraft (der Balken im Knopf), und die wächst nur langsam nach. Der Knopf sagt dir, wie du ziehen sollst: wer wild hämmert, rutscht ab und schenkt den anderen einen Ruck (LANGSAM!), wer zu zaghaft zieht, verschenkt Kraft (SCHNELLER!), und kurz vor Schluss heisst es ALLES! Zieht ihr fast gleichzeitig, gibt es ein HAU-RUCK. Wer zuerst zwei Runden holt, gewinnt — die anderen landen im Schlamm.
+- **Ballonfahrt:** Halte den Finger auf dem Bild, dann heizt der Brenner und du steigst — loslassen lässt sinken. Mit ABWURF fällt ein Sandsack: er fliegt mit, während er fällt, also je höher, desto früher werfen. Triff die Zielscheiben auf den Feldern und sammle unterwegs Sterne.
 
 ### 👆🎵 Im Takt tippen
 
-- **Trampolin:** Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller!
+- **Trampolin:** Tippe genau im Takt, dann federst du höher. Treffer in Folge bauen Resonanz auf — und der Takt wird immer schneller! Ein Fehlversuch oder ausgelassener Schlag bricht die Serie und kostet aktuelle Höhe; deine höchste erreichte Höhe bleibt als Ergebnis stehen.
 
 ### 👆⚡ Blitzschnell tippen
 
@@ -224,6 +235,10 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 Jedes Minispiel startet mit einer einheitlichen Intro-Karte (Name, Ziel, Touch-Geste) und dem 3-2-1-LOS-Countdown; die Ergebnisse werden von Platz 4 bis Platz 1 aufgedeckt, Gleichstände bekommen ein eigenes Badge.
 
+Landungen federn schnell ein und danach leicht nach. Bei Ballonfahrt zeigt ein kontrastreicher Ring die Sacklandung; seine Größe wächst weiterhin mit der Flughöhe. Bumper Pool kündigt den schrumpfenden Rand fünf Sekunden vorher an. Bei reduzierter Bewegung bleibt der Rand ruhig und die Landung verzichtet auf das Nachfedern.
+
+Im Zielsprint bleibt der Sprungbogen auch dann gültig, wenn ein Server-Update der abgeglichenen Client-Uhr kurz vorausläuft.
+
 ## Dev-Testmodus
 
 Der Dev-Testmodus ist im normalen Spiel ausgeblendet und muss beim Serverstart freigegeben werden (`TUMBLEKIN_DEV_TOOLS=1 npm start`). Erst dann zeigt `http://localhost:3000/?dev=1` in der Lobby den Button `Dev-Test: 4 lokal`: Er erzeugt vier lokale Spieler auf einem Gerät, zwischen denen man im Minispiel umschaltet. Jedes der 40 Minispiele lässt sich über **🎮 Einzel** direkt auswählen.
@@ -252,6 +267,7 @@ npm run bot-sim              # zahlt sich Können in jedem Spiel aus?
 npm run anzeige-check        # entscheidet die angezeigte Zahl auch die Rangfolge?
 npm run leerlauf-check       # steht ein Spiel am Ende zu lange still?
 npm run fuzz                 # Unsinn an alle Ereignisse des Servers
+npm run gameplay-check       # alle 40 Regeln: 1080 Runden, 2/3/4 Spieler, verschiedene Takte und Seeds
 ```
 
 `fuzz` braucht einmalig `npm install --no-save socket.io-client`.
@@ -263,20 +279,44 @@ npm run smoke                # jedes Minispiel ein paar Sekunden: Render- und Ko
 npm run smoke -- turmbau     # nur ausgewählte
 npm run smoke -- --head      # sichtbares Browserfenster zum Zuschauen
 npm run match-check          # ganze Partien: Marathon, K.O., Punktejagd bis zur Siegerehrung
+npm run onboarding-check     # zwei Geräte: Startkarten, Bereit, Spielauswahl und Querformat
+npm run practice-check       # vier gezielte Übungen samt Isolation von zwei Geräten
+npm run all-practice-check   # echte Eingabe, Regelwirkung und Aufräumen für alle 40 Übungen
+npm run bumper-check         # nur Stick: echter Touch, Rammen, Klang, Übung und Fokusverlust
+npm run sprint-check         # Wischen/Halten, Slide/Sprung, Ausdauer, Kamera und isolierte Übung
+npm run pipe-check           # fünf echte Rohrsalat-Runden, sechs Ventile, kleine Bildschirme und Texturfreigabe
+npm run feedback-check       # Landungen, Landering, Insel-Vorwarnung und reduzierte Bewegung
+npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unterbrechung
+npm run gesture-check        # sieben Wisch-/Ziehspiele: zweiter Finger, Loslassen und Unterbrechung
+npm run effects-check        # Partikelflug bei 30/60/120 Hz, Ressourcen, Cachebudget und reduzierte Bewegung
+npm run refinement-check     # alle 40 Spiele: Hoch-/Querformat, 320px, HUD und Finale-Steuerung
+npm run press-check          # Knopfdruck, Tastatur, assistive Aktivierung, Halten und echte Aktionsfehler
+npm run session-sim -- 12 --quick ballonPump leuchtfolge kanonenflug  # wiederholte gleiche Szenen für den Speichervergleich
+npm run animation-check      # 64 Posen bei 30/60/120 Hz, reduzierte Bewegung und Fußkontakt im Zielsprint
 npm run scene-check          # Figuren im Bild, auf dem Boden, nicht in Kulissen
 npm run boden-check          # dasselbe über die GANZE Runde bis zur Ergebnistafel, dazu Sprünge und NaN
 npm run session-sim          # viele Spiele hintereinander: wächst etwas, das nicht wachsen darf?
+npm run session-sim -- 60 --quick # nur Aufbau/Abbau: alle Spiele plus Wiederholungen, alte Szenen und Speicher
 npm run gallery              # Bilder aller Minispiele nach galerie/
+npm run game-previews        # echte Szenen als Auswahlbilder unter client/assets/games/
 ```
 
 Die Browserprüfungen brauchen einmalig einen Browser:
 
 ```bash
-npm install --no-save playwright
 npx playwright install chromium
 ```
 
+Nach Änderungen an den Serverregeln oder am Übungs-Worker erzeugt `npm run build:practice` das eingecheckte Browser-Bündel neu. Es ersetzt Netzwerk und HTTP durch lokale Stubs; Übungseingaben gelangen ausschließlich in den eigenen Worker. `TUMBLEKIN_BROWSER_WORKERS=1 npm run refinement-check` prüft die Ansichten nacheinander, wenn paralleles Software-Rendering kurze Spielrunden aufbraucht.
+
 Ein bereits installiertes Chrome/Chromium lässt sich stattdessen über `CHROMIUM_PATH=/pfad/zu/chrome` verwenden. Der Exit-Code ist 0 nur, wenn alles sauber durchläuft.
+
+Die Ergebnisse und priorisierten nächsten Schritte stehen in [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md).
+Der zweite Durchgang mit Einzelbefunden zu allen 40 Spielen steht in [GAME_REFINEMENT.md](GAME_REFINEMENT.md).
+Die kritische Prüfung von Spielidee, alternativer Bedienung und offenen Designfragen je Spiel steht in [GAME_DESIGN_REVIEW.md](GAME_DESIGN_REVIEW.md). Sie dokumentiert außerdem den neuen Tastendruck, gemeinsame Teamplätze und verständliche Aktionszustände.
+`refinement-check` speichert Bilder und `observations.json` unter `/tmp/tumblekin-refinement`;
+mit `TUMBLEKIN_SCREENSHOTS=/pfad` lässt sich der Ausgabeordner ändern. Spielnamen
+begrenzen den Lauf, etwa `npm run refinement-check -- messerwurf spurmaler`.
 
 ## Veröffentlichung
 
@@ -299,7 +339,6 @@ Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
 
 - Express liefert PWA, Three.js und Clientmodule aus.
 - Socket.io synchronisiert Raum, Modus, Minispiel-Eingaben, Ergebnisse und Reconnects. Der Server ist massgeblich: er wertet jedes Minispiel, die Clients zeigen nur an.
-- Timing-Spiele zeigen ihren entscheidenden Moment zur **Ankunftszeit** (`MinigameScene.arrivalNow()`): der Serverzeit, zu der ein jetzt geschickter Tipp ankommt. Jedes Bild trägt seine Absendezeit, jede Eingabe misst nebenbei die Rundreise. So kommt ein Tipp, der im Bild genau passt, auch beim Server genau an — bei 100 ms Verzögerung je Richtung gemessen auf wenige Millisekunden (Seilspringen, Fassmut, Turmbau, Kanonenflug, Lichtwächter, Nervenprobe, Blob-Klopfe, Zündstoff, Münzregen, Farbflucht). Der Server traut dabei keiner Zeitangabe des Geräts; er wertet weiter zur Ankunft. Spurwechsel (Münzregen) und Schritte (Farbflucht) zeigt das Gerät sofort und gleicht sie mit dem nächsten Serverbild ab.
 - `server/modes.js` enthält die Regeln der Modi — Spielliste, Punkte, Leben, Ende — ohne Sockets und Timer, damit jede Regel ohne laufenden Server prüfbar ist.
 - Three.js rendert die Menübühne (Lobby, Podest, Siegerehrung) und alle 40 Minispiele mit denselben Figuren.
 - Service Worker, Manifest und App-Icon erlauben die Installation auf dem Homescreen.
@@ -318,3 +357,5 @@ Gemeinsame Bausteine der Minispiele:
 - `ui/MenuStage.js` — die Bühne hinter den Menüs.
 
 Alle Namen, Figuren, Regeln und visuellen Motive sind eigenständige Entwürfe für Tumblekin.
+
+Die Einzelentscheidungen und Korrekturen zu allen 40 Spielen stehen in [GAMEPLAY_AUDIT.md](GAMEPLAY_AUDIT.md). Jede Startkarte bietet einen getrennten Übungsversuch; Kontakt-, Team- und Zugspiele enthalten passende Bot-Gegenüber.

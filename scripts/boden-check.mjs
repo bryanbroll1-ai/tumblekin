@@ -123,7 +123,10 @@ for (const game of liste) {
           const s = sohle(kin);
           if (!Number.isFinite(s)) return;
           raycaster.set(new THREE.Vector3(welt.x, s + 0.45, welt.z), down);
-          const boden = raycaster.intersectObjects(kandidaten, false)[0];
+          const knownGround = host.groundHeightAt?.(welt.x, welt.z);
+          const boden = Number.isFinite(knownGround)
+            ? { point: { y: knownGround }, object: null }
+            : raycaster.intersectObjects(kandidaten, false)[0];
           if (!boden) return;
           const tief = boden.point.y - s;
           const toleranz = 0.12 * Math.max(1, kin.scale.y || 1);
@@ -135,7 +138,7 @@ for (const game of liste) {
               tief: Number(tief.toFixed(3)),
               pose: an?.state || "?",
               geste: an?.gesture?.name || an?.gesture?.type || "-",
-              boden: bodenName(boden.object),
+              boden: boden.object ? bodenName(boden.object) : "bekannte Standfläche",
               wo: `${welt.x.toFixed(2)}/${welt.z.toFixed(2)}`,
               finale: Boolean(m?.finaleAt),
               mal: (bisher?.mal || 0) + 1

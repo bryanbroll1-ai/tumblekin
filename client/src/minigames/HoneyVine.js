@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer, zaun, sonnenblumen, himmel, wolken } from "./Kulisse.js?v=tumblekin200";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer, zaun, sonnenblumen, himmel, wolken } from "./Kulisse.js?v=tumblekin210";
 
 // Honigwabe — ein Bienengarten im Abendlicht. Vom Ast eines grossen Baumes
 // hängt eine Ranke: Äpfel, ab und zu ein goldener, dazwischen Honigwaben, um
@@ -666,6 +666,8 @@ export class HoneyVine extends MinigameScene {
     if (timer) {
       timer.hidden = !ownTurn || Boolean(minigame.finaleAt);
       if (ownTurn) {
+        // Mehrzeilige Ansagen und kleine Ansichten dürfen den Balken nicht überdecken.
+        if (banner && !banner.hidden) timer.style.top = `${banner.offsetTop + banner.offsetHeight + 6}px`;
         const share = Math.max(0, Math.min(1, (turn.until - arrival) / Math.max(1, turn.until - turn.from)));
         timer.firstElementChild.style.width = `${Math.round(share * 100)}%`;
       }

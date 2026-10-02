@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
+import { reachArm } from "./VoxelKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { eventChance, frameLerp } from "./Quality.js?v=tumblekin210";
 
 // Fassmut — über jedem hängt ein Fass am Seil, das Seil läuft über eine Rolle
 // am Galgen und hinunter in die eigenen Hände. Das Fass wird losgelassen und
@@ -246,7 +246,6 @@ export class BarrelDare extends MinigameScene {
       ghost.userData.mats = [ghostMat, rimMat];
       ghost.visible = false;
       ghost.renderOrder = 2;
-      ghost.userData.isFx = true;          // ein Hinweis, kein Körper
       this.scene.add(ghost);
     }
 
@@ -339,10 +338,7 @@ export class BarrelDare extends MinigameScene {
     this.on(this.webglCanvas, "pointerdown", brake);
   }
 
-  // Sekunden seit dem Loslassen — zur Ankunftszeit (arrivalNow): das Fass
-  // steht im Bild dort, wo es beim Server ist, wenn ein JETZT getippter Zug
-  // ankommt. Vorher bremste, wer weiter weg sass, eine Rundreise zu spät: bei
-  // 200 ms und vollem Tempo gut einen Meter.
+  // Sekunden seit dem Loslassen, aus der eigenen Uhr.
   fallTime(arcade, minigame, now) {
     return (now - minigame.startedAt - (arcade.leadIn || 0)) / 1000;
   }
@@ -352,7 +348,7 @@ export class BarrelDare extends MinigameScene {
     const arcade = minigame?.arcade;
     if (!minigame || minigame.finaleAt || !arcade) return;
     const own = arcade.players?.[this.getControlledPlayerId()];
-    const t = this.fallTime(arcade, minigame, this.arrivalNow());
+    const t = this.fallTime(arcade, minigame, this.now());
     const rolling = t >= 0 && t * 1000 < (arcade.rollMs || 4200);
     if (!own || own.brakeAt !== null || own.hit || this.localBrake !== null || !rolling) {
       this.feedback?.sound("clack");
@@ -370,7 +366,7 @@ export class BarrelDare extends MinigameScene {
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
     const startM = arcade.startM || this.startM;
-    const t = this.fallTime(arcade, minigame, this.arrivalNow());
+    const t = this.fallTime(arcade, minigame, now);
     const rollMs = arcade.rollMs || 4200;
     const falling = t >= 0 && t * 1000 < rollMs;
     // Das Loslassen hört und sieht man: ein Klacken und Staub an den Rollen.
@@ -461,9 +457,7 @@ export class BarrelDare extends MinigameScene {
 
       // Der Schatten: Haltepunkt bei einem Zug JETZT.
       if (lane.ghost) {
-        // Im Finale ist nichts mehr zu zielen — der rote Schatten stand dort
-        // sonst noch auf Kopfhöhe, und wer jubelnd hochsprang, landete darin.
-        const aiming = falling && !finale && !hit && (brakeAt === null || brakeAt === undefined);
+        const aiming = falling && !hit && (brakeAt === null || brakeAt === undefined);
         lane.ghost.visible = aiming;
         if (aiming) {
           const rest = restingDistance(t, startM);
@@ -499,17 +493,14 @@ export class BarrelDare extends MinigameScene {
         if (!mine) animator.trigger("pull");
       }
       // Solange das Seil durch die Hände saust, qualmt es ein bisschen.
-      if (falling && !caught && !hit && Math.random() < frameChance(0.6 + (1 - distance / startM) * 2, dt)) {
+      if (falling && !finale && !caught && !hit && Math.random() < eventChance(0.6 + (1 - distance / startM) * 2, dt)) {
         this.burst(hands.clone(), ["#fff4dd", "#e2c48a"], { count: 1, speed: 0.4, up: 0.6, size: 0.04, life: 0.4, gravity: -0.5 });
       }
 
       // Getroffen.
       if (hit && !this.lastHitAt.get(player.id)) {
         this.lastHitAt.set(player.id, now);
-        // Ein Ruck nach hinten, kein Salto: das Fass sitzt auf dem Kopf und
-        // staucht die Figur. Der Rückwärtssalto hob sie dabei 0.45 hoch —
-        // mitten hinein ins Fass, die Beine steckten im Holz.
-        animator.trigger("hit");
+        animator.trigger("knockback");
         animator.expression("dizzy", 2600);
         const at = kin.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.9, 0));
         this.burst(at, [player.color, "#c9a26f", "#ffffff"], { count: 18, speed: 2.6, up: 2.2, size: 0.09, life: 0.8, drag: 1.3 });
@@ -609,7 +600,7 @@ export class BarrelDare extends MinigameScene {
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(Math.round(own?.points || 0));
 
-    const t = this.fallTime(arcade, minigame, this.arrivalNow());
+    const t = this.fallTime(arcade, minigame, now);
     const falling = t >= 0 && t * 1000 < (arcade.rollMs || 4200);
     const braked = (own?.brakeAt !== null && own?.brakeAt !== undefined) || this.localBrake !== null;
     const readout = this.hud.querySelector("[data-dare-distance]");

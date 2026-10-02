@@ -5,6 +5,8 @@ const path = require("path");
 const { Server } = require("socket.io");
 const QRCode = require("qrcode");
 const modes = require("./modes");
+const Sprint = require("../client/src/minigames/SprintPhysics.js");
+const Bumper = require("../client/src/minigames/BumperPhysics.js");
 const { PARTY_FAMILIES, PARTY_GAMES } = require("./partyGames");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -77,7 +79,7 @@ const DARE_DURATION_MS = DARE_LEAD_IN_MS + DARE_LEAD_SPREAD_MS + DARE_ROUNDS * (
 // Only the fully 3D challenges remain; the flat 2D minigames were retired.
 const MINIGAMES = [
   { type: "bounceArena", title: "Bumper Pool", duration: 45000 },
-  { type: "finishRush", title: "Zielgerade", duration: 42000, arcadeFamily: "runner" },
+  { type: "finishRush", title: "Zielgerade", duration: 32000, arcadeFamily: "runner" },
   { type: "colorEscape", title: "Farbflucht", duration: 40000, arcadeFamily: "colorgrid" },
   { type: "nervenprobe", title: "Nervenprobe", duration: 14000, arcadeFamily: "stopclock" },
   { type: "lichtwaechter", title: "Lichtwächter", duration: 32000, arcadeFamily: "redlight" },
@@ -627,44 +629,8 @@ function seekFindValue(probes) {
 }
 
 const STOPCLOCK_TARGETS = [5000, 6500, 7500];
-// Zielgerade — ein Lauf über drei Bahnen, 150 Meter.
-//
-// Die alte Fassung war ein Selbstläufer: alle rannten gleich schnell, und man
-// wischte hin und wieder um ein Hindernis herum. Jetzt entscheidet drei Dinge,
-// wer vorn ist, und alle drei sieht man kommen:
-//
-//  * DIE BAHN hat Tempo. Jeder Abschnitt gibt den drei Bahnen einen Belag —
-//    Tempo, normal, Sand —, und die Tempobahn wandert. Man liest voraus und
-//    plant eine Linie.
-//  * HÜRDEN stehen nie im Sand, dafür oft in der schnellen Bahn: überspringen
-//    (tippen) oder ausweichen, sonst stolpert man gut eine Sekunde.
-//  * ANSCHUB: wer auf ein Boostfeld wechselt, bekommt einen kurzen Stoss
-//    obendrauf — der Wechsel selbst fühlt sich nach Tempo an.
-//
-// Gegenstände gibt es keine: wer vorn ist, ist vorn, weil er die Bahn besser
-// gelesen und sauberer gesprungen ist.
-const RUNNER_LENGTH = 150;
-const RUNNER_BASE_SPEED = 5.2;
-const RUNNER_SEG_LEN = 7.5;            // Länge eines Bahnabschnitts in Metern
-// Belagfaktoren. Der Abstand zwischen Sand und Tempo ist bewusst gross: eine
-// Bahn muss sich beim Hinschauen lohnen, sonst schaut niemand hin.
-const RUNNER_SURFACE = { sand: 0.70, normal: 1.0, tempo: 1.34 };
-// Ein Sprung ist eine Antwort, kein Dauerzustand. Vorher kostete er nichts:
-// wer ununterbrochen tippte, war gegen jede Hürde UND jeden Wurf gefeit, und
-// das Lesen der Bahn war wertlos. Jetzt ist man in der Luft etwas langsamer,
-// und nach der Landung dauert es einen Moment bis zum nächsten Absprung.
-const RUNNER_JUMP_MS = 650;
-const RUNNER_JUMP_REST_MS = 350;
-const RUNNER_AIR_FACTOR = 0.86;
-// Ein Stolperer muss das Rennen kosten können. Bei 1150 ms und 0.35-Tempo lag
-// der Verlust bei rund 0.75 s auf 26 s Renndauer — knapp drei Prozent, zu wenig,
-// als dass sich saubere Bahnwahl auszahlt.
-const RUNNER_STUMBLE_MS = 1200;
-// Anschub beim Wechsel auf ein Boostfeld: so viel schneller, und so lange
-// klingt er ab. Nur beim Hineinwechseln, nicht beim Weiterlaufen von einem
-// Boostfeld aufs nächste — sonst wäre er nur ein etwas stärkerer Belag.
-const RUNNER_KICK = 0.3;
-const RUNNER_KICK_MS = 600;
+// Zielgerade: shared three-lane obstacle race, swipe actions and held sprint.
+const RUNNER_LENGTH = Sprint.C.LENGTH;
 // Farbflucht — eine Farbe wird angesagt, alle anderen Felder fallen weg.
 //
 // Die alte Fassung war im Ablauf kaputt: die Zielfarbe stand im Banner erst
@@ -1355,38 +1321,10 @@ const CURLING_RESTITUTION = 0;      // Steine schieben sich, sie prallen nicht a
 const CURLING_BUTTON_FACTOR = 1.6;    // Wert am Knopf, gemessen am inneren Ring
 const CURLING_SUBSTEPS = 5;           // sub-stepped so fast stones never tunnel through
 
-// Bumper Pool — Schwimmringe rempeln sich auf einer Badeinsel.
-// Physics live in a unit disk (radius 1). One analog gesture: steer with the
-// stick, ramming is pure momentum. The rim ALWAYS bounces you back — unless a
-// bumper hit was hard enough to "launch" you (a short window), so you can never
-// drive yourself off but a solid ram sends a rival flying over the edge.
-//
-// Drei Leben. Wer ins Becken fliegt, verliert eines und springt nach kurzer
-// Pause zurück auf die Insel; erst mit dem letzten ist man raus. Vorher war
-// schon der erste Sturz das Aus: die Runde war nach rund neun Sekunden vorbei,
-// und wer im ersten Gedränge stand, hatte das Spiel nie gespielt. Der Hilfetext
-// versprach dabei längst das Zurückpaddeln.
-//
-// Damit es trotzdem ein Ende findet, schrumpft die Insel in den letzten
-// fünfzehn Sekunden — der Platz wird eng, und jeder Stoss sitzt.
-const ARENA_LIVES = 3;
-const ARENA_SHRINK_MS = 15000;        // so lange vor Schluss beginnt die Insel zu schrumpfen
-const ARENA_SHRINK_TO = 0.62;         // auf diesen Anteil ihres Radius
-const ARENA_RADIUS = 1.0;             // plate disk radius (logical units)
-const ARENA_BALL_RADIUS = 0.11;       // kin collision radius
-const ARENA_ACCEL = 3.8;              // stick thrust acceleration (snappy, responsive)
-const ARENA_DRAG = 1.75;              // velocity damping (quick stops, still carries momentum)
-const ARENA_RESTITUTION = 2.4;        // >1: bouncy bumpers, so rams carry punch
-const ARENA_BOT_LOOKAHEAD = 0.45;     // so weit (s) schauen Bots voraus, ob sie der Rand erwischt
-const ARENA_TIP_SPEED = 0.8;          // wer über der Kante hängt, rutscht mindestens so schnell hinunter
-const ARENA_LAUNCH_IMPULSE = 0.95;    // ab dieser Stosskraft (Δv) gilt ein Treffer als harter Rammstoss
-const ARENA_LAUNCH_MS = 1150;         // so lange zeigt die Figur danach ihr erschrockenes Gesicht
-const ARENA_SUBSTEPS = 4;             // sub-stepped integration prevents tunneling
-const ARENA_RESPAWN_MS = 2200;        // time out of play after a knock-off
-const ARENA_INVULN_MS = 1300;         // spawn grace: no collisions, can't be launched
-const ARENA_SURVIVE_RATE = 10;        // score per second in play
-const ARENA_KNOCKOUT_BONUS = 60;      // score for launching a rival
-const ARENA_CREDIT_MS = 1600;         // a hit only credits a knock-off this recent
+// Bumper Pool uses the same ring geometry and motion rules as its renderer.
+const ARENA_RADIUS = Bumper.C.RADIUS;
+const ARENA_BALL_RADIUS = Bumper.C.BALL_RADIUS;
+const ARENA_RESPAWN_MS = Bumper.C.RESPAWN_MS;
 
 const FLUX_SIZE = 9;
 const FLUX_MOVE_COOLDOWN = 92;
@@ -1553,6 +1491,7 @@ io.on("connection", (socket) => {
       lastMinigameResult: null,
       resultEndsAt: null,
       readyForNext: [],
+      readyForMinigame: [],
       lastMessage: "Raum erstellt.",
       winnerIds: [],
       timers: new Set(),
@@ -1764,7 +1703,7 @@ io.on("connection", (socket) => {
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!DEV_TOOLS_ENABLED) return replyError(reply, "Dev-Werkzeuge sind in dieser Version deaktiviert.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host kann das.");
-    if (room.status !== "minigame") return replyError(reply, "Gerade läuft kein Minispiel.");
+    if (room.status !== "minigame" || room.phase === "waitingReady") return replyError(reply, "Gerade läuft kein Minispiel.");
     finishMinigame(room);
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
@@ -1798,6 +1737,16 @@ io.on("connection", (socket) => {
     if (room.status !== "end") return replyError(reply, "Revanche gibt es erst nach dem Ende.");
     if (!room.devMode && room.players.length < 2) return replyError(reply, "Es braucht mindestens zwei Spieler.");
     startGame(room);
+    replyOk(reply, room, socket.data.playerId);
+    emitRoom(room);
+  });
+
+  on("readyForMinigame", (payload, reply) => {
+    const room = findRoomForSocket(socket, payload?.code);
+    if (!room) return replyError(reply, "Kein Raum gefunden.");
+    const controlled = room.players.filter((player) => canControl(socket, player));
+    const result = markMinigameReady(room, controlled.map((player) => player.id), payload?.minigameId);
+    if (!result.ok) return replyError(reply, result.error);
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
   });
@@ -1899,7 +1848,7 @@ function startNextRound(room) {
     finishGame(room, modes.matchOutcome(room.match, room.players).winnerIds);
     return;
   }
-  startMinigame(room, modes.roundLabel(room.match), type);
+  prepareMinigame(room, modes.roundLabel(room.match), type);
 }
 
 function resetToLobby(room) {
@@ -1911,6 +1860,7 @@ function resetToLobby(room) {
   room.winnerIds = [];
   room.resultEndsAt = null;
   room.readyForNext = [];
+  room.readyForMinigame = [];
   room.match = null;
   room.lastMessage = "Zurück in der Lobby.";
   room.players.forEach((player) => {
@@ -1924,6 +1874,46 @@ function resetToLobby(room) {
   });
 }
 
+// Keine Spieluhr, Simulation oder Bot-Eingabe läuft während der Lesepause.
+// Eine eigene ID schützt die nächste Runde vor verspäteten Bereit-Nachrichten.
+function prepareMinigame(room, reason, type) {
+  clearRoomTimers(room);
+  const template = MINIGAMES.find((game) => game.type === type);
+  room.status = "minigame";
+  room.phase = "waitingReady";
+  room.lastMinigameResult = null;
+  room.readyForNext = [];
+  room.readyForMinigame = [];
+  room.currentMinigame = {
+    id: `${room.code}_intro_${room.minigameCounter + 1}_${Date.now()}`,
+    type, title: template.title, reason,
+    startedAt: null, duration: template.duration,
+    scores: {}, arena: {}, arcade: null
+  };
+  room.lastMessage = "Lest die Regeln und meldet euch bereit.";
+}
+
+function markMinigameReady(room, playerIds, minigameId) {
+  if (room.phase !== "waitingReady" || room.currentMinigame?.id !== minigameId) {
+    return { ok: false, error: "Diese Startkarte ist nicht mehr aktuell." };
+  }
+  const humans = humansInRoom(room);
+  const controlled = humans.filter((player) => playerIds.includes(player.id));
+  if (!controlled.length) return { ok: false, error: "Du gehörst nicht zu diesem Raum." };
+  room.readyForMinigame = [...new Set([...room.readyForMinigame, ...controlled.map((player) => player.id)])];
+  maybeStartPreparedMinigame(room);
+  return { ok: true };
+}
+
+function maybeStartPreparedMinigame(room) {
+  if (room.phase !== "waitingReady") return false;
+  const humans = humansInRoom(room);
+  if (!humans.length || !humans.every((player) => room.readyForMinigame.includes(player.id))) return false;
+  const { reason, type } = room.currentMinigame;
+  startMinigame(room, reason, type);
+  return true;
+}
+
 function startMinigame(room, reason, forcedType = null) {
   clearRoomTimers(room);
 
@@ -1934,6 +1924,7 @@ function startMinigame(room, reason, forcedType = null) {
   room.phase = "playingMinigame";
   room.lastMinigameResult = null;
   room.readyForNext = [];
+  room.readyForMinigame = [];
 
   const now = Date.now();
   const countdownMs = template.countdownMs || 4200;
@@ -1988,7 +1979,7 @@ const QUIET_INPUT_FAMILIES = new Set(["pump"]);
 
 function handleMinigameInput(room, player, rawInput) {
   const minigame = room.currentMinigame;
-  if (room.status !== "minigame" || !minigame) {
+  if (room.status !== "minigame" || !minigame || room.phase === "waitingReady") {
     return { ok: false, error: "Gerade läuft kein Minispiel." };
   }
   // Ab hier lesen alle Familien Felder aus `input`. Ein Nicht-Objekt darf hier
@@ -1998,7 +1989,7 @@ function handleMinigameInput(room, player, rawInput) {
   if (now < minigame.startedAt) {
     return { ok: false, error: "Das Minispiel startet gleich." };
   }
-  if (now > minigame.startedAt + minigame.duration) {
+  if (minigameFrozen(minigame, now)) {
     return { ok: false, error: "Das Minispiel ist vorbei." };
   }
 
@@ -2083,132 +2074,17 @@ function scheduleBotMinigameInputs(room) {
 
 function updateBounceArena(room) {
   const minigame = room.currentMinigame;
-  if (!minigame || minigame.type !== "bounceArena") return;
-  const arena = minigame.arena;
+  if (minigame?.type !== "bounceArena") return;
   const now = Date.now();
-  if (now < minigame.startedAt || minigameFrozen(minigame, now)) {
-    arena.lastUpdateAt = now;
-    return;
-  }
-
-  const frameDt = Math.min(0.12, Math.max(0.016, (now - (arena.lastUpdateAt || now)) / 1000));
-  arena.lastUpdateAt = now;
-  arena.tick = (arena.tick || 0) + 1;
-
-  const players = Object.values(arena.players);
-
-  // Die Insel schrumpft zum Schluss — gleichmässig, damit man es kommen sieht.
-  const shrink = clamp((now - arena.shrinkFrom) / Math.max(1, arena.shrinkUntil - arena.shrinkFrom), 0, 1);
-  arena.radius = ARENA_RADIUS * (1 - (1 - arena.shrinkTo) * shrink);
-  arena.shrinking = shrink > 0;
-
-  // Zurück auf die Insel, wer noch Leben hat und lange genug im Wasser war.
-  players.forEach((ap) => {
-    if (ap.inPlay || ap.lives <= 0 || now < ap.outUntil) return;
-    const spot = arenaSpawnPoint(arena, ap);
-    ap.x = spot.x;
-    ap.y = spot.y;
-    ap.vx = 0;
-    ap.vy = 0;
-    ap.inPlay = true;
-    ap.ejecting = false;
-    ap.launchedUntil = 0;
-    ap.invulnUntil = now + ARENA_INVULN_MS;
-    ap.spawnedAt = now;
-  });
-
-  const sub = ARENA_SUBSTEPS;
-  const dt = frameDt / sub;
-
-  for (let step = 0; step < sub; step += 1) {
-    // Integrate: thrust while the stick intent is fresh, then damping, then move.
-    players.forEach((ap) => {
-      if (!ap.inPlay) return;
-      const steering = now - ap.lastThrustAt < 200 ? 1 : 0;
-      if (steering) {
-        ap.vx += ap.thrustX * ARENA_ACCEL * dt;
-        ap.vy += ap.thrustY * ARENA_ACCEL * dt;
-      }
-      const damp = Math.exp(-ARENA_DRAG * dt);
-      ap.vx *= damp;
-      ap.vy *= damp;
-      ap.x += ap.vx * dt;
-      ap.y += ap.vy * dt;
-      ap.playMs += dt * 1000;
-      ap.score += dt * ARENA_SURVIVE_RATE;
-    });
-
-    // Ball-ball collisions (skip invulnerable spawns so nobody is spawn-camped).
-    const entries = Object.entries(arena.players);
-    for (let a = 0; a < entries.length; a += 1) {
-      for (let b = a + 1; b < entries.length; b += 1) {
-        resolveArenaCollision(entries[a], entries[b], now);
-      }
-    }
-
-    // Der Rand hält niemanden. Wer mit der Mitte über die Kante rutscht —
-    // gestossen oder selbst gefahren —, kippt hinunter; vorher hängt man nur
-    // über und kann sich noch zurückretten. Früher prallte jeder, der nicht
-    // gerade hart gerammt worden war, vom Rand zurück auf die Insel: eine
-    // unsichtbare Bande, die dem Spiel die Spannung am Rand nahm.
-    players.forEach((ap) => {
-      if (!ap.inPlay) return;
-      const dist = Math.hypot(ap.x, ap.y);
-      if (!ap.ejecting && dist <= arena.radius) return;
-      ap.ejecting = true;
-      // Einmal über der Kante gibt es kein Zurück: man rutscht weiter nach
-      // aussen, auch wenn man gerade kaum Fahrt hat.
-      const nx = ap.x / (dist || 1);
-      const ny = ap.y / (dist || 1);
-      const vn = ap.vx * nx + ap.vy * ny;
-      if (vn < ARENA_TIP_SPEED) {
-        ap.vx += (ARENA_TIP_SPEED - vn) * nx;
-        ap.vy += (ARENA_TIP_SPEED - vn) * ny;
-      }
-      if (dist > arena.radius + ARENA_BALL_RADIUS) {
-        knockArenaPlayerOff(arena, ap, now);
-      }
-    });
-  }
-
-  let aliveCount = 0;
-  room.players.forEach((player) => {
-    const ap = arena.players[player.id];
-    if (!ap) return;
-    // Im Spiel ist, wer auf der Insel steht ODER noch zurückspringen darf.
-    if (ap.inPlay || ap.lives > 0) aliveCount += 1;
-    minigame.scores[player.id] = Math.max(0, Math.round(ap.score));
+  if (now < minigame.startedAt || minigameFrozen(minigame, now)) return;
+  Bumper.advance(minigame.arena, now);
+  room.players.forEach(player => {
+    const entry = minigame.arena.players[player.id];
+    minigame.scores[player.id] = Math.max(0, Math.round(entry?.score || 0));
     player.minigameScore = minigame.scores[player.id];
   });
-
-  // Ist nur noch einer (oder keiner) übrig, der Leben hat: kurzes Finale, dann
-  // die Tafel.
-  const elapsed = now - minigame.startedAt;
-  if (aliveCount <= 1 && elapsed > 2000 && room.players.length > 1) {
-    beginMinigameFinale(room, minigame);
-  }
-}
-
-// Ins Becken: ein Leben weniger. Mit Leben übrig geht es nach
-// ARENA_RESPAWN_MS zurück auf die Insel, ohne ist man raus.
-function knockArenaPlayerOff(arena, ap, now) {
-  if (!ap.inPlay) return;
-  ap.inPlay = false;
-  ap.ejecting = false;
-  ap.knockedAt = now;
-  ap.falls += 1;
-  ap.lives = Math.max(0, (ap.lives ?? 1) - 1);
-  if (ap.lives > 0) ap.outUntil = now + ARENA_RESPAWN_MS;
-  else ap.outAt = now;
-  ap.vx = 0;
-  ap.vy = 0;
-  // Credit a recent hitter with the knockout.
-  const hitter = ap.lastHitBy && arena.players[ap.lastHitBy];
-  if (hitter && now - ap.lastHitAt < ARENA_CREDIT_MS) {
-    hitter.knockouts += 1;
-    hitter.score += ARENA_KNOCKOUT_BONUS;
-  }
-  ap.lastHitBy = null;
+  const alive = Object.values(minigame.arena.players).filter(p => p.lives > 0).length;
+  if (alive <= 1 && now - minigame.startedAt > 2000 && room.players.length > 1) beginMinigameFinale(room, minigame);
 }
 
 // Schedule the wind-down: gameplay keeps rendering for a short finale so
@@ -2257,7 +2133,7 @@ function beginMinigameFinale(room, minigame) {
 
 function finishMinigame(room) {
   const minigame = room.currentMinigame;
-  if (!minigame || room.status !== "minigame") return;
+  if (!minigame || room.status !== "minigame" || room.phase === "waitingReady") return;
   minigame.finishing = true;
 
   updateArcade(room);
@@ -2342,28 +2218,6 @@ function bounceResultScore(arenaPlayer) {
     + Math.min(999999, Math.round(arenaPlayer.playMs || 0));
 }
 
-// Wo man nach einem Sturz wieder auf die Insel kommt: innen, und dort, wo
-// gerade niemand steht — sonst landete man direkt vor dem, der einen eben
-// hinausgestossen hat.
-function arenaSpawnPoint(arena, self) {
-  let best = { x: 0, y: 0 };
-  let bestGap = -1;
-  const r = 0.38 * (arena.radius || ARENA_RADIUS);
-  for (let i = 0; i < 12; i += 1) {
-    const angle = (i / 12) * Math.PI * 2;
-    const x = Math.cos(angle) * r;
-    const y = Math.sin(angle) * r;
-    const gap = Object.values(arena.players)
-      .filter((other) => other !== self && other.inPlay)
-      .reduce((near, other) => Math.min(near, Math.hypot(other.x - x, other.y - y)), 9);
-    if (gap > bestGap) {
-      bestGap = gap;
-      best = { x, y };
-    }
-  }
-  return best;
-}
-
 function arcadeRankingScore(arcade, arcadePlayer) {
   if (!arcadePlayer) return 0;
   if (PARTY_FAMILIES[arcade.family]) return PARTY_FAMILIES[arcade.family].rank(arcade, arcadePlayer);
@@ -2384,12 +2238,7 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     if (arcadePlayer.stoppedMs === null || arcadePlayer.stoppedMs === undefined) return 0;
     return Math.max(1, 100000 - Math.round(arcadePlayer.deviationMs || 0));
   }
-  if (arcade.family === "runner") {
-    // Finishers rank above everyone still running, fastest first.
-    return arcadePlayer.finishedAt
-      ? 10000000 - Math.round(arcadePlayer.finishMs || 0)
-      : Math.round(arcadePlayer.progress || 0);
-  }
+  if (arcade.family === "runner") return Sprint.rank(arcadePlayer);
   if (arcade.family === "colorgrid") {
     // Mehr überstandene Runden zuerst. Wer gleich viele hat, den ordnet, wer
     // schneller auf seinem sicheren Feld stand — vorher teilten sich in gut der
@@ -2442,7 +2291,7 @@ function arcadeRankingScore(arcade, arcadePlayer) {
     // Läuft die Zeit im Zweikampf ab, liegt vorn, wer noch mehr Leben hat.
     return arcadePlayer.outAt
       ? Math.max(1, Math.round(arcadePlayer.outAt))
-      : 100000000000000 + (arcadePlayer.lives || 0) * 1000000 + (arcadePlayer.passes || 0);
+      : 100000000000000 + (arcadePlayer.lives || 0) * 1000000;
   }
   if (arcade.family === "catchfall") {
     // Der Bombenabzug steckt seit updateCatchfall schon in `catches` — genau der
@@ -2794,205 +2643,51 @@ function finishGame(room, winnerIds) {
 }
 
 function createArenaState(players, startedAt, duration = 45000) {
-  const arena = {
-    radius: ARENA_RADIUS,
-    ballRadius: ARENA_BALL_RADIUS,
-    lives: ARENA_LIVES,
-    shrinkFrom: startedAt + Math.max(0, duration - ARENA_SHRINK_MS),
-    shrinkUntil: startedAt + duration,
-    shrinkTo: ARENA_SHRINK_TO,
-    lastUpdateAt: startedAt,
-    tick: 0,
-    players: {}
-  };
-  players.forEach((player, index) => {
-    const angle = (index / Math.max(1, players.length)) * Math.PI * 2 - Math.PI / 2;
-    arena.players[player.id] = {
-      x: Math.cos(angle) * 0.5,
-      y: Math.sin(angle) * 0.5,
-      vx: 0,
-      vy: 0,
-      thrustX: 0,
-      thrustY: 0,
-      lastThrustAt: 0,
-      inPlay: true,          // on the plate and collidable
-      lives: ARENA_LIVES,    // bei null ist man raus
-      ejecting: false,       // über die Kante gerutscht, kippt ins Becken
-      launchedUntil: 0,      // gerade hart gerammt (für das Gesicht der Figur)
-      outUntil: 0,           // respawns when now passes this
-      invulnUntil: startedAt + ARENA_INVULN_MS,
-      score: 0,
-      playMs: 0,             // accumulated time in play (for the result card)
-      knockouts: 0,
-      falls: 0,
-      lastHitBy: null,
-      lastHitAt: 0,
-      collisionCount: 0,
-      lastCollisionAt: 0,
-      knockedAt: 0,          // bumps the client into a tumble animation
-      spawnedAt: startedAt,
-      outAt: null
-    };
-  });
-  return arena;
+  return Bumper.create(players, startedAt, duration);
 }
 
 function handleArenaInput(room, player, rawInput) {
-  const minigame = room.currentMinigame;
-  const arenaPlayer = minigame?.arena?.players?.[player.id];
-  if (!arenaPlayer) return { ok: false, error: "Arena nicht bereit." };
-  if (!arenaPlayer.inPlay) return { ok: true }; // still respawning — ignore, don't error
-
-  // Wie in handleArcadeInput: die Regelschicht darf sich nicht auf das `|| {}`
-  // der Socket-Schicht verlassen, sie wird auch direkt gerufen.
-  const input = (rawInput && typeof rawInput === "object") ? rawInput : {};
+  const game = room.currentMinigame;
+  const p = game?.arena?.players?.[player.id];
   const now = Date.now();
-  const action = input.action;
-
-  // Analog stick: a direction vector in [-1, 1]. Stored as a steering
-  // intent and applied continuously by the physics step for a short window.
-  if (action === "thrust") {
-    let dx = inputNumber(input.x) || 0;
-    let dy = inputNumber(input.y) || 0;
-    const length = Math.hypot(dx, dy);
-    if (length > 1) { dx /= length; dy /= length; }
-    arenaPlayer.thrustX = dx;
-    arenaPlayer.thrustY = dy;
-    arenaPlayer.lastThrustAt = now;
-    return { ok: true };
+  if (!p) return { ok: false, error: "Arena nicht bereit." };
+  if (minigameFrozen(game, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
+  const input = rawInput && typeof rawInput === "object" ? rawInput : {};
+  if (!["thrust", "up", "down", "left", "right"].includes(input.action)) {
+    return { ok: false, error: "Zieh den Stick zum Lenken und Rammen." };
   }
-
-  // Backward-compatible 4-way fallback (bots / old clients).
-  if (action === "up" || action === "down" || action === "left" || action === "right") {
-    arenaPlayer.thrustX = action === "left" ? -1 : action === "right" ? 1 : 0;
-    arenaPlayer.thrustY = action === "up" ? -1 : action === "down" ? 1 : 0;
-    arenaPlayer.lastThrustAt = now;
-    return { ok: true };
-  }
-
-  return { ok: false, error: "Ungültiger Bounce-Arena-Input." };
-}
-
-function resolveArenaCollision(entryA, entryB, now = Date.now()) {
-  const [idA, a] = entryA;
-  const [idB, b] = entryB;
-  if (!a.inPlay || !b.inPlay) return;
-  // Spawn grace: invulnerable balls pass through so nobody gets spawn-camped.
-  if (now < a.invulnUntil || now < b.invulnUntil) return;
-
-  let dx = b.x - a.x;
-  let dy = b.y - a.y;
-  let distance = Math.hypot(dx, dy);
-  const minDistance = ARENA_BALL_RADIUS * 2;
-  if (distance >= minDistance) return;
-
-  if (distance < 0.0001) {
-    dx = 0.01;
-    dy = 0;
-    distance = 0.01;
-  }
-
-  const nx = dx / distance;
-  const ny = dy / distance;
-
-  // Separate the overlap so balls stay solid (no clipping / sinking through).
-  const overlap = (minDistance - distance) / 2;
-  a.x -= nx * overlap;
-  a.y -= ny * overlap;
-  b.x += nx * overlap;
-  b.y += ny * overlap;
-
-  // Equal-mass collision along the contact normal with a bouncy restitution.
-  const relVel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-  if (relVel < 0) {
-    const jn = -(1 + ARENA_RESTITUTION) * relVel / 2;
-    a.vx -= jn * nx;
-    a.vy -= jn * ny;
-    b.vx += jn * nx;
-    b.vy += jn * ny;
-    // Ein harter Treffer wird vermerkt: die Figuren schauen kurz erschrocken.
-    if (jn >= ARENA_LAUNCH_IMPULSE) {
-      a.launchedUntil = now + ARENA_LAUNCH_MS;
-      b.launchedUntil = now + ARENA_LAUNCH_MS;
-    }
-  }
-
-  a.lastHitBy = idB;
-  b.lastHitBy = idA;
-  a.lastHitAt = now;
-  b.lastHitAt = now;
-  if (now - a.lastCollisionAt > 120) a.collisionCount += 1;
-  if (now - b.lastCollisionAt > 120) b.collisionCount += 1;
-  a.lastCollisionAt = now;
-  b.lastCollisionAt = now;
+  // Advance before changing intent; a tap cannot move a prior collision.
+  Bumper.advance(game.arena, now);
+  if (!p.inPlay) return { ok: true };
+  const direction = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[input.action];
+  const [x, y] = direction || [clamp(inputNumber(input.x) || 0, -1, 1), clamp(inputNumber(input.y) || 0, -1, 1)];
+  Bumper.thrust(p, x, y, now);
+  return { ok: true };
 }
 
 function arenaBotStep(arena, playerId) {
-  const bot = arena?.players?.[playerId];
-  if (!bot?.inPlay) return;
-
+  const p = arena?.players?.[playerId];
   const now = Date.now();
-  // Der Rand hält niemanden: gezählt wird nicht nur, wo man steht, sondern wo
-  // man mit der jetzigen Fahrt gleich wäre. Wer schnell nach aussen rutscht,
-  // bremst früh genug.
-  const aheadX = bot.x + (bot.vx || 0) * ARENA_BOT_LOOKAHEAD;
-  const aheadY = bot.y + (bot.vy || 0) * ARENA_BOT_LOOKAHEAD;
-  const distanceFromCenter = Math.max(Math.hypot(bot.x, bot.y), Math.hypot(aheadX, aheadY)) / (arena.radius || ARENA_RADIUS);
-  // Im Ergebnis zählt Überleben (+100000) weit mehr als Abschüsse. Wer bis kurz
-  // vor den Rand jagt, verliert damit — gemessen gewann die „aggressivste"
-  // Einstellung nur 9 % der Partien, die vorsichtigste 49 %. Die Rollen standen
-  // also genau verkehrt herum. Können heisst hier: angreifen, wenn es günstig
-  // steht, und sonst in der Mitte bleiben.
-  const profile = bot.arenaProfile || (bot.arenaProfile = (() => {
-    const roll = Math.random();
-    return roll < 0.33 ? { edge: 0.9, aggro: 0.72, picks: false }
-      : roll < 0.75 ? { edge: 0.8, aggro: 0.9, picks: true }
-        : { edge: 0.68, aggro: 1, picks: true };
-  })());
+  if (!p?.inPlay || now < arena.startedAt || now >= arena.startedAt + arena.duration) return;
+  Bumper.advance(arena, now);
+  if (!p.inPlay) return;
+  const profile = p.botProfile || (p.botProfile = { level: ["easy", "normal", "hard"][Math.floor(Math.random() * 3)] });
+  const hard = profile.level === "hard", easy = profile.level === "easy";
+  const look = hard ? 0.32 : easy ? 0.12 : 0.28;
+  const aheadX = p.x + p.vx * look, aheadY = p.y + p.vy * look;
+  const edge = Math.hypot(aheadX, aheadY) / arena.radius;
+  let dx = -aheadX, dy = -aheadY;
+  const prey = Object.entries(arena.players).filter(([id, q]) => id !== playerId && q.inPlay && now >= q.invulnUntil)
+    .sort(([, a], [, b]) => (Math.hypot(a.x - p.x, a.y - p.y) - (hard ? .6 * Math.hypot(a.x, a.y) : 0))
+      - (Math.hypot(b.x - p.x, b.y - p.y) - (hard ? .6 * Math.hypot(b.x, b.y) : 0)))[0];
+  if (prey && edge < (hard ? 0.88 : easy ? 0.95 : 0.83)) {
+    const [, q] = prey;
+    const lead = hard ? 0.04 : 0;
+    dx = q.x + q.vx * lead - p.x; dy = q.y + q.vy * lead - p.y;
 
-  // Too close to the rim yourself: retreat toward the middle — gemessen von
-  // dort, wo die Fahrt einen gleich hinträgt, damit man gegen sie anlenkt.
-  let targetX = -aheadX;
-  let targetY = -aheadY;
-
-  if (distanceFromCenter < profile.edge) {
-    const opponents = Object.entries(arena.players)
-      .filter(([id, candidate]) => id !== playerId && candidate.inPlay && now >= candidate.invulnUntil)
-      .map(([_id, candidate]) => candidate);
-    let prey = null;
-    if (profile.picks) {
-      // Wer selbst schon nah am Rand steht, ist mit einem Stoss draussen. Nähe
-      // zählt weiter mit, aber weniger als die Lage des Gegners — sonst rennt man
-      // dem nächstbesten hinterher, der sicher in der Mitte sitzt.
-      let best = -Infinity;
-      opponents.forEach((candidate) => {
-        const rim = Math.hypot(candidate.x, candidate.y);
-        const reach = Math.hypot(candidate.x - bot.x, candidate.y - bot.y);
-        const value = rim - reach * 0.55;
-        if (value > best) {
-          best = value;
-          prey = candidate;
-        }
-      });
-    } else {
-      opponents.sort((a, b) => Math.hypot(a.x - bot.x, a.y - bot.y) - Math.hypot(b.x - bot.x, b.y - bot.y));
-      prey = opponents[0];
-    }
-    if (prey) {
-      // Aim past the rival, along the line from the arena centre outward, so
-      // the ram shoves them toward the nearest rim rather than across the plate.
-      const outLen = Math.max(0.05, Math.hypot(prey.x, prey.y));
-      const aimX = prey.x + (prey.x / outLen) * 0.45;
-      const aimY = prey.y + (prey.y / outLen) * 0.45;
-      targetX = aimX - bot.x;
-      targetY = aimY - bot.y;
-    }
   }
-
-  const length = Math.max(0.01, Math.hypot(targetX, targetY));
-  bot.thrustX = (targetX / length) * profile.aggro;
-  bot.thrustY = (targetY / length) * profile.aggro;
-  bot.lastThrustAt = now;
+  const length = Math.max(.01, Math.hypot(dx, dy));
+  Bumper.thrust(p, dx / length * (easy ? .8 : 1), dy / length * (easy ? .8 : 1), now);
 }
 
 // Der Startwert jeder Runde ist neu gewürfelt. Vorher stand er je Spieltyp
@@ -3137,22 +2832,9 @@ function createArcadeState(type, players, startedAt, options = {}) {
   }
   if (config.family === "runner") {
     arcade.trackLength = RUNNER_LENGTH;
-    arcade.segments = createRunnerCourse(arcade.seed);
-    arcade.segLen = RUNNER_SEG_LEN;
+    arcade.hurdles = Sprint.course(arcade.seed);
     players.forEach((player, index) => {
-      const entry = arcade.players[player.id];
-      entry.lane = runnerStartLane(index, players.length);
-      entry.progress = 0;
-      entry.nextHurdle = 0;        // Index des nächsten noch offenen Abschnitts
-      entry.nextWall = 0;          // dasselbe für die Heuballen
-      entry.crashes = 0;           // in einen Heuballen gelaufen
-      entry.stumbleUntil = 0;
-      entry.kickAt = 0;              // wann zuletzt auf ein Boostfeld gewechselt
-      entry.kicks = 0;
-      entry.jumpUntil = 0;
-      entry.finishedAt = null;
-      entry.finishMs = null;
-      entry.stumbles = 0;
+      Object.assign(arcade.players[player.id], Sprint.player(index, startedAt));
     });
   }
   if (config.family === "colorgrid") {
@@ -3375,6 +3057,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       const entry = arcade.players[player.id];
       entry.height = 0;
       entry.width = 1;                   // current top-block width (0..1)
+      entry.layers = [];                // unveränderte Maße jeder gesetzten Ebene
       entry.offset = 0;                  // logical x-centre of the tower
       entry.dir = index % 2 === 0 ? 1 : -1;
       entry.phase = arcadeNoise(arcade.seed + index * 7);
@@ -3630,6 +3313,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.perfects = 0;
       entry.misses = 0;
       entry.lastBeatIndex = -1;        // je Schlag nur ein Versuch
+      entry.nextBeatToClose = 1;       // der Startschlag ist kein Pflichtversuch
       entry.lastTap = null;            // { beat, offsetMs, grade, at }
     });
   }
@@ -4081,98 +3765,6 @@ function buildWaveSchedule(seed, totalMs) {
   return waves;
 }
 
-// Same course for every player: at each row at least one lane stays free,
-// so the track is always beatable and fair.
-// Der Kurs besteht aus Abschnitten. Jeder verteilt die drei Beläge auf die
-// drei Bahnen, und in manchen steht zusätzlich eine Hürde in einer Bahn.
-//
-// Zwei Regeln halten ihn fair und lesbar:
-//  * Die Tempobahn wandert. Zwei Abschnitte hintereinander dieselbe schnelle
-//    Bahn wären eine Einladung, einmal zu wechseln und dann wegzuschauen.
-//  * Die Hürde steht NIE in der Sandbahn. Sonst wäre die Entscheidung geschenkt
-//    — der Sand ist schon Strafe genug, eine Hürde obendrauf trifft niemanden.
-function createRunnerCourse(seed) {
-  const segments = [];
-  const count = Math.ceil(RUNNER_LENGTH / RUNNER_SEG_LEN);
-  let tempo = Math.floor(arcadeNoise(seed + 5) * 3);
-  let sand = (tempo + 1 + Math.floor(arcadeNoise(seed + 11) * 2)) % 3;
-  for (let index = 0; index < count; index += 1) {
-    const at = index * RUNNER_SEG_LEN;
-    // Die ersten beiden Abschnitte sind flach: man soll die Bahnen sehen,
-    // bevor sie etwas kosten.
-    const ruhig = index < 2;
-    const lanes = [0, 1, 2].map((lane) => {
-      if (ruhig) return "normal";
-      if (lane === tempo) return "tempo";
-      if (lane === sand) return "sand";
-      return "normal";
-    });
-    // Ab dem vierten Abschnitt stehen Hürden — anfangs in gut jedem zweiten,
-    // zum Ziel hin in fast jedem. Zum Schluss wird es hektischer.
-    const anteil = index / Math.max(1, count - 1);
-    // Nie zwei Hürden hintereinander in derselben Bahn: Sprung und Landung
-    // dauern zusammen eine Sekunde, mit Boost liegen zwei Abschnitte aber
-    // nur gut 0,7 s auseinander — die zweite wäre nicht zu schaffen.
-    const vorige = segments.length ? segments[segments.length - 1].hurdle : null;
-    let hurdle = null;
-    if (index >= 3 && arcadeNoise(seed + index * 23) < 0.45 + 0.3 * anteil) {
-      const kandidaten = [0, 1, 2].filter((lane) => lanes[lane] !== "sand" && lane !== vorige);
-      if (kandidaten.length) hurdle = kandidaten[Math.floor(arcadeNoise(seed + index * 29) * kandidaten.length)];
-    }
-    // Heuballen: zu hoch zum Springen, man muss die Bahn wechseln. Sie stehen
-    // am Anfang eines Abschnitts, nie in der Bahn der Hürde und nie im Sand —
-    // oft also genau auf der Tempobahn: wer sie will, muss um den Ballen herum.
-    // Der Sand bleibt immer frei, es gibt also immer einen Weg.
-    let wall = null;
-    if (index >= 4 && arcadeNoise(seed + index * 47) < 0.2 + 0.25 * anteil) {
-      const kandidaten = [0, 1, 2].filter((lane) => lanes[lane] !== "sand" && lane !== hurdle);
-      if (kandidaten.length) wall = kandidaten[Math.floor(arcadeNoise(seed + index * 53) * kandidaten.length)];
-    }
-    segments.push({ index, at, lanes, hurdle, hurdleAt: at + RUNNER_SEG_LEN * 0.62, wall, wallAt: at + RUNNER_SEG_LEN * 0.22 });
-    // Nächster Abschnitt. Die Tempobahn sprang früher in JEDEM Abschnitt auf
-    // eine andere Bahn, oft von ganz links nach ganz rechts — alle 0,9 s ein
-    // neuer Wisch, zwei Bahnen weit. Das ist kein Planen mehr, sondern
-    // Hinterherwischen: gemessen fuhren alle drei Bot-Stufen im Mittel einen
-    // Belag von 1.04, kaum besser als geradeaus, und die Rangfolge war Zufall.
-    // Jetzt bleibt sie oft liegen und wandert, wenn, in die Nachbarbahn. Wer
-    // vorausschaut, fährt eine Linie; wer nur reagiert, hängt eine Bahn zurück.
-    if (arcadeNoise(seed + index * 31) >= 0.42) {
-      tempo = tempo === 1
-        ? (arcadeNoise(seed + index * 41) < 0.5 ? 0 : 2)
-        : 1;
-    }
-    sand = (tempo + 1 + Math.floor(arcadeNoise(seed + index * 37) * 2)) % 3;
-  }
-  return segments;
-}
-
-// Startbahn: verteilt über alle drei Bahnen, wie an einer echten Startlinie.
-// Vorher standen alle in der Mitte auf demselben Fleck, die Figuren steckten
-// zu viert ineinander. Die ersten beiden Abschnitte sind in allen Bahnen
-// gleich, die Startbahn bringt also niemandem einen Vorteil.
-function runnerStartLane(index, count) {
-  if (count <= 1) return 1;
-  if (count === 2) return index === 0 ? 0 : 2;
-  if (count === 4) return [0, 1, 2, 1][index];
-  return index % 3;
-}
-
-// Der Abschnitt, in dem eine Position liegt.
-function runnerSegmentAt(arcade, position) {
-  const segments = arcade.segments || [];
-  if (segments.length === 0) return null;
-  const index = Math.min(segments.length - 1, Math.max(0, Math.floor(position / RUNNER_SEG_LEN)));
-  return segments[index];
-}
-
-// Der Belagfaktor einer Bahn an einer Position.
-function runnerLaneFactor(arcade, position, lane) {
-  const segment = runnerSegmentAt(arcade, position);
-  if (!segment) return 1;
-  return RUNNER_SURFACE[segment.lanes[lane]] ?? 1;
-}
-
-
 // Der Zeitplan: je Runde Beginn (ab Spielstart), Ende der Ansage und Ende des
 // Falls. Server, Bots und Client lesen alle dieselben Zahlen.
 function buildColorSchedule() {
@@ -4260,7 +3852,10 @@ function handleArcadeInput(room, player, rawInput) {
 
 
   const now = Date.now();
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 130, colorgrid: 110, stopclock: 60, redlight: 60, wave: 200, pump: 0, barrel: 60, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
+  // Das Finale zeigt bereits festgelegte Plätze. Auch direkte Aufrufe aus
+  // Bots oder Werkzeugen dürfen diesen Stand nicht nachträglich verändern.
+  if (minigameFrozen(minigame, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 110, stopclock: 60, redlight: 0, wave: 200, pump: 0, barrel: 0, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -4289,12 +3884,7 @@ function handleArcadeInput(room, player, rawInput) {
   // Tipp schon der erste gewertete Versuch). Er ändert nichts und darf keinen
   // Cooldown auslösen, sonst schluckte er den echten Tipp danach.
   if (input.action === "ping") return { ok: true };
-  // Beim Lichtwächter gilt dasselbe fürs Loslassen: Das Gerät pingt alle
-  // 90 ms „halte noch“, und lag der letzte Ping keine 60 ms zurück, fraß der
-  // Cooldown die Loslass-Meldung. Der Server hielt den Finger dann noch bis zu
-  // 450 ms für gedrückt — gemessen wurde so erwischt, wer 60 ms nach dem Rot
-  // losgelassen hatte, selbst ohne jede Netzverzögerung.
-  const exempt = input.action === "lift" || (arcade.family === "redlight" && input.hold === false);
+  const exempt = input.action === "lift";
   const party = PARTY_FAMILIES[arcade.family];
   const cooldown = exempt ? 0 : (cooldowns[arcade.family] ?? party?.cooldown ?? 100);
   if (now - arcadePlayer.lastInputAt < cooldown) return { ok: true };
@@ -4410,6 +4000,7 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "barrel") {
     if (input.action !== "run") return { ok: false, error: "Halte links oder rechts, um zu laufen." };
+    if (input.hold === false) { arcadePlayer.lastRunAt = 0; return { ok: true }; }
     if (arcadePlayer.fallenAt) return { ok: true };
     arcadePlayer.lastRunAt = now;
     arcadePlayer.runDir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
@@ -4419,6 +4010,8 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "catchfall") {
     if (input.action !== "lane") return { ok: false, error: "Wechsle die Spur mit links/rechts." };
+    // Bereits gelandete Gegenstände gehören zur vorherigen Spur.
+    updateCatchfall(room, minigame, arcade, now);
     const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
     arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
     arcadePlayer.hasMoved = true;
@@ -4559,6 +4152,8 @@ function handleArcadeInput(room, player, rawInput) {
 
   if (arcade.family === "bomb") {
     if (input.action !== "pass") return { ok: false, error: "Tippe, um die Bombe weiterzugeben." };
+    // Die abgelaufene Zündschnur explodiert beim bisherigen Halter.
+    updateBomb(room, minigame, arcade, now);
     if (arcadePlayer.outAt) return { ok: true };
     if (arcade.holderId !== player.id) return { ok: true };
     if (now < arcade.canPassAt) return { ok: true };
@@ -4652,9 +4247,15 @@ function handleArcadeInput(room, player, rawInput) {
       arcadePlayer.lastHitAt = now;
     } else {
       const perfect = Math.abs(blockCentre - arcadePlayer.offset) < 0.05;
+      const cuts = perfect ? [] : [
+        [blockCentre - arcadePlayer.width / 2, overlapLeft],
+        [overlapRight, blockCentre + arcadePlayer.width / 2]
+      ].filter(([left, right]) => right - left > 0.001)
+        .map(([left, right]) => ({ width: right - left, offset: (left + right) / 2 }));
       arcadePlayer.width = perfect ? arcadePlayer.width : overlap;
-      arcadePlayer.offset = (overlapLeft + overlapRight) / 2;
+      arcadePlayer.offset = perfect ? arcadePlayer.offset : (overlapLeft + overlapRight) / 2;
       arcadePlayer.height += 1;
+      arcadePlayer.layers.push({ width: arcadePlayer.width, offset: arcadePlayer.offset, perfect, cuts });
       if (perfect) arcadePlayer.perfects += 1;
       arcadePlayer.score = arcadePlayer.height * 100 + arcadePlayer.perfects * 20;
       arcadePlayer.flash = perfect ? "good" : null;
@@ -4668,6 +4269,7 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "bounce") {
     if (input.action !== "jump") return { ok: false, error: "Tippe im Takt." };
     const elapsed = Math.max(0, now - room.currentMinigame.startedAt);
+    closeBounceBeats(arcadePlayer, elapsed, minigame.startedAt);
     const beat = bounceNearestBeat(elapsed);
     // Pro Schlag zählt nur der erste Versuch — sonst würde Dauerfeuer treffen.
     if (beat.index === arcadePlayer.lastBeatIndex) return { ok: true };
@@ -4972,27 +4574,33 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "runner") {
-    if (arcadePlayer.finishedAt) return { ok: true };
-    if (input.action === "lane") {
-      const dir = input.dir === -1 || input.dir === "-1" ? -1 : 1;
-      arcadePlayer.lane = clamp(arcadePlayer.lane + dir, 0, 2);
-      arcadePlayer.hasMoved = true;
-      return { ok: true };
+    if (!["sprint", "jump", "slide", "lane"].includes(input.action)) {
+      return { ok: false, error: "Wische zum Ausweichen, Springen oder Sliden; halten sprintet." };
     }
-    if (input.action === "jump") {
-      // Noch in der Luft oder gerade gelandet: der Tipp verfällt still. Eine
-      // Fehlermeldung je Tipp wäre beim hastigen Tippen nur Lärm.
-      if (now < (arcadePlayer.jumpUntil || 0) + RUNNER_JUMP_REST_MS) return { ok: true };
-      arcadePlayer.jumpUntil = now + RUNNER_JUMP_MS;
-      arcadePlayer.jumps = (arcadePlayer.jumps || 0) + 1;
-      arcadePlayer.hasMoved = true;
-      return { ok: true };
+    if (input.action === "sprint" && typeof input.hold !== "boolean") {
+      return { ok: false, error: "Haltezustand fehlt." };
     }
-    return { ok: false, error: "Wische zum Spurwechsel, tippe zum Springen." };
+    if (input.action === "lane" && ![-1, 1].includes(input.dir)) return { ok: false, error: "Spurwechsel braucht eine Richtung." };
+    // Apply the time before an input under the previous input state. In
+    // particular, a late jump cannot retroactively clear a crossed hurdle.
+    updateRunner(room, minigame, arcade, now);
+    if (arcadePlayer.finishedAt !== null) return { ok: true };
+    if (input.action === "sprint") {
+      arcadePlayer.holding = input.hold;
+      arcadePlayer.sprintAt = now;
+    } else if (now >= minigame.startedAt) {
+      if (input.action === "jump") Sprint.jump(arcadePlayer, now);
+      else if (input.action === "slide") Sprint.slide(arcadePlayer, now);
+      else Sprint.changeLane(arcadePlayer, input.dir, now);
+    }
+    arcadePlayer.hasMoved = true;
+    return { ok: true };
   }
 
   if (arcade.family === "colorgrid") {
     if (input.action !== "step") return { ok: false, error: "Wische in eine Richtung." };
+    updateColorGrid(room, minigame, arcade, now);
+    if (minigame.finaleAt) return { ok: true };
     if (arcadePlayer.eliminated) return { ok: true };
     // Laufen darf man während der ganzen Ansage, gesperrt ist nur der Fall.
     const phase = colorGridPhaseAt(arcade, now - room.currentMinigame.startedAt);
@@ -5419,9 +5027,7 @@ function updateArcade(room) {
   }
 
   if (arcade.family === "runner") {
-    const dt = Math.min(0.12, Math.max(0.016, (now - (arcade.lastUpdateAt || now)) / 1000));
-    arcade.lastUpdateAt = now;
-    updateRunner(room, minigame, arcade, dt, now);
+    updateRunner(room, minigame, arcade, now);
   }
 
   if (arcade.family === "colorgrid") {
@@ -5478,6 +5084,16 @@ function updateArcade(room) {
       const before = entry.times.length;
       fillReactMisses(arcade, entry, elapsed);
       if (entry.times.length !== before) syncArcadeScore(minigame, player, entry);
+    });
+  }
+
+  if (arcade.family === "bounce") {
+    const elapsed = Math.max(0, now - minigame.startedAt);
+    room.players.forEach(player => {
+      const entry = arcade.players[player.id];
+      if (!entry) return;
+      closeBounceBeats(entry, elapsed, minigame.startedAt);
+      syncArcadeScore(minigame, player, entry);
     });
   }
 
@@ -5820,71 +5436,15 @@ function updateWave(room, minigame, arcade, now) {
   });
 }
 
-function updateRunner(room, minigame, arcade, dt, now) {
+function updateRunner(room, minigame, arcade, now) {
+  const to = Math.min(now, minigame.startedAt + minigame.duration);
   room.players.forEach((player) => {
     const entry = arcade.players[player.id];
-    if (!entry || entry.finishedAt) return;
-
-    const stumbling = now < entry.stumbleUntil;
-    const jumping = now < entry.jumpUntil;
-
-    // Constantly run forward like Subway Surfers
-    const surface = runnerLaneFactor(arcade, entry.progress, entry.lane);
-    const belag = runnerSegmentAt(arcade, entry.progress)?.lanes[entry.lane] || "normal";
-    // Anschub: nur wer von einem anderen Belag auf ein Boostfeld kommt.
-    if (belag === "tempo" && entry.surface !== "tempo" && entry.surface !== undefined && !stumbling) {
-      entry.kickAt = now;
-      entry.kicks = (entry.kicks || 0) + 1;
-    }
-    const kickLeft = belag === "tempo" && !stumbling ? Math.max(0, 1 - (now - (entry.kickAt || 0)) / RUNNER_KICK_MS) : 0;
-    const speed = RUNNER_BASE_SPEED
-      * surface
-      * (1 + RUNNER_KICK * kickLeft)
-      * (stumbling ? 0.32 : 1.25)
-      * (jumping ? RUNNER_AIR_FACTOR : 1);
-
-    entry.speed = speed;
-    entry.surface = belag;
-    entry.progress = Math.min(arcade.trackLength, entry.progress + speed * dt);
-
-    const segments = arcade.segments || [];
-    while (entry.nextHurdle < segments.length && entry.progress >= segments[entry.nextHurdle].hurdleAt) {
-      const segment = segments[entry.nextHurdle];
-      entry.nextHurdle += 1;
-      if (segment.hurdle === null || segment.hurdle !== entry.lane) continue;
-      
-      if (!jumping) {
-        entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
-        entry.stumbles += 1;
-        entry.flash = "bad";
-        entry.lastHitAt = now;
-      }
-    }
-
-    // Heuballen: Springen hilft nicht, nur ausweichen.
-    while (entry.nextWall < segments.length && entry.progress >= segments[entry.nextWall].wallAt) {
-      const segment = segments[entry.nextWall];
-      entry.nextWall += 1;
-      if (segment.wall === null || segment.wall === undefined || segment.wall !== entry.lane) continue;
-      entry.stumbleUntil = now + RUNNER_STUMBLE_MS;
-      entry.stumbles += 1;
-      entry.crashes = (entry.crashes || 0) + 1;
-      entry.flash = "bad";
-      entry.lastHitAt = now;
-    }
-
-    if (entry.progress >= arcade.trackLength) {
-      entry.finishedAt = now;
-      entry.finishMs = Math.max(0, now - minigame.startedAt);
-      entry.flash = "good";
-      entry.lastHitAt = now;
-    }
-
-    entry.score = entry.finishedAt
-      ? 10000000 - entry.finishMs
-      : Math.round(entry.progress * 1000);
+    if (!entry) return;
+    Sprint.advance(entry, arcade.hurdles, minigame.startedAt, to);
     syncArcadeScore(minigame, player, entry);
   });
+  arcade.lastUpdateAt = to;
 }
 
 function updateColorGrid(room, minigame, arcade, now) {
@@ -7446,6 +7006,25 @@ function bounceNearestBeat(elapsed) {
   return { index: bestIndex, offsetMs: elapsed - bounceBeatTime(bestIndex) };
 }
 
+// Eine Resonanzserie braucht jeden Schlag. Auslassen darf sie nicht kostenlos
+// erhalten; die erreichte Besthöhe bleibt dabei als Ergebnis gespeichert.
+function closeBounceBeats(entry, elapsed, startedAt) {
+  let index = entry.nextBeatToClose ?? 1;
+  while (bounceBeatTime(index) + BOUNCE_GOOD_MS < elapsed) {
+    if (index > entry.lastBeatIndex) {
+      entry.lastBeatIndex = index;
+      entry.streak = 0;
+      entry.misses += 1;
+      entry.height = Math.max(0, entry.height - BOUNCE_MISS_PENALTY - entry.height * BOUNCE_MISS_SCALE);
+      entry.lastTap = { beat: index, offsetMs: BOUNCE_GOOD_MS + 1, grade: "miss", skipped: true, at: startedAt + bounceBeatTime(index) + BOUNCE_GOOD_MS };
+      entry.lastHitAt = entry.lastTap.at;
+      entry.flash = "bad";
+    }
+    index += 1;
+  }
+  entry.nextBeatToClose = index;
+}
+
 
 
 // Bots pumpen wie Menschen, nicht wie ein Metronom: jeder hat ein eigenes
@@ -8503,112 +8082,36 @@ function arcadeBotStep(room, bot) {
     return;
   }
   if (arcade.family === "runner") {
-    if (player.finishedAt) return;
+    if (player.finishedAt !== null) return;
     const now = Date.now();
     const profile = botProfile(player);
-    const segments = arcade.segments || [];
-    const hier = runnerSegmentAt(arcade, player.progress);
-    if (!hier) return;
-    const naechster = segments[Math.min(segments.length - 1, hier.index + 1)];
-
-    if (player.botSegIndex !== hier.index) {
-      player.botSegIndex = hier.index;
-      player.botRead = Math.random() > profile.mistake;
+    const hard = profile.level === "hard";
+    const easy = profile.level === "easy";
+    const low = hard ? 18 : easy ? 0 : 14;
+    const high = hard ? 50 : easy ? 32 : 50;
+    const sprint = arcade.trackLength - player.progress < 12
+      || (player.botSprinting ? player.energy > low : player.energy >= high);
+    player.botSprinting = sprint;
+    handleArcadeInput(room, bot, { action: "sprint", hold: sprint && !(hard && now < player.jumpUntil) });
+    const row = arcade.hurdles[player.nextHurdle];
+    if (!row) return;
+    const distance = row.at - player.progress, arrival = distance / Math.max(1, player.speed);
+    if (player.botHurdle !== row.index) {
+      player.botHurdle = row.index;
+      player.botWillJump = Math.random() > (hard ? .02 : easy ? .32 : .12);
+      player.botJumpLead = (hard ? .42 : easy ? .24 : .36) + (Math.random() - .5) * (hard ? .06 : easy ? .3 : .16);
     }
-
-    // Springen, wenn die Hürde gleich da ist — gemessen in Zeit, nicht in
-    // Metern: mit Anschub auf dem Boost ist man so schnell, dass drei Meter
-    // zwischen zwei Blicke des Bots fielen. Ein Sprung trägt 0,65 s, also
-    // reicht es, innerhalb der letzten gut halben Sekunde abzuspringen.
-    const tempo = Math.max(1, player.speed || RUNNER_BASE_SPEED);
-    const huerde = [hier, naechster].find((segment) => segment.hurdle === player.lane && segment.hurdleAt > player.progress);
-    if (player.botRead && huerde && (huerde.hurdleAt - player.progress) / tempo < 0.55) {
-      handleArcadeInput(room, bot, { action: "jump" });
-      return;
+    const kind = row.lanes?.[player.lane] || (!row.lanes ? 'jump' : null);
+    if (player.botWillJump && kind === 'block' && arrival < (hard ? .85 : easy ? .25 : .6)) {
+      const escape = [player.lane - 1, player.lane + 1].filter(lane => lane >= 0 && lane <= 2 && !row.lanes[lane]);
+      if (escape.length) handleArcadeInput(room, bot, { action: "lane", dir: escape[0] - player.lane });
     }
-
-    // Heuballen voraus in der eigenen Bahn: ausweichen. Ob der Bot ihn
-    // rechtzeitig sieht, würfelt er EINMAL je Ballen — der schwache sieht ihn
-    // spät oder gar nicht und läuft hinein.
-    const ballen = [hier, naechster].find((segment) => segment.wall === player.lane && segment.wallAt > player.progress);
-    if (ballen) {
-      if (player.botWallFor !== ballen.index) {
-        player.botWallFor = ballen.index;
-        const sieht = profile.level === "hard" ? 0.96 : profile.level === "normal" ? 0.82 : 0.55;
-        player.botSeesWall = Math.random() < sieht;
-      }
-      // Wie früh er ausweicht, in Sekunden bis zum Ballen.
-      const blick = profile.level === "hard" ? 0.75 : profile.level === "normal" ? 0.55 : 0.34;
-      if (player.botSeesWall && (ballen.wallAt - player.progress) / tempo < blick) {
-        const frei = [player.lane - 1, player.lane + 1].filter((lane) => lane >= 0 && lane <= 2 && ballen.wall !== lane);
-        // Lieber auf einen guten Belag als in den Sand.
-        frei.sort((a, b) => (RUNNER_SURFACE[ballen.lanes[b]] ?? 1) - (RUNNER_SURFACE[ballen.lanes[a]] ?? 1));
-        if (frei.length) {
-          handleArcadeInput(room, bot, { action: "lane", dir: frei[0] > player.lane ? 1 : -1 });
-          return;
-        }
-      }
+    if (player.botWillJump && kind === 'slide' && arrival <= player.botJumpLead && arrival > .02) {
+      handleArcadeInput(room, bot, { action: "slide" }); player.botWillJump = false;
     }
-
-    // Die Bahn bewerten — und zwar BEIDE Abschnitte, den laufenden anteilig und
-    // den naechsten ganz.
-    //
-    // Vorher zaehlte nur der naechste. Der Bot wechselte also fuer eine Bahn, die
-    // erst gleich gut wird, und bezahlte dafuer den Rest des laufenden
-    // Abschnitts — oft auf Sand. Gemessen kam dabei fuer ALLE drei Stufen ein
-    // mittlerer Belag von 0.97 heraus, also schlechter als stur geradeaus
-    // (1.00): die Tempobahn, um die sich das halbe Spiel dreht, nutzte niemand.
-    //
-    // Huerden wiegen nur noch leicht, seit man springen kann: sie kosten einen
-    // Sprung, nicht den Abschnitt. Sie ganz auszuschliessen hat den Bot von
-    // guten Tempobahnen ferngehalten.
-    //
-    // Ein Bahnwechsel kostet nichts und geht sofort. Richtig ist also: in der
-    // besten Bahn des LAUFENDEN Abschnitts bleiben und kurz vor der Grenze in
-    // die beste des nächsten wechseln. Die alte Bewertung (jetzt·Rest + dann)
-    // verliess die Tempobahn schon nach einem Achtel des Abschnitts, um für
-    // den nächsten bereit zu stehen — und verschenkte so genau das, worum es
-    // geht. Wie genau der Bot die Grenze trifft, ist jetzt seine Spielstärke:
-    // der starke wechselt einen Schritt vorher, der schwache erst ein Stück
-    // hinter der Grenze, wenn er die neue Bahn sieht.
-    let wanted = player.lane;
-    // Wie weit der Bot bis zu seinem nächsten Blick läuft. Der starke nimmt
-    // den Blick, der der Grenze am nächsten liegt; der mittlere wechselt erst,
-    // wenn er fast dran ist (und liegt damit oft ein Stück zu spät), der
-    // schwache erst, wenn er die neue Bahn unter den Füssen hat.
-    const tickSeconds = clamp((now - (player.botLastStepAt || now - 330)) / 1000, 0.08, 0.6);
-    player.botLastStepAt = now;
-    if (player.botRead) {
-      const toNext = hier.at + RUNNER_SEG_LEN - player.progress;
-      const stride = Math.max(0.5, (player.speed || RUNNER_BASE_SPEED) * tickSeconds);
-      const nextBest = [0, 1, 2].reduce((best, lane) =>
-        ((RUNNER_SURFACE[naechster.lanes[lane]] ?? 1) > (RUNNER_SURFACE[naechster.lanes[best]] ?? 1) ? lane : best), player.lane);
-      const lead = profile.level === "hard"
-        ? stride * (Math.abs(nextBest - player.lane) > 1 ? 1.5 : 0.5)
-        : profile.level === "normal" ? 0.6 : -2.2;
-      const sinceStart = player.progress - hier.at;
-      const plan = toNext <= lead ? naechster : hier;
-      const late = lead < 0 && sinceStart < -lead;
-      const laneValue = (segment, lane) => {
-        let wert = RUNNER_SURFACE[segment.lanes[lane]] ?? 1;
-        // Hürden kosten nur einen Sprung, nicht den Abschnitt.
-        if (segment.hurdle === lane && (segment !== hier || player.progress < hier.hurdleAt)) wert -= 0.12;
-        // Ein Heuballen kostet den Abschnitt, solange er noch vor einem steht;
-        // danach ist die Bahn wieder so gut wie ihr Belag.
-        if (segment.wall === lane && (segment !== hier || player.progress < hier.wallAt)) wert -= 0.5;
-        return wert - Math.abs(lane - player.lane) * 0.02;
-      };
-      if (!late) {
-        let best = -Infinity;
-        [0, 1, 2].forEach((lane) => {
-          const wert = laneValue(plan, lane);
-          if (wert > best) { best = wert; wanted = lane; }
-        });
-      }
-    }
-
-    if (wanted !== player.lane) {
-      handleArcadeInput(room, bot, { action: "lane", dir: wanted > player.lane ? 1 : -1 });
+    if (player.botWillJump && kind === 'jump' && arrival <= player.botJumpLead && arrival > .02) {
+      handleArcadeInput(room, bot, { action: "jump" }); player.botWillJump = false;
+      if (hard) handleArcadeInput(room, bot, { action: "sprint", hold: false });
     }
     return;
   }
@@ -8713,6 +8216,7 @@ function serializeRoom(room) {
     lastMinigameResult: room.lastMinigameResult,
     resultEndsAt: room.resultEndsAt,
     readyForNext: room.readyForNext || [],
+    readyForMinigame: room.readyForMinigame || [],
     readyNeeded: humansInRoom(room).length,
     lastMessage: room.lastMessage,
     winnerIds: room.winnerIds,
@@ -8740,16 +8244,6 @@ function publicArcade(arcade) {
     return rest;
   }
   if (PARTY_FAMILIES[arcade.family]?.publicView) return PARTY_FAMILIES[arcade.family].publicView(arcade);
-  // Zündstoff: Der Knall-Zeitpunkt bleibt auf dem Server. Die Geräte zeigten
-  // die Zündzeit zwei Sekunden lang in ganzen Sekunden und dann „?“ — mit
-  // `fuseAt` auf die Millisekunde im Paket konnte aber jedes Gerät die Bombe
-  // exakt bis kurz vor dem Knall halten. Es bekommt nur, was auch zu sehen ist.
-  // Wann sie gezündet wurde, sieht jeder (die Bombe kommt aus dem Feuer) —
-  // zusammen mit ganzen Sekunden verrät das nichts.
-  if (arcade.family === "bomb") {
-    const { fuseAt, fuseMs, ...rest } = arcade;
-    return { ...rest, fuseSecs: Math.round((fuseMs || 0) / 1000), litAt: (fuseAt || 0) - (fuseMs || 0) };
-  }
   // Pump-Panik: Eimerstand und Bot-Tempo sind Rechenwerte des Servers — sie
   // mit elf Bildern je Sekunde an jedes Gerät zu schicken, kostete ein Drittel
   // des Pakets.
@@ -8823,6 +8317,10 @@ function leaveCurrentRoom(socket, notify, intentional = false) {
   socket.leave(code);
   socket.data.roomCode = null;
   socket.data.playerId = null;
+
+  // Ein getrenntes Gerät darf die noch verbundenen, bereiten Spieler nicht
+  // auf der Startkarte festhalten. Sind alle offline, bleibt die Uhr stehen.
+  if (maybeStartPreparedMinigame(room)) emitRoom(room);
 
   if (room.players.length === 0 || !room.players.some((candidate) => !candidate.isBot && candidate.connected)) {
     if (!room.cleanupTimer) {
@@ -9005,6 +8503,8 @@ module.exports = {
     WHACK_GOLD_POINTS,
     buildWhackPops,
     startGame,
+    markMinigameReady,
+    maybeStartPreparedMinigame,
     finishMinigame,
     continueAfterResult,
     resetToLobby,
@@ -9039,6 +8539,7 @@ module.exports = {
     createArcadeState,
     ARCADE_CONFIGS,
     handleArcadeInput,
+    handleMinigameInput,
     arcadeResultDetail,
     createArenaState,
     handleArenaInput,
@@ -9050,7 +8551,6 @@ module.exports = {
     ARENA_RADIUS,
     ARENA_BALL_RADIUS,
     ARENA_RESPAWN_MS,
-    createRunnerCourse,
     dareBarrelAt,
     dareRestingDistance,
     darePoints,
@@ -9059,8 +8559,6 @@ module.exports = {
     DARE_ROLL_MS,
     DARE_LEAD_IN_MS,
     DARE_SHOW_MS,
-    runnerSegmentAt,
-    runnerLaneFactor,
     advanceColorRound,
     colorGridPhaseAt,
     updateArcade,

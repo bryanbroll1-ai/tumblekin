@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin200";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin200";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { createCloud } from "./VoxelKit.js?v=tumblekin210";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
 // fliegt die Figur. Drei Schuss; Ziel ist die FLAGGE, die jede Runde woanders
@@ -64,6 +64,7 @@ export class CannonFly extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>—</strong></div>
       <div class="simon-round cannon-info" data-cannon-info></div>
+      <div class="cannon-aim-readout" data-cannon-aim hidden></div>
       <div class="color-banner" data-cannon-banner hidden></div>
       <div class="cannon-phase-label" data-cannon-label>KRAFT</div>
       <div class="cannon-gauge" data-cannon-gauge><div class="cannon-gauge-fill" data-cannon-fill></div></div>`;
@@ -400,33 +401,15 @@ export class CannonFly extends MinigameScene {
     const arcade = (this.update || this.minigame)?.arcade;
     const own = arcade?.players?.[this.getControlledPlayerId()];
     if (!own || own.launchedAt) return;
-    // Der erste Tipp legt die Kraft dort fest, wo die Anzeige steht, wenn er
-    // beim Server ankommt (arrivalNow) — ab da läuft der Winkel. Das Gerät
-    // merkt sich den Augenblick, statt eine Rundreise auf die Bestätigung zu
-    // warten: sonst begänne der Winkel im Bild zu spät.
-    const powered = Boolean(this.powerAtOf(own, arcade));
-    const at = this.arrivalNow();
-    if (!powered && at >= (arcade.roundStartAt ?? 0)) {
-      this.localShot = { round: arcade.round || 0, powerAt: at, power: tri(Math.max(0, at - arcade.roundStartAt) / (arcade.periodMs || 1150)) };
-    }
-    this.feedback?.sound(powered ? "impact" : "pop");
-    this.feedback?.vibrate(powered ? [18, 12, 26] : 12);
+    this.feedback?.sound(own.powerAt ? "impact" : "pop");
+    this.feedback?.vibrate(own.powerAt ? [18, 12, 26] : 12);
     this.sendInput({ action: "launch" }).catch(() => {});
-  }
-
-  // Wann die eigene Kraft festgelegt wurde: vom Server, oder — bis seine
-  // Antwort da ist — der eigene Tipp zur Ankunftszeit.
-  powerAtOf(entry, arcade) {
-    if (entry.powerAt) return entry.powerAt;
-    const local = this.localShot;
-    return entry === arcade.players?.[this.getControlledPlayerId()] && local?.round === (arcade.round || 0) ? local.powerAt : null;
   }
 
   angleOf(entry, arcade, now) {
     if (entry.launchedAt && entry.angle) return entry.angle;
-    const powerAt = this.powerAtOf(entry, arcade);
-    if (powerAt) {
-      const t = tri((now - powerAt) / (arcade.anglePeriodMs || 1300));
+    if (entry.powerAt) {
+      const t = tri((now - entry.powerAt) / (arcade.anglePeriodMs || 1300));
       return (arcade.angleMin ?? 10) + t * ((arcade.angleMax ?? 80) - (arcade.angleMin ?? 10));
     }
     return 38;
@@ -436,13 +419,8 @@ export class CannonFly extends MinigameScene {
     this.castleFlags?.forEach((fahne, i) => { fahne.rotation.y = Math.sin(f.now / 280 + i) * 0.35; });
     const { now, dt, arcade, players, controlledId, finale } = f;
     if (!arcade) return;
-    // Kraft und Winkel pendeln zur Ankunftszeit: im Bild steht, was gilt, wenn
-    // ein JETZT getippter Stopp beim Server ankommt. Die Kraft pendelt in
-    // 1,15 s einmal hin und her — eine Rundreise von 200 ms war vorher ein
-    // Drittel der Skala daneben.
-    const at = this.arrivalNow();
     // Die Kraft läuft je Runde von vorn.
-    const gauge = tri(Math.max(0, at - (arcade.roundStartAt ?? f.minigame.startedAt)) / (arcade.periodMs || 1150));
+    const gauge = tri(Math.max(0, now - (arcade.roundStartAt ?? f.minigame.startedAt)) / (arcade.periodMs || 1150));
     if (this.round !== (arcade.round || 0)) this.newRound(f);
     // Windsack: zeigt mit der Spitze dorthin, wohin der Wind weht.
     const wind = arcade.wind || 0;
@@ -461,7 +439,7 @@ export class CannonFly extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !st || !kin || !animator) return;
 
-      const deg = this.angleOf(entry, arcade, at);
+      const deg = this.angleOf(entry, arcade, now);
       const rad = THREE.MathUtils.degToRad(deg);
       st.pivot.rotation.x = rad - Math.PI / 2;
       const dir = new THREE.Vector3(0, Math.sin(rad), -Math.cos(rad));
@@ -604,11 +582,10 @@ export class CannonFly extends MinigameScene {
     const own = arcade.players[controlledId];
     const ownStation = this.stations.get(controlledId);
     if (this.preview) {
-      const aiming = own && this.powerAtOf(own, arcade) && !own.launchedAt && ownStation && !finale;
+      const aiming = own?.powerAt && !own.launchedAt && ownStation && !finale;
       this.preview.visible = Boolean(aiming);
       if (aiming) {
-        const power = own.powerAt ? own.power : this.localShot?.power;
-        const predicted = shotDistance(power || 0, this.angleOf(own, arcade, at), 0, arcade.windM || 11);
+        const predicted = shotDistance(own.power || 0, this.angleOf(own, arcade, now), 0, arcade.windM || 11);
         this.preview.position.set(ownStation.x, 0.07, landZ(predicted));
         const close = Math.abs(predicted - (arcade.target || 0)) <= 3;
         this.preview.material.color.set(close ? "#57e08a" : "#ffffff");
@@ -671,6 +648,12 @@ export class CannonFly extends MinigameScene {
       return;
     }
     if (waiting.length && !finale) {
+      const own = arcade.players[f.controlledId];
+      const station = this.stations.get(f.controlledId);
+      if (station && own && !own.launchedAt) {
+        this.focus = { look: [station.x, 0.95, CANNON_Z + 0.2], frame: { w: 3.2, h: 2.7 }, keep: [this.kins.get(f.controlledId)].filter(Boolean) };
+        return;
+      }
       this.focus = { look: [0.3, 0.8, CANNON_Z + 0.3], frame: { w: count * LANE_GAP * 0.82 + 0.8, h: 2.4 }, keep: waiting.map((player) => this.kins.get(player.id)).filter(Boolean) };
       return;
     }
@@ -724,6 +707,20 @@ export class CannonFly extends MinigameScene {
       }
     }
     const banner = this.hud.querySelector("[data-cannon-banner]");
+    const aim = this.hud.querySelector('[data-cannon-aim]');
+    if (aim) {
+      const betweenRounds = now < (this.roundBannerUntil || 0);
+      aim.hidden = !own?.powerAt || betweenRounds || Boolean(minigame.finaleAt);
+      if (!aim.hidden) {
+        if (own.launchedAt) {
+          const difference = (own.distance || 0) - (arcade.target || 0);
+          aim.textContent = `${Number(own.distance || 0).toFixed(1)} m · ${Math.abs(difference) < 0.5 ? 'am Ziel' : `${Math.abs(difference).toFixed(1)} m ${difference < 0 ? 'zu kurz' : 'zu weit'}`}`;
+        } else {
+          const distance = shotDistance(own.power || 0, this.angleOf(own, arcade, now), 0, arcade.windM || 11);
+          aim.textContent = `Vorschau ohne Wind: ${Math.round(distance)} m`;
+        }
+      }
+    }
     if (banner) {
       const show = now < (this.roundBannerUntil || 0) && !minigame.finaleAt;
       banner.hidden = !show;
@@ -737,18 +734,16 @@ export class CannonFly extends MinigameScene {
     const fill = this.hud.querySelector("[data-cannon-fill]");
     const gauge = this.hud.querySelector("[data-cannon-gauge]");
     const label = this.hud.querySelector("[data-cannon-label]");
-    const at = this.arrivalNow();
-    const elapsed = at - (arcade.roundStartAt ?? minigame.startedAt);
-    const powerAt = own ? this.powerAtOf(own, arcade) : null;
+    const elapsed = now - (arcade.roundStartAt ?? minigame.startedAt);
     if (fill && gauge) {
       if (own?.launchedAt || minigame.finaleAt || elapsed < 0) {
         gauge.classList.add("done");
         gauge.classList.remove("angle-phase");
         if (label) label.textContent = own?.angle ? `${Math.round(own.angle)}°` : "";
-      } else if (powerAt) {
+      } else if (own?.powerAt) {
         gauge.classList.remove("done");
         gauge.classList.add("angle-phase");
-        const t = tri((at - powerAt) / (arcade.anglePeriodMs || 1300));
+        const t = tri((now - own.powerAt) / (arcade.anglePeriodMs || 1300));
         const deg = Math.round((arcade.angleMin ?? 10) + t * ((arcade.angleMax ?? 80) - (arcade.angleMin ?? 10)));
         fill.style.height = `${Math.round(t * 100)}%`;
         fill.classList.remove("hot");
@@ -764,7 +759,7 @@ export class CannonFly extends MinigameScene {
     if (this.launchButton) {
       this.launchButton.disabled = Boolean(own?.launchedAt || minigame.finaleAt);
       const face = this.launchButton.querySelector(".nerve-button-face");
-      if (face) face.textContent = powerAt && !own?.launchedAt ? "WINKEL!" : "FEUER!";
+      if (face) face.textContent = own?.launchedAt ? "IM FLUG …" : own?.powerAt ? "WINKEL STOPPEN" : "KRAFT STOPPEN";
     }
   }
 }

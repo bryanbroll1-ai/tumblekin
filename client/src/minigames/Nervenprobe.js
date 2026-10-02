@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin200";
-import { frameLerp } from "./Quality.js?v=tumblekin200";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin200";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
+import { frameLerp } from "./Quality.js?v=tumblekin210";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
 
 // Nervenprobe: die Uhr läuft sichtbar an, dann verschwindet sie — man zählt im
 // Kopf weiter und drückt, wenn man glaubt, das Ziel sei erreicht.
@@ -600,12 +600,14 @@ export class Nervenprobe extends MinigameScene {
     const arcade = (this.update || this.minigame)?.arcade;
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
-    if (!own || own.stoppedMs !== null) return;
+    this.localStops ||= new Set();
+    if (!own || own.stoppedMs !== null || this.localStops.has(id)) return;
+    this.localStops.add(id);
     this.feedback?.sound("pop");
     this.feedback?.vibrate([14, 10, 22]);
     this.rig.shake(0.4);
     this.animators.get(id)?.trigger("punch");
-    this.sendInput({ action: "stop" }).catch(() => {});
+    this.sendInput({ action: "stop" }).catch(() => { this.localStops.delete(id); });
   }
 
   tick(f) {
@@ -616,10 +618,7 @@ export class Nervenprobe extends MinigameScene {
     }
     if (this.tally) this.tally.visible = Math.floor(now / 700) % 2 === 0;
     if (!arcade) return;
-    // Die Uhr läuft auf Ankunftszeit: Wer im Kopf weiterzählt und beim
-    // Zielwert tippt, dessen Tipp kommt beim Server auch bei diesem Wert an —
-    // sonst zählte die Netzlaufzeit hin und zurück als eigener Fehler.
-    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
+    const elapsed = Math.max(0, now - minigame.startedAt);
     const hidden = elapsed >= arcade.hideAfterMs;
     const revealAll = Boolean(minigame.finaleAt);
     if (hidden && !this.hidAt) {
@@ -785,9 +784,9 @@ export class Nervenprobe extends MinigameScene {
   }
 
   drawHud(f) {
-    const { arcade, minigame } = f;
+    const { arcade, minigame, now } = f;
     if (!arcade) return;
-    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
+    const elapsed = Math.max(0, now - minigame.startedAt);
     const hidden = elapsed >= arcade.hideAfterMs;
     const revealAll = Boolean(minigame.finaleAt);
     // Die Rundenuhr oben links zählt hier NICHT mit — sie verriete die Zeit,
@@ -799,7 +798,7 @@ export class Nervenprobe extends MinigameScene {
     this.targetNode.textContent = `Ziel: ${(arcade.targetMs / 1000).toFixed(1)}s`;
     const banner = this.hud.querySelector("[data-nerve-banner]");
     const own = arcade.players[this.getControlledPlayerId()];
-    const stopped = own?.stoppedMs !== null && own?.stoppedMs !== undefined;
+    const stopped = this.localStops?.has(f.controlledId) || (own?.stoppedMs !== null && own?.stoppedMs !== undefined);
     if (revealAll) {
       banner.hidden = false;
       const sieger = this.jubelt ? this.reveal?.winner : null;
