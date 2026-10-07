@@ -347,7 +347,7 @@ export class FaceLift extends MinigameScene {
       this.handleWorld(mask, best, this.localShape, grabbed);
       this.drag = { index: best, pointerId: event.pointerId, offX: grabbed.x - hit.x, offY: grabbed.y - hit.y };
       this.touchedRound = this.localRound;
-      this.webglCanvas.setPointerCapture?.(event.pointerId);
+      this.capturePointer(this.webglCanvas, event.pointerId);
       this.feedback?.sound("select");
       this.feedback?.vibrate(8);
     });

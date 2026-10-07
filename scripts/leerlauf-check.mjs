@@ -28,6 +28,12 @@ const NUR = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : nul
 // Ab hier lohnt das Hinschauen. Zwei Sekunden Ausklang sind gewollt (man will
 // sehen, wie es ausgeht); fuenf sind Warten.
 const SCHWELLE_MS = 4000;
+// Was ausser dem Punktestand als Geschehen zählt. Beim Luftpuck ändern sich
+// die Plätze nur bei Toren (Puckkontakte sind bewusst kein Stichentscheid
+// mehr), gespielt wird aber ständig — jeder Schlag auf den Puck ist Geschehen.
+const GESCHEHEN = {
+  luftpuck: (arcade) => arcade.hockey?.touches ?? 0
+};
 
 function lauf(type) {
   const tpl = MINIGAMES.find((m) => m.type === type);
@@ -50,6 +56,7 @@ function lauf(type) {
   let letzteAenderung = 0;
   let frueherSchluss = null;
   let vorher = players.map(() => 0);
+  let vorherGeschehen = GESCHEHEN[type]?.(arcade) ?? 0;
   for (let t = 0; t <= tpl.duration; t += 24) {
     clock = startedAt + t;
     players.forEach((p, i) => {
@@ -62,8 +69,10 @@ function lauf(type) {
     // als Totzeit — es ist genau die Gegenmassnahme.
     if (frueherSchluss === null && (minigame.finishing || minigame.finaleAt)) frueherSchluss = t;
     const jetzt = players.map((p) => arcadeRankingScore(arcade, arcade.players[p.id]));
-    if (jetzt.some((wert, i) => wert !== vorher[i])) letzteAenderung = t;
+    const geschehen = GESCHEHEN[type]?.(arcade) ?? 0;
+    if (jetzt.some((wert, i) => wert !== vorher[i]) || geschehen !== vorherGeschehen) letzteAenderung = t;
     vorher = jetzt;
+    vorherGeschehen = geschehen;
   }
   Date.now = echt;
   const ende = frueherSchluss === null ? tpl.duration : frueherSchluss;

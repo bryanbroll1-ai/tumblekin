@@ -48,6 +48,7 @@ function tileZ(gy) {
 export class ColorRush extends MinigameScene {
   constructor(ctx) {
     super(ctx);
+    this.stepPending = [];
     this.tiles = [];
     this.lastFallen = new Map();
     this.lastSurvived = new Map();
@@ -246,7 +247,7 @@ export class ColorRush extends MinigameScene {
     // das mehr Fingerarbeit als Entscheidung.
     this.on(this.webglCanvas, "pointerdown", (event) => {
       if (this.swipe) return;
-      this.webglCanvas.setPointerCapture?.(event.pointerId);
+      this.capturePointer(this.webglCanvas, event.pointerId);
       this.swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, steps: 0 };
     });
     this.on(window, "pointermove", (event) => {
@@ -297,16 +298,19 @@ export class ColorRush extends MinigameScene {
     const arcade = (this.update || this.minigame)?.arcade;
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
-    if (!this.frame || !own || own.eliminated || (this.update || this.minigame).finaleAt || this.computePhase(arcade, this.update || this.minigame, this.now()).name !== "announce") {
+    // Ob der Schritt noch rechtzeitig ankommt, entscheidet die Ankunftszeit.
+    if (!this.frame || !own || own.eliminated || (this.update || this.minigame).finaleAt || this.computePhase(arcade, this.update || this.minigame, this.arrivalNow()).name !== "announce") {
       this.stepQueue.length = 0;
       return;
     }
     // Wohin es ginge — und ob es geht. Am Rand und vor einem besetzten Feld
     // gibt es einen kleinen Ruck statt eines Schrittes, damit der Wisch nicht
-    // ins Leere läuft.
+    // ins Leere läuft. Gerechnet ab dem Feld samt der schon geschickten
+    // Schritte: der Serverstand kennt den letzten oft noch nicht.
     const step = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[dir];
-    const gx = own.gx + step[0];
-    const gy = own.gy + step[1];
+    const from = this.cellOf(id, arcade, id, false);
+    const gx = from.gx + step[0];
+    const gy = from.gy + step[1];
     const drin = gx >= 0 && gx < COLS && gy >= 0 && gy < ROWS;
     const besetzt = drin && Object.entries(arcade.players).some(([otherId, other]) => otherId !== id && !other.eliminated && other.gx === gx && other.gy === gy);
     if (!drin || besetzt) {
@@ -319,7 +323,35 @@ export class ColorRush extends MinigameScene {
     this.feedback?.vibrate(8);
     this.lastStepSentAt = performance.now();
     this.stepInFlight = true;
-    this.sendInput({ action: "step", dir }).finally(() => { this.stepInFlight = false; this.flushStep(); }).catch(() => {});
+    const pending = { step, acked: false };
+    this.stepPending.push(pending);
+    this.sendInput({ action: "step", dir }).finally(() => { pending.acked = true; this.stepInFlight = false; this.flushStep(); }).catch(() => {});
+  }
+
+  // Bestätigte Schritte stecken ab dem nächsten Bild im Feld des Servers.
+  onUpdate() {
+    if (this.stepPending.some((input) => input.acked)) this.stepPending = this.stepPending.filter((input) => !input.acked);
+  }
+
+  // Das Feld einer Figur; das eigene samt der geschickten (und auf Wunsch der
+  // noch wartenden) Schritte. Die eigene Figur hüpft so sofort, nicht erst
+  // eine Rundreise später. Auf ein besetztes Feld springt der Server nicht —
+  // die Vorhersage auch nicht.
+  cellOf(id, arcade, controlledId, withQueue = true) {
+    const entry = arcade.players[id];
+    const cell = { gx: entry?.gx ?? 2, gy: entry?.gy ?? 2 };
+    if (id !== controlledId || !entry || entry.eliminated) return cell;
+    const steps = [...this.stepPending.map((input) => input.step)];
+    if (withQueue) (this.stepQueue || []).forEach((dir) => steps.push({ up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[dir]));
+    steps.forEach((step) => {
+      if (!step) return;
+      const gx = cell.gx + step[0];
+      const gy = cell.gy + step[1];
+      if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS) return;
+      const besetzt = Object.entries(arcade.players).some(([otherId, other]) => otherId !== id && !other.eliminated && other.gx === gx && other.gy === gy);
+      if (!besetzt) { cell.gx = gx; cell.gy = gy; }
+    });
+    return cell;
   }
 
   // Runde und Phase kommen aus dem Zeitplan, den der Server mitschickt — dieselbe
@@ -332,8 +364,15 @@ export class ColorRush extends MinigameScene {
     let round = 0;
     schedule.forEach((slot, index) => { if (elapsed >= slot.start) round = index; });
     // Weiter als der Server ist man nie: gibt es keine Entscheidung, bleibt
-    // er in der achten Runde, und dann ist das Spiel vorbei.
-    if (round > (arcade.round ?? round)) return { name: "over", t: 1, left: 0, round: arcade.round };
+    // er in der achten Runde, und dann ist das Spiel vorbei. Sonst ist nur
+    // seine neue Runde noch unterwegs — die Ankunftszeit läuft ihm um die
+    // Netzlaufzeit voraus, und die neue Zielfarbe kennt man erst mit ihr. Bis
+    // dahin bleibt das Ende des letzten Falls stehen.
+    if (round > (arcade.round ?? round)) {
+      const standing = Object.values(arcade.players || {}).filter((entry) => !entry.eliminated).length;
+      if (round >= (arcade.roundCount ?? 8) && standing < 2) return { name: "over", t: 1, left: 0, round: arcade.round };
+      return { name: "drop", t: 1, left: 0, round: arcade.round };
+    }
     const slot = schedule[round];
     if (!slot) return { name: "announce", t: 0, left: 0, round };
     if (elapsed < slot.dropAt) {
@@ -352,7 +391,9 @@ export class ColorRush extends MinigameScene {
     });
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
-    const phase = this.computePhase(arcade, minigame, now);
+    // Ansage und Fall laufen auf Ankunftszeit: Der Countdown zeigt, wie lange
+    // ein Schritt noch rechtzeitig beim Server ankommt.
+    const phase = this.computePhase(arcade, minigame, this.arrivalNow());
     this.phase = phase;
 
     if (arcade.round !== this.lastRound) {
@@ -445,15 +486,16 @@ export class ColorRush extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const fallen = Boolean(entry.eliminated);
-      const targetX = tileX(entry.gx);
-      const targetZ = tileZ(entry.gy);
+      const { gx, gy } = this.cellOf(player.id, arcade, controlledId);
+      const targetX = tileX(gx);
+      const targetZ = tileZ(gy);
 
       // Ein Schritt ist ein Hüpfer in Sprungrichtung.
-      const cell = `${entry.gx},${entry.gy}`;
+      const cell = `${gx},${gy}`;
       const last = this.lastCell.get(player.id);
       if (last && last !== cell && !fallen) {
         const [lx, ly] = last.split(",").map(Number);
-        kin.userData.hopFacing = Math.atan2(entry.gx - lx, entry.gy - ly);
+        kin.userData.hopFacing = Math.atan2(gx - lx, gy - ly);
         kin.userData.hopAt = now;
         animator.trigger("hop", { height: 0.28 });
       }
@@ -527,14 +569,14 @@ export class ColorRush extends MinigameScene {
       // Zielfelder wippen in der Ansage bis zu sechs Zentimeter hoch — mit
       // fester Standhöhe steckten die Füsse genau dann im Block, wenn man
       // sich endlich auf das richtige Feld gerettet hatte.
-      const under = this.tiles[entry.gy * COLS + entry.gx];
+      const under = this.tiles[gy * COLS + gx];
       animator.groundY = Math.max(0, under?.position.y ?? 0) + TILE_TOP_Y + 0.3;
       kin.visible = true;
       setKinOpacity(kin, 1);
       if (kin.userData.label) kin.userData.label.material.opacity = player.id === controlledId ? 1 : 0.8;
       if (finale) return;
 
-      const onTarget = arcade.grid[entry.gy * COLS + entry.gx] === arcade.targetColor;
+      const onTarget = arcade.grid[gy * COLS + gx] === arcade.targetColor;
       if (phase.name === "announce" && !onTarget) {
         animator.set(phase.t > 0.5 ? "panic" : "ready");
         if (phase.t > 0.5) animator.expression("scared", 200);

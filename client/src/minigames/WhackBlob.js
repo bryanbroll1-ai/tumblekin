@@ -438,7 +438,7 @@ export class WhackBlob extends MinigameScene {
       event.preventDefault();
       const cell = this.cellFromPointer(event);
       const own = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()];
-      if (this.now() < (own?.stunUntil || 0)) {
+      if (this.arrivalNow() < (own?.stunUntil || 0)) {
         this.feedback?.vibrate(4);
         return;
       }
@@ -515,7 +515,11 @@ export class WhackBlob extends MinigameScene {
       falter.userData.fluegel.forEach((f) => { f.rotation.z = schlag; });
     });
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    // Die Blobs tauchen zur Ankunftszeit auf: Wer beim ersten Wippen
+    // draufhaut, dessen Schlag zählt beim Server auch als blitzschnell. Auf
+    // der verzögerten Uhr fehlte jedem die Netzlaufzeit hin und zurück am
+    // 450-ms-Fenster für drei Punkte.
+    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
     const active = new Set();
     const popById = new Map();
     (arcade.pops || []).forEach((pop) => {
@@ -591,6 +595,9 @@ export class WhackBlob extends MinigameScene {
         swing.leap = leapMs(swing.from, swing.target);
         swing.at = now;
         swing.hopped = false;
+        // Ein gewollter Bogensprung quer übers Feld, kein Ruckler: über sechs
+        // Einheiten in gut 0,3 s — die Prüfskripte erkennen ihn daran.
+        kin.userData.versetzt = performance.now();
         swing.face = Math.atan2(pos.x - swing.target.x, pos.z - swing.target.z);
         animator.trigger("dig");
         // Jeder klopft seine eigene Runde: plattgehauen wird der Blob nur
@@ -650,6 +657,7 @@ export class WhackBlob extends MinigameScene {
           leap = back;
           if (!swing.hopped) {
             swing.hopped = true;
+            kin.userData.versetzt = performance.now();
             animator.trigger("hop", { height: 0 });
           }
         }
@@ -691,11 +699,12 @@ export class WhackBlob extends MinigameScene {
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.points || 0);
     this.stunNode ||= this.hud.querySelector("[data-whack-stun]");
-    const stunned = f.now < (own?.stunUntil || 0);
+    const at = this.arrivalNow();
+    const stunned = at < (own?.stunUntil || 0);
     this.stunNode.hidden = !stunned;
     if (stunned) {
       // Wie lange noch — in Zehnteln, damit man den Moment zum Weiterhauen sieht.
-      const text = `Aua! Benommen · ${((own.stunUntil - f.now) / 1000).toFixed(1)} s`;
+      const text = `Aua! Benommen · ${((own.stunUntil - at) / 1000).toFixed(1)} s`;
       if (this.stunNode.textContent !== text) this.stunNode.textContent = text;
     }
     this.webglCanvas?.classList.toggle("is-stunned", stunned);

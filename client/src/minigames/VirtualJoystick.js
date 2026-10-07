@@ -31,7 +31,11 @@ export class VirtualJoystick {
       if (this.pointerId !== null || event.button > 0 || this.root.closest("[inert]")) return;
       this.base.focus({ preventScroll: true });
       this.pointerId = event.pointerId;
-      this.base.setPointerCapture?.(event.pointerId);
+      try {
+        this.base.setPointerCapture?.(event.pointerId);
+      } catch {
+        // Zeiger schon weg (siehe MinigameScene.capturePointer).
+      }
       this.base.classList.add("active");
       this.feedback?.vibrate(8);
       this.engaged = false;

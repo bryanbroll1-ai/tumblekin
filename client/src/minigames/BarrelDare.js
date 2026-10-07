@@ -348,7 +348,7 @@ export class BarrelDare extends MinigameScene {
     const arcade = minigame?.arcade;
     if (!minigame || minigame.finaleAt || !arcade) return;
     const own = arcade.players?.[this.getControlledPlayerId()];
-    const t = this.fallTime(arcade, minigame, this.now());
+    const t = this.fallTime(arcade, minigame, this.arrivalNow());
     const rolling = t >= 0 && t * 1000 < (arcade.rollMs || 4200);
     if (!own || own.brakeAt !== null || own.hit || this.localBrake !== null || !rolling) {
       this.feedback?.sound("clack");
@@ -366,7 +366,10 @@ export class BarrelDare extends MinigameScene {
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
     const startM = arcade.startM || this.startM;
-    const t = this.fallTime(arcade, minigame, now);
+    // Das Fass fällt zur Ankunftszeit: Wer zieht, wenn es im Bild auf der
+    // Wunschhöhe ist, bremst es beim Server genau dort — auf der verzögerten
+    // Uhr griff die Bremse um die Netzlaufzeit hin und zurück zu spät.
+    const t = this.fallTime(arcade, minigame, this.arrivalNow());
     const rollMs = arcade.rollMs || 4200;
     const falling = t >= 0 && t * 1000 < rollMs;
     // Das Loslassen hört und sieht man: ein Klacken und Staub an den Rollen.
@@ -593,14 +596,14 @@ export class BarrelDare extends MinigameScene {
   }
 
   drawHud(f) {
-    const { arcade, minigame, now } = f;
+    const { arcade, minigame } = f;
     if (!arcade) return;
     const own = arcade.players[f.controlledId];
     const lane = this.lanes.get(f.controlledId);
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(Math.round(own?.points || 0));
 
-    const t = this.fallTime(arcade, minigame, now);
+    const t = this.fallTime(arcade, minigame, this.arrivalNow());
     const falling = t >= 0 && t * 1000 < (arcade.rollMs || 4200);
     const braked = (own?.brakeAt !== null && own?.brakeAt !== undefined) || this.localBrake !== null;
     const readout = this.hud.querySelector("[data-dare-distance]");

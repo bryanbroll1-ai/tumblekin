@@ -371,7 +371,10 @@ export class BombPass extends MinigameScene {
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
     if (!own || own.outAt || arcade.holderId !== id) return;
-    const wait = (arcade.canPassAt || 0) + 30 - this.now();
+    // Die Sperre endet zur Ankunftszeit: Der Wurf, der jetzt losgeht, kommt
+    // beim Server an, wenn sie dort vorbei ist — auf der verzögerten Uhr hielt
+    // jeder die Bombe die Netzlaufzeit hin und zurück länger als nötig.
+    const wait = (arcade.canPassAt || 0) + 30 - this.arrivalNow();
     if (wait > 0) {
       // Nur die kurze Sperre nach dem Fangen puffern — ein Tipp im Vorlauf
       // vor dem Start ist ein Versehen und soll nicht beim Start zünden.
@@ -525,8 +528,13 @@ export class BombPass extends MinigameScene {
     // Zündzeit: kurz die Sekunden, dann "?".
     // Die Zahl erscheint mit der Ankunft (im Anflug schon ein Stück vorher)
     // und zählt von der vollen Zündzeit herunter.
+    // Der Server schickt nur die gezeigten ganzen Sekunden und den Zünd-
+    // zeitpunkt, nicht den Knall (die Übung rechnet lokal und hat beides).
+    // Gezählt wird ab der Zündung, über jedes Weitergeben hinweg.
     const revealing = arcade.revealUntil && now < arcade.revealUntil && breakLeft < 260;
-    const secs = Math.max(0, Math.min(Math.round((arcade.fuseMs || 0) / 1000), Math.ceil((arcade.fuseAt - now) / 1000)));
+    const shown = arcade.fuseSecs ?? Math.round((arcade.fuseMs || 0) / 1000);
+    const litAt = arcade.litAt ?? (arcade.fuseAt || 0) - (arcade.fuseMs || 0);
+    const secs = Math.max(0, Math.min(shown, Math.ceil(shown - (now - litAt) / 1000)));
     this.timerSprite.visible = this.bomb.visible && (!inBreak || breakLeft < 260);
     this.timerSprite.position.copy(this.bomb.position).y += 0.95 * this.bomb.scale.y;
     const text = revealing ? `${secs}s` : "?";
@@ -695,7 +703,7 @@ export class BombPass extends MinigameScene {
 
     // Sperre nach dem Fangen: der Balken läuft voll, dann ist der Knopf scharf.
     const lockMs = Math.max(1, (arcade.canPassAt || 0) - (arcade.holderSince || 0));
-    const left = (arcade.canPassAt || 0) + 30 - now;
+    const left = (arcade.canPassAt || 0) + 30 - this.arrivalNow();
     const locked = isHolder && left > 0;
     const arm = locked ? 1 - Math.min(1, left / (lockMs + 30)) : 1;
     if (this.armNode) this.armNode.style.transform = `scaleX(${arm.toFixed(3)})`;

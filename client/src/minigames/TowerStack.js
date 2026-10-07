@@ -264,7 +264,10 @@ export class TowerStack extends MinigameScene {
     group.add(hook);
     // Der eigene Baumeister steht dahinter: vor dem Sockel verdeckte er
     // genau die Schnittkante, an der der erste Block platziert werden soll.
-    this.addKin(player, index, { x, ground: 0, z: group.position.z + (isOwn ? -1.1 : 0.95), facing: 0, scale: 0.9 });
+    // Die anderen stehen auf der Innenseite ihres Turms: bei x = ±1.95 klebten
+    // sie genau am Rand des engen Ausschnitts um den eigenen Turm.
+    const kinX = isOwn ? x : x - Math.sign(x) * 0.5;
+    this.addKin(player, index, { x: kinX, ground: 0, z: group.position.z + (isOwn ? -1.1 : 0.95), facing: 0, scale: 0.9 });
     this.towers.set(player.id, { group, blocks: [], hook, slider, edges, x, isOwn, color: player.color, dropping: null, flagged: false });
   }
 
@@ -312,7 +315,9 @@ export class TowerStack extends MinigameScene {
     if (this.craneJib) this.craneJib.rotation.y = 0.5 + Math.sin(now / 5200) * 0.45;
     this.siteLamps?.forEach((lampe, i) => { lampe.material.emissiveIntensity = Math.floor(now / 450 + i) % 2 ? 1.4 : 0.1; });
     if (!arcade) return;
-    const elapsed = Math.max(0, now - minigame.startedAt);
+    // Der Schlitten schwingt zur Ankunftszeit: Der Server rechnet die Lage
+    // beim Eintreffen des Tipps, und genau die zeigt das Bild.
+    const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
     let topHeight = 0;
     players.forEach((player) => {
       const entry = arcade.players[player.id];

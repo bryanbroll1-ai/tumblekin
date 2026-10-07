@@ -594,6 +594,21 @@ test("lichtwaechter: every red is announced by a visible turn, and running stays
   assert.ok(arcade.phases.slice(0, 4).every((phase) => phase.kind !== "feint"));
 });
 
+test("lichtwaechter: letting go right after a hold ping is never swallowed by the cooldown", () => {
+  // Das Gerät meldet beim Halten alle 90 ms. Das Loslassen folgt der letzten
+  // Meldung oft nach wenigen Millisekunden — es darf nicht verloren gehen.
+  const runner = player({ id: "rp", name: "RP", color: "#fff" });
+  const startedAt = Date.now() - 1000;
+  const arcade = createArcadeState("lichtwaechter", [runner], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 32000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  handleArcadeInput(room, runner, { action: "run", hold: true });
+  assert.equal(entry.holding, true);
+  handleArcadeInput(room, runner, { action: "run", hold: false });
+  assert.equal(entry.holding, false, "Loslassen direkt nach der Haltemeldung zählt");
+});
+
 test("lichtwaechter: holding on red costs ground and a moment, letting go in the turn is safe", () => {
   const sprinter = player({ id: "rl", name: "RL", color: "#fff" });
   const careful = player({ id: "rc", name: "RC", color: "#0ff" });
@@ -1379,6 +1394,17 @@ test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () =>
   const survivorScore = arcadeRankingScore(arcade, arcade.players[survivorId]);
   const victimScore = arcadeRankingScore(arcade, arcade.players[victimId]);
   assert.ok(survivorScore > victimScore, "survivors outrank the exploded");
+});
+
+test("zuendstoff: der Knall-Zeitpunkt geht nicht an die Geräte, nur die gezeigten Sekunden", () => {
+  const duo = ["zf", "zg"].map((id, i) => player({ id, name: id.toUpperCase(), color: ["#fff", "#0ff"][i] }));
+  const arcade = createArcadeState("zuendstoff", duo, Date.now());
+  const sent = publicArcade(arcade);
+  assert.equal(sent.fuseAt, undefined, "wann es knallt, weiss nur der Server");
+  assert.equal(sent.fuseMs, undefined);
+  assert.equal(sent.fuseSecs, Math.round(arcade.fuseMs / 1000), "die gezeigte Zündzeit in ganzen Sekunden");
+  assert.equal(sent.litAt, arcade.fuseAt - arcade.fuseMs, "gezählt wird ab der Zündung, nicht ab dem letzten Fang");
+  assert.ok(Number.isFinite(arcade.fuseAt), "der Server rechnet weiter mit dem genauen Wert");
 });
 
 test("zuendstoff: zu dritt ist nach einem Knall raus, die Bombe geht weiter", () => {

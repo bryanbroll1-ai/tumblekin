@@ -72,6 +72,9 @@ try{
  for(const type of games){
   console.log('Prüfe '+type);
   await request(page,'selectMode',{mode:'single'});await request(page,'updateSettings',{settings:{single:type}});await request(page,'startGame');
+  // Erst vergleichen, wenn die Startkarte beim Gerät angekommen ist — direkt
+  // nach startGame stand hier gelegentlich noch die Lobby.
+  await page.waitForFunction(()=>window.__tumblekin.state()?.phase==='waitingReady',null,{timeout:15000});
   const original=await party();await page.click('#intro-practice');await wait('s.webglCanvas && !document.querySelector("[data-practice-retry]").disabled && Date.now()>=g.startedAt');
   await act(type);assert.equal(await party(),original,type+': practice must not change the party');
   if(['lichtwaechter','turmbau','farbenjagd','honigwabe','grimassen','rohrsalat'].includes(type)){

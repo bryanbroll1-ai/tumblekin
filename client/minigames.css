@@ -878,7 +878,7 @@
 .dive-panel {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   right: 64px;
   display: grid;
   gap: 4px;
@@ -1000,7 +1000,7 @@
 .stock-left {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);
@@ -1015,7 +1015,7 @@
 .stock-chips {
   position: absolute;
   top: calc(52px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   display: flex;
   gap: 6px;
 }
@@ -1059,7 +1059,7 @@
 .simon-round {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);
@@ -1090,7 +1090,7 @@
 .react-rounds {
   position: absolute;
   top: calc(52px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   display: flex;
   gap: 6px;
 }
@@ -1184,7 +1184,7 @@
 .glide-gates {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);
@@ -1198,7 +1198,7 @@
 .glide-chips {
   position: absolute;
   top: calc(52px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   display: flex;
   gap: 6px;
 }
@@ -1237,7 +1237,7 @@
 .beat-strip {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   right: 64px;
   display: grid;
   gap: 4px;
@@ -1267,7 +1267,7 @@
 .signal-legend {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1439,7 +1439,7 @@
 .belt-streak {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);
@@ -1454,7 +1454,7 @@
 .belt-chips {
   position: absolute;
   top: calc(52px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   display: flex;
   gap: 6px;
 }
@@ -1494,7 +1494,9 @@
 .fish-gauge {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
+  /* Bis zum Menüknopf rechts; auf 320px gibt die Schnur nach. */
+  max-width: calc(100% - var(--hud-beside, 132px) - 64px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1511,7 +1513,9 @@
 .fish-gauge-track {
   position: relative;
   display: block;
-  width: 92px;
+  flex: 1 1 92px;
+  min-width: 40px;
+  max-width: 92px;
   height: 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.2);
@@ -1558,7 +1562,7 @@
 .fish-chips {
   position: absolute;
   top: calc(60px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   display: flex;
   gap: 6px;
 }
@@ -1595,7 +1599,7 @@
 .paint-share {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
-  left: 132px;
+  left: var(--hud-beside, 132px);
   right: 74px;
   display: flex;
   height: 26px;
@@ -2698,7 +2702,8 @@ canvas.is-stunned {
 
 .photo-polaroid {
   position: absolute;
-  top: calc(104px + env(safe-area-inset-top));
+  /* Unter den Spielerchips: auf 320px brechen sie in zwei Zeilen um. */
+  top: max(calc(104px + env(safe-area-inset-top)), calc(var(--hud-chips-bottom, 0px) + 8px));
   left: 50%;
   width: min(70vw, 250px);
   padding: 10px 10px 6px;

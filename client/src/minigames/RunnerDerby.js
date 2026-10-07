@@ -164,7 +164,7 @@ export class RunnerDerby extends MinigameScene {
       if (this.pointer !== null || !this.canAct()) return;
       event.preventDefault(); surface.focus({preventScroll:true}); this.pointer = event.pointerId;
       this.anchor = {x:event.clientX,y:event.clientY}; this.lastSwipe = -1000;
-      surface.setPointerCapture?.(event.pointerId);
+      this.capturePointer(surface, event.pointerId);
       this.holdDelay = setTimeout(() => { if (this.pointer !== null) this.setHolding(true); }, 170);
       surface.classList.add('runner-touch'); this.feedback?.vibrate(6);
     });
@@ -203,9 +203,10 @@ export class RunnerDerby extends MinigameScene {
     if(!this.canAct())return;
     if(action==='jump'){this.springen();return;}
     if(action==='slide'){
-      const now=this.now(),p=this.ownEntry();
+      // Wie der Sprung zur Ankunftszeit: dann rutscht der Server los.
+      const now=this.arrivalNow(),p=this.ownEntry();
       if(now<p.slideReadyAt || now<p.stumbleUntil)return;
-      this.localJump=null;this.localSlide={slideAt:now,slideUntil:now+P.C.SLIDE_MS,until:now+300,from:p.slideAt};
+      this.localJump=null;this.localSlide={slideAt:now,slideUntil:now+P.C.SLIDE_MS,until:now+300+(this.net.roundTrip??0),from:p.slideAt};
     }
     this.feedback?.sound(action==='lane'?'move':'swish');this.feedback?.vibrate(6);
     this.sendInput({action,...(action==='lane'?{dir}:{})}).catch(()=>{this.localSlide=null;});
@@ -224,12 +225,45 @@ export class RunnerDerby extends MinigameScene {
     }
   }
   springen() {
-    const entry = this.ownEntry(), now = this.now();
+    // Gesprungen wird zur Ankunftszeit — dort rechnet der Server den Lauf bis
+    // zum Eintreffen fort und springt dann (siehe runnerAt).
+    const entry = this.ownEntry(), now = this.arrivalNow();
     if (!entry || entry.finishedAt !== null || now < (this.update || this.minigame).startedAt || now < entry.jumpReadyAt || now < entry.stumbleUntil || this.localJump) return;
-    this.localJump = { jumpAt: now, jumpUntil: now + P.AIR_MS, fromJump: entry.jumpAt, until: now + 300 };
+    this.localJump = { jumpAt: now, jumpUntil: now + P.AIR_MS, fromJump: entry.jumpAt, until: now + 300 + (this.net.roundTrip ?? 0) };
     this.feedback?.sound('pop'); this.feedback?.vibrate(8);
     this.sendInput({ action: 'jump' }).catch(() => { this.localJump = null; });
   }
+  // Wo eine Figur zur Ankunftszeit steht. Die eigene rechnet dieselbe Physik
+  // wie der Server vom letzten Serverstand aus weiter, samt der eigenen noch
+  // unbestätigten Sprünge und Slides: Wer im Bild vor der Hürde springt,
+  // springt dort auch beim Server. Bis zur verzögerten Uhr vorausgerechnet lag
+  // die Figur bei 100 ms je Richtung im Sprint gut 1,5 m hinter ihrem
+  // Serverstand beim Eintreffen des Sprungs. Die anderen laufen linear weiter,
+  // aber nie durch ein Hindernis, an dem sie hängen bleiben würden.
+  runnerAt(entry, f, at, isOwn) {
+    const game = f.minigame;
+    if (!f.started || entry.finishedAt !== null || game.finaleAt) return entry;
+    const hurdles = f.arcade.hurdles || [];
+    if (isOwn) {
+      const c = { ...entry, lastVerdict: entry.lastVerdict && { ...entry.lastVerdict } };
+      const events = [];
+      if (this.localJump && this.localJump.jumpAt > c.updatedAt) events.push([P.jump, this.localJump.jumpAt]);
+      if (this.localSlide && this.localSlide.slideAt > c.updatedAt) events.push([P.slide, this.localSlide.slideAt]);
+      events.sort((a, b) => a[1] - b[1]).forEach(([act, t]) => {
+        if (t > at) return;
+        P.advance(c, hurdles, game.startedAt, t);
+        act(c, t);
+      });
+      P.advance(c, hurdles, game.startedAt, at);
+      return c;
+    }
+    const ahead = Math.max(0, Math.min(0.25, (at - entry.updatedAt) / 1000));
+    let progress = Math.min(P.C.LENGTH, entry.progress + entry.speed * ahead);
+    const row = hurdles[entry.nextHurdle];
+    if (row && entry.progress < row.at && progress >= row.at && P.obstacle(entry, row, at)) progress = Math.max(entry.progress, row.at - 0.3);
+    return { ...entry, progress };
+  }
+
   unbind() { clearTimeout(this.holdDelay); clearInterval(this.holdTimer); this.holdTimer = null; this.holding = false; this.pointer = null; this.controls.style.pointerEvents=""; }
   onFinale() { this.release(); }
 
@@ -237,31 +271,32 @@ export class RunnerDerby extends MinigameScene {
     if (!f.arcade) return;
     const own = f.arcade.players[f.controlledId];
     if (this.holding && (f.finale || own?.finishedAt !== null)) this.release();
-    if (this.localJump && (own?.jumpAt !== this.localJump.fromJump || f.now > this.localJump.until)) this.localJump = null;
-    if(this.localSlide && (own?.slideAt !== this.localSlide.from || f.now > this.localSlide.until))this.localSlide=null;
+    // Die Bahn läuft auf Ankunftszeit (siehe runnerAt).
+    const at = this.arrivalNow();
+    if (this.localJump && (own?.jumpAt !== this.localJump.fromJump || at > this.localJump.until)) this.localJump = null;
+    if(this.localSlide && (own?.slideAt !== this.localSlide.from || at > this.localSlide.until))this.localSlide=null;
     f.players.forEach(player => {
       const entry = f.arcade.players[player.id]; if (!entry) return;
       const kin = this.kins.get(player.id), animator = this.animators.get(player.id);
       if (!kin) return;
-      const predicted = Math.min(P.C.LENGTH, entry.progress + (f.started && entry.finishedAt === null ? entry.speed * Math.max(0, Math.min(0.1, (f.now - entry.updatedAt) / 1000)) : 0));
-      kin.position.x = this.laneX(P.lanePosition(entry, f.now));
+      const state = this.runnerAt(entry, f, at, player.id === f.controlledId);
+      const predicted = Math.min(P.C.LENGTH, state.progress);
+      kin.position.x = this.laneX(P.lanePosition(state, at));
       kin.rotation.y += ((entry.finishedAt !== null ? 0 : Math.PI) - kin.rotation.y) * frameLerp(0.16, f.dt);
       if (entry.finishedAt !== null && !this.celebrated.has(player.id)) {
         this.celebrated.add(player.id);
         if (player.id === f.controlledId) { this.feedback?.sound('win'); this.feedback?.vibrate([12, 30, 12]); }
       }
       kin.position.z += (-predicted * METRE - kin.position.z) * frameLerp(0.45, f.dt);
-      const jump = player.id === f.controlledId && this.localJump ? this.localJump : entry;
-      const lift = P.height(jump, f.now);
-      const sliding = player.id === f.controlledId && this.localSlide ? this.localSlide : entry;
-      kin.userData.runnerSlide = P.slideFactor(sliding,f.now);
+      const lift = P.height(state, at);
+      kin.userData.runnerSlide = P.slideFactor(state, at);
       const wasAir = kin.userData.sprintAir;
       kin.userData.sprintHeight = lift;
       kin.userData.sprintAir = lift > 0.01;
       animator.groundY = standOn(lift);
       animator.rate = Math.max(0.5, entry.speed / 5.8);
-      animator.set(entry.finishedAt !== null ? 'cheer' : f.now < entry.stumbleUntil ? 'stumble' : lift > 0.01 ? 'ready' : kin.userData.runnerSlide > .05 ? 'slide' : !f.started ? 'ready' : entry.sprinting ? 'sprint' : 'run');
-      if (wasAir && !kin.userData.sprintAir && f.now >= entry.stumbleUntil && entry.finishedAt === null) {
+      animator.set(entry.finishedAt !== null ? 'cheer' : at < state.stumbleUntil ? 'stumble' : lift > 0.01 ? 'ready' : kin.userData.runnerSlide > .05 ? 'slide' : !f.started ? 'ready' : entry.sprinting ? 'sprint' : 'run');
+      if (wasAir && !kin.userData.sprintAir && at >= state.stumbleUntil && entry.finishedAt === null) {
         animator.trigger('land');
         if (player.id === f.controlledId) this.feedback?.sound('land');
       }
@@ -318,11 +353,13 @@ export class RunnerDerby extends MinigameScene {
     this.energyFill.classList.toggle('is-low', own.energy < P.C.RESUME_ENERGY);
     this.controls.classList.toggle('is-holding',this.holding);
     this.gestureNote.textContent=this.holding ? own.exhausted?'Leer · loslassen zum Aufladen':'Sprint · Ausdauer wird verbraucht':'Auf dem Spielfeld halten: Sprint · loslassen: aufladen';
-    const stumble = f.now < own.stumbleUntil;
-    this.status.textContent = own.finishedAt !== null ? 'Im Ziel' : !f.started ? 'Bereit am Start' : stumble ? 'Straucheln' : f.now < own.jumpUntil ? 'Im Sprung' : P.slideFactor(own,f.now)>.05 ? 'Slide' : own.exhausted ? own.holding ? 'Leer · loslassen!' : 'Ausdauer lädt'  : own.sprinting ? 'Sprint' : 'Erholen';
-    const row = f.arcade.hurdles[own.nextHurdle];
-    const kind = row?.lanes[own.lane];
-    const prediction = {...own,progress:own.progress+own.speed*Math.max(0,Math.min(.1,(f.now-own.updatedAt)/1000))};
+    // Hinweis und Zustand aus demselben Stand wie die Figur: Ankunftszeit.
+    const at = this.arrivalNow();
+    const prediction = this.runnerAt(own, f, at, true);
+    const stumble = at < prediction.stumbleUntil;
+    this.status.textContent = own.finishedAt !== null ? 'Im Ziel' : !f.started ? 'Bereit am Start' : stumble ? 'Straucheln' : at < prediction.jumpUntil ? 'Im Sprung' : P.slideFactor(prediction,at)>.05 ? 'Slide' : own.exhausted ? own.holding ? 'Leer · loslassen!' : 'Ausdauer lädt'  : own.sprinting ? 'Sprint' : 'Erholen';
+    const row = f.arcade.hurdles[prediction.nextHurdle];
+    const kind = row?.lanes[prediction.lane];
     const ready = kind==='jump' && P.jumpWindow(prediction,row) || kind==='slide' && (row.at-prediction.progress)/Math.max(1,prediction.speed)<.5;
     this.cue.classList.toggle('is-ready',Boolean(ready));
     this.cue.textContent = own.finishedAt!==null ? `${own.cleared}/${f.arcade.hurdles.length} sauber · ${f.finale?'Rennen beendet':'Andere laufen noch'}` : !f.started ? '← → Spur · ↑ Sprung · ↓ Slide' : stumble ? 'Erwischt · weiter geht’s' : ready ? kind==='jump'?'↑ JETZT SPRINGEN':'↓ JETZT SLIDEN' : row ? `${kind==='block'?'← → SPUR WECHSELN':kind==='jump'?'↑ SPRUNG':kind==='slide'?'↓ SLIDE':'Freie Spur'} · ${Math.ceil(Math.max(0,row.at-own.progress))} m` : 'ZIELGERADE · ENDSPURT!';

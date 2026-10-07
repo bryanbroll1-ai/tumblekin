@@ -1789,6 +1789,15 @@ export class KinAnimator {
     def.pose(this.target, t, this);
     if (def.dur && t >= def.dur) {
       this.enter(this.baseState, true);
+      // Ziel ist ab sofort die Grundhaltung, nicht mehr das letzte Bild der
+      // Handlung. Sonst blendete die Figur im Wechselbild von der gekürzten
+      // Neigung (0) zur ungekürzten des Saltos (-2π): bei niedriger Bildrate
+      // stand sie ein Bild lang kopf, die Füsse bis 0.23 im Boden (Rückstoss,
+      // danach Ducken in Münzregen und Schnappschuss).
+      const next = STATES[this.state] || STATES.idle;
+      this.stateStart = nowS;
+      neutral(this.target);
+      next.pose(this.target, 0, this);
     }
 
     // Überblenden.

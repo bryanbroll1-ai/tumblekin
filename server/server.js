@@ -8244,6 +8244,15 @@ function publicArcade(arcade) {
     return rest;
   }
   if (PARTY_FAMILIES[arcade.family]?.publicView) return PARTY_FAMILIES[arcade.family].publicView(arcade);
+  // Zündstoff: Der Knall-Zeitpunkt bleibt auf dem Server. Die Geräte zeigen
+  // die Zündzeit zwei Sekunden lang in ganzen Sekunden, dann „?“ — mit
+  // `fuseAt` auf die Millisekunde im Paket konnte aber jedes Gerät die Bombe
+  // exakt bis kurz vor dem Knall halten. Es bekommt nur, was auch zu sehen
+  // ist: die gezeigten Sekunden und wann gezündet wurde.
+  if (arcade.family === "bomb") {
+    const { fuseAt, fuseMs, ...rest } = arcade;
+    return { ...rest, fuseSecs: Math.round((fuseMs || 0) / 1000), litAt: (fuseAt || 0) - (fuseMs || 0) };
+  }
   // Pump-Panik: Eimerstand und Bot-Tempo sind Rechenwerte des Servers — sie
   // mit elf Bildern je Sekunde an jedes Gerät zu schicken, kostete ein Drittel
   // des Pakets.

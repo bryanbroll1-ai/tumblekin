@@ -413,7 +413,7 @@ export class TracePainter extends MinigameScene {
     this.on(this.webglCanvas, "pointerdown", (event) => {
       if (this.drag) return;
       event.preventDefault();
-      this.webglCanvas.setPointerCapture?.(event.pointerId);
+      this.capturePointer(this.webglCanvas, event.pointerId);
       this.drag = {
         id: event.pointerId,
         x0: event.clientX,

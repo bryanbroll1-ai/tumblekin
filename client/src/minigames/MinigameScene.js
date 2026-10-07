@@ -59,7 +59,15 @@ export class MinigameScene {
         const buttons = [...this.controls.querySelectorAll("button")];
         if (buttons.length === 1) feedback?.buttons?.pulse(buttons[0]);
       }
-      return sendInput(input).catch(error => {
+      // Jede Antwort misst nebenbei die Rundreise (siehe arrivalNow) — auch
+      // eine Ablehnung kommt ja vom Server zurück.
+      const clock = performance.now();
+      this.net.lastSentAt = clock;
+      return sendInput(input).then(reply => {
+        this.noteNetRoundTrip(performance.now() - clock);
+        return reply;
+      }, error => {
+        this.noteNetRoundTrip(performance.now() - clock);
         if (input.action !== "ping" && performance.now() - (this.inputErrorAt || -1000) > 1000) {
           this.inputErrorAt = performance.now();
           this.onInputError?.(error);
@@ -67,6 +75,7 @@ export class MinigameScene {
         throw error;
       });
     };
+    this.net = { samples: [], lagOffset: null, roundTrip: null, lastSentAt: 0, used: false };
     this.now = now;
     this.getState = getState;
     this.myPlayerId = myPlayerId;
@@ -105,7 +114,51 @@ export class MinigameScene {
 
   handleUpdate(update) {
     this.update = update;
+    // Jedes Bild trägt die Serverzeit, zu der es abging. Das am wenigsten
+    // verspätete der letzten Sekunden sagt, wie weit dieses Gerät hinter dem
+    // Server liegt.
+    if (Number.isFinite(update?.sentAt)) {
+      const clock = performance.now();
+      const net = this.net;
+      net.samples.push({ clock, sample: update.sentAt - Date.now() });
+      while (net.samples.length > 1 && net.samples[0].clock < clock - 4000) net.samples.shift();
+      net.lagOffset = Math.max(...net.samples.map(item => item.sample));
+    }
     this.onUpdate?.(update);
+  }
+
+  // Rundreise zum Server, geglättet und auf 250 ms gedeckelt — mehr gleicht
+  // niemand aus, sonst liefe das Bild bei einem Funkloch weit voraus.
+  noteNetRoundTrip(ms) {
+    if (!Number.isFinite(ms)) return;
+    const clamped = Math.max(0, Math.min(250, ms));
+    this.net.roundTrip = this.net.roundTrip === null ? clamped : this.net.roundTrip * 0.8 + clamped * 0.2;
+  }
+
+  // Serverzeit, zu der ein JETZT geschickter Tipp beim Server ankommt. Die
+  // Bilder zeigen den Server um den Hinweg verspätet, der Tipp braucht noch
+  // einmal so lange. Spiele, deren Server einen Tipp bei Ankunft wertet (Seil,
+  // Fass, Stoppuhr, Ampel …), zeigen ihren entscheidenden Moment zu dieser
+  // Zeit — sonst muss, wer weiter weg sitzt, um eine Rundreise früher tippen,
+  // als er es sieht. Der Server traut dabei keiner Zeitangabe des Geräts.
+  // Im Finale steht die Uhr: dann gilt die gewöhnliche Zeit.
+  arrivalNow() {
+    const net = this.net;
+    net.used = true;
+    const minigame = this.update || this.minigame;
+    if (minigame?.finaleAt) return this.now();
+    const seen = net.lagOffset === null ? this.now() : Date.now() + net.lagOffset;
+    return seen + (net.roundTrip ?? 0);
+  }
+
+  // Wer die Ankunftszeit nutzt, braucht die Rundreise auch, wenn gerade
+  // nichts getippt wird — schon im Countdown: dann misst ein Ping, höchstens
+  // jede Sekunde.
+  pingNetIfIdle(minigame) {
+    const net = this.net;
+    if (!net.used || !minigame || minigame.finaleAt) return;
+    if (performance.now() - net.lastSentAt < 1000) return;
+    this.sendInput({ action: "ping" })?.catch?.(() => {});
   }
 
   destroy() {
@@ -141,6 +194,19 @@ export class MinigameScene {
     this.listeners.push({ target, type, fn, options });
   }
 
+  // setPointerCapture wirft, wenn der Zeiger beim Aufruf schon nicht mehr
+  // aktiv ist (Finger in derselben Millisekunde gehoben, synthetische
+  // Ereignisse). Der Wurf brach dann den Rest des Handlers ab — Farbflucht
+  // merkte sich die Geste nicht mehr, die Zielgerade startete keinen Sprint.
+  // Ohne Capture läuft die Geste über die window-Listener trotzdem weiter.
+  capturePointer(element, pointerId) {
+    try {
+      element?.setPointerCapture?.(pointerId);
+    } catch {
+      // Zeiger schon weg: nichts festzuhalten.
+    }
+  }
+
   loop = () => {
     this.draw();
     this.frame = requestAnimationFrame(this.loop);
@@ -171,6 +237,7 @@ export class MinigameScene {
       remaining: Math.max(0, Math.ceil((minigame.startedAt + minigame.duration - now) / 1000))
     };
 
+    this.pingNetIfIdle(minigame);
     if (finale && !this.finaleStarted) {
       this.finaleStarted = true;
       this.onFinale?.(f);
@@ -253,15 +320,24 @@ export class MinigameScene {
     if (this.hudScore) this.hudScore.dataset.metric = MINIGAME_METRICS[this.minigame.type] || "Punkte";
     const time = this.hud.querySelector("[data-kinetic-time]");
     if (time) time.dataset.metric = "Zeit";
+    // Was neben der Punkteleiste steht, richtet sich nach ihrer echten
+    // Breite: Mit Wertungsbeschriftung („Gesichert“, „Fangwert“) ist sie
+    // breiter als die festen 132px, an denen 14 Anzeigen sassen — Tiefenrausch
+    // und Angelduell lagen 9px darunter.
+    const scorebar = this.hud.querySelector(".kinetic-scorebar");
     const chips = this.hud.querySelector(".hud-chips");
-    if (!chips) return;
+    if (!scorebar && !chips) return;
     const refresh = () => {
-      const bottom = chips.getBoundingClientRect().bottom - this.hud.getBoundingClientRect().top;
-      this.hud.style.setProperty("--hud-chips-bottom", `${Math.ceil(bottom)}px`);
+      const top = this.hud.getBoundingClientRect();
+      if (scorebar) {
+        const right = scorebar.getBoundingClientRect().right - top.left;
+        if (right > 0) this.hud.style.setProperty("--hud-beside", `${Math.ceil(right + 8)}px`);
+      }
+      if (chips) this.hud.style.setProperty("--hud-chips-bottom", `${Math.ceil(chips.getBoundingClientRect().bottom - top.top)}px`);
     };
     refresh();
     this.hudObserver = new ResizeObserver(refresh);
-    this.hudObserver.observe(chips);
+    [scorebar, chips].forEach((el) => el && this.hudObserver.observe(el));
   }
 
   // Dynamische Objekte verschwinden auch aus dem GPU-Vorrat. Ressourcen,
