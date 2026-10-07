@@ -671,6 +671,18 @@ export class UIManager {
     this.renderDevController();
   }
 
+  // Restzeit der Startkarte: der Server startet die Runde nach Ablauf mit
+  // allen. Angezeigt erst in den letzten 30 s, damit niemand beim Lesen
+  // gehetzt wird.
+  tickReadyDeadline() {
+    const endsAt = this.state?.phase === "waitingReady" ? this.state.readyEndsAt : null;
+    const left = endsAt ? Math.max(0, Math.ceil((endsAt - (Date.now() + (this.readyClockOffset || 0))) / 1000)) : null;
+    const shown = left !== null && left <= 30 ? left : null;
+    const text = shown === null ? this.readyStatusBase || "" : `${this.readyStatusBase} · Start in ${shown} s`;
+    if (this.el.introReadyStatus.textContent !== text) this.el.introReadyStatus.textContent = text;
+    this.practice?.setDeadline?.(shown === null ? null : `Die Runde startet in ${shown} s`);
+  }
+
   // Die Karte vor jedem Spiel: Name, Geste, Ziel — dann 3-2-1-LOS.
   syncIntro(minigame) {
     const waiting = this.state?.phase === "waitingReady";
@@ -687,7 +699,17 @@ export class UIManager {
       this.el.introPractice.disabled = mine;
       this.el.introReady.textContent = mine ? "Du bist bereit ✓" : "Bereit!";
       const count = humans.filter((player) => ready.includes(player.id)).length;
-      this.el.introReadyStatus.textContent = `${count} / ${humans.length} bereit · ${mine ? "Wir warten auf die anderen." : "Los geht’s, wenn alle bereit sind."}`;
+      this.readyStatusBase = `${count} / ${humans.length} bereit · ${mine ? "Wir warten auf die anderen." : "Los geht’s, wenn alle bereit sind."}`;
+      // Abgleich mit der Serveruhr beim Empfang festhalten — später gerechnet
+      // wüchse der Abstand mit jedem Tick.
+      this.readyClockOffset = (this.state.serverTime || Date.now()) - Date.now();
+      this.tickReadyDeadline();
+      // Die Frist zählt sichtbar herunter — auch während einer Übung.
+      if (!this.readyTicker) this.readyTicker = setInterval(() => this.tickReadyDeadline(), 250);
+    } else {
+      clearInterval(this.readyTicker);
+      this.readyTicker = null;
+      this.practice?.setDeadline?.(null);
     }
     if (!minigame || this.introMinigameId === minigame.id) return;
     this.introMinigameId = minigame.id;

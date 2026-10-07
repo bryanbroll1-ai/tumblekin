@@ -19,6 +19,12 @@ const MAX_PLAYERS = 4;
 // Die Ergebnistafel zeigt erst die Runde, dann den Gesamtstand. Wer tippt,
 // meldet sich bereit; sind alle bereit, geht es sofort weiter.
 const RESULT_HOLD_MS = 9000;
+// Die Startkarte wartet nicht ewig: Wer verbunden ist, aber das Handy
+// weggelegt hat, hielt sonst alle anderen fest. Eine feste Frist ab dem
+// Erscheinen der Karte — Zeit genug zum Lesen und für eine Übung, die letzten
+// 30 Sekunden zählen sichtbar herunter. Eine kürzere Frist nach dem ersten
+// Bereit riss gemessen jeden aus der Übung, dessen Freunde schneller waren.
+const READY_MAX_MS = 60000;
 // When a round is decided early (last one standing, everyone finished), the
 // scene keeps playing for this long — winners celebrate on camera — before
 // the scoreboard appears. No more abrupt cuts.
@@ -1891,6 +1897,28 @@ function prepareMinigame(room, reason, type) {
     scores: {}, arena: {}, arcade: null
   };
   room.lastMessage = "Lest die Regeln und meldet euch bereit.";
+  room.readyTimer = null;
+  armReadyDeadline(room, Date.now() + READY_MAX_MS);
+}
+
+// Die sichtbare Frist der Startkarte. Läuft sie ab, beginnt die Runde mit
+// allen — eine laufende Übung schliesst sich dabei von selbst.
+function armReadyDeadline(room, endsAt) {
+  if (room.readyTimer) {
+    clearTimeout(room.readyTimer);
+    room.timers.delete(room.readyTimer);
+  }
+  room.readyEndsAt = endsAt;
+  room.readyTimer = setTrackedTimeout(room, () => {
+    room.readyTimer = null;
+    if (room.phase !== "waitingReady" || !room.currentMinigame) return;
+    // Sind alle offline, bleibt die Karte stehen (siehe Trennen): wer
+    // zurückkommt, meldet sich selbst bereit.
+    if (!humansInRoom(room).length) { room.readyEndsAt = null; return; }
+    const { reason, type } = room.currentMinigame;
+    startMinigame(room, reason, type);
+    emitRoom(room);
+  }, Math.max(0, endsAt - Date.now()));
 }
 
 function markMinigameReady(room, playerIds, minigameId) {
@@ -8215,6 +8243,7 @@ function serializeRoom(room) {
     currentMinigame: room.currentMinigame ? serializeMinigame(room.currentMinigame) : null,
     lastMinigameResult: room.lastMinigameResult,
     resultEndsAt: room.resultEndsAt,
+    readyEndsAt: room.phase === "waitingReady" ? room.readyEndsAt ?? null : null,
     readyForNext: room.readyForNext || [],
     readyForMinigame: room.readyForMinigame || [],
     readyNeeded: humansInRoom(room).length,
@@ -8513,6 +8542,8 @@ module.exports = {
     buildWhackPops,
     startGame,
     markMinigameReady,
+    armReadyDeadline,
+    READY_MAX_MS,
     maybeStartPreparedMinigame,
     finishMinigame,
     continueAfterResult,

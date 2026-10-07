@@ -361,7 +361,9 @@ test("Startkarte: ohne alle Menschen laufen weder Spieluhr noch Bots", () => {
     assert.equal(room.currentMinigame.startedAt, null);
     assert.equal(room.currentMinigame.arcade, null);
     assert.equal(room.minigameTick, null);
-    assert.equal(room.timers.size, 0);
+    // Nur die sichtbare Frist der Startkarte läuft — keine Spieluhr, keine Bots.
+    assert.equal(room.timers.size, 1);
+    assert.ok(Math.abs(testRules.serializeRoom(room).readyEndsAt - (Date.now() + testRules.READY_MAX_MS)) < 1000);
     assert.equal(testRules.serializeRoom(room).readyNeeded, 2);
     assert.equal(testRules.markMinigameReady(room, ["fremd"], id).ok, false);
     assert.equal(testRules.markMinigameReady(room, ["p0"], id).ok, true);
@@ -376,6 +378,30 @@ test("Startkarte: ohne alle Menschen laufen weder Spieluhr noch Bots", () => {
     const startedAt = room.currentMinigame.startedAt;
     assert.equal(testRules.markMinigameReady(room, ["p1"], id).ok, false);
     assert.equal(room.currentMinigame.startedAt, startedAt);
+  } finally {
+    testRules.clearRoomTimers(room);
+  }
+});
+
+test("Startkarte: wer das Handy weglegt, hält niemanden fest — nach der Frist beginnt die Runde mit allen", async () => {
+  const room = makeRoom("single", 3, { single: "turmbau" });
+  room.players[1].isBot = false;
+  room.players[2].isBot = false;
+  testRules.startGame(room);
+  try {
+    const id = room.currentMinigame.id;
+    const endsAt = room.readyEndsAt;
+    assert.ok(endsAt > Date.now() + testRules.READY_MAX_MS - 1000, "eine feste Frist zum Lesen und Üben");
+    testRules.markMinigameReady(room, ["p0"], id);
+    assert.equal(room.phase, "waitingReady");
+    assert.equal(room.readyEndsAt, endsAt, "ein Bereit verkürzt sie nicht — wer übt, wird nicht herausgerissen");
+    assert.equal(testRules.serializeRoom(room).readyEndsAt, endsAt, "die Geräte zeigen sie an");
+    // Abgelaufen: die Runde beginnt mit allen, auch ohne p1 und p2.
+    testRules.armReadyDeadline(room, Date.now());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(room.phase, "playingMinigame");
+    assert.ok(room.currentMinigame.arcade);
+    assert.equal(testRules.serializeRoom(room).readyEndsAt, null);
   } finally {
     testRules.clearRoomTimers(room);
   }

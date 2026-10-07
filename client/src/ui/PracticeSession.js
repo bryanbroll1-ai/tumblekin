@@ -129,6 +129,16 @@ export class PracticeSession {
 
   fail(message) { this.close(); this.onError(message); }
 
+  // Läuft die Frist der Startkarte ab, beginnt die echte Runde und die Übung
+  // schliesst sich — das soll niemanden überraschen.
+  setDeadline(text) {
+    const note = this.layer?.querySelector('.practice-header small');
+    if (!note) return;
+    const value = text || 'Deine Partiepunkte bleiben unverändert';
+    if (note.textContent !== value) note.textContent = value;
+    note.classList.toggle('is-deadline', Boolean(text));
+  }
+
   close() {
     if (!this.active) return;
     this.active = false;
