@@ -678,7 +678,9 @@ export class UIManager {
     const endsAt = this.state?.phase === "waitingReady" ? this.state.readyEndsAt : null;
     const left = endsAt ? Math.max(0, Math.ceil((endsAt - (Date.now() + (this.readyClockOffset || 0))) / 1000)) : null;
     const shown = left !== null && left <= 30 ? left : null;
-    const text = shown === null ? this.readyStatusBase || "" : `${this.readyStatusBase} · Start in ${shown} s`;
+    // Läuft die Frist, ersetzt sie den Hinweis: es geht dann ja nicht mehr
+    // erst los, wenn alle bereit sind.
+    const text = shown === null ? this.readyStatusBase || "" : `${this.readyStatusCount} · Start in ${shown} s`;
     if (this.el.introReadyStatus.textContent !== text) this.el.introReadyStatus.textContent = text;
     this.practice?.setDeadline?.(shown === null ? null : `Die Runde startet in ${shown} s`);
   }
@@ -699,7 +701,8 @@ export class UIManager {
       this.el.introPractice.disabled = mine;
       this.el.introReady.textContent = mine ? "Du bist bereit ✓" : "Bereit!";
       const count = humans.filter((player) => ready.includes(player.id)).length;
-      this.readyStatusBase = `${count} / ${humans.length} bereit · ${mine ? "Wir warten auf die anderen." : "Los geht’s, wenn alle bereit sind."}`;
+      this.readyStatusCount = `${count} / ${humans.length} bereit`;
+      this.readyStatusBase = `${this.readyStatusCount} · ${mine ? "Wir warten auf die anderen." : "Los geht’s, wenn alle bereit sind."}`;
       // Abgleich mit der Serveruhr beim Empfang festhalten — später gerechnet
       // wüchse der Abstand mit jedem Tick.
       this.readyClockOffset = (this.state.serverTime || Date.now()) - Date.now();
