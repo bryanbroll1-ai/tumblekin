@@ -60,3 +60,27 @@ Die reproduzierbaren Prüfungen sind `npm test`, `npm run gameplay-check`, `npm 
 Bestanden: 453 Regel-/Komponententests, 1.080 vollständige Runden über alle 40 Spiele und der Vergleich aller Wertungsanzeigen mit der Rangfolge. Alle 40 Übungen wurden über echte Touch-/Tastatureingaben ausgelöst, einschließlich Nachweis unveränderter Partiestände. Alle 120 Ansichten (390×844, 844×390, 320×568) sind nach Korrektur des Honigwabe-Zeitbalkens frei von gemessenen HUD-Überlagerungen, abgeschnittenen Bedienelementen und zu kleinen aktiven Knöpfen. Die Zusatzprüfungen für Drücken, Loslassen, Zielgerade und Bumper sind bestanden; Bumper baut in der echten Stickübung 45 % Schwung und 1,84 Geschwindigkeit auf.
 
 Browserprüfungen decken die Eingabe und Wirkung jedes Spiels sowie drei Ansichten ab. Sie ersetzen keinen menschlichen Komfort-/Spaßtest auf einem echten Telefon. Netzbedingte Timing-Unterschiede, Drei-Spieler-Teambalance und die Stärkeverteilung der Bumper-Bots bleiben praktische Testfragen. Die veröffentlichte Browserfassung spielt lokal gegen Bots; sie belegt kein Mehrgeräte-Netzspiel.
+
+## Nachtrag 7. Oktober 2026: Verzögerung, Startkarte, Farbzeichen
+
+**Verzögerung.** Die offene Frage „netzbedingte Timing-Unterschiede“ ist jetzt gemessen und behoben. Zeitkritische Spiele zeigen nicht mehr den Stand der letzten Servermeldung, sondern den Moment, in dem ein jetzt getippter Befehl beim Server ankommt (`arrivalNow()`: Serveruhr aus `sentAt` plus gemessene Rundreise; ohne Messwert bleibt alles wie bisher). Wo das eigene Bild vorausläuft, gelten unbestätigte Eingaben schon im Bild und verschwinden mit der nächsten Servermeldung. Der Server traut weiterhin keinem Zeitstempel eines Geräts. Gemessen mit 100 ms Verzögerung je Richtung, gleiche Eingabe im Bild, vorher → nachher:
+
+| Spiel | Ohne Ausgleich | Mit Ausgleich |
+| --- | --- | --- |
+| Nervenprobe (Stopp bei der Zielzeit) | +227 ms daneben | −19 ms |
+| Lichtwächter (bei Grün loslassen) | 4× erwischt | 0× erwischt |
+| Fassmut (bei 2,0 s bremsen) | 2,223 s | 2,002 s |
+| Kanonenflug (bei 0,7 Kraft / 45° auslösen) | 0,93 · 56,5° | 0,69 · 44,5° |
+| Turmbau (Block bündig ablegen) | Breite 0,81 | Breite 1,00 |
+| Seilspringen (im Bild springen) | raus in Welle 1 | übersteht |
+| Münzregen (Spurwechsel vor der Münze) | 0 von 3 | 4 von 4 |
+| Farbflucht (rettender Schritt kurz vor Schluss) | gefallen | gerettet |
+| Zielgerade (Hürden im Bild springen) | 0 von 2 | 4 von 4 |
+
+Ebenso rechnen Blob-Klopfe, Zündstoff und Nervenprobe ihre Anzeigen zur Ankunftszeit. Der Knall-Zeitpunkt von Zündstoff geht nicht mehr an die Geräte, nur die gezeigten Sekunden — vorher ließ er sich aus den Daten ablesen.
+
+**Startkarte.** Ein Mensch, der das Handy weglegt, hielt die Runde bisher unbegrenzt fest. Jetzt beginnt sie nach 60 Sekunden mit allen; die letzten 30 Sekunden zählt die Karte (und eine laufende Übung) sichtbar herunter. Eine kürzere Restfrist nach dem ersten Bereit wurde verworfen: sie hätte Übende mitten im Versuch aus der Übung gerissen.
+
+**Farbzeichen.** Farbenjagd zeigt jetzt dieselben vier Zeichen wie die Farbflucht (● ▲ ■ ✚) auf jeder bemalten Kachel und im Anteilbalken. Pink, Gelb und Grün sind bei Rot-Grün-Schwäche kaum zu trennen; helle Farben bekommen ein dunkleres, dunkle ein helleres Zeichen. Das Feld bleibt ein Zeichenaufruf.
+
+**Weitere Korrekturen.** Figuren sanken nach einem Rempler in Münzregen kurz in den Boden (Ende eines zeitlich begrenzten Zustands ohne Überblendung) — behoben. Gesten-Zeiger, die der Browser schon freigegeben hatte, lösten beim Festhalten einen Fehler aus und blockierten den ersten Wisch — behoben. HUD-Elemente richten sich nach der tatsächlichen Breite der Punkteanzeige statt nach festen 132 px; der Angelduell-Balken und das Schnappschuss-Polaroid überlappen auf kleinen Geräten nicht mehr.

@@ -1,14 +1,14 @@
-const CACHE_NAME = "tumblekin-v210";
+const CACHE_NAME = "tumblekin-v211";
 const CORE_ASSETS = [
   "/",
   "/index.html",
-  "/style.css?v=tumblekin210",
-  "/minigames.css?v=tumblekin210",
-  "/press-feedback.css?v=tumblekin210",
+  "/style.css?v=tumblekin211",
+  "/minigames.css?v=tumblekin211",
+  "/press-feedback.css?v=tumblekin211",
   "/manifest.json",
   "/assets/icon.svg",
-  "/src/main.js?v=tumblekin210",
-  "/src/practice/engine-worker.js?v=tumblekin210"
+  "/src/main.js?v=tumblekin211",
+  "/src/practice/engine-worker.js?v=tumblekin211"
 ];
 
 self.addEventListener("install", (event) => {

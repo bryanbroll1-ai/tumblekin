@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin210";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin211";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
 
 // Spurmaler: der Farbroller fährt von selbst die Spur hinauf, man LENKT ihn —
 // irgendwo auf dem Bildschirm nach links oder rechts wischen.

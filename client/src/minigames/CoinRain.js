@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin210";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
-import { frameLerp } from "./Quality.js?v=tumblekin210";
-import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin210";
+import { flashKin } from "./VoxelKit.js?v=tumblekin211";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
+import { frameLerp } from "./Quality.js?v=tumblekin211";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin211";
 
 // Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
 // Bomben ausspuckt. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den

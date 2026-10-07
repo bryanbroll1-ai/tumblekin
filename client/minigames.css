@@ -1619,6 +1619,7 @@
   font-weight: 900;
   transition: width 0.18s linear;
   overflow: hidden;
+  white-space: nowrap;
 }
 
 .paint-share-part.is-own {

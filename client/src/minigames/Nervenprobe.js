@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
-import { frameLerp } from "./Quality.js?v=tumblekin210";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
+import { frameLerp } from "./Quality.js?v=tumblekin211";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
 
 // Nervenprobe: die Uhr läuft sichtbar an, dann verschwindet sie — man zählt im
 // Kopf weiter und drückt, wenn man glaubt, das Ziel sei erreicht.

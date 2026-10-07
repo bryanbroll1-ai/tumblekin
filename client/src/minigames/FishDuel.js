@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin210";
-import { dressWater } from "./SceneKit.js?v=tumblekin210";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin210";
-import { forecastFish } from "./Angelvorschau.js?v=tumblekin210";
-import { bindHoldInput } from "./HoldInput.js?v=tumblekin210";
+import { createCloud } from "./VoxelKit.js?v=tumblekin211";
+import { dressWater } from "./SceneKit.js?v=tumblekin211";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin211";
+import { forecastFish } from "./Angelvorschau.js?v=tumblekin211";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin211";
 
 // Angelduell: Halten holt die Schnur ein, aber wenn der Fisch zieht, reisst
 // sie bei zu viel Spannung. Wer die meisten Punkte an Land zieht, gewinnt.

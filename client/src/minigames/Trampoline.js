@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin210";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin210";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
-import { frameLerp } from "./Quality.js?v=tumblekin210";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
+import { createCloud } from "./VoxelKit.js?v=tumblekin211";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin211";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
+import { frameLerp } from "./Quality.js?v=tumblekin211";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
 
 // Trampolin: im Takt tippen — jeder Treffer trägt höher hinaus, ein
 // Fehlgriff kostet Höhe. Der Takt wird mit der Zeit schneller.

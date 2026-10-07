@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin210";
-import { frameLerp } from "./Quality.js?v=tumblekin210";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
-import { forecastHockey, hockeyRules, limits } from "./Puckbahn.js?v=tumblekin210";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin211";
+import { frameLerp } from "./Quality.js?v=tumblekin211";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
+import { forecastHockey, hockeyRules, limits } from "./Puckbahn.js?v=tumblekin211";
 
 // Luftpuck — ein riesiger Airhockey-Tisch in einer Neon-Spielhalle. Jeder
 // steht auf einer Schwebescheibe in seiner Hälfte und schiebt den Puck. Das

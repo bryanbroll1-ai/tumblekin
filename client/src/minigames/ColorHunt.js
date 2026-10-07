@@ -1,11 +1,11 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, KIN_SOLE, reachArm } from "./VoxelKit.js?v=tumblekin210";
-import { addStageLights } from "./SceneKit.js?v=tumblekin210";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin210";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin210";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin210";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin210";
-import { forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin210";
+import { createCloud, KIN_SOLE, reachArm } from "./VoxelKit.js?v=tumblekin211";
+import { addStageLights } from "./SceneKit.js?v=tumblekin211";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin211";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin211";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
+import { forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin211";
 
 // Farbenjagd: jeder schiebt eine Farbwalze über eine grosse Leinwand. Was die
 // Walze überrollt, hat sofort seine Farbe, auch fremde. Auf der eigenen Farbe
@@ -33,6 +33,10 @@ const POP_MS = 300;
 const BLANK = [new THREE.Color("#fbf7ee"), new THREE.Color("#efe8d9")];
 const FESTIVAL = ["#ff5d73", "#ffd15c", "#28c7d9", "#71d97b", "#b57bff", "#ff9f43"];
 const WHITE = new THREE.Color("#ffffff");
+// Je Startplatz ein Zeichen, dieselben vier wie in der Farbflucht. Pink,
+// Gelb und Grün sind bei Rot-Grün-Schwäche kaum zu trennen — das Zeichen auf
+// jeder Kachel und im Anteilbalken sagt trotzdem, wem die Fläche gehört.
+const SLOT_SYMBOLS = ["●", "▲", "■", "✚"];
 
 const _dummy = new THREE.Object3D();
 const _color = new THREE.Color();
@@ -280,19 +284,21 @@ export class ColorHunt extends MinigameScene {
 
   buildCells() {
     const count = this.cols * this.rows;
-    this.cells = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(TILE, CELL_H, TILE),
-      new THREE.MeshPhongMaterial({ color: "#ffffff", shininess: 40, specular: "#222222" }),
-      count
-    );
+    const geometry = new THREE.BoxGeometry(TILE, CELL_H, TILE);
+    // Je Kachel: 0 = frei, sonst Startplatz + 1. Der Shader legt danach das
+    // Zeichen auf die Oberseite — alles bleibt ein Zeichenaufruf.
+    this.patterns = new THREE.InstancedBufferAttribute(new Float32Array(count), 1);
+    geometry.setAttribute("aPattern", this.patterns);
+    const material = new THREE.MeshPhongMaterial({ color: "#ffffff", shininess: 40, specular: "#222222" });
+    material.onBeforeCompile = addSlotSymbols;
+    this.cells = new THREE.InstancedMesh(geometry, material, count);
     this.cells.receiveShadow = true;
     this.want = new Int8Array(count).fill(-1);
     this.shown = new Int8Array(count).fill(-1);
     this.due = new Float64Array(count);
     this.popAt = new Float64Array(count);
     for (let at = 0; at < count; at += 1) this.placeCell(at, 1);
-    this.cells.instanceMatrix.needsUpdate = true;
-    this.cells.instanceColor.needsUpdate = true;
+    this.markCellsDirty();
     this.scene.add(this.cells);
   }
 
@@ -314,6 +320,13 @@ export class ColorHunt extends MinigameScene {
     if (painted) _color.copy(this.slotColors[slot] || BLANK[0]).lerp(WHITE, swell * 0.18);
     else _color.copy(BLANK[(col + row) % 2]);
     this.cells.setColorAt(at, _color);
+    this.patterns.array[at] = painted ? (slot % SLOT_SYMBOLS.length) + 1 : 0;
+  }
+
+  markCellsDirty() {
+    this.cells.instanceMatrix.needsUpdate = true;
+    this.cells.instanceColor.needsUpdate = true;
+    this.patterns.needsUpdate = true;
   }
 
   // Die Walze: Stiel von den Händen schräg nach vorn unten, die Rolle in der
@@ -651,8 +664,7 @@ export class ColorHunt extends MinigameScene {
     if (instant) {
       this.shown.set(this.want);
       for (let at = 0; at < this.shown.length; at += 1) this.placeCell(at, 1);
-      this.cells.instanceMatrix.needsUpdate = true;
-      this.cells.instanceColor.needsUpdate = true;
+      this.markCellsDirty();
       return;
     }
   }
@@ -672,10 +684,7 @@ export class ColorHunt extends MinigameScene {
       this.placeCell(at, Math.min(1, t));
       dirty = true;
     });
-    if (dirty) {
-      this.cells.instanceMatrix.needsUpdate = true;
-      this.cells.instanceColor.needsUpdate = true;
-    }
+    if (dirty) this.markCellsDirty();
   }
 
   // Extras: die breite Walze als goldene Rolle, die Farbbombe als Kugel mit
@@ -788,8 +797,10 @@ export class ColorHunt extends MinigameScene {
         const percent = Math.max(owned > 0 ? 6 : 0, Math.round((owned / total) * 100));
         const isOwn = player.id === ownId;
         // Die Zahl nur, wo sie hineinpasst — sonst schoben sich die Ziffern
-        // schmaler Anteile ineinander.
-        const label = percent >= 13 ? `${Math.round((owned / total) * 100)}%` : "";
+        // schmaler Anteile ineinander. Das Zeichen passt fast immer.
+        const slot = (arcade.order || []).indexOf(player.id);
+        const symbol = slot >= 0 ? SLOT_SYMBOLS[slot % SLOT_SYMBOLS.length] : "";
+        const label = percent >= 19 ? `${symbol}\u2009${Math.round((owned / total) * 100)}%` : percent >= 6 ? symbol : "";
         return `<i class="paint-share-part${isOwn ? " is-own" : ""}" style="--chip:${player.color};width:${percent}%">${label}</i>`;
       }).join("");
     }
@@ -824,6 +835,53 @@ export class ColorHunt extends MinigameScene {
 }
 
 // Graffiti auf Backstein: Fugen, bunte Blasenbuchstaben und Tags.
+// Die Zeichen auf den Kacheln: Punkt, Dreieck, Quadrat, Kreuz — aus der
+// Kachelmitte gerechnet, nur auf der Oberseite. Helle Farben (Gelb) bekommen
+// ein dunkleres Zeichen, dunklere ein helleres; so trägt das Zeichen auch
+// einen Helligkeitsunterschied und nicht nur eine Form.
+function addSlotSymbols(shader) {
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", `#include <common>
+attribute float aPattern;
+varying float vPattern;
+varying vec2 vTileSpot;
+varying float vTop;`)
+    .replace("#include <begin_vertex>", `#include <begin_vertex>
+vPattern = aPattern;
+vTileSpot = vec2(position.x, -position.z) / ${TILE.toFixed(4)};
+vTop = normal.y;`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace("#include <common>", `#include <common>
+varying float vPattern;
+varying vec2 vTileSpot;
+varying float vTop;
+float slotSymbol(float slot, vec2 p) {
+  if (slot < 1.5) return length(p) - 0.2;
+  if (slot < 2.5) {
+    const float k = 1.7320508;
+    float r = 0.22;
+    p.y += 0.04;
+    p.x = abs(p.x) - r;
+    p.y = p.y + r / k;
+    if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
+    p.x -= clamp(p.x, -2.0 * r, 0.0);
+    return -length(p) * sign(p.y);
+  }
+  if (slot < 3.5) return max(abs(p.x), abs(p.y)) - 0.165;
+  vec2 q = abs(p);
+  return min(max(q.x - 0.075, q.y - 0.24), max(q.x - 0.24, q.y - 0.075));
+}`)
+    .replace("#include <color_fragment>", `#include <color_fragment>
+if (vTop > 0.5 && vPattern > 0.5) {
+  float edge = slotSymbol(vPattern, vTileSpot);
+  float aa = max(fwidth(edge), 0.004);
+  float ink = 1.0 - smoothstep(-aa, aa, edge);
+  float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  vec3 mark = lum > 0.6 ? diffuseColor.rgb * 0.55 : mix(diffuseColor.rgb, vec3(1.0), 0.5);
+  diffuseColor.rgb = mix(diffuseColor.rgb, mark, ink);
+}`);
+}
+
 function graffitiTextur() {
   const canvas = document.createElement("canvas");
   canvas.width = 1024;
