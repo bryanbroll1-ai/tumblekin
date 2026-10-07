@@ -36,10 +36,16 @@ export class ClientNetwork {
     });
   }
 
+  // Der erste Messwert gilt sofort. Vorher startete der Abgleich bei 0 und
+  // näherte sich nur zu 18 % je Nachricht: Ein Handy, dessen Uhr zwei
+  // Sekunden nachging, lag nach sechs Raummeldungen noch 0,6 s daneben —
+  // bei einem schnellen Start galt dann das erste Tippen nach „LOS!" als zu
+  // früh.
   syncClock(serverTime) {
     if (!serverTime) return;
     const measured = serverTime - Date.now();
-    this.clockOffset = this.clockOffset * 0.82 + measured * 0.18;
+    this.clockOffset = this.clockSynced ? this.clockOffset * 0.82 + measured * 0.18 : measured;
+    this.clockSynced = true;
   }
 
   now() {

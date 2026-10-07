@@ -75,12 +75,20 @@ for (const plan of PLANS) {
       const state = window.__tumblekin.state();
       return state.players.reduce((sum, player) => sum + (player.points || 0), 0);
     });
-    // Ansage abwarten und ein paar Sekunden spielen lassen.
+    // Ansage abwarten und ein paar Sekunden spielen lassen. Gemessen an der
+    // Uhr der Szene: `state.serverTime` stammt aus der letzten Raummeldung,
+    // und während des Spiels kommt keine — die Bedingung wurde nie wahr, jede
+    // Runde wartete die vollen 20 s. Kurze Spiele (Pump-Panik) waren dann samt
+    // Ergebnistafel schon vorbei, und die Prüfung las den nächsten Stand.
+    // Acht Sekunden: alle Spiele im Pool dauern länger, die Bots haben dann
+    // gepunktet.
     await page.waitForFunction(() => {
       const state = window.__tumblekin.state();
       const mg = state?.currentMinigame;
-      return mg && Date.now() > mg.startedAt - (state.serverTime - Date.now()) + 2600;
-    }, null, { timeout: 20000, polling: 200 }).catch(() => {});
+      if (state?.status !== "minigame" || !mg) return true;
+      const now = window.__tumblekin.activeMinigame()?.now?.() ?? Date.now();
+      return now > mg.startedAt + 8000;
+    }, null, { timeout: 30000, polling: 200 }).catch(() => fail(`Runde ${rounds}: Spiel lief nicht an`));
     // Manche Spiele enden von selbst früher (alle fertig) — dann ist schon
     // gewertet, und das Ereignis kommt zu spät. Das ist kein Fehler.
     const skipped = await request(page, "devSkipMinigame").then(() => true).catch((error) => String(error.message || error));

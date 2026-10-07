@@ -27,6 +27,9 @@ export function kinVariant(player, index = 0) {
   return at >= 0 ? at : index;
 }
 
+// So lehnt der Server Eingaben nach Spielende ab (siehe minigameFrozen).
+const GAME_OVER = "Das Minispiel ist vorbei.";
+
 // Grundgerüst eines Minispiels.
 //
 // Jedes der 31 Spiele trug denselben Rahmen mit sich: Konstruktor mit zwölf
@@ -68,7 +71,10 @@ export class MinigameScene {
         return reply;
       }, error => {
         this.noteNetRoundTrip(performance.now() - clock);
-        if (input.action !== "ping" && performance.now() - (this.inputErrorAt || -1000) > 1000) {
+        // „Vorbei" ist am Spielende keine Nachricht wert: das Finale zeigt es
+        // ohnehin. Vorher kam der Toast samt Fehlerton bei jeder Zielgerade,
+        // weil das Finale den Sprint losließ und der Server das ablehnte.
+        if (input.action !== "ping" && error?.message !== GAME_OVER && performance.now() - (this.inputErrorAt || -1000) > 1000) {
           this.inputErrorAt = performance.now();
           this.onInputError?.(error);
         }

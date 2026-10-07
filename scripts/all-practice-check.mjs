@@ -41,7 +41,15 @@ async function act(type){
   await tap(button[type][0]);await wait(button[type][1]);return;
  }
  if(['bounceArena','tiefenrausch','farbenjagd','schneeball','luftpuck','buecherwurm','schnappschuss'].includes(type)){await stick();return;}
- if(type==='finishRush'){await drag(190,400,-50,0);await wait('p.lane===0');await drag(190,400,0,-65);await wait('p.jumps>0');return;}
+ if(type==='finishRush'){
+  await drag(190,400,-50,0);await wait('p.lane===0');
+  // Die langsamen Wische im Prüfbrowser halten länger als 170 ms und starten
+  // damit den Sprint; die Figur rennt dann oft in die erste Hürde und
+  // strauchelt. Ein Sprung im Straucheln zählt zu Recht nicht. Also erst
+  // springen, wenn es geht — und nach einem neuen Straucheln noch einmal.
+  for(let n=0;n<3&&!(await read('p.jumps>0'));n++){await wait('Date.now()>=p.stumbleUntil && Date.now()>=p.jumpReadyAt');await drag(190,400,0,-65);await page.waitForTimeout(400);}
+  await wait('p.jumps>0');return;
+ }
  if(type==='colorEscape'){const dir=await read('(()=>{const dirs=[[1,0],[-1,0],[0,1],[0,-1]];return dirs.find(([x,y])=>p.gx+x>=0&&p.gx+x<5&&p.gy+y>=0&&p.gy+y<8&&!Object.values(a.players).some(q=>q!==p&&!q.eliminated&&q.gx===p.gx+x&&q.gy===p.gy+y));})()');assert.ok(dir);await drag(190,400,dir[0]*60,dir[1]*60);await wait('p.lastStepAt>g.startedAt');assert.equal(await read('s.tiles.filter(t=>t.userData.symbol.visible).length'),40);return;}
  if(type==='lichtwaechter'){await held('[data-hold-run]','p.holding','!p.holding');return;}
  if(type==='fassrolle'){await held('[data-barrel-run="-1"]','p.lastRunAt>g.startedAt','p.lastRunAt===0');return;}

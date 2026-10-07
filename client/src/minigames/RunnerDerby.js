@@ -215,6 +215,9 @@ export class RunnerDerby extends MinigameScene {
   setHolding(active) {
     if (active && (this.ownEntry()?.finishedAt !== null || this.update?.finaleAt)) return;
     if (active && (!this.canAct() || this.holding)) return;
+    // Loslassen ohne Sprint meldet nichts: beim Finale ging sonst ein
+    // „hold: false" an ein Spiel, das schon vorbei war.
+    if (!active && !this.holding && !this.holdTimer) return;
     this.holding = active;
     this.webglCanvas?.classList.toggle('runner-holding', active);
     clearInterval(this.holdTimer); this.holdTimer = null;
