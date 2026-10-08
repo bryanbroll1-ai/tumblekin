@@ -1299,6 +1299,10 @@ const PLINKO_STALL_KICK = 0.7;
 const PLINKO_MAX_PLINKS = 60;
 const PLINKO_BALL_REST = 0.86;        // wie sehr zwei Kugeln voneinander abprallen
 const PLINKO_FLOOR_Y = 1.3;
+// Trennwände zwischen den Töpfen, so hoch über dem Boden (Brettmass). Vorher
+// gab es keine: die Töpfe waren flache Kästchen, und eine Kugel, die knapp
+// über dem Boden noch seitlich lief, zog sichtbar durch die Wand.
+const PLINKO_DIVIDER_H = 0.14;
 const PLINKO_STEP_S = 0.01;           // längster Rechenschritt der Kugelbahn
 const CURLING_SHEET_Y = 1.3;
 // Gerechnet, nicht geschaetzt: in einen Ring vom Radius r passen rund
@@ -2806,6 +2810,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       }
     }
     arcade.floorY = PLINKO_FLOOR_Y;
+    arcade.dividerH = PLINKO_DIVIDER_H;
     arcade.slots = [...PLINKO_SLOTS];
     arcade.balls = [];
     arcade.nextBallId = 1;
@@ -5647,6 +5652,7 @@ function plinkoStep(arcade, dt, now) {
     ball.vx *= Math.exp(-PLINKO_SIDE_DRAG * dt);
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
+    plinkoDivider(ball, arcade.slots.length, arcade.floorY);
     // Der Jackpot zählt dort, wo er beim AUFPRALL stand. Gewertet wurde bisher
     // zur Tickzeit danach — bis zu 90 ms später, in denen er ein Sechstel Topf
     // weiterwandert. Auf dem Gerät, das die Kugel fliessend zeichnet, landete
@@ -5736,6 +5742,22 @@ function plinkoStep(arcade, dt, now) {
       arcade.clacks = (arcade.clacks || 0) + 1;
     }
   }
+}
+
+// Unten zwischen den Töpfen stehen Wände: eine Kugel prallt ab statt
+// durchzuziehen. In einem 10-ms-Schritt kommt sie seitlich höchstens 0,003
+// weit, weniger als ihr Radius — die nächste Wand zu prüfen genügt. Dieselbe
+// Regel steht in Nagelbahn.js.
+function plinkoDivider(ball, slotCount, floorY) {
+  if (ball.y < floorY - PLINKO_DIVIDER_H) return;
+  const k = Math.round(ball.x * slotCount);
+  if (k <= 0 || k >= slotCount) return;
+  const wall = k / slotCount;
+  const off = ball.x - wall;
+  if (Math.abs(off) >= PLINKO_BALL_R) return;
+  const side = off > 0 || (off === 0 && ball.vx < 0) ? 1 : -1;
+  ball.x = wall + side * PLINKO_BALL_R;
+  if (Math.sign(ball.vx) === -side) ball.vx = -ball.vx * 0.5;
 }
 
 function plinkoSettle(room, minigame, arcade, now) {

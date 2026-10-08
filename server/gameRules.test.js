@@ -4575,7 +4575,7 @@ test("nagelbrett: die Stups-Vorschau landet dort, wo der Server die Kugel landen
     const minigame = { arcade, scores: {}, startedAt, duration: 28000, finishing: false };
     const room = { currentMinigame: minigame, players: [p] };
     arcade.balls = [{ id: 7 + r, playerId: p.id, x: 0.2 + (r % 6) * 0.12, y: 0.05, vx: 0.01, vy: 0.05, plinks: 0, nudged: false }];
-    const rules = { seed: arcade.seed, pegs: arcade.pegs, gravity: arcade.gravity, sideDrag: arcade.sideDrag };
+    const rules = { seed: arcade.seed, pegs: arcade.pegs, gravity: arcade.gravity, sideDrag: arcade.sideDrag, slots: arcade.slots.length, floorY: arcade.floorY, dividerH: arcade.dividerH };
     const nudgeAfter = 4 + (r % 5) * 2;        // so viele Takte, dann stupsen (oder nicht)
     const dir = [-1, 0, 1][r % 3];
     let predicted = null;

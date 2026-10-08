@@ -145,54 +145,67 @@ export class PegBoard extends MinigameScene {
       this.pegMeshes.push({ mesh: head, group, flash: 0, base: new THREE.Color("#f2e2b8") });
     });
 
-    // Die Fächer. Ihre Farbe sagt den Wert — je heller, desto mehr wert.
+    // Die Fächer: tiefe Taschen aus Lackholz, getrennt von Wänden, an denen
+    // die Kugel abprallt (PLINKO_DIVIDER_H auf dem Server). Vorne eine farbige
+    // Leiste mit dem Wert — je heller, desto mehr wert —, dahinter sammeln
+    // sich die gelandeten Kugeln. Vorher waren es flache Kästchen, und die
+    // Kugel zog knapp über dem Boden sichtbar durch die Wände.
     const slots = arcade.slots || [];
     const slotWidth = BOARD_W / Math.max(1, slots.length);
+    const floor = this.worldY(floorY, floorY);
+    const wallTop = floor + (arcade.dividerH ?? 0.14) * BOARD_H / floorY;
+    const pocketBottom = floor - 0.5;
+    this.pocketBottom = pocketBottom;
+    this.wallTop = wallTop;
+    this.settled = [];
+    const wallMat = new THREE.MeshLambertMaterial({ color: "#f6e7c8" });
+    for (let k = 0; k <= slots.length; k += 1) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.07, wallTop - pocketBottom, 0.5), wallMat);
+      wall.position.set(-BOARD_W / 2 + slotWidth * k, (wallTop + pocketBottom) / 2, -0.02);
+      wall.castShadow = true;
+      scene.add(wall);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 0.54), lambert("#ffc400"));
+      cap.position.set(wall.position.x, wallTop + 0.03, -0.02);
+      scene.add(cap);
+    }
     slots.forEach((points, index) => {
       const x = -BOARD_W / 2 + slotWidth * (index + 0.5);
-      const y = this.worldY(floorY, floorY) - 0.25;
-      const cup = new THREE.Mesh(
-        new THREE.BoxGeometry(slotWidth * 0.9, 0.5, 0.4),
-        new THREE.MeshLambertMaterial({ color: SLOT_COLORS[index % SLOT_COLORS.length] })
-      );
-      cup.position.set(x, y, -0.1);
+      const colour = SLOT_COLORS[index % SLOT_COLORS.length];
+      const back = new THREE.Mesh(new THREE.BoxGeometry(slotWidth - 0.07, wallTop - pocketBottom, 0.06), lambert(new THREE.Color(colour).multiplyScalar(0.55).getStyle()));
+      back.position.set(x, (wallTop + pocketBottom) / 2, -0.24);
+      back.receiveShadow = true;
+      scene.add(back);
+      const cup = new THREE.Mesh(new THREE.BoxGeometry(slotWidth - 0.07, 0.42, 0.1), new THREE.MeshLambertMaterial({ color: colour }));
+      cup.position.set(x, pocketBottom + 0.21, 0.36);
       cup.receiveShadow = true;
       scene.add(cup);
-
-      const wall = new THREE.Mesh(
-        new THREE.BoxGeometry(0.07, 0.75, 0.4),
-        new THREE.MeshLambertMaterial({ color: "#e6edf5" })
-      );
-      wall.position.set(x - slotWidth / 2, y + 0.3, -0.1);
-      scene.add(wall);
-
-      // Der Wert steht auf dem Topf — man soll nicht an der Farbe raten.
+      // Der Wert steht auf der Leiste — man soll nicht an der Farbe raten.
       const label = makeLabel(String(points), { size: 0.26 });
-      label.position.set(x, y + 0.02, 0.13);
+      label.position.set(x, pocketBottom + 0.22, 0.42);
       scene.add(label);
-
-      this.slotMeshes.push({ cup, points, index, flash: 0, base: new THREE.Color(SLOT_COLORS[index % SLOT_COLORS.length]) });
+      this.slotMeshes.push({ cup, points, index, flash: 0, base: new THREE.Color(colour), x, balls: 0 });
     });
 
     // Der Jackpot: ein goldener Rahmen mit Stern und „+15“, der über die Töpfe
     // gleitet. Man sieht ihn wandern und kann vorausdenken.
     this.slotWidth = slotWidth;
-    this.slotY = this.worldY(floorY, floorY) - 0.25;
+    this.slotY = (wallTop + pocketBottom) / 2;
+    const pocketH = wallTop - pocketBottom;
     const jackpot = new THREE.Group();
-    const glowMat = new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.35, depthWrite: false, toneMapped: false });
-    const glow = new THREE.Mesh(new THREE.BoxGeometry(slotWidth * 0.96, 0.62, 0.3), glowMat);
+    const glowMat = new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false });
+    const glow = new THREE.Mesh(new THREE.BoxGeometry(slotWidth * 0.9, pocketH, 0.3), glowMat);
     jackpot.add(glow);
     const frameMat = new THREE.MeshBasicMaterial({ color: "#ffd24a", toneMapped: false });
     [[-1, 0], [1, 0]].forEach(([side]) => {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.7, 0.34), frameMat);
-      bar.position.x = side * slotWidth * 0.48;
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.06, pocketH + 0.08, 0.34), frameMat);
+      bar.position.x = side * slotWidth * 0.46;
       jackpot.add(bar);
     });
     const top = new THREE.Mesh(new THREE.BoxGeometry(slotWidth * 0.98, 0.06, 0.34), frameMat);
-    top.position.y = 0.35;
+    top.position.y = pocketH / 2 + 0.04;
     jackpot.add(top);
     const tag = makeLabel(`★+${arcade.jackpot || 15}`, { color: "#ffe36b", size: 0.3 });
-    tag.position.set(0, 0.62, 0.16);
+    tag.position.set(0, pocketH / 2 + 0.3, 0.16);
     jackpot.add(tag);
     jackpot.position.set(0, this.slotY, -0.02);
     scene.add(jackpot);
@@ -356,6 +369,8 @@ export class PegBoard extends MinigameScene {
     this.ballMeshes.clear();
     this.pegMeshes.length = 0;
     this.slotMeshes.length = 0;
+    (this.settled || []).forEach((ball) => ball.mesh.material.dispose());
+    this.settled = [];
   }
 
   // Wo auf dem Brett wurde getippt? Über einen Strahl auf die Brettebene —
@@ -429,17 +444,39 @@ export class PegBoard extends MinigameScene {
     const own = (arcade.balls || []).find((ball) => ball.playerId === f.controlledId);
     if (!own || own.nudged || f.finale || !arcade.pegs?.length) return hide();
     const floorY = arcade.floorY || 1.3;
-    const rules = { seed: arcade.seed, pegs: arcade.pegs, gravity: arcade.gravity ?? 1.9, sideDrag: arcade.sideDrag ?? 1.4 };
+    const rules = { seed: arcade.seed, pegs: arcade.pegs, gravity: arcade.gravity ?? 1.9, sideDrag: arcade.sideDrag ?? 1.4,
+      slots: arcade.slots?.length ?? 7, floorY, dividerH: arcade.dividerH ?? 0.14 };
     const from = f.minigame?.sentAt || f.now;
     const leadS = Math.max(0, Math.min(0.6, (f.now + this.roundTrip - from) / 1000));
     const push = arcade.nudgePower ?? 0.85;
-    const y = this.worldY(floorY, floorY) + 0.32;
+    const y = (this.wallTop ?? this.worldY(floorY, floorY) + 0.6) + 0.28;
+    const count = arcade.slots?.length || 7;
     for (const { dir, mark } of marks) {
       const x = landingX(own, rules, { leadS, nudge: dir, push, floorY });
       // Kommt der Stups erst an, wenn sie schon unten ist, gibt es nichts zu zeigen.
       if (x === null) return hide();
+      // Ruhig statt zappelig: die Marke steht über einem FACH, nicht über der
+      // genauen Landestelle, und wechselt erst, wenn die neue Vorhersage
+      // 160 ms hält. Vorher sprang sie bei jedem Nagelkontakt hin und her
+      // und wippte dazu noch auf und ab.
+      const slot = clamp(Math.floor(x * count), 0, count - 1);
+      const st = mark.userData;
+      if (st.slot === undefined || !mark.visible) {
+        st.slot = slot;
+        st.want = undefined;
+      } else if (slot === st.slot) {
+        st.want = undefined;
+      } else if (st.want !== slot) {
+        st.want = slot;
+        st.since = f.now;
+      } else if (f.now - st.since > 160) {
+        st.slot = slot;
+        st.want = undefined;
+      }
+      const targetX = -BOARD_W / 2 + this.slotWidth * (st.slot + 0.5) + dir * 0.17;
+      st.x = mark.visible && st.x !== undefined ? st.x + (targetX - st.x) * frameLerp(0.35, f.dt || 0.016) : targetX;
       mark.visible = true;
-      mark.position.set(this.worldX(x), y + (dir ? Math.sin(f.now / 140) * 0.04 : -0.1), 0.2);
+      mark.position.set(st.x, y + (dir ? 0 : -0.08), 0.2);
     }
   }
 
@@ -523,6 +560,7 @@ export class PegBoard extends MinigameScene {
       this.ballMeta.delete(id);
     });
     this.syncFlashes(dt);
+    this.stepSettled(now);
 
     players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -556,7 +594,10 @@ export class PegBoard extends MinigameScene {
           animator.trigger(big ? "fistpump" : landed.points <= 2 ? "facepalm" : "clap");
           animator.expression(big ? "joy" : landed.points <= 2 ? "sad" : "happy", 900);
           const slot = this.slotMeshes[landed.slot];
-          if (slot) slot.flash = 1;
+          if (slot) {
+            slot.flash = 1;
+            this.settleBall(slot, player.color, now);
+          }
           if (isOwn) {
             const at = new THREE.Vector3(slot?.cup.position.x || 0, (slot?.cup.position.y || 0) + 0.9, 0.3);
             this.burst(at, [big ? "#ffd15c" : "#8fa4b4", "#ffffff"], { count: (big ? 16 : 8) * fxScale(), speed: 2.0, up: 1.8, size: 0.07, life: 0.6, drag: 1.8 });
@@ -577,6 +618,29 @@ export class PegBoard extends MinigameScene {
       if (running) animator.set("run");
       else if (ball) animator.set("focus");
       else animator.set("carry");
+    });
+  }
+
+  // Gelandete Kugeln bleiben im Fach liegen, drei nebeneinander, dann die
+  // nächste Lage — so sieht man am Ende, wer wohin getroffen hat.
+  settleBall(slot, colour, now) {
+    const n = slot.balls++;
+    const mesh = new THREE.Mesh(KUGEL_FORM, new THREE.MeshLambertMaterial({ color: colour }));
+    mesh.scale.setScalar(0.8);
+    const to = (this.pocketBottom ?? -2.9) + 0.17 + Math.floor(n / 3) * 0.26;
+    const from = this.wallTop ?? to + 0.5;
+    mesh.position.set(slot.x + ((n % 3) - 1) * 0.18, from, 0.08);
+    mesh.userData.isFx = true;
+    this.scene.add(mesh);
+    this.settled.push({ mesh, from, to, at: now });
+  }
+
+  stepSettled(now) {
+    (this.settled || []).forEach((ball) => {
+      const t = Math.min(1, (now - ball.at) / 320);
+      // Fällt hinein und hüpft einmal kurz nach.
+      const drop = t < 0.75 ? (t / 0.75) ** 2 : 1 - Math.sin((t - 0.75) / 0.25 * Math.PI) * 0.12;
+      ball.mesh.position.y = ball.from + (ball.to - ball.from) * drop;
     });
   }
 

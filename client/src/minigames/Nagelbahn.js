@@ -13,6 +13,7 @@ const BALL_R = 0.028;         // wie PLINKO_BALL_R
 const MAX_PLINKS = 60;        // wie PLINKO_MAX_PLINKS
 const STALL_KICK = 0.7;       // wie PLINKO_STALL_KICK
 const STEP_S = 0.01;          // wie PLINKO_STEP_S
+const DIVIDER_H = 0.14;       // wie PLINKO_DIVIDER_H
 
 function noise(seed) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
@@ -23,12 +24,27 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-// Ein Rechenschritt, ball wird verändert. `rules`: { seed, pegs, gravity, sideDrag }.
+// Wie plinkoDivider: zwischen den Töpfen prallt die Kugel an der Wand ab.
+function divider(ball, slotCount, floorY, height) {
+  if (ball.y < floorY - height) return;
+  const k = Math.round(ball.x * slotCount);
+  if (k <= 0 || k >= slotCount) return;
+  const wall = k / slotCount;
+  const off = ball.x - wall;
+  if (Math.abs(off) >= BALL_R) return;
+  const side = off > 0 || (off === 0 && ball.vx < 0) ? 1 : -1;
+  ball.x = wall + side * BALL_R;
+  if (Math.sign(ball.vx) === -side) ball.vx = -ball.vx * 0.5;
+}
+
+// Ein Rechenschritt, ball wird verändert. `rules`: { seed, pegs, gravity,
+// sideDrag, slots, floorY, dividerH } (die letzten drei wie auf dem Server).
 export function stepBall(ball, rules, dt) {
   ball.vy += rules.gravity * dt;
   ball.vx *= Math.exp(-rules.sideDrag * dt);
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
+  divider(ball, rules.slots ?? 7, rules.floorY ?? 1.3, rules.dividerH ?? DIVIDER_H);
   if (ball.x < 0.035) {
     ball.x = 0.035;
     ball.vx = Math.abs(ball.vx) * 0.6;
