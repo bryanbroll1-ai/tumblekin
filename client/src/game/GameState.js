@@ -58,6 +58,25 @@ export function sortByStanding(players, mode) {
   return [...players].sort(compare);
 }
 
+// Was ins Codefeld getippt oder eingefügt wird: ein Code („zp2h", „ZP-2H",
+// „Z P 2 H") oder gleich der ganze Einladungslink aus dem Chat. Übrig bleibt
+// der Code. Vorher schnitt das Feld nach sechs Zeichen ab, BEVOR Leerzeichen
+// entfernt wurden — aus „z p 2 h" wurde „ZP2", und Beitreten scheiterte.
+export function extractRoomCode(text) {
+  const raw = String(text ?? "");
+  const fromLink = raw.match(/[?&]room=([A-Za-z0-9]+)/);
+  return (fromLink ? fromLink[1] : raw).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+// Läuft der Server im Internet (Render), braucht es kein gemeinsames WLAN —
+// nur auf einem Rechner im Heimnetz (localhost oder private Adresse).
+export function isLocalNetworkHost(hostname) {
+  const host = String(hostname || "").replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || host.endsWith(".local")
+    || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+}
+
 export function joinUrlFor(code, baseUrl = window.location.href) {
   const url = new URL(baseUrl);
   url.pathname = "/";

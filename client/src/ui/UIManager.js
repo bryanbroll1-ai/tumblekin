@@ -7,6 +7,8 @@ import {
   getMyPlayer,
   isHost,
   joinUrlFor,
+  extractRoomCode,
+  isLocalNetworkHost,
   sortByStanding,
   minigameTitle
 } from "../game/GameState.js?v=tumblekin211";
@@ -175,7 +177,7 @@ export class UIManager {
       if (event.key === "Enter") { event.preventDefault(); el.join.click(); }
     });
     el.code.addEventListener("input", () => {
-      el.code.value = el.code.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+      el.code.value = extractRoomCode(el.code.value);
       el.join.classList.toggle("btn-primary", el.code.value.length >= 4);
       el.join.classList.toggle("btn-secondary", el.code.value.length < 4);
     });
@@ -204,6 +206,7 @@ export class UIManager {
     el.openInvite.addEventListener("click", () => {
       this.feedback?.sound("tap");
       this.renderQrCode();
+      this.renderInviteHint();
       this.openOverlay("invite");
     });
     el.inviteClose.addEventListener("click", () => this.closeOverlay("invite"));
@@ -432,9 +435,12 @@ export class UIManager {
     const params = new URLSearchParams(window.location.search);
     const codeFromUrl = params.get("room");
     if (codeFromUrl) {
-      this.el.code.value = codeFromUrl.toUpperCase();
+      this.el.code.value = codeFromUrl;
       this.el.code.dispatchEvent(new Event("input"));
       document.body.classList.add("has-invite");
+      // Wer eingeladen wurde, tritt bei — gründen ist hier die Ausnahme.
+      const divider = document.getElementById("start-divider");
+      if (divider) divider.textContent = "oder eigene Party starten";
     }
     this.devToolsRequested = params.get("dev") === "1";
     this.devToolsAllowed = false;
@@ -1042,9 +1048,31 @@ export class UIManager {
     this.el.qr.src = `/qr.svg?text=${encodeURIComponent(link)}`;
   }
 
+  // Das gemeinsame WLAN braucht es nur, wenn der Server im Heimnetz läuft.
+  // Auf einer festen Adresse im Internet (Render) kommt jeder dazu, der den
+  // Code oder Link hat — dort war der WLAN-Satz schlicht falsch.
+  renderInviteHint() {
+    const hint = document.getElementById("invite-hint");
+    if (!hint) return;
+    const local = isLocalNetworkHost(new URL(this.preferredJoinUrl()).hostname);
+    hint.textContent = local
+      ? "Mit der Handykamera scannen — oder Raumcode auf dem Startbildschirm eingeben. Alle müssen im selben WLAN sein."
+      : "Mit der Handykamera scannen — oder Raumcode auf dem Startbildschirm eingeben. Geht von überall, auch ohne gemeinsames WLAN.";
+  }
+
+  // Auf dem Handy öffnet „Link teilen" das Teilen-Menü (WhatsApp, Nachrichten
+  // …); wo es das nicht gibt, landet der Link in der Zwischenablage.
   async copyJoinLink() {
     if (!this.state?.code) return;
     const link = this.preferredJoinUrl();
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Tumblekin", text: `Komm in meine Tumblekin-Party! Raumcode ${this.state.code}`, url: link });
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    }
     try {
       await navigator.clipboard.writeText(link);
       this.showToast("Link kopiert.");

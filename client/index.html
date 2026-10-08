@@ -53,8 +53,8 @@
           <p class="eyebrow">Mitspielen</p>
           <strong class="invite-code" data-room-code>----</strong>
           <img id="qr-code" width="200" height="200" alt="QR-Code zum Beitreten">
-          <p class="invite-hint">Mit der Handykamera scannen — oder Raumcode auf dem Startbildschirm eingeben. Alle müssen im selben WLAN sein.</p>
-          <button id="copy-link" class="btn btn-secondary" type="button">Link kopieren</button>
+          <p id="invite-hint" class="invite-hint">Mit der Handykamera scannen — oder Raumcode auf dem Startbildschirm eingeben.</p>
+          <button id="copy-link" class="btn btn-secondary" type="button">Link teilen</button>
           <button id="invite-close" class="btn btn-primary" type="button">Fertig</button>
         </div>
       </div>
@@ -95,11 +95,11 @@
             <input id="player-name" maxlength="18" autocomplete="nickname" placeholder="Wie heisst du?">
           </label>
           <button id="create-room" class="btn btn-primary btn-big" type="button">Party starten</button>
-          <div class="divider"><span>oder beitreten</span></div>
+          <div class="divider"><span id="start-divider">oder beitreten</span></div>
           <div class="join-row">
             <label class="field">
               <span>Raumcode</span>
-              <input id="room-code" maxlength="6" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD">
+              <input id="room-code" maxlength="80" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD">
             </label>
             <button id="join-room" class="btn btn-secondary" type="button">Beitreten</button>
           </div>
