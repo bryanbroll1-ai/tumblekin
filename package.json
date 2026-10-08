@@ -34,7 +34,10 @@
     "pipe-check": "node scripts/pipe-check.mjs",
     "sprint-check": "node scripts/sprint-check.mjs",
     "bumper-check": "node scripts/bumper-check.mjs",
-    "all-practice-check": "node scripts/all-practice-check.mjs"
+    "all-practice-check": "node scripts/all-practice-check.mjs",
+    "build:browser": "node browser/build.mjs",
+    "browser-join-check": "node browser/join-check.mjs",
+    "browser-solo-check": "node browser/solo-check.mjs"
   },
   "keywords": [
     "party-game",

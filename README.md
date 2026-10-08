@@ -335,6 +335,20 @@ Rechtliches: `LICENSE` (MIT), `THIRD-PARTY-NOTICES.md` für die eingebundenen
 Bibliotheken und `PRIVACY.md` als Datenschutzerklärung. Icons lassen sich mit
 `npm run icons` neu erzeugen.
 
+## Browser-Fassung (claude.ai)
+
+`npm run build:browser` baut nach `browser/dist` eine Fassung ohne Node-Server: Spielserver und Oberfläche laufen in einer Seite, Übungen ebenfalls. Sie wird als claude.ai-Artifact veröffentlicht (`ARTIFACT_URL` legt den Link in QR-Code und Teilen-Text fest).
+
+Mitspielen geht dort ohne Server: **Wer die Party startet, ist der Server.** Gäste öffnen dasselbe Artifact, tippen den Raumcode ein oder wählen die Party aus der Liste „Offene Partys“. Die Verbindung vermittelt die Raumfunktion von claude.ai (`browser/net.js`):
+
+- Zuerst direkt per WebRTC — Angebot und Antwort laufen über den Raum, danach geht jedes Ereignis von Gerät zu Gerät.
+- Bis das steht, oder wenn es nie zustande kommt, über den Raum selbst: Der Host bündelt alle 80 ms, behält vom Raumzustand und Minispielstand nur den neuesten, packt das Bündel und schickt es in Stücken unter 4 KiB; höchstens 28 Raumereignisse pro Sekunde. Gäste melden Eingaben über ihre Präsenz, die jeder setzen darf. Antworten gehen dreimal raus, der Raumzustand alle zwei Sekunden erneut — beides kann unterwegs verloren gehen.
+- Wer acht Sekunden weg ist, gilt als gegangen; kürzere Aussetzer überbrückt die Verbindung. Schliesst der Host sein Fenster, landen die Gäste wieder auf dem Startbildschirm.
+
+Voraussetzungen: Gäste müssen bei claude.ai angemeldet sein, und das Artifact muss mit ihnen geteilt sein (ein öffentlicher Link reicht nicht). Eine Party leiten kann, wer das Artifact bearbeiten oder mitwirken darf; mitspielen darf auch, wer es nur ansehen kann. Das Handy des Hosts sollte offen bleiben — solange Gäste da sind, hält es den Bildschirm wach, wo der Browser das erlaubt.
+
+`npm run browser-join-check` spielt das mit drei Seiten durch (eine Nachbildung der Raumfunktion über BroadcastChannel, `browser/mock-room.js`, mit Verzögerung und Verlust): Beitritt per Code und per Liste, ein Gast über den Raum, einer über WebRTC, ein gemeinsames Spiel, Gehen, Party beenden, Host-Fenster schliessen. `npm run browser-solo-check` prüft Startkarte, Übung und eine Runde gegen Bots.
+
 ## Architektur
 
 - Express liefert PWA, Three.js und Clientmodule aus.

@@ -8,3 +8,4 @@ pnpm-debug.log*
 # Lockfiles, die auseinanderlaufen koennen, ist genau ein Fehler zu viel.
 package-lock.json
 galerie/
+browser/dist/
