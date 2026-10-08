@@ -408,7 +408,7 @@ export class HoneyVine extends MinigameScene {
     } else if (last.stung) {
       this.chase.set(last.playerId, performance.now() + 2600);
       if (kin) {
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), last.dropped ? `AUA! −${last.dropped}` : "AUA!", { color: "#ffb3bd", size: 0.42, life: 1.3 });
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "AUA! RAUS!", { color: "#ffb3bd", size: 0.42, life: 1.4 });
         if (basket) this.burst(basket.group.position.clone().add(new THREE.Vector3(0, 0.3, 0)), ["#e0343c", "#ffcf33", "#e0343c"], { count: Math.min(20, 4 + (last.dropped || 0) * 2), speed: 1.6, up: 2, size: 0.09, life: 0.9 });
       }
       if (animator) {
@@ -575,8 +575,14 @@ export class HoneyVine extends MinigameScene {
       const face = moving ? Math.atan2(dx, dz) : Math.atan2(VINE_X - kin.position.x, VINE_Z - kin.position.z);
       kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.25, dt);
       if (f.finale) return;
+      const out = arcade.players[player.id]?.outAt != null;
       if (chasing) animator.set("panic");
       else if (moving) animator.set("walk");
+      else if (out) {
+        // Raus: sitzt traurig neben dem Korb und schaut den anderen zu.
+        animator.set("sad");
+        animator.lookAt(turnKin ? turnKin.position.clone().add(new THREE.Vector3(0, 0.6, 0)) : null);
+      }
       else if (active) {
         animator.set("think");
         animator.lookAt(this.items[0]?.position || null);
@@ -620,7 +626,8 @@ export class HoneyVine extends MinigameScene {
       const html = room.players.map((player) => {
         const entry = arcade.players[player.id];
         const active = state.turn?.playerId === player.id;
-        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${active ? " is-turn" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>🍎${entry?.fruits || 0}</span>`;
+        const out = entry?.outAt != null;
+        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${active ? " is-turn" : ""}${out ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${out ? "raus" : `🍎${entry?.fruits || 0}`}</span>`;
       }).join("");
       if (html !== this.chipsHtml) {
         this.chipsHtml = html;
@@ -647,7 +654,7 @@ export class HoneyVine extends MinigameScene {
         : "Du bist dran!";
       tone = "#1fbf5b";
     } else if (state.last && elapsed - state.last.at < 1300 && state.last.stung) {
-      message = state.last.playerId === controlledId ? "Gestochen! 🐝" : `${escapeName(lastWho?.name)} wurde gestochen! 🐝`;
+      message = state.last.playerId === controlledId ? "Gestochen — du bist raus! 🐝" : `${escapeName(lastWho?.name)} ist raus! 🐝`;
       tone = "#ff5d73";
     } else if (state.last && elapsed - state.last.at < 1100 && state.last.passed) {
       message = state.last.playerId === controlledId ? "Geschoben!" : `${escapeName(lastWho?.name)} schiebt weiter!`;

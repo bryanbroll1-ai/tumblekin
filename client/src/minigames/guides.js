@@ -11,7 +11,7 @@ const guide = (category, goal, tip) => ({ category, goal, tip });
 // Stichentscheide stehen ausdrücklich in den Regeln. Auf der Ergebnistafel
 // werden sie nur erläutert, wenn dieselbe Hauptzahl verschiedene Plätze ergibt.
 export const MINIGAME_TIEBREAKERS = {
-  bounceArena: "Bei gleichen Leben zählen Rauswürfe, danach die Zeit auf der Insel.",
+  bounceArena: "Wer länger oben bleibt, liegt vorn; danach zählen Rauswürfe, dann die Zeit auf der Insel.",
   colorEscape: "Bei gleichen überstandenen Runden gewinnt, wer insgesamt schneller auf der sicheren Farbe stand.",
   ballonPump: "Bei gleicher Zahl an Pumpstößen gewinnt, wer diese Zahl zuerst erreicht hat.",
   fassmut: "Bei gleichen Punkten entscheidet der dichteste einzelne Stopp.",
@@ -30,17 +30,17 @@ export const MINIGAME_TIEBREAKERS = {
   spuersinn: "Bei gleichen Punkten entscheiden weniger Suchversuche.",
   augenmass: "Bei gleichen Punkten entscheidet die kleinere gesamte Schätzabweichung.",
   grimassen: "Bei gleichen Punkten entscheidet die kleinere gesamte Abweichung vom Vorbild.",
-  flaggenhoch: "Bei gleich vielen richtigen Befehlen entscheiden übrige Leben, danach die schnellere Reaktion.",
-  honigwabe: "Bei gleich vielen Früchten entscheiden weniger Honigstiche.",
+  flaggenhoch: "Bei gleich vielen richtigen Befehlen entscheidet, wer noch dabei ist, danach die schnellere Reaktion.",
+  honigwabe: "Wer länger dabei ist, liegt vorn; unter Gleichen entscheiden die Früchte.",
   schneeball: "Bei gleichen Punkten entscheiden weniger eingesteckte Treffer.",
-  buecherwurm: "Bei gleich vielen Seiten entscheiden übrige Leben, dann längeres Überleben und das schnellere Erreichen sicherer Löcher.",
+  buecherwurm: "Bei gleich vielen Seiten entscheidet, wer noch dabei ist, dann das schnellere Erreichen sicherer Löcher.",
   schnappschuss: "Bei gleichen Punkten entscheiden mehr Titelbilder, danach mehr Fotos im Bildausschnitt.",
   kippboot: "Bei gleichen Punkten entscheiden weniger gekenterte Boote.",
   rohrsalat: "Bei gleichen Punkten entscheiden mehr richtige Ventile."
 };
 
 export const MINIGAME_GUIDES = {
-  bounceArena: guide("together", "Ramm die anderen von der Insel. Übrige Leben entscheiden, danach Rauswürfe.", "Nur der Stick: Kurven bauen Schwung auf, Anlauf rammt stärker, Loslassen bremst. Drei Leben; am Ende schrumpft die Insel."),
+  bounceArena: guide("together", "Ramm die anderen von der Insel. Wer reinfällt, ist raus.", "Nur der Stick: Kurven bauen Schwung auf, Anlauf rammt stärker, Loslassen bremst. Am Ende schrumpft die Insel."),
   finishRush: guide("skill", "100 Meter gegen die anderen: ← → Spur wechseln, ↑ springen, ↓ sliden.", "Auf dem Spielfeld halten sprintet; Loslassen lädt Ausdauer. Kisten umfahren, orange überspringen, unter Blau sliden."),
   colorEscape: guide("reaction", "Wisch auf die angesagte Farbe, bevor die anderen Felder wegbrechen.", "Farbe und Form gehören zusammen: ● Pink, ▲ Blau, ■ Gelb, ✚ Grün. Ein Sturz beendet dein Spiel."),
   nervenprobe: guide("thinking", "Stoppe deine unsichtbare Uhr möglichst genau bei der Zielzeit.", "Nach zwei Sekunden verschwindet die Uhr. Zähl im Kopf weiter."),
@@ -70,13 +70,13 @@ export const MINIGAME_GUIDES = {
   farbenjagd: guide("together", "Steuere deine Walze mit dem Stick. Die größte Farbfläche gewinnt.", "Übermal die anderen! Auf eigener Farbe fährst du schneller."),
   spuersinn: guide("thinking", "Tippe Felder an und finde mit den Entfernungszahlen das Versteck.", "Gezählt werden Schritte nach oben, unten, links und rechts. Weniger Tipps geben mehr Punkte."),
   augenmass: guide("thinking", "Merk dir den Käferschwarm und zieh den Regler auf deine Schätzung.", "Der Schwarm ist nur kurz sichtbar. Je näher deine Zahl, desto mehr Punkte."),
-  tauziehen: guide("together", "Zieh mit deinem Team am Seil. Zwei Rundensiege gewinnen.", "Folge dem Tempo im Knopf. Fast gleichzeitige Tipps geben einen HAU-RUCK."),
+  tauziehen: guide("together", "Zieh mit deinem Team am Seil — das schnellere Team gewinnt.", "Tippen, tippen, tippen: jeder Tipp zieht gleich stark. Eine Runde, fünfzehn Sekunden."),
   grimassen: guide("thinking", "Zieh die sechs gelben Punkte, bis deine Maske dem Vorbild gleicht.", "Nach neun Sekunden wird verglichen. Drei Gesichter bringen Punkte."),
   flaggenhoch: guide("reaction", "Tippe die gezeigten Flaggen nach, wenn der Käpt'n es befiehlt.", "Nur bei „Käpt'n sagt:“ reagieren! Ohne diese Worte stillhalten."),
-  honigwabe: guide("thinking", "Pflück reihum einen oder zwei Äpfel. Sammle die meisten Früchte.", "Zähl voraus: Honigwaben kosten vier Früchte. Einmal darfst du passen."),
+  honigwabe: guide("thinking", "Pflück reihum einen oder zwei Äpfel — wer eine Wabe erwischt, ist raus.", "Zähl voraus und lass die Wabe dem Nächsten. Einmal darfst du passen."),
   schneeball: guide("together", "Rolle mit dem Stick eine Schneekugel und wirf sie auf die anderen.", "Große Kugeln bringen mehr Punkte und können dich vor Treffern schützen."),
   luftpuck: guide("together", "Steuere deine Scheibe gegen den Puck. Schieß fünf Tore mit deinem Team.", "Dein eigenes Tor hat deine Teamfarbe. Bleib in deiner leuchtenden Zone."),
-  buecherwurm: guide("skill", "Stell dich mit dem Stick in ein Loch, bevor die Buchseite herunterfällt.", "Der Schatten zeigt die sicheren Löcher. Du hast drei Leben."),
+  buecherwurm: guide("skill", "Stell dich mit dem Stick in ein Loch, bevor die Buchseite herunterfällt.", "Der Schatten zeigt die sicheren Löcher. Einmal platt, und du bist raus."),
   schnappschuss: guide("together", "Steh beim Blitz im Bildausschnitt. In der Mitte gibt es Extrapunkte.", "Mit SCHUBS kannst du andere aus dem Foto drängen."),
   kippboot: guide("skill", "Tippe in deinem Zug, um den Passagier ins Boot fallen zu lassen.", "Außen gibt es mehr Punkte. Grün ist sicher; Kentern kostet 30 Punkte."),
   rohrsalat: guide("thinking", "Finde das Ventil, dessen Rohr zur Schatztruhe führt, und tippe es an.", "Bieg an jedem Querrohr ab. Folge dem Weg von der Truhe nach oben.")

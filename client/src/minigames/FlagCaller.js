@@ -600,8 +600,11 @@ export class FlagCaller extends MinigameScene {
         const entry = arcade.players[player.id];
         const isOwn = player.id === controlledId;
         const left = isOwn ? view.lives : (entry?.lives || 0);
-        const hearts = "❤".repeat(left) + "·".repeat(Math.max(0, state.lives - left));
-        return `<span class="hud-chip${isOwn ? " is-own" : ""}${entry?.outAt || (isOwn && left <= 0) ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${hearts}</span>`;
+        // Keine Herzen mehr: ein Fehler, und man ist raus. Der Chip zeigt die
+        // Richtigen — und wer schon an Deck sitzt.
+        const out = Boolean(entry?.outAt) || (isOwn && left <= 0);
+        const count = isOwn ? view.correct : (entry?.correct || 0);
+        return `<span class="hud-chip${isOwn ? " is-own" : ""}${out ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${out ? "raus" : `✓${count}`}</span>`;
       }).join("");
       if (html !== this.livesHtml) {
         this.livesHtml = html;

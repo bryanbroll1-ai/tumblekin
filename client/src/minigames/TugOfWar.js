@@ -28,18 +28,15 @@ export class TugOfWar extends MinigameScene {
     this.lastServerAt = performance.now();
     this.jerk = new Map();
     this.seenTaps = new Map();
-    this.seenSlips = new Map();
-    this.seenSync = new Map();
+    this.lastTapSeen = new Map();
     this.inMud = new Map();
     this.mudUntil = new Map();
-    this.seenResults = 0;
+    this.decided = false;
     this.labelY = 0.8;
     this.bubbles = [];
     this.roundTrip = 0;
-    this.pressLog = [];          // { at }: wann (Geräteuhr) dieses Gerät gezogen hat
     this.lastPressClock = -1e9;
-    this.waste = 0;              // wie oft die Griffkraft zuletzt voll war (0…1)
-    this.coach = "ZIEH!";
+    this.ownTaps = 0;            // eigene Züge, sofort gezählt (der Server bestätigt nach)
   }
 
   stage() {
@@ -53,7 +50,7 @@ export class TugOfWar extends MinigameScene {
 
   hudHtml() {
     return `
-      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0 : 0</strong></div>
+      <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="tug-teams" data-tug-teams></div>
       <div class="color-banner" data-tug-banner hidden></div>`;
   }
@@ -256,10 +253,8 @@ export class TugOfWar extends MinigameScene {
     this.controls.innerHTML = `
       <button type="button" class="tug-button" data-tug-pull>
         <span class="tug-label">ZIEH!</span>
-        <span class="tug-grip" aria-hidden="true"><i data-tug-grip></i></span>
       </button>`;
     this.pullButton = this.controls.querySelector("[data-tug-pull]");
-    this.gripBar = this.controls.querySelector("[data-tug-grip]");
     this.label = this.controls.querySelector(".tug-label");
     const press = (event) => {
       event.preventDefault();
@@ -267,10 +262,11 @@ export class TugOfWar extends MinigameScene {
       if (!minigame || minigame.finaleAt || this.pullButton?.disabled) return;
       this.feedback?.vibrate(8);
       const clock = performance.now();
-      const at = this.now();
       this.lastPressClock = clock;
-      this.pressLog.push({ at });
-      while (this.pressLog.length && this.pressLog[0].at < at - 3000) this.pressLog.shift();
+      this.ownTaps += 1;
+      this.pullButton.classList.remove("is-pulled");
+      void this.pullButton.offsetWidth;
+      this.pullButton.classList.add("is-pulled");
       // Die eigene Figur reisst sofort am Seil — nicht erst, wenn der Server
       // den Zug eine Rundreise später bestätigt.
       const own = this.getControlledPlayerId();
@@ -301,51 +297,30 @@ export class TugOfWar extends MinigameScene {
     this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
   }
 
-  // Die eigene Griffkraft zu dem Moment, in dem ein JETZT geschickter Zug beim
-  // Server ankommt: der letzte Serverstand, dazu die Erholung bis dahin, minus
-  // die Züge, die schon unterwegs sind. Vorher zeigte der Balken den Stand von
-  // vor einer Rundreise — beim Takt von fünf Zügen je Sekunde hing er einen
-  // Zug hinterher, und wer nach ihm zog, rutschte ab.
-  forecastGrip(f) {
-    const { arcade, minigame } = f;
-    const state = arcade.tug;
-    const own = arcade.players[f.controlledId];
-    if (!own) return 1;
-    const snapAt = arcade.lastUpdateAt || minigame.sentAt || f.now;
-    const arrive = f.now + this.roundTrip;
-    const cost = state.gripCost ?? 0.085;
-    const regen = state.gripRegen ?? 0.42;
-    const pending = this.pressLog.filter((press) => press.at + this.roundTrip > snapAt).length;
-    const from = Math.max(snapAt, own.slipUntil || 0);
-    const grip = (own.grip ?? 1) + (regen * Math.max(0, arrive - from)) / 1000 - cost * pending;
-    return Math.max(0, Math.min(1, grip));
-  }
-
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.tug;
     if (!state) return;
     const elapsed = Math.max(0, now - minigame.startedAt);
     this.pingIfIdle(minigame);
-    this.grip = this.forecastGrip(f);
     const age = Math.min(0.15, (performance.now() - this.lastServerAt) / 1000);
     const pulling = state.phase === "pull" && elapsed >= state.leadMs;
     const target = pulling ? Math.max(-1, Math.min(1, state.pos + state.vel * age)) : state.pos;
-    // Zwischen den Durchgängen läuft das Seil gemächlich zurück zur Mitte —
-    // die Teams gehen zurück an ihre Plätze, statt zu springen.
-    const catchUp = Math.abs(target - this.pos) > 0.5 ? 0.06 : 0.3;
+    // Nach der Entscheidung reisst das Siegerteam die anderen mit einem Ruck
+    // in den Schlamm — schneller als das Seil sonst läuft.
+    const catchUp = state.phase === "show" || state.phase === "over" ? 0.12 : 0.3;
     this.pos += (target - this.pos) * frameLerp(catchUp, dt);
     const flagX = this.pos * LINE;
 
-    // Neue Rundenentscheidung: Banner, Konfetti, Wackeln.
-    if ((state.results?.length || 0) > this.seenResults) {
-      this.seenResults = state.results.length;
-      const winner = state.lastWinner;
+    // Die Entscheidung: Konfetti, Wackeln, Ton — einmal.
+    if (!this.decided && (state.phase === "show" || state.phase === "over")) {
+      this.decided = true;
+      const winner = state.winner;
       const own = arcade.players[controlledId];
       if (winner !== null && winner !== undefined) {
         const at = new THREE.Vector3(winner === 0 ? -2.4 : 2.4, 1.8, 0);
-        this.burst(at, ["#ffd15c", "#ffffff", "#ff5d73", "#28c7d9"], { count: 26, speed: 2.4, up: 2.6, size: 0.08, life: 1.2 });
-        this.rig.shake(0.35);
+        this.burst(at, ["#ffd15c", "#ffffff", "#ff5d73", "#28c7d9"], { count: 30, speed: 2.6, up: 2.8, size: 0.08, life: 1.3 });
+        this.rig.shake(0.4);
         if (own) {
           const won = own.side === winner;
           this.feedback?.sound(won ? "win" : "fall");
@@ -438,39 +413,30 @@ export class TugOfWar extends MinigameScene {
       kin.position.x = x;
       kin.position.z = z;
 
-      // Abgerutscht.
-      if ((entry.slips || 0) > (this.seenSlips.get(player.id) ?? entry.slips ?? 0)) {
-        animator.trigger("stumble");
-        animator.expression("surprised", 800);
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), "Abgerutscht!", { color: "#ffb3bd", size: 0.3 });
-        if (isOwn) {
-          this.feedback?.sound("error");
-          this.feedback?.vibrate([30, 30, 30]);
-          this.rig.shake(0.25);
-        }
-      }
-      this.seenSlips.set(player.id, entry.slips || 0);
-      // Hau-Ruck: einmal je gemeinsamem Zug, über der Teammitte.
-      const syncAt = entry.lastSyncAt || 0;
-      // Höchstens alle 1,2 s je Team — sonst stapeln sich die Schriftzüge.
-      if (syncAt > (this.seenSync.get(`side${seat.side}`) || 0) + 1200) {
-        this.seenSync.set(`side${seat.side}`, syncAt);
-        this.pop(new THREE.Vector3(flagX + dir * (FRONT_GAP + 0.4), 1.55, 0), "HAU-RUCK!", { color: "#ffe36b", size: 0.36 });
-        if (arcade.players[controlledId]?.side === seat.side) this.feedback?.sound("combo");
+      // Beim Ziehen lehnt sich jeder weit zurück — um so weiter, je mehr das
+      // Seil gerade zur eigenen Seite läuft; verliert das Team, kippt die
+      // Figur nach vorn, die Füsse rutschen und wirbeln Staub auf.
+      const toward = -(state.vel || 0) * dir;
+      const lean = pulling ? Math.max(-0.3, Math.min(0.32, toward * 1.8 + jerk * 1.4)) : 0;
+      animator.pullLean = (animator.pullLean || 0) + (lean - (animator.pullLean || 0)) * frameLerp(0.25, dt);
+      if (pulling && toward < -0.05 && !mud && Math.random() < dt * 6) {
+        this.burst(new THREE.Vector3(x - dir * 0.1, 0.05, z), ["#d9c39b", "#c4a979"], { count: 3, speed: 0.6, up: 0.5, size: 0.05, life: 0.4 });
       }
 
       if (f.finale) return;
-      const slipping = now < (entry.slipUntil || 0);
       if (state.phase === "show" || state.phase === "over") {
-        const won = state.lastWinner === seat.side;
-        if (state.lastWinner === null || state.lastWinner === undefined) animator.set("shrug");
+        animator.pullLean = 0;
+        const won = state.winner === seat.side;
+        if (state.winner === null || state.winner === undefined) animator.set("shrug");
         else if (won) animator.set("cheer");
         else animator.set(mud ? "dizzy" : "sad");
       } else if (!pulling) {
         animator.set("ready");
-      } else if (!slipping) {
+      } else {
         animator.set("pull");
         if (mud) animator.expression("scared", 300);
+        else if (toward < -0.08) animator.expression("scared", 300);
+        else if (toward > 0.08) animator.expression("happy", 300);
       }
     });
   }
@@ -508,9 +474,10 @@ export class TugOfWar extends MinigameScene {
     if (!state) return;
     const own = arcade.players[controlledId];
     const ownSide = own?.side ?? 0;
+    // Die eigenen Züge — sofort gezählt, nie weniger als der Server meldet.
+    this.ownTaps = Math.max(this.ownTaps, own?.taps || 0);
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    const wins = state.wins || [0, 0];
-    const text = `${wins[ownSide]} : ${wins[1 - ownSide]}`;
+    const text = String(this.ownTaps);
     if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
 
     const teamsNode = this.hud.querySelector("[data-tug-teams]");
@@ -520,8 +487,7 @@ export class TugOfWar extends MinigameScene {
         const names = members.length
           ? members.map((player) => `<b style="--chip:${player.color}">${escapeName(player.name)}</b>`).join("")
           : "<b style=\"--chip:#c7a26b\">Sandsack</b>";
-        const pips = [0, 1].map((i) => `<i class="${i < wins[side] ? "is-won" : ""}"></i>`).join("");
-        return `<div class="tug-team${side === ownSide ? " is-own" : ""}">${names}<span class="tug-pips">${pips}</span></div>`;
+        return `<div class="tug-team${side === ownSide ? " is-own" : ""}">${names}</div>`;
       }).join("<span class=\"tug-vs\">vs</span>");
       if (html !== this.teamsHtml) {
         this.teamsHtml = html;
@@ -531,25 +497,26 @@ export class TugOfWar extends MinigameScene {
 
     const banner = this.hud.querySelector("[data-tug-banner]");
     const elapsed = now - minigame.startedAt;
+    const pulling = state.phase === "pull" && elapsed >= state.leadMs;
     let message = null;
     let tone = "#12aaff";
     if (elapsed < state.leadMs) {
       message = "Seil packen …";
-    } else if (state.phase === "pull" && elapsed - state.roundStartAt < 900) {
-      message = `Runde ${state.round + 1} — ZIEHT!`;
+    } else if (pulling && elapsed - state.leadMs < 900) {
+      message = "ZIEHT!";
       tone = "#1fbf5b";
+    } else if (pulling && state.leadMs + state.roundMs - elapsed < 3000) {
+      message = `Noch ${Math.max(1, Math.ceil((state.leadMs + state.roundMs - elapsed) / 1000))} … ALLES!`;
+      tone = "#ff8a00";
     } else if (state.phase === "show" || state.phase === "over") {
-      const winner = state.lastWinner;
+      const winner = state.winner;
       if (winner === null || winner === undefined) {
         message = "Unentschieden!";
       } else {
         const won = winner === ownSide;
-        message = won ? "Runde gewonnen! 🎉" : "Ab in den Schlamm! 💩";
+        message = won ? "Gewonnen! 🎉" : "Ab in den Schlamm! 💩";
         tone = won ? "#ffc400" : "#8b5a34";
       }
-    } else if (own && now < (own.slipUntil || 0)) {
-      message = "Abgerutscht! Kurz durchatmen …";
-      tone = "#ff5d73";
     }
     if (banner) {
       banner.hidden = !message;
@@ -559,29 +526,9 @@ export class TugOfWar extends MinigameScene {
     }
 
     if (this.pullButton) {
-      const grip = this.grip ?? Math.max(0, Math.min(1, own?.grip ?? 1));
-      this.gripBar.style.width = `${Math.round(grip * 100)}%`;
-      this.pullButton.dataset.grip = grip < 0.25 ? "low" : grip < 0.55 ? "mid" : "high";
-      const slipping = Boolean(own && now < (own.slipUntil || 0));
-      this.pullButton.classList.toggle("is-slipping", slipping);
-      // Der Knopf sagt, was die Griffkraft sagt. Ist sie voll, wird Kraft
-      // verschenkt — sie wächst nicht über voll hinaus; ist sie fast leer,
-      // rutscht man gleich ab. Kurz vor Schluss lohnt es, alles zu geben, was
-      // noch da ist.
-      const pulling = state.phase === "pull" && elapsed >= state.leadMs;
-      this.pullButton.disabled = !pulling || slipping || Boolean(minigame.finaleAt);
-      this.waste += ((grip >= 0.985 ? 1 : 0) - this.waste) * Math.min(1, f.dt * 2.2);
-      const left = state.roundStartAt + (state.roundMs || 11000) - (elapsed + this.roundTrip);
-      let coach = pulling ? "ZIEH!" : "WARTEN …";
-      if (pulling && slipping) coach = "HALT!";
-      else if (pulling && left < 2600 && grip > 0.3) coach = "ALLES!";
-      else if (pulling && grip < 0.22) coach = "LANGSAM!";
-      else if (pulling && this.waste > 0.55) coach = "SCHNELLER!";
-      if (coach !== this.coach && this.label) {
-        this.coach = coach;
-        this.label.textContent = coach;
-        this.pullButton.dataset.coach = coach === "ZIEH!" ? "" : coach === "ALLES!" ? "all" : coach === "SCHNELLER!" ? "faster" : "slower";
-      }
+      this.pullButton.disabled = !pulling || Boolean(minigame.finaleAt);
+      const label = pulling ? "ZIEH!" : elapsed < state.leadMs ? "GLEICH …" : "VORBEI";
+      if (this.label && this.label.textContent !== label) this.label.textContent = label;
     }
   }
 }

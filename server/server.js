@@ -2404,10 +2404,10 @@ function arcadeRankingScore(arcade, arcadePlayer) {
 function minigameResultDetail(minigame, playerId, _finishedAt) {
   if (minigame.type === "bounceArena") {
     const arenaPlayer = minigame.arena.players[playerId];
-    // Zuerst die Leben, dann die Rauswürfe — genau so wird auch gewertet.
+    // Zuerst, wer noch drin ist, dann die Rauswürfe — genau so wird auch gewertet.
     const lives = arenaPlayer?.lives ?? (arenaPlayer?.inPlay ? 1 : 0);
     return lives > 0
-      ? { kind: "lives", value: lives, knockouts: arenaPlayer?.knockouts || 0, label: "Leben" }
+      ? { kind: "points", value: arenaPlayer?.knockouts || 0, label: "Rauswürfe", extra: "bis zum Schluss drin" }
       : { kind: "out", survived: false, value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" };
   }
   if (minigame.arcade) return arcadeResultDetail(minigame.arcade, minigame.arcade.players[playerId]);

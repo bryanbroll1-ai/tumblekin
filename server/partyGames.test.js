@@ -65,7 +65,7 @@ for (const type of ["tauziehen", "luftpuck"]) {
     test(`${type}: ${count} Spieler teilen den Teamplatz unabhängig vom Einzelbeitrag`, () => {
       const g = setup(type, count);
       try {
-        if (type === "tauziehen") g.arcade.tug.wins = [2, 1];
+        if (type === "tauziehen") g.arcade.tug.winner = 0;
         else g.arcade.hockey.score = [5, 3];
         g.players.forEach((p, i) => Object.assign(g.arcade.players[p.id], {
           work: i * 90, touches: i * 20, goals: i
@@ -76,7 +76,7 @@ for (const type of ["tauziehen", "luftpuck"]) {
         const losers = g.players.filter(p => g.arcade.players[p.id].side === 1);
         losers.forEach(p => assert.equal(places[p.id], winners.length + 1));
         // Auch ein unentschiedener Teamstand bleibt für alle unentschieden.
-        if (type === "tauziehen") g.arcade.tug.wins = [1, 1];
+        if (type === "tauziehen") g.arcade.tug.winner = null;
         else g.arcade.hockey.score = [3, 3];
         const draw = testRules.rankPlaces(g.players, p => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
         assert.deepEqual(Object.values(draw), Array(count).fill(1));
@@ -93,61 +93,52 @@ test("Tauziehen: vier Spieler ergeben zwei gegen zwei, drei einer gegen zwei", (
   const three = setup("tauziehen", 3);
   const count = [0, 1].map((side) => three.players.filter((p) => three.arcade.players[p.id].side === side).length);
   assert.deepEqual([...count].sort(), [1, 2]);
-  // Der Einzelne zieht kräftiger als jeder aus dem Zweierteam.
+  // Der Einzelne zieht doppelt so kräftig wie jeder aus dem Zweierteam.
   const soloSide = count[0] === 1 ? 0 : 1;
   const factor = three.arcade.tug.factor;
-  assert.ok(factor[soloSide] > 2 * factor[1 - soloSide] * 1.1, `Faktor ${factor}`);
+  assert.equal(factor[soloSide], 2 * factor[1 - soloSide], `Faktor ${factor}`);
   three.restore();
 });
 
-test("Tauziehen: wild hämmern lässt abrutschen, ruhiger Takt nicht", () => {
+test("Tauziehen: jeder Zug zieht gleich stark — kein Abrutschen, kein Haushalten", () => {
   const g = setup("tauziehen", 2);
-  const [masher, steady] = g.players;
-  g.run(0, C.TUG_LEAD_MS, 30);
-  let t = C.TUG_LEAD_MS;
-  // Sechs Sekunden: einer tippt alle 70 ms, der andere alle 215 ms.
-  let nextSteady = t;
-  let nextMash = t;
-  g.run(t, t + 6000, 10, (now) => {
-    if (now >= nextMash) { g.input(masher, { action: "pull" }); nextMash = now + 70; }
-    if (now >= nextSteady) { g.input(steady, { action: "pull" }); nextSteady = now + 215; }
+  const [masher] = g.players;
+  g.run(0, C.TUG_LEAD_MS + 50, 30);
+  const before = g.arcade.players[masher.id].work;
+  const from = C.TUG_LEAD_MS + 60;
+  let next = from;
+  g.run(from, from + 3000, 10, (now) => {
+    if (now >= next) { g.input(masher, { action: "pull" }); next = now + 70; }
   });
-  const m = g.arcade.players[masher.id];
-  const s = g.arcade.players[steady.id];
-  assert.ok(m.slips >= 1, `Hämmerer rutscht ab (${m.slips})`);
-  assert.equal(s.slips, 0, "wer im Takt bleibt, rutscht nicht ab");
+  const e = g.arcade.players[masher.id];
+  assert.ok(e.taps >= 20, `Hämmern zählt (${e.taps})`);
+  assert.ok(Math.abs((e.work - before) - e.taps * C.TUG_IMPULSE) < 1e-9, "jeder Zug gleich viel");
   g.restore();
 });
 
-test("Tauziehen: gemeinsam ziehen gibt ein Hau-Ruck", () => {
-  const g = setup("tauziehen", 4);
-  const mates = g.players.filter((p) => g.arcade.players[p.id].side === 0);
-  g.run(0, C.TUG_LEAD_MS + 100, 30);
-  g.input(mates[0], { action: "pull" });
-  const vorher = g.arcade.players[mates[1].id].work;
-  g.at(C.TUG_LEAD_MS + 160);
-  g.input(mates[1], { action: "pull" });
-  const zug = g.arcade.players[mates[1].id].work - vorher;
-  assert.equal(g.arcade.players[mates[1].id].syncs, 1);
-  assert.ok(zug > C.TUG_IMPULSE * 1.2, `Hau-Ruck zählt mehr (${zug.toFixed(3)})`);
-  g.restore();
-});
-
-test("Tauziehen: über die Linie gezogen entscheidet den Durchgang, zwei Siege das Spiel", () => {
+test("Tauziehen: wer schneller tippt, zieht die anderen in den Schlamm — eine Runde", () => {
   const g = setup("tauziehen", 2);
-  const [left] = g.players;
+  const [left, right] = g.players;
   assert.equal(g.arcade.players[left.id].side, 0);
-  let next = 0;
+  let nextL = 0, nextR = 0;
   g.run(0, g.minigame.duration, 20, (t) => {
-    if (t >= next) { g.input(left, { action: "pull" }); next = t + 210; }
+    if (t >= nextL) { g.input(left, { action: "pull" }); nextL = t + 140; }
+    if (t >= nextR) { g.input(right, { action: "pull" }); nextR = t + 190; }
   });
-  assert.equal(g.arcade.tug.wins[0], 2, "das ziehende Team gewinnt zwei Durchgänge");
-  assert.equal(g.arcade.tug.phase, "over");
-  assert.ok(g.arcade.tug.results.length === 2, "nach zwei Siegen ist Schluss");
+  assert.equal(g.arcade.tug.winner, 0, "das schnellere Team gewinnt");
+  assert.equal(g.arcade.tug.phase, "over", "nach einer Runde ist Schluss");
   const winner = arcadeRankingScore(g.arcade, g.arcade.players[left.id]);
-  const loser = arcadeRankingScore(g.arcade, g.arcade.players[g.players[1].id]);
+  const loser = arcadeRankingScore(g.arcade, g.arcade.players[right.id]);
   assert.ok(winner > loser);
-  assert.equal(arcadeResultDetail(g.arcade, g.arcade.players[left.id]).value, 2);
+  assert.equal(arcadeResultDetail(g.arcade, g.arcade.players[left.id]).value, 1);
+  g.restore();
+});
+
+test("Tauziehen: gleich schnell bis zum Schluss ist unentschieden", () => {
+  const g = setup("tauziehen", 2);
+  g.run(0, g.minigame.duration, 30);
+  assert.equal(g.arcade.tug.winner, null);
+  assert.equal(g.arcade.tug.phase, "over");
   g.restore();
 });
 
@@ -158,8 +149,8 @@ test("Tauziehen: Bots ziehen und niemand wirft", () => {
     g.players.forEach((p, i) => { if (t >= next[i]) { next[i] = t + 150; arcadeBotStep(g.room, p); } });
   });
   const taps = g.players.map((p) => g.arcade.players[p.id].taps);
-  assert.ok(taps.every((n) => n > 40), `alle ziehen: ${taps}`);
-  assert.ok(g.arcade.tug.results.length >= 2);
+  assert.ok(taps.every((n) => n > 25), `alle ziehen: ${taps}`);
+  assert.equal(g.arcade.tug.phase, "over");
   assert.ok(publicArcade(g.arcade).tug, "der Seilzustand geht an die Geräte");
   g.restore();
 });
@@ -282,23 +273,30 @@ test("Flaggen hoch: richtig, falsch, zu spät und reingefallen", () => {
   assert.equal(g.arcade.players[b.id].answers[0].result, "wrong");
   assert.equal(g.arcade.players[c.id].answers[0].result, "late", "wer nichts tut, ist zu spät");
   assert.equal(g.arcade.players[b.id].lives, C.FLAG_LIVES - 1);
-  // Eine Falle: wer drückt, fällt rein; wer stillhält, hat richtig.
-  const fake = commands.find((command) => command.kind === "fake");
-  // Die Zwischenkommandos beantworten: sonst fallen die zwei anderen aus,
-  // das Finale beginnt vor der Falle und diese Eingabe ist zurecht gesperrt.
-  g.run(first.at + first.window + C.FLAG_GRACE_MS + 90, fake.at + 50, 30, (t) => {
-    const active = party.activeFlagCommand(commands, t);
-    if (!active || active === first || active === fake || active.kind === "fake") return;
-    g.players.forEach((player) => {
-      if (g.arcade.players[player.id].answers[active.index]) return;
+  g.restore();
+
+  // Eine Falle: wer drückt, fällt rein; wer stillhält, hat richtig. Bis
+  // dahin beantworten alle jedes Kommando richtig — sonst wären sie raus,
+  // und das Finale begänne vor der Falle.
+  const h = setup("flaggenhoch", 3);
+  const [x, y] = h.players;
+  const plan = h.arcade.secret.flagCommands;
+  const fake = plan.find((command) => command.kind === "fake");
+  h.run(0, fake.at + 50, 30, (t) => {
+    const active = party.activeFlagCommand(plan, t);
+    if (!active || active === fake || active.kind === "fake") return;
+    h.players.forEach((player) => {
+      if (h.arcade.players[player.id].answers[active.index]) return;
       const flags = active.kind === "both" ? ["red", "blue"] : [active.kind];
-      flags.forEach((flag) => g.input(player, { action: "flag", flag }));
+      flags.forEach((flag) => h.input(player, { action: "flag", flag }));
     });
   });
-  g.input(a, { action: "flag", flag: fake.side });
-  g.run(fake.at + 80, fake.at + fake.window + 60, 30);
-  assert.equal(g.arcade.players[a.id].answers[fake.index].result, "fooled");
-  g.restore();
+  h.input(x, { action: "flag", flag: fake.side });
+  h.run(fake.at + 80, fake.at + fake.window + C.FLAG_GRACE_MS + 60, 30);
+  assert.equal(h.arcade.players[x.id].answers[fake.index].result, "fooled");
+  assert.ok(h.arcade.players[x.id].outAt, "reingefallen heisst raus");
+  assert.equal(h.arcade.players[y.id].answers[fake.index].result, "ok", "stillhalten ist richtig");
+  h.restore();
 });
 
 test("Flaggen hoch: bei BEIDE zählt es erst, wenn beide Flaggen oben sind", () => {
@@ -434,20 +432,22 @@ test("Flaggen hoch: die Bots sind gestaffelt wie Menschen, nicht übermenschlich
   assert.ok(speed.hard / speed.n > 380, `der schwere Bot reagiert wie ein guter Mensch, nicht schneller (Ø ${Math.round(speed.hard / speed.n)} ms)`);
 });
 
-test("Flaggen hoch: drei Fehler, und man ist raus", () => {
+test("Flaggen hoch: ein Fehler, und man ist raus", () => {
   const g = setup("flaggenhoch", 2);
   const [lazy] = g.players;
-  g.run(0, g.minigame.duration, 40);
+  const first = g.arcade.secret.flagCommands[0];
+  g.run(0, first.at + first.window + C.FLAG_GRACE_MS + 60, 40);
   const entry = g.arcade.players[lazy.id];
   assert.equal(entry.lives, 0);
-  assert.ok(entry.outAt, "wer nie drückt, fliegt nach drei echten Kommandos raus");
-  assert.ok(entry.correct <= 3, "danach sammelt man nichts mehr");
+  assert.ok(entry.outAt, "wer das erste echte Kommando verschläft, sitzt sofort an Deck");
+  g.run(first.at + first.window + C.FLAG_GRACE_MS + 100, g.minigame.duration, 40);
+  assert.equal(entry.correct, 0, "danach sammelt man nichts mehr");
   g.restore();
 });
 
 // --- Honigwabe -------------------------------------------------------------
 
-test("Honigwabe: nur wer dran ist, pflückt — und eine Wabe kostet vier Früchte", () => {
+test("Honigwabe: nur wer dran ist, pflückt — und wer eine Wabe erwischt, ist raus", () => {
   const g = setup("honigwabe", 3);
   g.run(0, C.HONEY_LEAD_MS + 50, 30);
   const state = g.arcade.honey;
@@ -470,8 +470,21 @@ test("Honigwabe: nur wer dran ist, pflückt — und eine Wabe kostet vier Früch
   g.at(state.turn.from + 10);
   g.input(next, { action: "take", count: 2 });
   assert.equal(g.arcade.players[next.id].stings, 1);
-  assert.equal(g.arcade.players[next.id].fruits, 7 - C.HONEY_STING_COST, "ein fester Teil fällt herunter");
+  assert.ok(g.arcade.players[next.id].outAt != null, "gestochen heisst raus");
+  assert.equal(g.arcade.players[next.id].fruits, 7, "die Früchte bleiben im Korb");
   assert.equal(state.last.stung, true);
+  assert.notEqual(state.turn.playerId, next.id, "wer raus ist, kommt nicht mehr dran");
+  // Wer raus ist, darf nicht mehr pflücken — auch nicht reihum.
+  const order = new Set();
+  for (let i = 0; i < 6 && state.turn; i += 1) {
+    order.add(state.turn.playerId);
+    const who = g.players.find((p) => p.id === state.turn.playerId);
+    state.vine = ["fruit", "fruit", "fruit", "fruit"];
+    g.at(state.turn.from + 10);
+    g.input(who, { action: "take", count: 1 });
+  }
+  assert.ok(!order.has(next.id));
+  assert.ok(arcadeRankingScore(g.arcade, g.arcade.players[current.id]) > arcadeRankingScore(g.arcade, g.arcade.players[next.id]), "wer noch dabei ist, liegt vor dem Gestochenen");
   g.restore();
 });
 
@@ -536,14 +549,16 @@ test("Honigwabe: das Risiko-Abzählen stimmt zu zweit mit dem Rest-drei-Gesetz �
   assert.equal(party.honeyRisk(1, 2, 2), 1, "wer über die Wabe greift, hat sie");
 });
 
-test("Honigwabe: eine leere Ranke wächst nach, und die Runde läuft bis zum Schluss", () => {
+test("Honigwabe: Bots spielen, bis einer übrig ist", () => {
   const g = setup("honigwabe", 4, { bots: true });
   const next = g.players.map(() => 0);
   g.run(0, g.minigame.duration, 40, (t) => {
+    if (g.players.filter((p) => g.arcade.players[p.id].outAt == null).length <= 1) return;
     g.players.forEach((p, i) => { if (t >= next[i]) { next[i] = t + 300; arcadeBotStep(g.room, p); } });
   });
-  assert.ok(g.arcade.honey.vineNumber >= 1, "mindestens eine Ranke wurde leergepflückt");
-  assert.ok(g.arcade.honey.picks > 12);
+  const alive = g.players.filter((p) => g.arcade.players[p.id].outAt == null);
+  assert.ok(alive.length >= 1, "mindestens einer bleibt");
+  assert.ok(g.arcade.honey.picks > 4, `${g.arcade.honey.picks} Züge`);
   g.restore();
 });
 
@@ -924,17 +939,14 @@ test("Bücherwurm: wer im Loch steht, übersteht die Seite — wer nicht, wird p
   g.restore();
 });
 
-test("Bücherwurm: drei Mal platt, und man ist raus", () => {
-  const g = setup("buecherwurm", 2);
+test("Bücherwurm: einmal platt, und man ist raus", () => {
+  const g = setup("buecherwurm", 3);
   const [, b] = g.players;
-  g.run(0, g.minigame.duration, 40, () => {
-    // b rennt immer in die Ecke, die gerade kein Loch hat.
-    const page = g.arcade.secret.bookPages.find((p) => p.index > g.arcade.book.slammed);
-    if (!page) return;
-    const free = [[-2.6, -3.4], [2.6, -3.4], [-2.6, 3.4], [2.6, 3.4]].find(([x, z]) => !party.bookInHole(page, x, z));
-    if (free) Object.assign(g.arcade.players[b.id], { x: free[0], z: free[1] });
-  });
-  assert.ok(g.arcade.players[b.id].outAt, "nach drei Seiten ist b raus");
+  const page = g.arcade.secret.bookPages[0];
+  const free = [[-2.6, -3.4], [2.6, -3.4], [-2.6, 3.4], [2.6, 3.4]].find(([x, z]) => !party.bookInHole(page, x, z));
+  Object.assign(g.arcade.players[b.id], { x: free[0], z: free[1] });
+  g.run(0, page.slamAt + 60, 30);
+  assert.ok(g.arcade.players[b.id].outAt, "nach der ersten Seite ohne Loch ist b raus");
   assert.equal(g.arcade.players[b.id].lives, 0);
   g.restore();
 });
@@ -945,12 +957,18 @@ test("Bücherwurm: die Löcher einer Seite sieht das Gerät erst kurz vorher", (
   const shown = () => JSON.parse(JSON.stringify(publicArcade(g.arcade)));
   assert.ok(!JSON.stringify(shown()).includes("bookPages"), "kein Geheimfach im Paket");
   assert.deepEqual(shown().book.pages.map((p) => p.slamAt), pages.map((p) => p.slamAt), "die Zeiten sehen alle");
-  // Seite 1: bis sie kommt, kann noch niemand ausgeschieden sein (drei
-  // Leben) — bei einer späteren wäre das Spiel mit zwei Stillstehenden
-  // womöglich schon vorbei.
+  // Seite 1: damit bis dahin niemand ausscheidet (einmal platt ist raus),
+  // stehen beide bei Seite 0 in einem Loch.
   const later = pages[1];
   assert.equal(shown().book.pages[2].holes, null, "spätere Seiten sind geheim");
-  g.run(0, later.at - C.BOOK_PUBLISH_LEAD_MS - 40, 30);
+  const safe = () => {
+    if (g.arcade.book.slammed >= 0) return;
+    g.players.forEach((player, i) => {
+      const hole = pages[0].holes[i % pages[0].holes.length];
+      Object.assign(g.arcade.players[player.id], { x: hole.x, z: hole.z, vx: 0, vz: 0 });
+    });
+  };
+  g.run(0, later.at - C.BOOK_PUBLISH_LEAD_MS - 40, 30, safe);
   assert.equal(shown().book.pages[1].holes, null, "zu früh: die Löcher sind noch geheim");
   g.run(later.at - C.BOOK_PUBLISH_LEAD_MS, later.at - C.BOOK_PUBLISH_LEAD_MS + 30, 30);
   assert.deepEqual(shown().book.pages[1].holes, later.holes, "kurz vorher: jetzt darf das Gerät sie kennen");

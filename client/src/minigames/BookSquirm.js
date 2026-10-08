@@ -566,8 +566,10 @@ export class BookSquirm extends MinigameScene {
     if (chips) {
       const html = room.players.map((player) => {
         const entry = view?.entries.get(player.id) || arcade.players[player.id];
-        const hearts = "❤".repeat(Math.max(0, entry?.lives || 0)) + "·".repeat(Math.max(0, state.lives - (entry?.lives || 0)));
-        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${entry?.outAt ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${hearts}</span>`;
+        // Keine Herzen: einmal platt, und man ist raus. Der Chip zählt die
+        // überstandenen Seiten.
+        const mark = entry?.outAt ? "raus" : `✓${entry?.survived || 0}`;
+        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${entry?.outAt ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${mark}</span>`;
       }).join("");
       if (html !== this.chipsHtml) {
         this.chipsHtml = html;

@@ -4,6 +4,12 @@ const { testRules: rules } = require('../server/server.js');
 const TYPES = new Set(rules.MINIGAMES.map(game => game.type));
 // Kontakt-, Team- und Zugspiele brauchen echte Gegenüber zum Üben.
 const WITH_BOTS = new Set(['colorEscape', 'fassrolle', 'zuendstoff', 'farbenjagd', 'tauziehen', 'honigwabe', 'schneeball', 'luftpuck', 'buecherwurm', 'schnappschuss', 'kippboot']);
+// Der Trainingsring kommt beliebig oft zurück: in der Partie ist ein Sturz
+// das Aus, in der Übung soll man weiterrammen können.
+function trainingArena(arena) {
+  if (arena?.players?.trainer) arena.players.trainer.lives = 99;
+  return arena;
+}
 let nextBotAt = 0;
 let room = null;
 let timer = null;
@@ -39,7 +45,7 @@ self.onmessage = ({ data }) => {
       if (WITH_BOTS.has(game.type)) {
         for (let index = 0; index < 3; index++) players.push(rules.createPlayer({ id: 'trainer-' + index, name: ['Mika', 'Lumi', 'Pip'][index], color: ['#28c7d9', '#ffd15c', '#71d97b'][index], isBot: true }));
       }
-      if (game.type === "bounceArena") currentMinigame.arena = rules.createArenaState(players, startedAt, game.duration);
+      if (game.type === "bounceArena") currentMinigame.arena = trainingArena(rules.createArenaState(players, startedAt, game.duration));
       else currentMinigame.arcade = rules.createArcadeState(game.type, players, startedAt, {seed: game.type === "finishRush" ? 39 : undefined});
       room = { code: 'PRACTICE', status: 'minigame', phase: 'playingMinigame',
         players, currentMinigame, timers: new Set() };
@@ -51,7 +57,7 @@ self.onmessage = ({ data }) => {
       const currentMinigame = room.currentMinigame;
       const startedAt = Date.now() + 1800;
       currentMinigame.startedAt = startedAt;
-      if (currentMinigame.arena) currentMinigame.arena = rules.createArenaState(room.players, startedAt, currentMinigame.duration);
+      if (currentMinigame.arena) currentMinigame.arena = trainingArena(rules.createArenaState(room.players, startedAt, currentMinigame.duration));
       else currentMinigame.arcade = rules.createArcadeState(currentMinigame.type, room.players, startedAt, {seed: currentMinigame.arcade.seed});
       nextBotAt = startedAt;
       publish();

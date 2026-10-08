@@ -56,39 +56,30 @@ function byLevel(entry, easy, normal, hard) {
 
 // --- Tauziehen -------------------------------------------------------------
 //
-// Zwei Teams am Seil über einer Schlammgrube. Tippen zieht — aber jeder Zug
-// kostet Griffkraft, und die kommt nur langsam wieder. Wer wild hämmert,
-// rutscht ab und schenkt dem anderen Team einen Ruck. Wer im Takt bleibt
-// (knapp fünf Züge pro Sekunde), zieht am längsten mit voller Kraft.
+// Zwei Teams am Seil über einer Schlammgrube — eine einzige Runde. Jeder Tipp
+// zieht gleich stark: welches Team schneller tippt, gewinnt. Ist die
+// Seilmitte über der Linie eines Teams, ist es vorbei, sonst nach fünfzehn
+// Sekunden zugunsten dessen, der vorn liegt — und der zieht die anderen dann
+// trotzdem in den Schlamm.
 //
-// Ziehen zwei aus demselben Team fast gleichzeitig, gibt es ein „Hau-Ruck":
-// der Zug zählt anderthalbfach. Das ist der Teil, bei dem man sich am Tisch
-// anschreit.
-//
-// Drei Durchgänge, wer zwei gewinnt, hat gewonnen. Ein Durchgang ist vorbei,
-// sobald die Seilmitte über die Linie eines Teams gezogen ist — oder nach
-// elf Sekunden; dann gewinnt, auf wessen Seite das Seil gerade steht.
+// Früher gab es Griffkraft, Abrutschen, Hau-Ruck und drei Durchgänge. Das
+// lenkte vom Kern ab: am Tisch will man hämmern, nicht haushalten.
 const TUG_LEAD_MS = 1600;
-const TUG_ROUND_MS = 11000;
-const TUG_SHOW_MS = 2600;
-const TUG_ROUNDS = 3;
-const TUG_WINS = 2;
-const TUG_DURATION_MS = TUG_LEAD_MS + TUG_ROUNDS * (TUG_ROUND_MS + TUG_SHOW_MS) + 500;
-const TUG_IMPULSE = 0.12;              // Seiltempo je Zug bei voller Kraft
-const TUG_DAMP = 2.2;                  // so schnell kommt das Seil zur Ruhe (1/s)
-const TUG_GRIP_COST = 0.085;           // Griffkraft je Zug
-const TUG_GRIP_REGEN = 0.42;           // je Sekunde zurück — knapp fünf Züge/s halten
-const TUG_SLIP_MS = 900;
-const TUG_SLIP_JOLT = 0.16;            // Ruck zum Gegner beim Abrutschen
-const TUG_SYNC_MS = 140;               // so knapp hintereinander gilt als gemeinsam
-const TUG_SYNC_BONUS = 1.35;
+const TUG_ROUND_MS = 15000;
+const TUG_SHOW_MS = 3000;
+const TUG_DURATION_MS = TUG_LEAD_MS + TUG_ROUND_MS + TUG_SHOW_MS + 500;
+// Seiltempo je Zug und Dämpfung: Das Seil wandert mit dem Unterschied der
+// Teamtakte. Tippt einer im Team gar nicht (gut sechs Züge je Sekunde
+// weniger), ist es nach etwa sechs Sekunden vorbei; ein Zug je Sekunde
+// Unterschied reicht nicht über die Linie, dann entscheidet die Zeit.
+const TUG_IMPULSE = 0.06;
+const TUG_DAMP = 2.4;
 const TUG_MIN_TAP_MS = 60;             // schneller tippt kein Daumen
-const TUG_DUMMY = [0.26, 0.32, 0.38];  // Zug des Sandsacks, wenn man allein spielt
+const TUG_DUMMY_RATE = 6;              // Züge je Sekunde des Sandsacks, wenn man allein spielt
 
 function tugPhaseAt(arcade, elapsed) {
-  const tug = arcade.tug;
-  if (elapsed < TUG_LEAD_MS) return { phase: "lead", round: 0 };
-  return { phase: tug.phase, round: tug.round };
+  if (elapsed < TUG_LEAD_MS) return { phase: "lead" };
+  return { phase: arcade.tug.phase };
 }
 
 function tugTeamSize(arcade, side) {
@@ -104,15 +95,9 @@ const tug = {
     players.forEach((player, index) => {
       const entry = arcade.players[player.id];
       entry.side = players.length === 1 ? 0 : index % 2;
-      entry.grip = 1;
-      entry.slipUntil = 0;
       entry.taps = 0;
       entry.work = 0;
-      entry.syncs = 0;
-      entry.slips = 0;
       entry.lastTapAt = 0;
-      entry.lastSyncAt = 0;
-      entry.teamWins = 0;
       entry.score = 0;
     });
     const sizes = [0, 1].map((side) => tugTeamSize(arcade, side));
@@ -120,27 +105,16 @@ const tug = {
     arcade.tug = {
       pos: 0,                          // -1 = Team links hat gewonnen, +1 = rechts
       vel: 0,
-      round: 0,
       phase: "lead",
-      roundStartAt: TUG_LEAD_MS,       // Rundenzeit ab Spielbeginn
-      showUntil: 0,
-      results: [],                     // je Durchgang: 0, 1 oder null (unentschieden)
-      wins: [0, 0],
-      solo: players.length === 1,
-      // Kraft je Zug nach Teamgrösse: der Einzelne gegen zwei zieht doppelt,
-      // dazu ein Aufschlag, weil ihm das Hau-Ruck fehlt.
-      factor: sizes.map((size) => (size ? (larger / size) * (size < larger ? 1.25 : 1) : 0)),
-      lastWinner: null,
+      winner: null,                    // 0, 1 oder null (unentschieden)
       winAt: 0,
-      rounds: TUG_ROUNDS,
+      decidedBy: null,
+      solo: players.length === 1,
+      factor: sizes.map((size) => (size ? larger / size : 0)),
+      leadMs: TUG_LEAD_MS,
       roundMs: TUG_ROUND_MS,
       showMs: TUG_SHOW_MS,
-      leadMs: TUG_LEAD_MS,
-      // Damit das Gerät die Griffkraft bis zur Ankunft des nächsten Zugs
-      // vorausrechnen kann — samt der eigenen Züge, die noch unterwegs sind.
-      gripCost: TUG_GRIP_COST,
-      gripRegen: TUG_GRIP_REGEN,
-      slipMs: TUG_SLIP_MS
+      roundStartAt: TUG_LEAD_MS
     };
   },
   input(ctx, player, entry, input) {
@@ -149,29 +123,9 @@ const tug = {
     const state = arcade.tug;
     if (tugPhaseAt(arcade, elapsed).phase !== "pull") return { ok: true };
     if (now - entry.lastTapAt < TUG_MIN_TAP_MS) return { ok: true };
-    if (now < entry.slipUntil) return { ok: true };
     entry.lastTapAt = now;
     entry.taps += 1;
-    if (entry.grip < TUG_GRIP_COST) {
-      // Abgerutscht: der Zug geht ins Leere, und das Seil ruckt zum Gegner.
-      entry.slipUntil = now + TUG_SLIP_MS;
-      entry.slips += 1;
-      entry.grip = 0.3;
-      state.vel += (entry.side === 0 ? 1 : -1) * TUG_SLIP_JOLT;
-      return { ok: true };
-    }
-    const force = 0.45 + 0.55 * entry.grip;
-    entry.grip = Math.max(0, entry.grip - TUG_GRIP_COST);
-    let multiplier = state.factor[entry.side] || 1;
-    const mate = Object.values(arcade.players).find((other) => other !== entry
-      && other.side === entry.side && now - other.lastTapAt <= TUG_SYNC_MS && other.lastTapAt > 0);
-    if (mate) {
-      multiplier *= TUG_SYNC_BONUS;
-      entry.syncs += 1;
-      entry.lastSyncAt = now;
-      mate.lastSyncAt = now;
-    }
-    const impulse = TUG_IMPULSE * force * multiplier;
+    const impulse = TUG_IMPULSE * (state.factor[entry.side] || 1);
     state.vel += (entry.side === 0 ? -1 : 1) * impulse;
     entry.work += impulse;
     return { ok: true };
@@ -181,60 +135,27 @@ const tug = {
     const state = arcade.tug;
     const dt = Math.min(0.12, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
     arcade.lastUpdateAt = now;
-    const entries = Object.values(arcade.players);
-    entries.forEach((entry) => {
-      if (now >= entry.slipUntil) entry.grip = Math.min(1, entry.grip + TUG_GRIP_REGEN * dt);
-    });
     if (elapsed < TUG_LEAD_MS) return;
-    if (state.phase === "lead") {
-      state.phase = "pull";
-      state.round = 0;
-      state.roundStartAt = TUG_LEAD_MS;
-    }
+    if (state.phase === "lead") state.phase = "pull";
     if (state.phase === "pull") {
-      if (state.solo) {
-        // Allein zieht ein Sandsack dagegen, jeden Durchgang etwas kräftiger.
-        state.vel += TUG_DUMMY[Math.min(TUG_DUMMY.length - 1, state.round)] * TUG_IMPULSE * 8 * dt;
-      }
+      if (state.solo) state.vel += TUG_DUMMY_RATE * TUG_IMPULSE * dt;
       state.vel *= Math.exp(-TUG_DAMP * dt);
       state.pos += state.vel * dt;
       const over = Math.abs(state.pos) >= 1;
-      const timeUp = elapsed - state.roundStartAt >= TUG_ROUND_MS;
+      const timeUp = elapsed - TUG_LEAD_MS >= TUG_ROUND_MS;
       if (over || timeUp) {
         state.pos = clamp(state.pos, -1, 1);
         const winner = Math.abs(state.pos) < 0.02 ? null : state.pos < 0 ? 0 : 1;
-        state.results.push(winner);
-        if (winner !== null) state.wins[winner] += 1;
-        state.lastWinner = winner;
+        state.winner = winner;
         state.winAt = elapsed;
         state.decidedBy = over ? "line" : "time";
-        // Nach Ablauf der Zeit gibt es den letzten Ruck trotzdem: wer vorn
-        // liegt, zieht das andere Team in den Schlamm. Sonst endete die Hälfte
-        // der Durchgänge ohne das, worauf alle warten.
         if (winner !== null) state.pos = winner === 0 ? -1 : 1;
         state.phase = "show";
-        state.showUntil = elapsed + TUG_SHOW_MS;
         state.vel = 0;
-        entries.forEach((entry) => { entry.teamWins = state.wins[entry.side]; });
       }
       return;
     }
-    if (state.phase === "show" && elapsed >= state.showUntil) {
-      const decided = state.wins.some((wins) => wins >= TUG_WINS) || state.results.length >= TUG_ROUNDS;
-      if (decided) {
-        state.phase = "over";
-        return;
-      }
-      state.phase = "pull";
-      state.round += 1;
-      state.roundStartAt = elapsed;
-      state.pos = 0;
-      state.vel = 0;
-      entries.forEach((entry) => {
-        entry.grip = 1;
-        entry.slipUntil = 0;
-      });
-    }
+    if (state.phase === "show" && elapsed >= state.winAt + TUG_SHOW_MS) state.phase = "over";
   },
   bot(ctx, player, entry) {
     const { arcade, now, elapsed } = ctx;
@@ -242,50 +163,24 @@ const tug = {
       entry.botNextAt = 0;
       return null;
     }
-    if (now < entry.slipUntil) return null;
-    if (!entry.botNextAt) entry.botNextAt = now + byLevel(entry, 500, 320, 200) * Math.random();
-    // Der starke Bot hängt sich an den Zug seines Mitspielers (Hau-Ruck).
-    const mateJustPulled = level(entry) !== "easy" && Object.values(arcade.players).some((other) => other !== entry
-      && other.side === entry.side && now - other.lastTapAt < 90);
-    if (now < entry.botNextAt && !(mateJustPulled && now > entry.botNextAt - 90)) return null;
-    // Takt und Übermut je Stufe: der starke hält knapp unter der Grenze und
-    // wartet, wenn die Kraft knapp wird; der schwache hämmert gern drauflos.
-    // In den letzten Sekunden eines Durchgangs gibt der starke alles, was an
-    // Griffkraft übrig ist — so, wie es ein geübter Mensch tut. Gemessen gegen
-    // einen Menschen mit sauberem Takt verlor er vorher 99 % der Partien,
-    // der mittlere gegen einen menschlich schwankenden Takt 91 %.
-    const roundLeft = arcade.tug.roundStartAt + TUG_ROUND_MS - elapsed;
-    // Nicht in jedem Durchgang — wie ein Mensch, der manchmal daran denkt.
-    // Mit Endspurt in jeder Runde gewann er gegen einen guten Menschen 85 %,
-    // ohne 36 %: der Seilstand summiert den Zug über den ganzen Durchgang,
-    // und schon kleine Unterschiede entscheiden.
-    if (entry.botSprintRound !== arcade.tug.round) {
-      entry.botSprintRound = arcade.tug.round;
-      entry.botSprints = level(entry) === "hard" && Math.random() < 0.5;
-    }
-    const sprint = entry.botSprints && roundLeft < 1500;
-    const rest = sprint ? 0.1 : byLevel(entry, 0, 0.18, 0.22);
-    if (entry.grip < rest) {
-      entry.botNextAt = now + 180;
-      return null;
-    }
-    const mash = Math.random() < byLevel(entry, 0.5, 0.2, 0.04);
-    const base = sprint ? 150 : mash ? 110 : byLevel(entry, 300, 215, 206);
+    // Takt je Stufe, wie ein Mensch am Handy: gut fünf, gut sechs, knapp acht
+    // Züge pro Sekunde — mit Schwankung, nie gleichmässig wie eine Maschine.
+    if (!entry.botNextAt) entry.botNextAt = now + 120 + Math.random() * 260;
+    if (now < entry.botNextAt) return null;
+    const base = byLevel(entry, 190, 155, 128);
     // Vom geplanten Zeitpunkt aus weiterzählen, nicht von jetzt: der Bot wird
     // nur alle 120 bis 180 ms gefragt, und von jetzt an gezählt fiele jeder
-    // Zug um einen halben Takt zu spät — der ruhige Takt des starken Bots
-    // wäre dann langsamer als das Hämmern des schwachen.
+    // Zug um einen halben Takt zu spät.
     const planned = Math.max(entry.botNextAt, now - 150);
-    entry.botNextAt = planned + base * (0.9 + Math.random() * 0.2);
+    entry.botNextAt = planned + base * (0.8 + Math.random() * 0.4);
     return { action: "pull" };
   },
   rank(arcade, entry) {
-    const wins = arcade.tug?.wins?.[entry.side] || 0;
-    // Der Teamsieg gehört beiden: eigener Arbeitseinsatz trennt keine Plätze.
-    return wins;
+    // Der Teamsieg gehört beiden: eigener Einsatz trennt keine Plätze.
+    return arcade.tug?.winner === entry.side ? 1 : 0;
   },
   detail(arcade, entry) {
-    return { kind: "points", value: arcade.tug?.wins?.[entry.side] || 0, label: "Runden" };
+    return { kind: "points", value: arcade.tug?.winner === entry.side ? 1 : 0, label: "Siege" };
   },
   done(ctx) {
     return ctx.arcade.tug?.phase === "over";
@@ -514,7 +409,9 @@ const FLAG_GAP_END = 950;
 const FLAG_WINDOW_START = 1500;
 const FLAG_WINDOW_END = 620;
 const FLAG_DURATION_MS = 36000;
-const FLAG_LIVES = 3;
+// Ein Fehler, und man sitzt an Deck — wie beim Vorbild. Mit drei Leben
+// zog sich die Runde, und die Herzen lenkten vom Käpt'n ab.
+const FLAG_LIVES = 1;
 const FLAG_FAKE_SHARE = 0.2;
 const FLAG_BOTH_SHARE = 0.16;
 // Entprellt wird je Flagge: bei BEIDE! drücken zwei Daumen oft innerhalb
@@ -756,11 +653,12 @@ const flags = {
 // der starke Bot nicht häufiger als der schwache. Jetzt bleibt jeder bis zum
 // Schluss dabei, und wer besser zählt, sammelt mehr.
 //
-// Danach kostete ein Stich die HÄLFTE des Korbs. Damit entschied fast nur,
-// wann der letzte Stich kam: früh gestochen kostete nichts, spät gestochen
-// alles — egal, wie gut man vorher gezählt hatte. Gemessen lag der starke Bot
-// im Schnitt sogar hinter dem schwachen. Ein Stich kostet jetzt immer gleich
-// viel, und jeder vermiedene Stich zählt gleich.
+// Danach kostete ein Stich die HÄLFTE des Korbs, dann vier Früchte. Beides
+// fühlte sich nicht nach dem Vorbild an: ein Stich muss wehtun. Jetzt ist
+// ein Stich wieder das Aus — aber gegen die Sitzordnung von damals helfen
+// zwei Dinge: die Reihenfolge wird mit jeder Ranke neu gemischt, und jeder
+// darf einmal seinen Zug weiterschieben. Wer zuletzt übrig ist, gewinnt;
+// unter Gleichen zählen die Früchte.
 const HONEY_LEAD_MS = 1500;
 // Etwas flotter als zuerst: mit 4,2 s Bedenkzeit und 0,7 s Pause kam jeder in
 // 46 Sekunden nur auf vier Züge — zu wenige Entscheidungen, als dass gutes
@@ -772,7 +670,7 @@ const HONEY_STING_MS = 1500;           // nach einem Stich
 const HONEY_DURATION_MS = 46000;
 const HONEY_VINE = 14;
 const HONEY_GOLD = 3;
-const HONEY_STING_COST = 4;            // so viele Früchte fallen beim Stich herunter
+const HONEY_STING_COST = 0;            // ein Stich ist das Aus, die Früchte bleiben im Korb
 const HONEY_PASSES = 1;                // so oft darf jeder seinen Zug weiterschieben
 // Das Gerät zeigt die Bedenkzeit nach der Ankunftszeit beim Server (siehe
 // HoneyVine.js). Was trotzdem knapp danach ankommt, zählt noch: erst nach
@@ -799,27 +697,43 @@ function buildHoneyVine(seed, number) {
 function honeyOrder(arcade, room) {
   const ids = room.players.map((player) => player.id).filter((id) => arcade.players[id]);
   const state = arcade.honey;
-  if (state.orderFor === state.vineNumber && state.order?.length === ids.length && ids.every((id) => state.order.includes(id))) return state.order;
-  const order = [...ids];
-  for (let i = order.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(noise(arcade.seed + state.vineNumber * 131 + i * 17) * (i + 1));
-    [order[i], order[j]] = [order[j], order[i]];
+  if (!(state.orderFor === state.vineNumber && state.order?.length === ids.length && ids.every((id) => state.order.includes(id)))) {
+    const order = [...ids];
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(noise(arcade.seed + state.vineNumber * 131 + i * 17) * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    state.order = order;
+    state.orderFor = state.vineNumber;
   }
-  state.order = order;
-  state.orderFor = state.vineNumber;
-  return order;
+  return state.order;
+}
+
+function honeyAlive(arcade, id) {
+  return Boolean(arcade.players[id] && !arcade.players[id].outAt);
 }
 
 function honeyNextTurn(ctx, afterId, delay, fresh = false) {
   const { arcade, room, elapsed } = ctx;
   const state = arcade.honey;
   const order = honeyOrder(arcade, room);
-  if (!order.length) return;
+  const alive = order.filter((id) => honeyAlive(arcade, id));
+  if (!alive.length) { state.turn = null; return; }
   // Mit einer neuen Ranke beginnt die neue Reihenfolge vorn — ausser der
-  // Erste wäre der, der gerade gepflückt hat; dann der Zweite.
-  const index = fresh
-    ? (order[0] === afterId && order.length > 1 ? 1 : 0)
-    : (order.indexOf(afterId) + 1) % order.length;
+  // Erste wäre der, der gerade gepflückt hat; dann der Zweite. Sonst ist der
+  // nächste Noch-Dabei nach dem, der eben dran war (auch wenn der gerade
+  // ausgeschieden ist).
+  let nextId;
+  if (fresh) {
+    nextId = alive[0] === afterId && alive.length > 1 ? alive[1] : alive[0];
+  } else {
+    const at = order.indexOf(afterId);
+    nextId = alive[0];
+    for (let step = 1; step <= order.length; step += 1) {
+      const candidate = order[(at + step) % order.length];
+      if (honeyAlive(arcade, candidate)) { nextId = candidate; break; }
+    }
+  }
   const turnMs = Math.max(HONEY_TURN_MIN_MS, HONEY_TURN_MS - state.turns * 50);
   const from = elapsed + delay;
   // Kein Zug mehr, der nicht mehr zu Ende gespielt werden kann.
@@ -827,7 +741,7 @@ function honeyNextTurn(ctx, afterId, delay, fresh = false) {
     state.turn = null;
     return;
   }
-  state.turn = { playerId: order[index], from, until: Math.min(HONEY_DURATION_MS - 200, from + turnMs), number: state.turns };
+  state.turn = { playerId: nextId, from, until: Math.min(HONEY_DURATION_MS - 200, from + turnMs), number: state.turns };
   state.turns += 1;
 }
 
@@ -837,19 +751,20 @@ function honeyTake(ctx, player, entry, count) {
   const taken = state.vine.splice(0, Math.min(count, state.vine.length));
   const stung = taken.includes("comb");
   const fruits = taken.filter((item) => item !== "comb").reduce((sum, item) => sum + (item === "gold" ? HONEY_GOLD : 1), 0);
-  let dropped = 0;
+  const dropped = 0;
   if (stung) {
-    dropped = Math.min(entry.fruits, HONEY_STING_COST);
-    entry.fruits -= dropped;
+    // Gestochen: raus. Die Früchte bleiben im Korb — sie trennen nur noch
+    // die, die gleich lange dabei waren.
     entry.stings += 1;
     entry.stungAt = elapsed;
+    entry.outAt = elapsed;
   } else {
     entry.fruits += fruits;
     entry.golds += taken.filter((item) => item === "gold").length;
   }
   entry.score = entry.fruits;
   entry.picks += 1;
-  state.last = { playerId: player.id, taken, stung, dropped, gained: stung ? 0 : fruits, at: elapsed, auto: false, number: state.picks };
+  state.last = { playerId: player.id, taken, stung, dropped, out: stung, gained: stung ? 0 : fruits, at: elapsed, auto: false, number: state.picks };
   state.picks += 1;
   // Ranke leer: eine neue wächst nach.
   let fresh = false;
@@ -998,16 +913,16 @@ const honey = {
         // erkennt nur die Wabe direkt vor sich, und nicht immer; der schwache
         // schiebt irgendwann, wenn ihm gerade danach ist.
         const late = elapsed > HONEY_DURATION_MS * 0.55;
-        if (level(entry) === "hard") entry.botPass = k === 0 || (late && k === 3 && entry.fruits >= HONEY_STING_COST);
+        if (level(entry) === "hard") entry.botPass = k === 0 || (late && k === 3);
         else if (level(entry) === "normal") entry.botPass = k === 0 && Math.random() < 0.7;
         else entry.botPass = Math.random() < 0.18;
       }
       let count;
       if (k === 0) count = 1;                                   // verloren, so oder so
       else if (level(entry) === "hard") {
-        // Gewinn gegen Risiko: ein Stich kostet einen festen Teil des Korbs,
-        // dazu die Pause danach.
-        const loss = Math.min(entry.fruits, HONEY_STING_COST) + 1.5;
+        // Gewinn gegen Risiko: ein Stich ist das Aus — dagegen wiegen ein
+        // paar Früchte nichts.
+        const loss = 40;
         const value = (c) => (c > k ? -Infinity : honeyGain(state.vine, c) - honeyRisk(k, c, players) * loss);
         const one = value(1);
         const two = value(2);
@@ -1026,14 +941,20 @@ const honey = {
     return { action: "take", count: entry.botCount };
   },
   rank(arcade, entry) {
-    // Früchte zuerst; bei Gleichstand, wer seltener gestochen wurde.
-    return (entry.fruits || 0) * 100 + Math.max(0, 99 - (entry.stings || 0));
+    // Wer länger dabei ist, liegt vorn; unter Gleichen zählen die Früchte.
+    const stayed = entry.outAt == null ? HONEY_DURATION_MS + 1000 : entry.outAt;
+    return Math.round(stayed) * 1000 + Math.min(999, entry.fruits || 0);
   },
   detail(arcade, entry) {
-    return { kind: "points", value: entry.fruits || 0, label: "Früchte" };
+    return entry.outAt != null
+      ? { kind: "out", value: entry.fruits || 0, label: "Früchte" }
+      : { kind: "points", value: entry.fruits || 0, label: "Früchte" };
   },
-  done() {
-    return false;
+  done(ctx) {
+    // Zuletzt einer übrig: entschieden. Allein spielt man bis zum Stich.
+    const entries = Object.values(ctx.arcade.players);
+    const alive = entries.filter((entry) => !entry.outAt).length;
+    return entries.length > 1 ? alive <= 1 : alive === 0;
   }
 };
 
@@ -1963,7 +1884,7 @@ const BOOK_GAP_START = 3700;
 const BOOK_GAP_END = 2500;
 const BOOK_FLIP_START = 1900;          // so lange klappt die Seite heran
 const BOOK_FLIP_END = 1150;
-const BOOK_LIVES = 3;
+const BOOK_LIVES = 1;                  // einmal platt, und man ist raus
 const BOOK_FLAT_MS = 1500;
 const BOOK_SPEED = 3.4;
 const BOOK_ACCEL = 14;
@@ -3188,8 +3109,8 @@ module.exports = {
   PARTY_FAMILIES,
   PARTY_GAMES,
   constants: {
-    TUG_LEAD_MS, TUG_ROUND_MS, TUG_SHOW_MS, TUG_ROUNDS, TUG_WINS, TUG_DURATION_MS,
-    TUG_IMPULSE, TUG_GRIP_COST, TUG_GRIP_REGEN, TUG_SLIP_MS, TUG_SYNC_MS, TUG_SYNC_BONUS,
+    TUG_LEAD_MS, TUG_ROUND_MS, TUG_SHOW_MS, TUG_DURATION_MS,
+    TUG_IMPULSE, TUG_MIN_TAP_MS,
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS, FACE_GRACE_MS,
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS, FLAG_GRACE_MS, FLAG_PUBLISH_LEAD_MS, FLAG_MIN_PRESS_MS,
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST, HONEY_GRACE_MS,

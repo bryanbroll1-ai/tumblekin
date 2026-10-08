@@ -117,11 +117,11 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 🕹️ Stick ziehen
 
-- **Bumper Pool:** Nur der Stick: Lenken, Anlauf nehmen und rammen. Loslassen bremst. Fahr eine gleichmäßige Kurve, um Schwung aufzubauen: Du wirst schneller und rammst kräftiger. Schnelles Hin-und-her-Wackeln lädt ihn nicht. Schubs die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Jeder hat drei Leben: wer reinfällt, springt nach kurzer Pause zurück, beim dritten Mal ist er raus. In den letzten 15 Sekunden schrumpft die Insel. Gewertet werden übrige Leben, dann Rauswürfe.
+- **Bumper Pool:** Nur der Stick: Lenken, Anlauf nehmen und rammen. Loslassen bremst. Fahr eine gleichmäßige Kurve, um Schwung aufzubauen: Du wirst schneller und rammst kräftiger. Schnelles Hin-und-her-Wackeln lädt ihn nicht. Schubs die anderen von der Badeinsel ins Becken. Der Rand hält niemanden — wer selbst darüber fährt, fällt auch. Wer reinfällt, ist raus und schaut den anderen zu. In den letzten 15 Sekunden schrumpft die Insel. Wer am längsten oben bleibt, gewinnt; danach zählen die Rauswürfe.
 - **Tiefenrausch:** Tauch mit dem Stick nach Gold — je tiefer, desto wertvoller, ganz unten wartet eine Truhe. Die Luft wird knapp, und zwar unten schneller: Die weisse Marke im Luftbalken zeigt, was der Weg nach oben kostet — kommt die Luft ihr nahe, tauch auf. Oben füllt sie sich wieder, und dein Gold ist sicher eingezahlt. Quallen kosten Luft und etwas Gold. Geht dir die Luft aus, ist alles weg, was du trägst.
 - **Farbenjagd:** Schieb deine Farbwalze mit dem Stick über die Leinwand — was sie überrollt, hat sofort deine Farbe, auch fremde. Auf deiner eigenen Farbe fährst du schneller, auf fremder langsamer — bau dir Bahnen und übermal die anderen. Goldene Walze = breiter malen, Farbbombe = großer Klecks. Jede Farbe trägt ihr Zeichen auf den Kacheln — deins steht oben im Balken. Wer am Ende die meiste Fläche hat, gewinnt.
 - **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du stehst auf einer Schwebescheibe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Lenk die Scheibe mit dem Stick gegen den Puck. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
-- **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und verlierst eines von drei Leben. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
+- **Bücherwurm:** Ihr steht auf der Seite eines Riesenbuchs. Hinten klappt die nächste Seite hoch und fällt nach vorn — in ihr sind Löcher. Ihr Schatten zeigt, wo sie landen: stell dich rechtzeitig in ein Loch, sonst wirst du platt gedrückt und bist raus. Die Löcher werden weniger und kleiner, und man darf sich gegenseitig hinausschubsen. Gezählt werden die überstandenen Seiten.
 
 ### 👆 Wischen · halten sprintet
 
@@ -152,7 +152,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 - **Pump-Panik:** Tippe so schnell du kannst, gern mit zwei Fingern — jeder Tipp pumpt deinen Ballon dicker. Wer am Ende am meisten gepumpt hat, lässt seinen Ballon platzen und gewinnt.
 - **Bergsteiger:** Tippe auf die Bildhälfte, auf der der nächste Griff leuchtet — jede Seite ist eine Hand, die falsche kostet den Griff. Der Gipfel liegt auf 70: wer am schnellsten oben ist, gewinnt. Wer nicht ankommt, zählt nach Höhe.
-- **Tauziehen:** Zwei Teams, ein Seil, dazwischen die Schlammgrube. Jeder Tipp zieht — aber jeder Zug kostet Griffkraft (der Balken im Knopf), und die wächst nur langsam nach. Der Knopf sagt dir, wie du ziehen sollst: wer wild hämmert, rutscht ab und schenkt den anderen einen Ruck (LANGSAM!), wer zu zaghaft zieht, verschenkt Kraft (SCHNELLER!), und kurz vor Schluss heisst es ALLES! Zieht ihr fast gleichzeitig, gibt es ein HAU-RUCK. Wer zuerst zwei Runden holt, gewinnt — die anderen landen im Schlamm.
+- **Tauziehen:** Zwei Teams, ein Seil, dazwischen die Schlammgrube. Tippe, so schnell du kannst — jeder Tipp zieht. Das Team, das schneller tippt, zieht die anderen über die Linie in den Schlamm. Eine Runde, fünfzehn Sekunden: wer dann vorn liegt, gewinnt.
 
 ### 👆↔️ Links/Rechts wischen
 
@@ -209,11 +209,11 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🚩 Rot oder Blau tippen
 
-- **Flaggen hoch:** Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle — wer dann stillhält, hat richtig. Die Kommandos kommen immer schneller; drei Fehler, und du sitzt an Deck. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand.
+- **Flaggen hoch:** Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle — wer dann stillhält, hat richtig. Die Kommandos kommen immer schneller; ein Fehler, und du sitzt an Deck und schaust den anderen zu. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand.
 
 ### 👆🍎 Eins oder zwei pflücken
 
-- **Honigwabe:** Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und lässt vier Früchte fallen. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Einmal im Spiel darfst du deinen Zug ganz weiterschieben. Goldene Äpfel zählen drei. Wer am Ende die meisten Früchte hat, gewinnt.
+- **Honigwabe:** Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und ist raus. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Einmal im Spiel darfst du deinen Zug ganz weiterschieben. Wer zuletzt übrig ist, gewinnt; unter Gleichen zählen die Früchte (goldene Äpfel drei).
 
 ### 🕹️👆 Stick steuern, Knopf werfen
 

@@ -20,7 +20,7 @@ function run(a, ms, x=0, y=0, step=30) {
 test('bumper: full joystick run-up ejects a target without an ability',()=>{
   const a=arena();run(a,1200,1,0);
   assert.ok(a.events.some(e=>e.kind==='hit' && e.attacker==='a'));
-  assert.equal(a.players.b.lives,2);assert.equal(a.players.a.knockouts,1);
+  assert.equal(a.players.b.lives,P.C.LIVES-1);assert.equal(a.players.a.knockouts,1);
   assert.ok(a.events.find(e=>e.kind==='fall').vx>0);
 });
 test('bumper: releasing the stick brakes within one ring radius',()=>{
@@ -70,7 +70,7 @@ test('bumper: soft repeated resting contacts cannot spam hit events',()=>{
 test('bumper: timed control at 30/60/120 Hz or delayed frames has the same knock-out',()=>{
   for(const step of [1000/30,1000/60,1000/120,180]) {
     const a=arena();run(a,1300,1,0,step);
-    assert.equal(a.players.b.lives,2,`step ${step}`);assert.equal(a.players.a.knockouts,1);
+    assert.equal(a.players.b.lives,P.C.LIVES-1,`step ${step}`);assert.equal(a.players.a.knockouts,1);
     for(const p of Object.values(a.players))assert.ok(Number.isFinite(p.x+p.y+p.vx+p.vy));
   }
 });
@@ -79,8 +79,15 @@ test('bumper: countdown does not move and older snapshots cannot rewind the cloc
   P.advance(a,START-100);assert.equal(a.players.a.x,Math.cos(-Math.PI/2)*.5);
   P.advance(a,START+100);P.advance(a,START);assert.equal(a.lastUpdateAt,START+100);
 });
+test('bumper: one fall is out in a match',()=>{
+  assert.equal(P.C.LIVES,1);
+  const a=arena(),p=a.players.a;Object.assign(p,{x:1.02,y:0,vx:1,vy:0});
+  P.advance(a,a.lastUpdateAt+8);run(a,P.C.RESPAWN_MS+500);
+  assert.equal(p.lives,0);assert.equal(p.inPlay,false);assert.ok(p.outAt);
+});
+// Mit mehr Leben (der Trainingsring der Übung) kommt man zurück.
 test('bumper: falling costs exactly one life, preserves direction and resets input on respawn',()=>{
-  const a=arena(),p=a.players.a;Object.assign(p,{x:1.02,y:0,vx:1,vy:0,thrustX:1,lastThrustAt:a.lastUpdateAt});
+  const a=arena(),p=a.players.a;Object.assign(p,{lives:3,x:1.02,y:0,vx:1,vy:0,thrustX:1,lastThrustAt:a.lastUpdateAt});
   P.advance(a,a.lastUpdateAt+8);const at=p.knockedAt;
   assert.equal(p.lives,2);assert.ok(p.fall.vx>0);assert.equal(p.fall.vy,0);
   P.advance(a,at+P.C.RESPAWN_MS-1);assert.equal(p.inPlay,false);assert.equal(p.falls,1);
@@ -98,7 +105,7 @@ test('bumper: expired hit credit does not award a self-inflicted fall',()=>{
 });
 test('bumper: protection does not act as an invisible wall at the pool edge',()=>{
   const a=arena();Object.assign(a.players.a,{x:1.02,invulnUntil:START+9000});P.advance(a,a.lastUpdateAt+8);
-  assert.equal(a.players.a.lives,2);
+  assert.equal(a.players.a.lives,P.C.LIVES-1);
 });
 test('bumper: shrinking floor uses the actual edge, without secretly moving players',()=>{
   const a=arena();a.players.a.x=.85;a.players.b.inPlay=false;

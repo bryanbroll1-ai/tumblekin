@@ -27,8 +27,8 @@ export class BounceArena extends MinigameScene {
         skyColor: 0xeafaff, groundColor: 0x729bb0 } };
   }
   hudHtml() {
-    return `<div class="kinetic-scorebar"><span data-kinetic-time>45s</span><strong data-kinetic-score>3</strong><span data-bumper-kos>0 raus</span></div>
-      <div class="bumper-players" aria-label="Leben aller Spieler"></div>
+    return `<div class="kinetic-scorebar"><span data-kinetic-time>45s</span><strong data-kinetic-score>0</strong><span data-bumper-kos>im Spiel</span></div>
+      <div class="bumper-players" aria-label="Wer noch im Spiel ist"></div>
       <div class="arena-shrink" data-arena-shrink role="status" hidden></div>
       <div class="bumper-status" data-arena-banner role="status" hidden></div>`;
   }
@@ -112,7 +112,7 @@ export class BounceArena extends MinigameScene {
       wake.rotation.x=-Math.PI/2;wake.position.y=DECK+.02;this.scene.add(wake);this.wakes.push({id:player.id,mesh:wake});
       const card = document.createElement('div'); card.className = 'bumper-player'; card.style.setProperty('--chip', player.color);
       const name = document.createElement('span'); name.textContent = player.name;
-      const lives = document.createElement('strong'); lives.textContent = '♥ ♥ ♥'; card.append(name, lives);
+      const lives = document.createElement('strong'); lives.textContent = 'dabei'; card.append(name, lives);
       this.hud.querySelector('.bumper-players').append(card); this.cards.set(player.id, { card, lives });
     });
     this.aim = new THREE.Group();
@@ -302,13 +302,14 @@ export class BounceArena extends MinigameScene {
   finaleOverride(player) { if (!this.state.get(player.id)?.inPlay) { this.animators.get(player.id)?.set('float'); return true; } return false; }
   drawHud(f) {
     const arena = f.minigame.arena, own = arena?.players[f.controlledId]; if (!own) return;
-    this.hudScore.textContent = own.lives;
-    this.kosNode.textContent = `${own.knockouts} raus`;
+    // Ein Leben: gezählt werden die Rauswürfe, daneben steht, ob man noch drin ist.
+    this.hudScore.textContent = own.knockouts;
+    this.kosNode.textContent = own.lives ? 'im Spiel' : 'raus';
     this.momentum.textContent = own.swing > .08 ? `Schwung ${Math.round(own.swing*100)} % · mehr Wucht` : "Kurven geben Schwung";
     this.momentum.classList.toggle("is-charged",own.swing>.5);
     f.players.forEach(p => {
       const entry = arena.players[p.id], card = this.cards.get(p.id);
-      card.lives.textContent = entry.lives ? '♥ '.repeat(entry.lives).trim() : 'RAUS';
+      card.lives.textContent = !entry.lives ? 'RAUS' : entry.lives > 9 ? '∞' : entry.knockouts ? `${entry.knockouts}× rein` : 'dabei';
       card.card.classList.toggle('is-own', p.id === f.controlledId); card.card.classList.toggle('is-out', !entry.lives);
     });
     const cue = f.finale ? { phase: 'none' } : arenaShrinkCue(arena, f.now);
@@ -318,6 +319,6 @@ export class BounceArena extends MinigameScene {
     this.warningPhase = cue.phase;
     this.controls.classList.toggle("bumper-disabled", !own.inPlay);
     this.status.hidden = own.inPlay || f.finale;
-    this.status.textContent = own.lives ? `${own.lives} Leben · zurück in ${Math.max(0, (own.outUntil - f.now) / 1000).toFixed(1).replace('.', ',')} s` : 'Raus — schau dem Finale zu';
+    this.status.textContent = own.lives ? `Zurück in ${Math.max(0, (own.outUntil - f.now) / 1000).toFixed(1).replace('.', ',')} s` : 'Raus — du schaust den anderen zu';
   }
 }

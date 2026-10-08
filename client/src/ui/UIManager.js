@@ -1153,6 +1153,7 @@ function formatMainMetric(entry) {
 
 const SINGULAR_NOUNS = {
   "Münzen": "Münze",
+  "Siege": "Sieg",
   "Felder": "Feld",
   "Reihen": "Reihe",
   "Lichter": "Licht",

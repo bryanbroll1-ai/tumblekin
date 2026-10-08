@@ -32,9 +32,9 @@ try{
  await pointer('pointerdown',22,-1,0);await pointer('pointerup',22);
  assert.ok(await page.evaluate(()=>window.__tumblekin.ui.practice.scene.joystick.vecX===0 && window.__tumblekin.ui.practice.scene.joystick.pointerId!==null),'a second finger cannot take over');
  await pointer('pointermove',11,0,1);
- await page.waitForFunction(()=>window.__tumblekin.ui.practice.state.currentMinigame.arena.players.trainer.lives<3,null,{timeout:10000});
+ await page.waitForFunction(()=>window.__tumblekin.ui.practice.state.currentMinigame.arena.players.trainer.lives<99,null,{timeout:10000});
  await pointer('pointerup',11);
- const hit=await practice();assert.ok(hit.players.practice.knockouts>=1);assert.equal(hit.players.trainer.lives,2);
+ const hit=await practice();assert.ok(hit.players.practice.knockouts>=1);assert.equal(hit.players.trainer.lives,98);
  assert.ok(hit.events.some(e=>e.kind==='hit' && e.attacker==='practice'));
  await page.waitForFunction(()=>window.__bumperSounds.some(s=>s.name==='bumperSplash'));
  const sounds=await page.evaluate(()=>window.__bumperSounds);
@@ -56,7 +56,7 @@ try{
 
  const id=await page.evaluate(()=>window.__tumblekin.ui.practice.state.currentMinigame.id);
  await page.click('[data-practice-retry]');await page.waitForFunction(id=>window.__tumblekin.ui.practice.state.currentMinigame.id!==id && !document.querySelector('[data-practice-retry]').disabled,id);
- assert.equal((await practice()).players.practice.lives,3);
+ {const fresh=await practice();assert.equal(fresh.players.practice.lives,1);assert.equal(fresh.players.trainer.lives,99);}
  await page.waitForFunction(()=>Date.now()>=window.__tumblekin.ui.practice.state.currentMinigame.startedAt+950);
  await pointer('pointerdown',51,0,1);await page.waitForTimeout(250);const start=Date.now();let charge=0,speed=0,runUp=null;
  while(Date.now()-start<2200){

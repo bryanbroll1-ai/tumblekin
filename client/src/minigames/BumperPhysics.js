@@ -1,6 +1,7 @@
 // Authoritative ring sizes, movement and contact rules, also used by preview.
 (function (root) {
-  const C = Object.freeze({ RADIUS: 1, BALL_RADIUS: 0.13, LIVES: 3,
+  // Ein Leben: wer ins Becken fällt, ist raus — wie beim Vorbild.
+  const C = Object.freeze({ RADIUS: 1, BALL_RADIUS: 0.13, LIVES: 1,
     ACCEL: 6.8, DRAG: 4.5, BRAKE: 12, HIT_DRAG: 2.4,
     RUBBER_KICK: 0.5, CURVE_GAIN: .85, CURVE_POWER: .65, CURVE_SETTLE_MS: 250,
     HIT_STUN: 220, RESTITUTION: 0.82, MAX_SPEED: 3.4,

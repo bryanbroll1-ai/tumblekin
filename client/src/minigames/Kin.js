@@ -1209,7 +1209,9 @@ const STATES = {
     pose(p, t, a) {
       const c = a.cycle * TAU * 1.8 + a.phase;
       const s = sin(c);
-      p.lean = -0.28;
+      // Szenen können die Rücklage verstärken (Tauziehen: wer gewinnt, hängt
+      // weit drin, wer verliert, kippt nach vorn).
+      p.lean = -0.28 - (a.pullLean || 0);
       p.crouch = 0.04;
       p.aLs = 1.15 + s * 0.3;
       p.aRs = 1.15 - s * 0.3;

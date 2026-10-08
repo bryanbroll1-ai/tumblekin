@@ -242,7 +242,7 @@ test("bumper: the rim holds nobody — whoever drives over the edge falls", () =
     fell = !entry.inPlay;
   }
   assert.ok(fell, "wer selbst über die Kante fährt, fällt ins Becken");
-  assert.equal(entry.lives, 2, "und das kostet ein Leben");
+  assert.equal(entry.lives, 0, "und das ist das Aus");
   assert.equal(arena.players[buddy.id].knockouts, 0, "niemand bekommt dafür einen Abschuss");
 });
 
@@ -269,7 +269,7 @@ test("bumper: hanging over the edge you can still steer back", () => {
   assert.ok(Math.hypot(entry.x, entry.y) < ARENA_RADIUS - ARENA_BALL_RADIUS, "und ist wieder ganz auf der Insel");
 });
 
-test("bumper: a hard ram costs a life, the rival springs back — the last life is final", () => {
+test("bumper: a hard ram knocks the rival out — one fall is final", () => {
   const attacker = player({ id: "atk", name: "Atk", color: "#f00" });
   const victim = player({ id: "vic", name: "Vic", color: "#00f" });
   const third = player({ id: "third", name: "Third", color: "#0f0" });
@@ -293,29 +293,9 @@ test("bumper: a hard ram costs a life, the rival springs back — the last life 
   }
   assert.ok(knocked, "the rammed rival is knocked off the plate");
   assert.equal(atk.knockouts, 1, "the attacker is credited the knockout");
-  assert.equal(vic.lives, 2, "ein Sturz kostet ein Leben");
+  assert.equal(vic.lives, 0, "ein Sturz ist das Aus");
 
-  // Noch im Wasser: kein Zurück vor der Pause.
-  arena.lastUpdateAt = Date.now() - 90;
-  updateBounceArena(room);
-  assert.equal(vic.inPlay, false, "direkt nach dem Sturz ist man noch im Becken");
-
-  // Nach der Pause springt man zurück — innen und kurz unverwundbar.
-  vic.outUntil = Date.now() - 1;
-  arena.lastUpdateAt = Date.now() - 90;
-  updateBounceArena(room);
-  assert.equal(vic.inPlay, true, "mit Leben übrig geht es zurück auf die Insel");
-  assert.ok(Math.hypot(vic.x, vic.y) < arena.radius * 0.5, "zurück nach innen, nicht an den Rand");
-  assert.ok(vic.invulnUntil > Date.now(), "und kurz geschützt, damit niemand am Einstieg wartet");
-
-  // Der letzte Sturz ist endgültig.
-  vic.lives = 1;
-  vic.invulnUntil = 0;
-  vic.ejecting = true;
-  vic.x = arena.radius + ARENA_BALL_RADIUS + 0.05;
-  arena.lastUpdateAt = Date.now() - 90;
-  updateBounceArena(room);
-  assert.equal(vic.lives, 0);
+  // Auch nach der Pause kommt niemand zurück.
   vic.outUntil = Date.now() - 1;
   arena.lastUpdateAt = Date.now() - 90;
   updateBounceArena(room);
