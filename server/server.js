@@ -476,7 +476,8 @@ const PAINT_TURN_RATE = 11;            // rad/s — die Walze schwenkt, sie spri
 const PAINT_ROLLER_AHEAD = 0.9;        // so weit rollt die Walze vor der Figur
 const PAINT_BRUSH = 1.05;              // Radius der Walze in Feldern
 const PAINT_BRUSH_WIDE = 2.05;         // mit der goldenen Walze: fast doppelt so breit
-const PAINT_BOMB_RADIUS = 2.4;         // Farbbombe: Klecks um die Figur (~18 Felder)
+const PAINT_BOMB_RADIUS = 3.6;         // Farbbombe: grosser Klecks (~40 Felder, ein Achtel der Leinwand)
+const PAINT_BOMB_AHEAD = 1.2;          // sein Mitte liegt so weit vor der Figur: dort ist neue Fläche
 const PAINT_START_RADIUS = 1.6;        // Startfleck in der eigenen Ecke
 // Heimvorteil: auf eigener Farbe schneller, auf fremder langsamer.
 const PAINT_OWN_BOOST = 1.2;
@@ -3246,7 +3247,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
     // Eingabe vorauszurechnen (Farbwalze.js) — dieselben Zahlen wie hier.
     arcade.paintRules = {
       speed: PAINT_SPEED, accel: PAINT_ACCEL, turn: PAINT_TURN_RATE, ahead: PAINT_ROLLER_AHEAD,
-      brush: PAINT_BRUSH, brushWide: PAINT_BRUSH_WIDE, bomb: PAINT_BOMB_RADIUS,
+      brush: PAINT_BRUSH, brushWide: PAINT_BRUSH_WIDE, bomb: PAINT_BOMB_RADIUS, bombAhead: PAINT_BOMB_AHEAD,
       own: PAINT_OWN_BOOST, rival: PAINT_RIVAL_DRAG, groundLead: PAINT_GROUND_LEAD,
       bumpRadius: PAINT_BUMP_RADIUS, bumpForce: PAINT_BUMP_FORCE, knockDecay: PAINT_KNOCK_DECAY,
       bumpCooldownMs: PAINT_BUMP_COOLDOWN_MS, boostMs: PAINT_BOOST_MS, pickupReach: PAINT_PICKUP_REACH
@@ -6481,10 +6482,22 @@ function paintStep(arcade, entries, dt, now) {
         entry.wide = true;
         entry.boostUntil = now + PAINT_BOOST_MS;
       } else {
-        paintCells(arcade, entry.slot, paintSweep(entry.px, entry.py, entry.px, entry.py, PAINT_BOMB_RADIUS), entry);
+        // Der Klecks sitzt vor der Figur, nicht um sie herum: dort hinter ihr
+        // lag die eigene Spur, und mit 2,4 Feldern um die Figur kamen gemessen
+        // oft nur fünf neue Felder dazu.
+        const [bx, by] = paintBombCentre(entry);
+        paintCells(arcade, entry.slot, paintSweep(bx, by, bx, by, PAINT_BOMB_RADIUS), entry);
       }
     }
   });
+}
+
+// Mitte des Farbbomben-Kleckses: ein Stück vor der Figur, auf der Leinwand.
+function paintBombCentre(entry) {
+  return [
+    clamp(entry.px + Math.sin(entry.heading) * PAINT_BOMB_AHEAD, 0, PAINT_COLS),
+    clamp(entry.py + Math.cos(entry.heading) * PAINT_BOMB_AHEAD, 0, PAINT_ROWS)
+  ];
 }
 
 // Zählt die Felder je Platz neu und schreibt das Feld als Zeichenkette für die
@@ -8758,6 +8771,7 @@ module.exports = {
     PAINT_BRUSH,
     PAINT_BRUSH_WIDE,
     PAINT_BOMB_RADIUS,
+    PAINT_BOMB_AHEAD,
     PAINT_ROLLER_AHEAD,
     PAINT_TURN_RATE,
     PAINT_BUMP_COOLDOWN_MS,

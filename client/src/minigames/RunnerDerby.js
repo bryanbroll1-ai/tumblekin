@@ -11,6 +11,27 @@ const LANE = 1.55;
 const footBounds = new THREE.Box3();
 const timeText = ms => `${(ms / 1000).toFixed(2).replace('.', ',')} s`;
 
+// White chevrons on the obstacle's colour: up means jump, down means slide.
+function arrowTexture(color, dir) {
+  const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d'); ctx.fillStyle = color; ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = '#fffaf0';
+  for (const cx of [48, 128, 208]) {
+    ctx.beginPath();
+    ctx.moveTo(cx, 32 - dir * 20); ctx.lineTo(cx + 26, 32 + dir * 16); ctx.lineTo(cx - 26, 32 + dir * 16);
+    ctx.closePath(); ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function chevronSign(parent, texture, w, h, [x, y, z]) {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: texture }));
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+  return mesh;
+}
+
 // A shared three-lane race: swipe to dodge, jump and slide; hold to sprint.
 export class RunnerDerby extends MinigameScene {
   constructor(ctx) {
@@ -95,6 +116,7 @@ export class RunnerDerby extends MinigameScene {
       this.rivals.set(player.id, { row, value, fill });
     });
     // One shared, readable course. Orange = jump, blue = duck, crate = dodge.
+    const signs = { jump: arrowTexture('#ff9f3d', 1), slide: arrowTexture('#2f94b8', -1) };
     course.forEach(row => row.lanes.forEach((kind, lane) => {
       if (!kind) return;
       const group = new THREE.Group(); group.position.set(this.laneX(lane), 0, -row.at * METRE);
@@ -103,11 +125,21 @@ export class RunnerDerby extends MinigameScene {
         for (const side of [-1, 1]) kiste(group, .085, 1.8, .68, '#fbdca7', [side * .43, .9, 0]);
         kiste(group, 1.27, .08, .68, '#fbdca7', [0, .3, 0]);
         kiste(group, 1.27, .08, .68, '#fbdca7', [0, 1.5, 0]);
-      } else {
-        const height = kind === 'jump' ? P.C.HURDLE_HEIGHT : .86;
+      } else if (kind === 'jump') {
+        // Low and solid from the ground up: a wall you hop over.
+        const height = P.C.HURDLE_HEIGHT;
         for (const side of [-1, 1]) kiste(group, .09, height, .09, '#fff5e5', [side * .61, height / 2, 0]);
-        kiste(group, 1.33, kind === 'jump' ? .1 : .30, .16, kind === 'jump' ? '#ffb858' : '#62cbdc', [0, kind === 'jump' ? height - .05 : .69, 0]);
-        if (kind === 'slide') kiste(group, .3, .055, .19, '#fff5e5', [0, .7, .09]);
+        kiste(group, 1.33, .1, .16, '#ffb858', [0, height - .05, 0]);
+        kiste(group, 1.2, .32, .05, '#ffe1b0', [0, .38, 0]);
+        chevronSign(group, signs.jump, 1.12, .28, [0, .38, .03]);
+        kiste(group, 1.2, .012, .16, '#ffb858', [0, .012, 1.35], { schatten: false });
+      } else {
+        // High and open underneath: a banner you slide beneath.
+        for (const side of [-1, 1]) kiste(group, .09, 1.2, .09, '#fff5e5', [side * .61, .6, 0]);
+        kiste(group, 1.33, .07, .14, '#fff5e5', [0, 1.2, 0]);
+        kiste(group, 1.25, .36, .1, '#3fa9c9', [0, .86, 0]);
+        chevronSign(group, signs.slide, 1.17, .3, [0, .86, .055]);
+        kiste(group, 1.2, .012, .16, '#3fa9c9', [0, .012, 1.35], { schatten: false });
       }
       group.userData.kind = kind; group.userData.row = row.index; group.userData.lane = lane;
       this.scene.add(group); this.hurdles.set(`${row.index}:${lane}`, group);

@@ -12,13 +12,21 @@
 export const STEP_MS = 30;       // wie PAINT_STEP_MS
 const MAX_SPAN_MS = 600;         // weiter wird nie vorausgerechnet
 const DEFAULTS = {
-  speed: 4.8, accel: 22, turn: 11, ahead: 0.9, brush: 1.05, brushWide: 2.05, bomb: 2.4,
+  speed: 4.8, accel: 22, turn: 11, ahead: 0.9, brush: 1.05, brushWide: 2.05, bomb: 3.6, bombAhead: 1.2,
   own: 1.2, rival: 0.82, groundLead: 0.6, bumpRadius: 1.7, bumpForce: 4.5, knockDecay: 5,
   bumpCooldownMs: 500, boostMs: 3000, pickupReach: 1.2
 };
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+// Mitte des Farbbomben-Kleckses, wie paintBombCentre auf dem Server.
+export function bombCentre(entry, rules, cols, rows) {
+  return [
+    clamp(entry.px + Math.sin(entry.heading) * rules.bombAhead, 0, cols),
+    clamp(entry.py + Math.cos(entry.heading) * rules.bombAhead, 0, rows)
+  ];
 }
 
 export function paintRules(arcade) {
@@ -155,7 +163,8 @@ export function stepPaint(world, entries, dt, now, inputOf, events) {
         entry.wide = true;
         entry.boostUntil = now + rules.boostMs;
       } else {
-        paint(world, entry.slot, paintSweep(cols, rows, entry.px, entry.py, entry.px, entry.py, rules.bomb));
+        const [bx, by] = bombCentre(entry, rules, cols, rows);
+        paint(world, entry.slot, paintSweep(cols, rows, bx, by, bx, by, rules.bomb));
       }
     }
   });

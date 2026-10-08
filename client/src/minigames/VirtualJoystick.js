@@ -1,6 +1,13 @@
 export class VirtualJoystick {
-  constructor({ root, onDirection, onVector, onEngage, feedback, label = "Steuern", intervalMs = 105 }) {
+  // surface: ein Element (meist die Bühne), auf dem ein Finger irgendwo den
+  //   Stick aufsetzt — der Stick springt unter den Finger („schwebend").
+  // globalKeys: Pfeiltasten/WASD wirken auch, wenn der Stick keinen Fokus hat.
+  constructor({ root, onDirection, onVector, onEngage, feedback, label = "Steuern", intervalMs = 105, surface = null, globalKeys = false }) {
     this.root = root;
+    this.surface = surface;
+    this.globalKeys = globalKeys;
+    this.floatX = 0;
+    this.floatY = 0;
     this.onDirection = onDirection;
     this.onVector = onVector; // optional analog callback: (x, y) each in [-1, 1]
     this.onEngage = onEngage;
@@ -92,9 +99,33 @@ export class VirtualJoystick {
       keyboardVector();
       if (!this.keys.size) { clearInterval(this.timer); this.timer = null; }
     };
-    this.base.addEventListener("keydown", this.onKeyDown);
-    this.base.addEventListener("keyup", this.onKeyUp);
-    this.base.addEventListener("blur", this.onBlur);
+    // Mit globalKeys hört das Fenster zu, aber nicht beim Tippen in ein Feld.
+    this.keyTarget = this.globalKeys ? window : this.base;
+    this.onKeyDownAny = (event) => {
+      if (this.globalKeys && (!this.root.isConnected || event.target?.closest?.("input, textarea, select, [contenteditable]"))) return;
+      this.onKeyDown(event);
+    };
+    this.keyTarget.addEventListener("keydown", this.onKeyDownAny);
+    this.keyTarget.addEventListener("keyup", this.onKeyUp);
+    if (!this.globalKeys) this.base.addEventListener("blur", this.onBlur);
+    // Schwebend: der Stick setzt dort an, wo der Finger die Bühne berührt.
+    // Vorher reagierte nur der Kreis unten — wer aufs Feld tippte und zog,
+    // stand still.
+    this.onSurfaceDown = (event) => {
+      if (this.pointerId !== null || event.button > 0 || this.root.closest("[inert]")) return;
+      const rect = this.base.getBoundingClientRect();
+      const homeX = rect.left + rect.width / 2 - this.floatX;
+      const homeY = rect.top + rect.height / 2 - this.floatY;
+      this.floatX = event.clientX - homeX;
+      this.floatY = event.clientY - homeY;
+      this.base.style.transform = `translate(${this.floatX}px, ${this.floatY}px)`;
+      this.base.classList.add("floating");
+      this.onPointerDown(event);
+    };
+    if (this.surface) {
+      this.surface.style.touchAction = "none";
+      this.surface.addEventListener("pointerdown", this.onSurfaceDown);
+    }
   }
 
   updatePointer(event) {
@@ -158,6 +189,12 @@ export class VirtualJoystick {
     this.keys?.clear();
     this.base.classList.remove("active");
     this.knob.style.transform = "translate(0px, 0px)";
+    if (this.floatX || this.floatY) {
+      this.floatX = 0;
+      this.floatY = 0;
+      this.base.style.transform = "";
+      this.base.classList.remove("floating");
+    }
     this.onVector?.(0, 0);
   }
 
@@ -168,9 +205,10 @@ export class VirtualJoystick {
     this.base.removeEventListener("pointerup", this.onPointerEnd);
     this.base.removeEventListener("pointercancel", this.onPointerEnd);
     this.base.removeEventListener("lostpointercapture", this.onPointerEnd);
-    this.base.removeEventListener("keydown", this.onKeyDown);
-    this.base.removeEventListener("keyup", this.onKeyUp);
+    this.keyTarget.removeEventListener("keydown", this.onKeyDownAny);
+    this.keyTarget.removeEventListener("keyup", this.onKeyUp);
     this.base.removeEventListener("blur", this.onBlur);
+    this.surface?.removeEventListener("pointerdown", this.onSurfaceDown);
     window.removeEventListener("blur", this.onBlur);
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.root.innerHTML = "";

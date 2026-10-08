@@ -278,6 +278,8 @@ export class PhotoShoot extends MinigameScene {
       label: "Schnappschuss: laufen",
       intervalMs: 60,
       feedback: this.feedback,
+      surface: this.webglCanvas,
+      globalKeys: true,
       onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
     });

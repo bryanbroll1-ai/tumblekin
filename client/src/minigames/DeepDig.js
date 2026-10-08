@@ -279,6 +279,8 @@ export class DeepDig extends MinigameScene {
       label: "Tiefenrausch: tauchen",
       intervalMs: 70,
       feedback: this.feedback,
+      surface: this.webglCanvas,
+      globalKeys: true,
       onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
     });

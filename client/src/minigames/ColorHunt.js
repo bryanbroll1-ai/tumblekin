@@ -5,7 +5,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin211";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin211";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
-import { forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin211";
+import { bombCentre, forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin211";
 
 // Farbenjagd: jeder schiebt eine Farbwalze über eine grosse Leinwand. Was die
 // Walze überrollt, hat sofort seine Farbe, auch fremde. Auf der eigenen Farbe
@@ -167,14 +167,13 @@ export class ColorHunt extends MinigameScene {
 
     this.buildBackyard(w, d);
 
-    // Farbeimer an den Startecken, ausserhalb des Rahmens.
-    const corners = [[-1, -1], [1, 1], [1, -1], [-1, 1]];
+    // Die Farbeimer stehen als Reihe hinter der Leinwand vor der Mauer. An
+    // den Ecken neben dem Rahmen ragten sie halb aus dem Bild, und ihre
+    // Pfützen flimmerten auf dem Asphalt.
     order.forEach((id, slot) => {
       const player = players.find((candidate) => candidate.id === id);
-      const [sx, sz] = corners[slot % corners.length];
       const bucket = this.makeBucket(player?.color || "#bbbbbb");
-      bucket.position.set(sx * (w / 2 + 0.45), -0.25, sz * (d / 2 + 0.2));
-      bucket.rotation.y = slot * 1.3;
+      bucket.position.set((slot - (order.length - 1) / 2) * 0.8, -0.25, -d / 2 - 0.62);
       scene.add(bucket);
     });
 
@@ -248,9 +247,10 @@ export class ColorHunt extends MinigameScene {
     const drip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.2, 0.03), new THREE.MeshLambertMaterial({ color }));
     drip.position.set(0, 0.34, 0.25);
     bucket.add(drip);
-    const puddle = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.015, 12), new THREE.MeshLambertMaterial({ color }));
-    puddle.position.set(0.08, 0.01, 0.34);
-    puddle.scale.z = 0.6;
+    // Klar über dem Asphalt und den Klecksen, sonst flimmert sie.
+    const puddle = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.015, 12), new THREE.MeshLambertMaterial({ color, polygonOffset: true, polygonOffsetFactor: -2 }));
+    puddle.position.set(0.04, 0.035, 0.3);
+    puddle.scale.z = 0.45;
     // Ein Fleck am Boden, keine Stufe: wer darauf tritt, steht auf der Wiese.
     puddle.userData.isFx = true;
     bucket.add(puddle);
@@ -405,6 +405,8 @@ export class ColorHunt extends MinigameScene {
       label: "Farbenjagd: Walze lenken",
       intervalMs: 70,
       feedback: this.feedback,
+      surface: this.webglCanvas,
+      globalKeys: true,
       onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => {
         this.feedback?.sound("move");
@@ -632,7 +634,12 @@ export class ColorHunt extends MinigameScene {
       // Der Klecks: ein Ring über die ganze Bombenfläche und viel Farbe.
       // So gross wie der Klecks, den der Server malt — vorher 1,6 statt 0,54:
       // der Ring zeigte die dreifache Fläche und ragte über die Leinwand.
-      this.bursts.ring(at, player.color, { radius: (this.rules?.bomb ?? 2.4) * TILE, life: 0.55, opacity: 0.8, y: BOARD_TOP + 0.06 });
+      const where = this.view?.entries?.get(player.id) || (this.update || this.minigame)?.arcade?.players?.[player.id];
+      if (where && this.rules) {
+        const [bx, by] = bombCentre(where, this.rules, this.cols, this.rows);
+        at.set(this.worldX(bx), BOARD_TOP + 0.05, this.worldZ(by));
+      }
+      this.bursts.ring(at, player.color, { radius: (this.rules?.bomb ?? 3.6) * TILE, life: 0.6, opacity: 0.85, y: BOARD_TOP + 0.06 });
       this.burst(at.clone().setY(0.35), [player.color, "#ffffff"], { count: 18, speed: 1.8, up: 1.9, size: 0.07, life: 0.8 });
       if (own) {
         this.pop(new THREE.Vector3(kin.position.x, 1.05, kin.position.z), "FARBBOMBE!", { color: "#ffffff", size: 0.3, life: 0.9 });

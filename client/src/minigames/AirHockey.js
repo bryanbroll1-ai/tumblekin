@@ -318,6 +318,8 @@ export class AirHockey extends MinigameScene {
       label: "Luftpuck: Scheibe steuern",
       intervalMs: 60,
       feedback: this.feedback,
+      surface: this.webglCanvas,
+      globalKeys: true,
       onVector: (x, y) => this.queueStick(x, y),
       onEngage: () => this.feedback?.vibrate(8)
     });
