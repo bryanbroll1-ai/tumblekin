@@ -1563,7 +1563,10 @@ test("blobklopfe: ein Stachelblob kostet zwei Punkte, nie unter null", () => {
   const whacker = player({ id: "wb", name: "WB", color: "#fff" });
   const startedAt = Date.now();
   const arcade = createArcadeState("blobklopfe", [whacker], startedAt);
-  const minigame = { arcade, scores: {}, startedAt, duration: 25000, finishing: false };
+  // Der Plan reicht 60 s weit und wird je Runde mit der Uhrzeit gewürfelt: in
+  // etwa jeder zwanzigsten Runde kam der zweite Stachelblob erst nach 25 s —
+  // dann war die Runde hier schon „vorbei" und der Test schlug zufällig fehl.
+  const minigame = { arcade, scores: {}, startedAt, duration: 60000, finishing: false };
   const room = { currentMinigame: minigame, players: [whacker] };
   const entry = arcade.players[whacker.id];
   entry.points = 5;
