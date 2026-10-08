@@ -5,14 +5,16 @@ import { frameLerp } from "./Quality.js?v=tumblekin211";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
 
 // Grimassen: oben hängt ein verzogenes Gesicht im Goldrahmen, davor steht die
-// eigene Gummimaske — erst neutral —, und man zieht sie an sechs Punkten
+// eigene Blockkopf-Maske — erst neutral —, und man zieht sie an sechs Punkten
 // zurecht. Wer nach Ablauf der Zeit am nächsten dran ist, bekommt die meisten
 // Punkte.
 //
-// Die Maske ist eine gewölbte Fläche mit gemaltem Gesicht, die sich um jeden
-// Griffpunkt weich mitverzieht — wie Gummi. Der Server kennt davon nur die
-// sechs Versätze; die Verformung rechnet jedes Gerät gleich, darum sieht das
-// Vorbild überall gleich aus und der Vergleich stimmt mit dem Bild.
+// Die Maske ist ein Blockkopf wie die Figuren: Kastenkopf mit Haarschopf,
+// Block-Augen, und an den sechs Griffen hängen Brauen, Nase, Mundwinkel und
+// Kinn. Vorher war es eine gemalte, weich verzogene Fläche — die Gesichter
+// verschmierten zu einem Brei, in dem man kaum erkannte, was wo saß. Jetzt
+// steht jedes Teil genau dort, wo sein Griff ist, und der Vergleich mit dem
+// Vorbild ist ein Blick. Der Server kennt nur die sechs Versätze.
 const HANDLES = [
   // Grundpunkt (Maskenmass, Maske ist 2 x 2), Reichweite, Einflussradius
   { x: -0.34, y: 0.42, range: 0.3, sigma: 0.26 },   // Braue links
@@ -22,15 +24,24 @@ const HANDLES = [
   { x: 0.3, y: -0.38, range: 0.3, sigma: 0.22 },    // Mundwinkel rechts
   { x: 0, y: -0.78, range: 0.32, sigma: 0.34 }      // Kinn
 ];
-const MASK_SEG = 30;
-const OWN_SCALE = 1.1;
-const OWN_POS = new THREE.Vector3(0, 2.2, 0);
-const TARGET_SCALE = 0.56;
+const FACE_Z = 0.3;              // Vorderseite des Kopfes im Maskenmass
+const SKIN = "#f6c08a";
+const SKIN_DARK = "#e3a46c";
+const HAIR = "#6b3fd6";
+const BROW = "#3b2414";
+const NOSE = "#ef9050";
+const LIPS = "#8a1f33";
+const MOUTH_BITS = 9;
+const OWN_SCALE = 1.0;
+const OWN_POS = new THREE.Vector3(0, 1.95, 0);   // Kinn auf der Staffelei, Haar unter dem Rahmen
+const TARGET_SCALE = 0.5;
+// Der Blockkopf reicht vom Kinn (-0,88) bis zum Haarschopf (1,31): seine
+// Mitte liegt so weit über dem Maskenursprung. Im Rahmen wird er darum um
+// diesen Anteil gesenkt, sonst ragte das Haar über die Goldleiste.
+const HEAD_CENTRE = 0.215;
 const TARGET_POS = new THREE.Vector3(0, 3.92, -0.12);
 const MINI_SCALE = 0.3;
 const SEND_EVERY_MS = 70;
-
-let faceTexture = null;
 
 export class FaceLift extends MinigameScene {
   constructor(ctx) {
@@ -74,7 +85,7 @@ export class FaceLift extends MinigameScene {
     this.own = own;
 
     // Das Vorbild im Goldrahmen.
-    this.target = this.makeMask(TARGET_SCALE, TARGET_POS);
+    this.target = this.makeMask(TARGET_SCALE, TARGET_POS.clone().add(new THREE.Vector3(0, -HEAD_CENTRE * TARGET_SCALE, 0)));
     const rahmen = new THREE.Group();
     this.targetFrame = rahmen;
     rahmen.position.copy(TARGET_POS).add(new THREE.Vector3(0, 0, -0.08));
@@ -123,7 +134,9 @@ export class FaceLift extends MinigameScene {
 
     // Griffpunkte auf der eigenen Maske.
     this.knobs = HANDLES.map(() => {
-      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), new THREE.MeshBasicMaterial({ color: "#ffe25c", transparent: true, opacity: 0.95, depthTest: false }));
+      // Halb durchsichtig: der Griff sitzt genau auf Braue, Nase oder
+      // Mundwinkel, und die sollen darunter zu sehen bleiben.
+      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), new THREE.MeshBasicMaterial({ color: "#ffe25c", transparent: true, opacity: 0.6, depthTest: false }));
       knob.renderOrder = 5;
       const halo = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.13, 20), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.8, depthTest: false }));
       halo.renderOrder = 5;
@@ -215,60 +228,94 @@ export class FaceLift extends MinigameScene {
   }
 
   makeMask(scale, position, { ghost = false } = {}) {
-    faceTexture ||= drawFace();
-    const geometry = new THREE.PlaneGeometry(2, 2, MASK_SEG, MASK_SEG);
-    const base = geometry.attributes.position.array.slice();
-    const material = ghost
-      ? new THREE.MeshBasicMaterial({ map: faceTexture, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })
-      : new THREE.MeshLambertMaterial({ map: faceTexture, transparent: true, alphaTest: 0.45, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.scale.setScalar(scale);
-    mesh.position.copy(position);
-    mesh.castShadow = !ghost;
-    this.scene.add(mesh);
-    const mask = { mesh, base, scale, shape: new Array(12).fill(0) };
+    const group = new THREE.Group();
+    group.scale.setScalar(scale);
+    group.position.copy(position);
+    // Der Geist zeigt in der Auflösung nur die Teile des Vorbilds, leuchtend
+    // über der eigenen Maske — dort sieht man, was daneben lag.
+    if (ghost && !this.ghostMat) this.ghostMat = new THREE.MeshBasicMaterial({ color: "#5ff0ff", transparent: true, opacity: 0, depthWrite: false });
+    const box = (w, h, d, color, [x, y, z]) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ghost ? this.ghostMat : lambert(color));
+      mesh.position.set(x, y, z);
+      mesh.castShadow = !ghost;
+      group.add(mesh);
+      return mesh;
+    };
+    const parts = {};
+    if (!ghost) {
+      box(1.64, 1.38, 0.56, SKIN, [0, 0.19, 0]);
+      box(1.76, 0.3, 0.64, HAIR, [0, 0.93, -0.02]);
+      [[-0.52, 1.12], [0, 1.18], [0.52, 1.12]].forEach(([x, y]) => box(0.44, 0.26, 0.5, HAIR, [x, y, -0.05]));
+      [-1, 1].forEach((side) => {
+        box(0.16, 0.34, 0.26, SKIN_DARK, [side * 0.9, 0.1, 0]);
+        box(0.3, 0.3, 0.06, "#ffffff", [side * 0.34, 0.12, FACE_Z]);
+        box(0.14, 0.17, 0.04, "#1c1c28", [side * 0.34, 0.1, FACE_Z + 0.045]);
+        box(0.05, 0.05, 0.02, "#ffffff", [side * 0.34 + 0.035, 0.16, FACE_Z + 0.07]);
+        box(0.22, 0.1, 0.02, "#ff9fb0", [side * 0.58, -0.18, FACE_Z + 0.005]);
+      });
+      parts.jaw = box(1, 1, 0.5, SKIN, [0, -0.6, 0]);
+    }
+    const lift = ghost ? 0.06 : 0;
+    parts.brows = [0, 1].map(() => box(0.42, 0.1, 0.08, BROW, [0, 0, FACE_Z + 0.06 + lift]));
+    parts.nose = box(0.2, 0.24, 0.2, NOSE, [0, 0, FACE_Z + 0.1 + lift]);
+    parts.mouth = Array.from({ length: MOUTH_BITS }, () => box(1, 0.1, 0.07, LIPS, [0, 0, FACE_Z + 0.04 + lift]));
+    if (ghost) parts.chin = box(0.56, 0.07, 0.06, BROW, [0, 0, FACE_Z + lift]);
+    this.scene.add(group);
+    const mask = { mesh: group, parts, scale, ghost, shape: new Array(12).fill(0) };
     this.deform(mask, mask.shape);
     return mask;
   }
 
-  // Die Maske verziehen: jeder Griffpunkt nimmt die Fläche um sich herum mit,
-  // weich abfallend. Dazu eine leichte Wölbung, damit Licht darauf liegt.
+  // Wo Griff `h` bei Form `shape` sitzt (Maskenmass).
+  handleAt(h, shape) {
+    const handle = HANDLES[h];
+    return [handle.x + (shape[h * 2] || 0) * handle.range, handle.y + (shape[h * 2 + 1] || 0) * handle.range];
+  }
+
+  // Die Teile an ihre Griffe setzen. Der Mund ist eine Kette kleiner Blöcke
+  // auf einem Bogen von Mundwinkel zu Mundwinkel, der Kiefer reicht bis
+  // zum Kinngriff.
   deform(mask, shape) {
-    const pos = mask.mesh.geometry.attributes.position;
-    const arr = pos.array;
-    const base = mask.base;
-    for (let i = 0; i < arr.length; i += 3) {
-      const bx = base[i];
-      const by = base[i + 1];
-      let dx = 0;
-      let dy = 0;
-      for (let h = 0; h < HANDLES.length; h += 1) {
-        const handle = HANDLES[h];
-        const ox = shape[h * 2] || 0;
-        const oy = shape[h * 2 + 1] || 0;
-        if (!ox && !oy) continue;
-        const rx = bx - handle.x;
-        const ry = by - handle.y;
-        const w = Math.exp(-(rx * rx + ry * ry) / (handle.sigma * handle.sigma));
-        dx += w * ox * handle.range;
-        dy += w * oy * handle.range;
-      }
-      arr[i] = bx + dx;
-      arr[i + 1] = by + dy;
-      const r2 = (bx * bx + by * by) / 1.1;
-      arr[i + 2] = 0.28 * Math.sqrt(Math.max(0, 1 - r2));
+    const { parts } = mask;
+    parts.brows.forEach((brow, i) => {
+      const [x, y] = this.handleAt(i, shape);
+      brow.position.x = x;
+      brow.position.y = y;
+      brow.rotation.z = (i ? -1 : 1) * (shape[i * 2 + 1] || 0) * 0.35;
+    });
+    const [nx, ny] = this.handleAt(2, shape);
+    parts.nose.position.x = nx;
+    parts.nose.position.y = ny;
+    const [lx, ly] = this.handleAt(3, shape);
+    const [rx, ry] = this.handleAt(4, shape);
+    const cx = (lx + rx) / 2;
+    const cy = (ly + ry) / 2 - 0.13;
+    const point = (t) => [
+      (1 - t) * (1 - t) * lx + 2 * (1 - t) * t * cx + t * t * rx,
+      (1 - t) * (1 - t) * ly + 2 * (1 - t) * t * cy + t * t * ry
+    ];
+    parts.mouth.forEach((bit, i) => {
+      const [ax, ay] = point(i / MOUTH_BITS);
+      const [bx, by] = point((i + 1) / MOUTH_BITS);
+      bit.position.x = (ax + bx) / 2;
+      bit.position.y = (ay + by) / 2;
+      bit.rotation.z = Math.atan2(by - ay, bx - ax);
+      bit.scale.x = Math.max(0.06, Math.hypot(bx - ax, by - ay) * 1.25);
+    });
+    const [kx, ky] = this.handleAt(5, shape);
+    if (parts.jaw) {
+      const top = -0.3;
+      const bottom = Math.min(top - 0.2, ky - 0.1);
+      parts.jaw.scale.set(1.3, top - bottom, 1);
+      parts.jaw.position.set(kx * 0.6, (top + bottom) / 2, 0);
     }
-    pos.needsUpdate = true;
-    mask.mesh.geometry.computeVertexNormals();
+    if (parts.chin) parts.chin.position.set(kx, ky - 0.1, parts.chin.position.z);
     mask.shape = shape.slice();
   }
 
   handleWorld(mask, index, shape, into = new THREE.Vector3()) {
-    const handle = HANDLES[index];
-    const x = handle.x + (shape[index * 2] || 0) * handle.range;
-    const y = handle.y + (shape[index * 2 + 1] || 0) * handle.range;
-    const r2 = (handle.x * handle.x + handle.y * handle.y) / 1.1;
-    into.set(x, y, 0.28 * Math.sqrt(Math.max(0, 1 - r2)) + 0.04);
+    const [x, y] = this.handleAt(index, shape);
+    into.set(x, y, FACE_Z + 0.22);
     return mask.mesh.localToWorld(into);
   }
 
@@ -298,10 +345,11 @@ export class FaceLift extends MinigameScene {
       own.mesh.position.copy(ownPos);
       this.ghost.mesh.position.copy(ownPos).z += 0.04;
       const pos = wide ? new THREE.Vector3(-1.4, 2.85, -0.12) : TARGET_POS;
-      this.target.mesh.position.copy(pos);
-      this.target.mesh.scale.setScalar(wide ? 0.88 : TARGET_SCALE);
+      const targetScale = wide ? 0.8 : TARGET_SCALE;
+      this.target.mesh.position.copy(pos).y -= HEAD_CENTRE * targetScale;
+      this.target.mesh.scale.setScalar(targetScale);
       this.targetFrame.position.copy(pos).z -= 0.08;
-      this.targetFrame.scale.setScalar(wide ? 0.88 / TARGET_SCALE : 1);
+      this.targetFrame.scale.setScalar(wide ? 0.88 / 0.56 : 1);
       this.targetLabel.position.copy(pos).add(new THREE.Vector3(0, wide ? -1.2 : 0.82, 0.05));
     }
     return this.wideLayout
@@ -514,7 +562,7 @@ export class FaceLift extends MinigameScene {
     this.ghost.mesh.visible = reveal;
     if (reveal) {
       this.deform(this.ghost, face.targets[round]);
-      this.ghost.mesh.material.opacity = Math.min(0.42, since / 900 * 0.42);
+      this.ghostMat.opacity = Math.min(0.6, since / 900 * 0.6);
     }
 
     // Glühbirnen laufen.
@@ -606,91 +654,4 @@ export class FaceLift extends MinigameScene {
       banner.style.color = tone === "#ffc400" ? "#5c4508" : "#ffffff";
     }
   }
-}
-
-// Das Gesicht der Maske, einmal gemalt und von allen Masken geteilt.
-function drawFace() {
-  const size = 512;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  const u = (v) => v * size;
-  // Ohren
-  ctx.fillStyle = "#f7b877";
-  [[0.08, 0.5], [0.92, 0.5]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(u(x), u(y), u(0.075), 0, Math.PI * 2); ctx.fill(); });
-  // Kopf mit weichem Verlauf
-  const grad = ctx.createRadialGradient(u(0.44), u(0.4), u(0.05), u(0.5), u(0.52), u(0.46));
-  grad.addColorStop(0, "#ffe2b3");
-  grad.addColorStop(1, "#f6b26f");
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.ellipse(u(0.5), u(0.53), u(0.43), u(0.45), 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.lineWidth = u(0.012);
-  ctx.strokeStyle = "#8a4f22";
-  ctx.stroke();
-  // Haarschopf
-  ctx.fillStyle = "#6b3fd6";
-  [[0.36, 0.13, 0.12], [0.5, 0.09, 0.14], [0.64, 0.13, 0.12]].forEach(([x, y, r]) => {
-    ctx.beginPath();
-    ctx.moveTo(u(x - r), u(y + 0.1));
-    ctx.quadraticCurveTo(u(x), u(y - 0.06), u(x + r), u(y + 0.1));
-    ctx.closePath();
-    ctx.fill();
-  });
-  // Wangen
-  ctx.fillStyle = "rgba(255, 110, 130, 0.35)";
-  [[0.26, 0.62], [0.74, 0.62]].forEach(([x, y]) => { ctx.beginPath(); ctx.ellipse(u(x), u(y), u(0.07), u(0.045), 0, 0, Math.PI * 2); ctx.fill(); });
-  // Augen
-  [[0.33, 0.4], [0.67, 0.4]].forEach(([x, y]) => {
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath(); ctx.ellipse(u(x), u(y), u(0.075), u(0.085), 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#5a3417"; ctx.lineWidth = u(0.008); ctx.stroke();
-    ctx.fillStyle = "#1c1c28";
-    ctx.beginPath(); ctx.arc(u(x), u(y + 0.01), u(0.04), 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath(); ctx.arc(u(x + 0.014), u(y - 0.006), u(0.013), 0, Math.PI * 2); ctx.fill();
-  });
-  // Brauen
-  ctx.fillStyle = "#3b2414";
-  [[0.33, 0.29], [0.67, 0.29]].forEach(([x, y]) => {
-    ctx.beginPath();
-    ctx.ellipse(u(x), u(y), u(0.095), u(0.024), 0, 0, Math.PI * 2);
-    ctx.fill();
-  });
-  // Nase
-  ctx.fillStyle = "#ec9a57";
-  ctx.beginPath(); ctx.ellipse(u(0.5), u(0.52), u(0.055), u(0.06), 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.beginPath(); ctx.arc(u(0.485), u(0.5), u(0.016), 0, Math.PI * 2); ctx.fill();
-  // Mund: offen, mit Zähnen und Zunge — beim Verziehen sieht man, was er tut.
-  ctx.fillStyle = "#7a1c2c";
-  ctx.beginPath();
-  ctx.moveTo(u(0.34), u(0.69));
-  ctx.quadraticCurveTo(u(0.5), u(0.66), u(0.66), u(0.69));
-  ctx.quadraticCurveTo(u(0.5), u(0.8), u(0.34), u(0.69));
-  ctx.fill();
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(u(0.42), u(0.68), u(0.16), u(0.025));
-  ctx.fillStyle = "#ff7b93";
-  ctx.beginPath(); ctx.ellipse(u(0.5), u(0.745), u(0.06), u(0.022), 0, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "#5a1020"; ctx.lineWidth = u(0.008);
-  ctx.beginPath();
-  ctx.moveTo(u(0.34), u(0.69));
-  ctx.quadraticCurveTo(u(0.5), u(0.66), u(0.66), u(0.69));
-  ctx.quadraticCurveTo(u(0.5), u(0.8), u(0.34), u(0.69));
-  ctx.stroke();
-  // Kinngrübchen
-  ctx.strokeStyle = "rgba(138, 79, 34, 0.5)";
-  ctx.lineWidth = u(0.008);
-  ctx.beginPath(); ctx.arc(u(0.5), u(0.86), u(0.03), 0.2, Math.PI - 0.2); ctx.stroke();
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  // Die Textur wird von allen Masken geteilt und beim Abbau der Szene mit
-  // entsorgt; danach muss sie neu gemalt werden.
-  const dispose = texture.dispose.bind(texture);
-  texture.dispose = () => { faceTexture = null; dispose(); };
-  return texture;
 }

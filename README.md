@@ -205,7 +205,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🙂 Gesicht zurechtziehen
 
-- **Grimassen:** Oben hängt ein verzogenes Gesicht, vor dir eine Gummimaske. Zieh die sechs gelben Punkte — Brauen, Nase, Mundwinkel, Kinn —, bis deine Maske genauso aussieht. Nach neun Sekunden wird verglichen: je näher jeder Punkt am Vorbild liegt, desto mehr Punkte. Drei Gesichter, jedes schiefer als das vorige.
+- **Grimassen:** Oben hängt ein verzogener Blockkopf, vor dir dein eigener — noch ganz neutral. Zieh die sechs gelben Punkte — Brauen, Nase, Mundwinkel, Kinn —, bis dein Kopf genauso aussieht. Nach zehneinhalb Sekunden wird verglichen: je näher jeder Punkt am Vorbild liegt, desto mehr Punkte. Drei Gesichter, jedes schiefer als das vorige.
 
 ### 👆🚩 Rot oder Blau tippen
 
