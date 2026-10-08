@@ -69,7 +69,7 @@ export const MINIGAME_GUIDES = {
   tiefenrausch: guide("skill", "Tauch mit dem Stick nach Gold und bring es zur Oberfläche.", "Die weiße Luftmarke zeigt den Rückweg. Ohne Luft verlierst du getragenes Gold."),
   farbenjagd: guide("together", "Steuere deine Walze mit dem Stick. Die größte Farbfläche gewinnt.", "Übermal die anderen! Auf eigener Farbe fährst du schneller."),
   spuersinn: guide("thinking", "Tippe Felder an und finde mit den Entfernungszahlen das Versteck.", "Gezählt werden Schritte nach oben, unten, links und rechts. Weniger Tipps geben mehr Punkte."),
-  augenmass: guide("thinking", "Merk dir den Käferschwarm und zieh den Regler auf deine Schätzung.", "Der Schwarm ist nur kurz sichtbar. Je näher deine Zahl, desto mehr Punkte."),
+  augenmass: guide("thinking", "Schau, wie viele Tiere herumschwirren, und zieh den Regler auf deine Schätzung.", "Die Tiere sind nur ein paar Sekunden zu sehen. Je näher deine Zahl, desto mehr Punkte."),
   tauziehen: guide("together", "Zieh mit deinem Team am Seil — das schnellere Team gewinnt.", "Tippen, tippen, tippen: jeder Tipp zieht gleich stark. Eine Runde, fünfzehn Sekunden."),
   grimassen: guide("thinking", "Zieh die sechs gelben Punkte, bis dein Blockkopf dem Vorbild gleicht.", "Nach zehneinhalb Sekunden wird verglichen. Drei Gesichter bringen Punkte."),
   flaggenhoch: guide("reaction", "Tippe die gezeigten Flaggen nach, wenn der Käpt'n es befiehlt.", "Nur bei „Käpt'n sagt:“ reagieren! Ohne diese Worte stillhalten."),

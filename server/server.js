@@ -46,11 +46,12 @@ const SEEK_DURATION_MS = 42000;
 // waren. Vier Durchgänge; die Zeiten stehen fest, damit alle denselben Blick
 // haben und die Anzeige nie gegen den Server läuft.
 const ESTIMATE_ROUNDS = 4;
-// 2200 statt 1500: anderthalb Sekunden reichen für einen Eindruck nur, wenn
-// die Menge klein ist. Bei den grossen Durchgängen war der Schwarm weg, bevor
-// das Auge ihn erfasst hatte — dann rät man, und Raten macht keinen Spass.
-const ESTIMATE_SHOW_MS = 2200;         // so lange ist der Schwarm zu sehen
-const ESTIMATE_GUESS_MS = 4800;        // so lange darf geschätzt werden
+// So lange sind die Tiere zu sehen, je Durchgang länger, weil es mehr werden.
+// Vorher 2,2 s für bis zu 44 Glühkäfer: das war kein Schätzen, sondern Raten.
+// Jetzt drei bis vier Sekunden für 4 bis 20 Tiere — gerade so viel, dass
+// man anfängt zu zählen und es gegen Ende nicht ganz schafft.
+const ESTIMATE_SHOW_BY_ROUND = [2800, 3200, 3600, 4000];
+const ESTIMATE_GUESS_MS = 4400;        // so lange darf geschätzt werden
 const ESTIMATE_REVEAL_MS = 1900;       // Auflösung, gemeinsam
 const ESTIMATE_LEAD_IN_MS = 900;
 // Die Anzahl eines Durchgangs geht erst so kurz vor dem Hinsehen ans Gerät —
@@ -62,7 +63,8 @@ const ESTIMATE_PUBLISH_LEAD_MS = 400;
 // erst danach.
 const ESTIMATE_GRACE_MS = 150;
 const ESTIMATE_DURATION_MS = ESTIMATE_LEAD_IN_MS
-  + ESTIMATE_ROUNDS * (ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS) + 500;
+  + ESTIMATE_SHOW_BY_ROUND.reduce((sum, ms) => sum + ms, 0)
+  + ESTIMATE_ROUNDS * (ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS) + 500;
 const GLIDE_DURATION_MS = 34000;
 const SIMON_DURATION_MS = 36000;
 const DIVE_DURATION_MS = 36000;
@@ -554,7 +556,12 @@ const SEEK_BOT_INTERVAL = { easy: 900, normal: 1250, hard: 1000 };
 // begründete Zahl nennt — und ein ungeübtes nicht hoffnungslos danebenliegt.
 // Die Spannen sind ausserdem schmaler, der Schieberegler zeigt sie an: man
 // wählt aus 15 Zahlen statt aus 51.
-const ESTIMATE_BANDS = [[6, 14], [10, 22], [16, 32], [23, 44]];
+//
+// Nach Rückmeldung aus dem Test noch einmal deutlich kleiner: vierzig Tiere in
+// zwei Sekunden waren nicht zu schaffen. Die Spannen enden jetzt bei 20.
+const ESTIMATE_BANDS = [[4, 9], [6, 12], [9, 16], [12, 20]];
+// Jeder Durchgang zeigt andere Tiere; die Reihenfolge würfelt der Startwert.
+const ESTIMATE_KINDS = ["bee", "butterfly", "bird", "dragonfly"];
 // Volle Punkte für einen genauen Treffer. Vorher 200 plus 60 Zugabe, macht über
 // vier Durchgänge bis zu 1040 — gemessen an einer halben Minute Spielzeit war
 // das deutlich zu viel und liess die Runde wichtiger wirken, als sie ist.
@@ -574,20 +581,23 @@ function estimateBand(round) {
 function buildEstimateRounds(seed) {
   const rounds = [];
   let at = ESTIMATE_LEAD_IN_MS;
+  const shift = Math.floor(arcadeNoise(seed + 977) * ESTIMATE_KINDS.length);
   for (let index = 0; index < ESTIMATE_ROUNDS; index += 1) {
     const [low, high] = estimateBand(index);
     const count = low + Math.floor(arcadeNoise(seed + index * 6151) * (high - low + 1));
+    const show = ESTIMATE_SHOW_BY_ROUND[Math.min(index, ESTIMATE_SHOW_BY_ROUND.length - 1)];
     rounds.push({
       index,
+      kind: ESTIMATE_KINDS[(index + shift) % ESTIMATE_KINDS.length],
       count: Math.min(high, count),
       low,
       high,
       showFrom: at,
-      guessFrom: at + ESTIMATE_SHOW_MS,
-      revealFrom: at + ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS,
-      until: at + ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS
+      guessFrom: at + show,
+      revealFrom: at + show + ESTIMATE_GUESS_MS,
+      until: at + show + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS
     });
-    at += ESTIMATE_SHOW_MS + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS;
+    at += show + ESTIMATE_GUESS_MS + ESTIMATE_REVEAL_MS;
   }
   return rounds;
 }

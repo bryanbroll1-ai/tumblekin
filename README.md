@@ -201,7 +201,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆📏 Regler auf die Schätzung ziehen
 
-- **Augenmaß:** Ein Schwarm Glühkäfer blitzt gut zwei Sekunden auf — dann sind sie weg und du schätzt, wie viele es waren. Zieh den Regler auf deine Zahl, solange der grüne Balken läuft. Vier Durchgänge, und der Schwarm wird jedes Mal grösser: zählen klappt am Anfang noch, später nicht mehr. Je näher an der echten Zahl, desto mehr Punkte.
+- **Augenmaß:** Auf der Wiese schwirren ein paar Sekunden lang Tiere herum — jeden Durchgang andere: Bienen, Schmetterlinge, Vögel oder Libellen. Dann sind sie weg und du schätzt, wie viele es waren. Zieh den Regler auf deine Zahl, solange der grüne Balken läuft. Vier Durchgänge, jedes Mal ein paar Tiere mehr: am Anfang klappt Zählen noch, am Ende kaum. Je näher an der echten Zahl, desto mehr Punkte.
 
 ### 👆🙂 Gesicht zurechtziehen
 

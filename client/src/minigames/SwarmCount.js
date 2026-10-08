@@ -1,25 +1,39 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin211";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
 
-// Augenmaß: ein Schwarm Glühwürmchen leuchtet kurz auf — wie viele waren es?
-// Geschätzt wird mit dem Schieber.
+// Augenmaß: auf einer Sommerwiese schwirren kurz Tiere herum — wie viele
+// waren es? Geschätzt wird mit dem Schieber.
 //
-// Vorher stand eine kleine Figur allein unter einem grossen Nachthimmel.
-// Jetzt sitzen alle zusammen auf einem Baumstamm vor dem Schwarm, folgen ihm
-// mit den Augen, grübeln beim Schätzen und drehen sich bei der Auflösung um:
-// wer richtig lag, springt auf, wer daneben lag, schlägt die Hände vors
-// Gesicht.
-// Die grösste Spanne des Servers endet bei 44 Käfern (ESTIMATE_BANDS).
-const MAX_SWARM = 48;
-// Der Schwarm muss GANZ ins Bild — wer einen Teil nicht sieht, schätzt nicht,
-// sondern rät. Bei 4.1 ragten die äusseren Käfer links und rechts aus dem Bild:
-// das senkrecht gemessene Sichtfeld ergibt auf einem hochkanten Handy nur rund
-// 6.3 Einheiten Breite, der Schwarm war 8.2 breit. Jetzt passt er mit Rand.
+// Jeder Durchgang zeigt andere Tiere (Bienen, Schmetterlinge, Vögel,
+// Libellen; die Reihenfolge würfelt der Server), alle als kleine Blockfiguren.
+// Vorher blitzten bis zu 44 gelbe Leuchtpunkte zwei Sekunden auf — das war
+// nicht zu schaffen, und alle Durchgänge sahen gleich aus. Jetzt sind es 4 bis
+// 20 Tiere, die drei bis vier Sekunden lang zu sehen sind (ESTIMATE_BANDS,
+// ESTIMATE_SHOW_BY_ROUND auf dem Server).
+//
+// Die Figuren sitzen zusammen auf einem Baumstamm vor der Wiese, folgen den
+// Tieren mit den Augen, grübeln beim Schätzen und drehen sich bei der
+// Auflösung um. Früher sassen sie IM Stamm: der Sitz lag 21 cm unter seiner
+// Oberkante.
+const MAX_CRITTERS = 24;
+// Die Tiere müssen GANZ ins Bild — wer einen Teil nicht sieht, schätzt nicht,
+// sondern rät. Auf einem hochkanten Handy ergibt das Sichtfeld rund 6,3
+// Einheiten Breite; die Wiese der Tiere ist 5,2 breit.
 const SPAWN_RADIUS = 2.6;
+const MIN_GAP = 0.85;            // so weit stehen zwei Tiere mindestens auseinander
+const CRITTER_SIZE = 1.5;        // auf dem Handy rund 30 Pixel je Tier
 
-// Ein eigener Zufallszahlengeber je Durchgang: alle Geräte zeigen denselben
-// Schwarm, und die Auflösung zählt genau die Käfer hoch, die man gesehen hat.
+const KIND_WORDS = {
+  bee: "Bienen",
+  butterfly: "Schmetterlinge",
+  bird: "Vögel",
+  dragonfly: "Libellen"
+};
+
+// Ein eigener Zufallszahlengeber je Durchgang: alle Geräte zeigen dieselben
+// Tiere am selben Ort, und die Auflösung zählt genau die hoch, die man sah.
 function seededRandom(seed) {
   let state = (seed * 9301 + 49297) % 233280;
   return () => {
@@ -32,29 +46,106 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+// Der Stamm ist ein Blockbalken; seine Oberkante ist der Sitz.
 const LOG_Z = 2.5;
 const LOG_TOP = 0.42;
 
-// Wie hoch der Schwarm steht. Auf einem hochkant gehaltenen Handy bestimmt die
-// BREITE den Bildausschnitt: darüber blieb viel Himmel leer, während sich 44
-// Käfer auf einem Streifen von einem Viertel der Bildhöhe drängten und sich
-// gegenseitig verdeckten — gezählt wurde dann ein Klumpen, nicht die Käfer.
-// Hochkant bekommt der Schwarm deshalb eineinhalbmal so viel Höhe, und die
-// Kamera schaut entsprechend höher. Quer bleibt es beim flachen Schwarm, sonst
-// schrumpfte dort alles.
+// Wie hoch die Tiere fliegen. Hochkant bestimmt die BREITE den Ausschnitt,
+// darum bekommen sie dort mehr Höhe; quer bleibt es flacher.
 function swarmShape() {
   const portrait = typeof window !== "undefined" && window.innerHeight > window.innerWidth * 1.15;
   return portrait
-    ? { base: 1.3, height: 5.0, look: 3.0, frameH: 6.6 }
-    : { base: 1.0, height: 3.3, look: 2.0, frameH: 4.6 };
+    ? { base: 1.4, height: 4.6, look: 3.0, frameH: 6.6 }
+    : { base: 1.0, height: 3.2, look: 2.0, frameH: 4.6 };
 }
 
 const GUESS_GAP_MS = 60;         // so dicht folgen Reglermeldungen höchstens
 
+const _geo = new Map();
+function boxGeo(w, h, d) {
+  const key = `${w}|${h}|${d}`;
+  if (!_geo.has(key) || _geo.get(key).userData.disposed) {
+    const geometry = new THREE.BoxGeometry(w, h, d);
+    const dispose = geometry.dispose.bind(geometry);
+    geometry.dispose = () => { geometry.userData.disposed = true; dispose(); };
+    _geo.set(key, geometry);
+  }
+  return _geo.get(key);
+}
+
+// Ein Tier aus ein paar Blöcken. Der Körper zeigt nach +x; Flügel hängen an
+// eigenen Gelenken, damit sie schlagen können.
+function makeCritter(kind, random) {
+  const group = new THREE.Group();
+  const body = new THREE.Group();
+  group.add(body);
+  const wings = [];
+  const add = (w, h, d, color, [x, y, z], parent = body, extra) => {
+    const mesh = new THREE.Mesh(boxGeo(w, h, d), lambert(color, extra));
+    mesh.position.set(x, y, z);
+    parent.add(mesh);
+    return mesh;
+  };
+  const wing = (side, [x, y, z], size, color, extra) => {
+    const joint = new THREE.Group();
+    joint.position.set(x, y, z * side);
+    body.add(joint);
+    add(size[0], size[1], size[2], color, [0, 0, side * size[2] / 2], joint, extra);
+    wings.push({ joint, side });
+  };
+  const glass = { transparent: true, opacity: 0.72 };
+  if (kind === "bee") {
+    add(0.28, 0.2, 0.2, "#ffc928", [0, 0, 0]);
+    add(0.06, 0.205, 0.205, "#2a2118", [-0.05, 0, 0]);
+    add(0.06, 0.205, 0.205, "#2a2118", [0.06, 0, 0]);
+    add(0.11, 0.14, 0.14, "#2a2118", [0.18, 0.01, 0]);
+    add(0.05, 0.04, 0.04, "#2a2118", [-0.16, 0, 0]);
+    [-1, 1].forEach((side) => wing(side, [0, 0.11, 0.04], [0.15, 0.02, 0.17], "#ffffff", glass));
+  } else if (kind === "butterfly") {
+    const colours = [["#ff7ab0", "#ffd15c"], ["#5fb8ff", "#ffffff"], ["#ffa13d", "#5a2a14"], ["#b57bff", "#ffe36b"]];
+    const [wingColour, dotColour] = colours[Math.floor(random() * colours.length)];
+    add(0.24, 0.07, 0.07, "#3a2a24", [0, 0, 0]);
+    add(0.07, 0.08, 0.08, "#3a2a24", [0.14, 0.01, 0]);
+    [-1, 1].forEach((side) => {
+      const joint = new THREE.Group();
+      body.add(joint);
+      add(0.2, 0.02, 0.24, wingColour, [0.04, 0, side * 0.13], joint);
+      add(0.14, 0.02, 0.16, wingColour, [-0.1, 0, side * 0.1], joint);
+      add(0.07, 0.025, 0.07, dotColour, [0.06, 0.005, side * 0.17], joint);
+      wings.push({ joint, side });
+    });
+  } else if (kind === "bird") {
+    const colours = ["#e8463c", "#3d8bd8", "#f2b632", "#5cb85c"];
+    const colour = colours[Math.floor(random() * colours.length)];
+    add(0.3, 0.17, 0.17, colour, [0, 0, 0]);
+    add(0.14, 0.15, 0.15, colour, [0.19, 0.06, 0]);
+    add(0.08, 0.05, 0.06, "#ffb020", [0.3, 0.05, 0]);
+    add(0.03, 0.04, 0.035, "#1c1c28", [0.23, 0.1, 0.075]);
+    add(0.03, 0.04, 0.035, "#1c1c28", [0.23, 0.1, -0.075]);
+    add(0.12, 0.04, 0.12, colour, [-0.2, 0.03, 0]);
+    add(0.2, 0.1, 0.1, "#ffffff", [0.02, -0.06, 0]);
+    [-1, 1].forEach((side) => wing(side, [0, 0.05, 0.08], [0.18, 0.03, 0.24], colour));
+  } else {
+    const colours = ["#2fd0c0", "#4a7dff", "#9b5cff"];
+    const colour = colours[Math.floor(random() * colours.length)];
+    add(0.4, 0.06, 0.06, colour, [-0.04, 0, 0]);
+    add(0.1, 0.1, 0.12, colour, [0.18, 0.01, 0]);
+    add(0.04, 0.05, 0.05, "#1c1c28", [0.22, 0.04, 0.05]);
+    add(0.04, 0.05, 0.05, "#1c1c28", [0.22, 0.04, -0.05]);
+    [-1, 1].forEach((side) => {
+      wing(side, [0.08, 0.04, 0.02], [0.08, 0.015, 0.28], "#e8fbff", glass);
+      wing(side, [0.0, 0.04, 0.02], [0.07, 0.015, 0.24], "#e8fbff", glass);
+    });
+  }
+  group.userData = { kind, body, wings };
+  return group;
+}
+
 export class SwarmCount extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.flies = [];
+    this.critters = [];
+    this.critterKind = null;
     this.shownRound = -1;
     this.shownPhase = "";
     this.countUpUntil = 0;
@@ -63,7 +154,6 @@ export class SwarmCount extends MinigameScene {
     this.lastSentGuess = null;
     this.lastGuessSentAt = -1e9;
     this.guessOpen = false;
-    this.lastSentGuess = null;
     this.reacted = new Map();
     this.labelY = 0.74;
     this.swarmCentre = new THREE.Vector3(0, 2.6, -0.4);
@@ -72,9 +162,11 @@ export class SwarmCount extends MinigameScene {
   stage() {
     return {
       label: "3D Augenmaß",
-      background: "#101a2c",
-      fog: ["#16233b", 16, 46],
-      lights: { sunPosition: [-4, 10, 6], shadow: { left: -6, right: 6, top: 8, bottom: -4 } }
+      background: "#9fd8f0",
+      // Der Nebel macht den Waldrand blass: hinter den Tieren soll nichts
+      // Kräftiges stehen, sonst verschwinden sie davor.
+      fog: ["#bfe6f2", 12, 40],
+      lights: { sunPosition: [-4, 11, 7], sunIntensity: 2.6, skyColor: 0xeaf8ff, groundColor: 0x6f9a55, shadow: { left: -6, right: 6, top: 8, bottom: -4 } }
     };
   }
 
@@ -86,141 +178,117 @@ export class SwarmCount extends MinigameScene {
       <div class="color-banner" data-swarm-banner hidden></div>`;
   }
 
+  // Eine Sommerwiese: Hügel und Blocktannen hinten, Blumen und Gräser vorn,
+  // ein Teich links, ein Bienenstock rechts. Ruhige Flächen hinter den Tieren,
+  // damit sie sich abheben.
   build() {
     const scene = this.scene;
-    const meadow = new THREE.Mesh(
-      new THREE.BoxGeometry(60, 0.5, 60),
-      new THREE.MeshLambertMaterial({ color: "#1c3324" })
-    );
-    meadow.position.set(0, -0.25, -12);
-    meadow.receiveShadow = true;
-    scene.add(meadow);
-
-    // Die Szene war ein Nachthimmel ohne alles: flaches Marineblau über
-    // flachem Dunkelgrün, dazwischen eine harte Kante. Ein Mond, ein
-    // Baumsaum und Sterne geben dem Blau einen Ort — und dem Zählen einen
-    // ruhigen Hintergrund, vor dem die Käfer wirklich leuchten.
-    const mond = new THREE.Mesh(
-      new THREE.CircleGeometry(1.5, 24),
-      new THREE.MeshBasicMaterial({ color: "#f3f0d8", fog: false })
-    );
-    mond.position.set(-5.5, 8.2, -24);
-    scene.add(mond);
-    // Der Hof braucht einen weichen Rand. Als gleichmässig gefüllter Kreis mit
-    // 14 % Deckkraft war er im Bild eine graue Scheibe mit sichtbarer Kante —
-    // er sah aus wie ein zweiter Himmelskörper, nicht wie Mondschein.
-    const hofBild = document.createElement("canvas");
-    hofBild.width = 64;
-    hofBild.height = 64;
-    const hofStift = hofBild.getContext("2d");
-    const hofVerlauf = hofStift.createRadialGradient(32, 32, 4, 32, 32, 32);
-    hofVerlauf.addColorStop(0, "rgba(200,214,255,0.42)");
-    hofVerlauf.addColorStop(0.45, "rgba(170,186,235,0.13)");
-    hofVerlauf.addColorStop(1, "rgba(150,166,220,0)");
-    hofStift.fillStyle = hofVerlauf;
-    hofStift.fillRect(0, 0, 64, 64);
-    const hofTex = new THREE.CanvasTexture(hofBild);
-    hofTex.colorSpace = THREE.SRGBColorSpace;
-    const hof = new THREE.Mesh(
-      new THREE.PlaneGeometry(9, 9),
-      new THREE.MeshBasicMaterial({ map: hofTex, transparent: true, fog: false, depthWrite: false })
-    );
-    hof.position.set(-5.5, 8.2, -24.1);
-    scene.add(hof);
-
-    const sterne = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.13, 0.13, 0.13),
-      new THREE.MeshBasicMaterial({ color: "#dfe6ff", fog: false }),
-      52
-    );
-    const punkt = new THREE.Object3D();
-    for (let i = 0; i < 52; i += 1) {
-      // Fester Streuer: dasselbe Sternbild bei jedem Start.
-      punkt.position.set(((i * 89) % 47) - 23, 5 + ((i * 61) % 13) * 0.86, -23);
-      punkt.scale.setScalar(0.5 + ((i * 23) % 5) * 0.35);
-      punkt.updateMatrix();
-      sterne.setMatrixAt(i, punkt.matrix);
+    const zufall = streuer(52);
+    kiste(scene, 60, 0.5, 60, "#7cbf5a", [0, -0.25, -12], { schatten: false });
+    // Hügel als flache Blöcke am Horizont.
+    [[-14, -26, 18, 5, "#8fcf6a"], [8, -30, 24, 7, "#86c463"], [24, -24, 14, 4, "#94d470"]].forEach(([x, z, w, h, farbe]) => {
+      kiste(scene, w, h, 6, farbe, [x, h / 2 - 0.5, z], { schatten: false });
+    });
+    // Blocktannen am Waldrand.
+    const stamm = [];
+    const kronen = [];
+    for (let i = 0; i < 18; i += 1) {
+      const x = -18 + i * 2.1 + (zufall() - 0.5);
+      const z = -15 - zufall() * 4;
+      const s = 0.8 + zufall() * 0.6;
+      stamm.push({ p: [x, 0.5 * s, z], s: [0.35 * s, 1 * s, 0.35 * s] });
+      kronen.push({ p: [x, 1.6 * s, z], s: [1.6 * s, 1.4 * s, 1.6 * s] });
+      kronen.push({ p: [x, 2.6 * s, z], s: [1.0 * s, 1.0 * s, 1.0 * s] });
     }
-    sterne.instanceMatrix.needsUpdate = true;
-    scene.add(sterne);
-
-    // Baumsaum am Horizont, als Silhouette.
-    const saum = new THREE.InstancedMesh(
-      new THREE.ConeGeometry(1.15, 3.2, 5),
-      new THREE.MeshBasicMaterial({ color: "#0d1a18", fog: false }),
-      26
-    );
-    const baum = new THREE.Object3D();
-    for (let i = 0; i < 26; i += 1) {
-      baum.position.set(-25 + i * 2, 1.2 + ((i * 17) % 5) * 0.3, -19 - ((i * 11) % 4) * 0.8);
-      baum.scale.set(1, 0.75 + ((i * 29) % 6) * 0.19, 1);
-      baum.updateMatrix();
-      saum.setMatrixAt(i, baum.matrix);
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#7a5330"), stamm);
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#3f8a46"), kronen);
+    // Wolken.
+    const wolken = [];
+    [[-8, 9, -24], [5, 11, -26], [14, 8.5, -22]].forEach(([x, y, z]) => {
+      wolken.push({ p: [x, y, z], s: [3.2, 0.9, 1] }, { p: [x + 0.8, y + 0.5, z], s: [1.8, 0.8, 1] });
+    });
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: "#ffffff", fog: false }), wolken);
+    // Blumen und Grasbüschel rund um die Wiese, nicht hinter den Tieren.
+    const stiele = [];
+    const blueten = { "#ff6f91": [], "#ffd15c": [], "#ffffff": [], "#b57bff": [] };
+    const farben = Object.keys(blueten);
+    for (let i = 0; i < 46; i += 1) {
+      const x = (zufall() - 0.5) * 12;
+      const z = -4.5 + zufall() * 8.5;
+      if (Math.abs(x) < 3 && z > LOG_Z - 0.6 && z < LOG_Z + 0.6) continue;
+      const h = 0.18 + zufall() * 0.2;
+      stiele.push({ p: [x, h / 2, z], s: [0.03, h, 0.03] });
+      blueten[farben[i % farben.length]].push({ p: [x, h + 0.04, z], s: [0.12, 0.08, 0.12] });
     }
-    saum.instanceMatrix.needsUpdate = true;
-    scene.add(saum);
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#3f8a46"), stiele);
+    farben.forEach((farbe) => viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert(farbe), blueten[farbe]));
+    const gras = [];
+    for (let i = 0; i < 40; i += 1) gras.push({ p: [(zufall() - 0.5) * 14, 0.06, -6 + zufall() * 11], r: [0, zufall() * 3, 0], s: [0.16, 0.12, 0.05] });
+    viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#5ea64a"), gras);
+    // Teich links hinten mit Seerosen.
+    kiste(scene, 3.2, 0.04, 2.2, "#4aa8d8", [-4.6, 0.02, -2.6], { schatten: false });
+    kiste(scene, 3.5, 0.06, 0.18, "#8f8474", [-4.6, 0.03, -1.45], { schatten: false });
+    [[-5.2, -2.9], [-4.1, -2.3], [-4.8, -3.2]].forEach(([x, z]) => kiste(scene, 0.32, 0.03, 0.32, "#4f9a48", [x, 0.05, z], { schatten: false }));
+    // Bienenstock rechts auf einem Pfahl.
+    kiste(scene, 0.12, 1.1, 0.12, "#7a5330", [4.4, 0.55, -2.4]);
+    [0, 1, 2].forEach((i) => kiste(scene, 0.7 - i * 0.12, 0.2, 0.7 - i * 0.12, i % 2 ? "#e9a93a" : "#f4c04e", [4.4, 1.2 + i * 0.2, -2.4]));
+    kiste(scene, 0.14, 0.08, 0.04, "#3a2a14", [4.4, 1.2, -2.04], { schatten: false });
 
-    // Der Schwarm wird EINMAL angelegt und danach nur ein- und ausgeblendet.
-    // 95 Käfer je Durchgang neu zu bauen hiesse, im Lauf eines Abends tausende
-    // Geometrien anzulegen und wieder wegzuwerfen.
-    const flyGeometry = new THREE.SphereGeometry(0.13, 8, 6);
-    for (let index = 0; index < MAX_SWARM; index += 1) {
-      const mesh = new THREE.Mesh(
-        flyGeometry,
-        // Additiv: vor dem Nachthimmel wird aus einer gelben Kugel ein
-        // Leuchtpunkt. Die Käfer sind das, was gezählt werden muss — sie
-        // müssen das Hellste im Bild sein.
-        new THREE.MeshBasicMaterial({
-          color: "#ffe36b", transparent: true, opacity: 0, toneMapped: false,
-          blending: THREE.AdditiveBlending, depthWrite: false
-        })
-      );
-      mesh.visible = false;
-      scene.add(mesh);
-      this.flies.push({ mesh, home: new THREE.Vector3(), drift: 0, speed: 1, lit: 0 });
-    }
-
-    // Ein Baumstamm, auf dem alle sitzen.
+    // Der Stamm: ein Blockbalken mit Rinde und Jahresringen. Seine Oberkante
+    // ist LOG_TOP — genau dort sitzen die Figuren.
     const players = this.getState()?.players || [];
     const count = Math.max(1, players.length);
-    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, count * 0.95 + 0.8, 10), new THREE.MeshLambertMaterial({ color: "#6b4a2c" }));
-    log.rotation.z = Math.PI / 2;
-    log.position.set(0, 0.24, LOG_Z);
-    log.castShadow = true;
-    scene.add(log);
-    // Ein kleines Lagerfeuer-Licht, damit man die Figuren in der Nacht sieht.
-    const glow = new THREE.PointLight(0xffc27a, 3.2, 7, 2);
-    glow.position.set(0.4, 1.4, LOG_Z + 1.4);
-    scene.add(glow);
+    const laenge = count * 0.95 + 0.8;
+    kiste(scene, laenge, LOG_TOP, 0.42, "#7a5330", [0, LOG_TOP / 2, LOG_Z]);
+    kiste(scene, laenge + 0.02, 0.06, 0.44, "#5e3f24", [0, LOG_TOP - 0.03, LOG_Z], { schatten: false });
+    [-1, 1].forEach((seite) => {
+      kiste(scene, 0.02, LOG_TOP - 0.06, 0.36, "#d9b27a", [seite * (laenge / 2 + 0.005), LOG_TOP / 2 - 0.02, LOG_Z], { schatten: false });
+      kiste(scene, 0.025, 0.14, 0.14, "#b08654", [seite * (laenge / 2 + 0.008), LOG_TOP / 2 - 0.02, LOG_Z], { schatten: false });
+    });
     players.forEach((player, index) => {
       const x = (index - (count - 1) / 2) * 0.95;
-      this.addKin(player, index, { x, ground: LOG_TOP - 0.13, z: LOG_Z, facing: Math.PI });
+      // Etwas vor der Mitte: so hängen die Beine über die Vorderkante statt
+      // im Holz zu stecken (sie zeigen zur Wiese, also nach -z).
+      this.addKin(player, index, { x, ground: LOG_TOP + 0.01, z: LOG_Z - 0.06, facing: Math.PI });
     });
   }
 
+  // Die Tiere eines Durchgangs: an Plätzen mit Mindestabstand, damit keines
+  // hinter einem anderen verschwindet. Alle Geräte würfeln gleich.
   layoutSwarm(round) {
     const random = seededRandom(round.index * 977 + round.count * 31 + 7);
     const shape = swarmShape();
     this.swarmCentre.set(0, shape.base + shape.height / 2, -0.4);
-    for (let index = 0; index < MAX_SWARM; index += 1) {
-      const fly = this.flies[index];
-      const inUse = index < round.count;
-      fly.mesh.visible = inUse;
-      if (!inUse) { fly.lit = 0; continue; }
-      // Gleichmässig in einer Kugelschale statt auf einer Scheibe: sonst
-      // sammelt sich alles in der Mitte und die Menge liest sich zu leicht ab.
-      const angle = random() * Math.PI * 2;
-      const radius = SPAWN_RADIUS * Math.sqrt(random());
-      fly.home.set(
-        Math.cos(angle) * radius,
-        shape.base + random() * shape.height,
-        Math.sin(angle) * radius * 0.72 - 0.4
-      );
-      fly.drift = random() * Math.PI * 2;
-      fly.speed = 0.6 + random() * 0.9;
-      fly.lit = 0;
-      fly.mesh.position.copy(fly.home);
+    const kind = round.kind || "bee";
+    this.clearCritters();
+    this.critterKind = kind;
+    const homes = [];
+    for (let index = 0; index < Math.min(MAX_CRITTERS, round.count); index += 1) {
+      let best = null;
+      let bestGap = -1;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const candidate = new THREE.Vector3(
+          (random() * 2 - 1) * SPAWN_RADIUS,
+          shape.base + random() * shape.height,
+          -0.4 + (random() * 2 - 1) * 0.9
+        );
+        const gap = homes.reduce((nearest, home) => Math.min(nearest, home.distanceTo(candidate)), Infinity);
+        if (gap >= MIN_GAP) { best = candidate; break; }
+        if (gap > bestGap) { bestGap = gap; best = candidate; }
+      }
+      homes.push(best);
+      const mesh = makeCritter(kind, random);
+      mesh.position.copy(best);
+      mesh.scale.setScalar(0.001);
+      mesh.userData.isFx = true;
+      this.scene.add(mesh);
+      this.critters.push({ mesh, home: best, phase: random() * Math.PI * 2, speed: 0.8 + random() * 0.5, lit: 0, last: best.clone() });
     }
+  }
+
+  clearCritters() {
+    this.critters.forEach(({ mesh }) => this.scene.remove(mesh));
+    this.critters.length = 0;
   }
 
   activeRound() {
@@ -252,7 +320,7 @@ export class SwarmCount extends MinigameScene {
   }
 
   unbind() {
-    this.flies.length = 0;
+    this.clearCritters();
   }
 
   buildControls() {
@@ -347,7 +415,7 @@ export class SwarmCount extends MinigameScene {
     if (phase === "show") {
       this.feedback?.sound("sparkle");
       // Die Spanne steht schon beim HINSEHEN da, der Regler bleibt aber
-      // gesperrt. Zu wissen, dass zwischen 45 und 95 Käfer fliegen, gehört zur
+      // gesperrt. Zu wissen, dass es zwischen 9 und 16 Tiere sind, gehört zur
       // Aufgabe — man schätzt anders, wenn man den Rahmen kennt. Erst danach
       // die Skala einzublenden hiesse, die Hälfte der Information zu spät zu
       // geben.
@@ -373,7 +441,7 @@ export class SwarmCount extends MinigameScene {
 
     if (phase === "reveal") {
       if (this.slider) this.slider.disabled = true;
-      // Beim Auflösen tauchen die Käfer wieder auf und werden hochgezählt.
+      // Beim Auflösen tauchen die Tiere wieder auf und werden hochgezählt.
       this.countUpUntil = now + 1100;
       // Die Reaktion übernimmt tick() — für alle, nicht nur die eigene Figur.
     }
@@ -395,34 +463,56 @@ export class SwarmCount extends MinigameScene {
     }
   }
 
+  // Jede Tierart bewegt sich auf ihre Weise um ihren Platz: Bienen
+  // schwirren in kleinen schnellen Schleifen, Schmetterlinge gaukeln,
+  // Vögel ziehen Kreise, Libellen stehen und schiessen ein Stück weiter.
+  // Alle bleiben in der Nähe ihres Platzes — zählbar, aber nicht still.
+  critterOffset(kind, t, phase) {
+    if (kind === "bee") return [Math.cos(t * 2.6 + phase) * 0.26, Math.sin(t * 4.1 + phase) * 0.1, Math.sin(t * 2.6 + phase) * 0.18];
+    if (kind === "butterfly") return [Math.sin(t * 0.9 + phase) * 0.32, Math.sin(t * 2.3 + phase) * 0.16, Math.cos(t * 0.7 + phase) * 0.22];
+    if (kind === "bird") return [Math.cos(t * 1.1 + phase) * 0.38, Math.sin(t * 1.6 + phase) * 0.08, Math.sin(t * 1.1 + phase) * 0.26];
+    const dart = Math.sin(t * 1.2 + phase);
+    return [Math.sign(dart) * Math.abs(dart) ** 0.3 * 0.3, Math.sin(t * 3 + phase) * 0.04, Math.cos(t * 0.6 + phase) * 0.16];
+  }
+
   syncSwarm(active, dt, now) {
     const showing = active && (active.phase === "show" || active.phase === "reveal");
-    // Beim Auflösen leuchten die Käfer NACHEINANDER auf — das ist das Zählen,
-    // das man selbst nicht geschafft hat, und der Grund, warum die Auflösung
-    // eine eigene Phase bekommt statt nur eine Zahl einzublenden.
+    // Beim Auflösen tauchen die Tiere NACHEINANDER wieder auf — das ist das
+    // Zählen, das man selbst nicht geschafft hat.
     const counting = active?.phase === "reveal";
-    const progress = counting
-      ? clamp(1 - (this.countUpUntil - now) / 1100, 0, 1)
-      : 1;
-
-    this.flies.forEach((fly, index) => {
-      if (!fly.mesh.visible) return;
-      const count = active?.round?.count || 0;
-      const wanted = !showing ? 0
-        : counting ? (index < progress * count ? 1 : 0)
-          : 1;
-      const before = fly.lit;
-      fly.lit += (wanted - fly.lit) * frameLerp(counting ? 0.5 : 0.28, dt);
-      if (counting && before < 0.5 && fly.lit >= 0.5) this.feedback?.sound("plink");
-
-      fly.drift += dt * fly.speed;
-      fly.mesh.position.set(
-        fly.home.x + Math.sin(fly.drift) * 0.18,
-        fly.home.y + Math.sin(fly.drift * 1.4 + 1) * 0.14,
-        fly.home.z + Math.cos(fly.drift * 0.8) * 0.16
-      );
-      fly.mesh.material.opacity = fly.lit;
-      fly.mesh.scale.setScalar(0.6 + fly.lit * 0.6);
+    const progress = counting ? clamp(1 - (this.countUpUntil - now) / 1100, 0, 1) : 1;
+    const t = now / 1000;
+    const count = this.critters.length;
+    this.critters.forEach((critter, index) => {
+      const wanted = !showing ? 0 : counting ? (index < progress * count ? 1 : 0) : 1;
+      const before = critter.lit;
+      critter.lit += (wanted - critter.lit) * frameLerp(counting ? 0.5 : 0.3, dt);
+      if (counting && before < 0.5 && critter.lit >= 0.5) this.feedback?.sound("plink");
+      const { kind, body, wings } = critter.mesh.userData;
+      const [ox, oy, oz] = this.critterOffset(kind, t * critter.speed, critter.phase);
+      const x = critter.home.x + ox;
+      const y = critter.home.y + oy;
+      const z = critter.home.z + oz;
+      // In Flugrichtung drehen.
+      const dx = x - critter.last.x;
+      const dz = z - critter.last.z;
+      if (Math.hypot(dx, dz) > 1e-4) {
+        const want = Math.atan2(-dz, dx);
+        const diff = Math.atan2(Math.sin(want - body.rotation.y), Math.cos(want - body.rotation.y));
+        body.rotation.y += diff * frameLerp(0.25, dt);
+      }
+      critter.last.set(x, y, z);
+      critter.mesh.position.set(x, y, z);
+      // Flügel schlagen: schnell bei Bienen und Libellen, weit beim
+      // Schmetterling, mit Gleitpausen beim Vogel.
+      const beat = kind === "bee" ? Math.sin(t * 60) * 0.7
+        : kind === "dragonfly" ? Math.sin(t * 48) * 0.35
+          : kind === "butterfly" ? Math.sin(t * 9 + critter.phase) * 1.1
+            : (Math.sin(t * 1.3 + critter.phase) > 0 ? Math.sin(t * 14 + critter.phase) * 0.8 : 0.15);
+      wings.forEach(({ joint, side }) => { joint.rotation.x = side * beat; });
+      const pop = critter.lit < 0.999 ? Math.sin(critter.lit * Math.PI) * 0.25 : 0;
+      critter.mesh.scale.setScalar(Math.max(0.001, (critter.lit + pop) * CRITTER_SIZE));
+      critter.mesh.visible = critter.lit > 0.01;
     });
   }
 
@@ -527,14 +617,14 @@ export class SwarmCount extends MinigameScene {
     if (!active) { banner.hidden = true; return; }
     if (active.phase === "show") {
       banner.hidden = false;
-      banner.textContent = "HINSEHEN …";
+      banner.textContent = `${(KIND_WORDS[active.round.kind] || "Tiere").toUpperCase()} — HINSEHEN …`;
       banner.style.background = "#ffd15c";
       banner.style.color = "#4a3405";
       return;
     }
     if (active.phase === "guess") {
       banner.hidden = false;
-      banner.textContent = "Wie viele waren es?";
+      banner.textContent = `Wie viele ${KIND_WORDS[active.round.kind] || "Tiere"} waren es?`;
       banner.style.background = "#7fe06f";
       banner.style.color = "#14361a";
       return;
