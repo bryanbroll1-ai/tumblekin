@@ -20,6 +20,11 @@ const HOOK_Y = 2.35;
 const PIER_X = 3.4;
 const WOBBLE = 0.06;
 const BAND_Z = 0.74;             // Sicherheitsleiste an der vorderen Bordwand
+const CAPSIZE_ACCEL = 7;         // rad/s²: so schnell rollt ein kenterndes Boot um
+
+function clampNum(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
 
 export class BalanceBoat extends MinigameScene {
   constructor(ctx) {
@@ -29,6 +34,7 @@ export class BalanceBoat extends MinigameScene {
     this.riders = [];               // Tiere im Boot
     this.falling = [];              // Tiere, die gerade ins Wasser fliegen
     this.tilt = 0;
+    this.tiltVel = 0;               // Schaukeln als gedämpfte Feder
     this.leaving = null;
     this.arriveAt = 0;
     this.labelY = 0.78;
@@ -343,15 +349,21 @@ export class BalanceBoat extends MinigameScene {
     });
   }
 
+  keepInView() {
+    return [];
+  }
+
   shot() {
     return {
-      // Steiler als zuerst (0.26): flach von der Seite lag das Boot als
-      // schmaler Streifen im Bild, darunter nur Wasser. Von etwas oben sieht
-      // man, wo die Passagiere sitzen — und genau darum geht es.
-      look: [0.45, 1.3, -0.6],
-      frame: { w: 6.8, h: 3.8 },
-      pitch: 0.4,
-      yaw: -0.18,
+      // Ein fester Ausschnitt auf Boot und Kran, von schräg oben. Vorher
+      // rahmte die Kamera auch alle Figuren auf dem Steg ein — und weil bei
+      // jedem Zug einer zum Hebel lief, zoomte sie jedes Mal heraus und
+      // wieder herein. Wer dran ist, steht in der Anzeige oben; der Steg
+      // ragt rechts ins Bild.
+      look: [0.25, 1.05, -0.7],
+      frame: { w: 6.2, h: 3.6 },
+      pitch: 0.5,
+      yaw: -0.12,
       fov: 38,
       intro: { yaw: -0.5, pitch: 0.3, zoom: 1.4 },
       finale: { pull: 0.8, zoom: 0.7, lift: 0.3, orbit: 0.12 }
@@ -485,6 +497,9 @@ export class BalanceBoat extends MinigameScene {
       const kin = this.kins.get(last.playerId);
       if (last.kind === "place") {
         this.syncRiders(state.passengers);
+        // Der Aufprall drückt die Seite kurz herunter: das Boot schaukelt
+        // nach, je schwerer und je weiter aussen, desto mehr.
+        this.tiltVel += -Math.sign(last.x || 0) * Math.min(1.4, 0.25 + last.w * Math.abs(last.x) * 0.3);
         const tier = this.riders[this.riders.length - 1];
         if (tier) this.burst(this.boat.localToWorld(tier.userData.spot ? new THREE.Vector3(tier.userData.spot.x, tier.userData.spot.y + 0.3, 0) : new THREE.Vector3()), ["#ffffff", "#bfe6ff"], { count: 6, speed: 1, up: 1, size: 0.05, life: 0.4 });
         if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), `+${last.points}`, { color: last.points >= 6 ? "#ffe36b" : "#ffffff", size: 0.4 });
@@ -493,17 +508,17 @@ export class BalanceBoat extends MinigameScene {
           this.feedback?.vibrate(12);
         }
       } else if (last.kind === "capsize") {
-        // Alles fliegt ins Wasser, das Boot schlägt um.
+        // Das Boot rollt um, immer schneller, wie ein fallender Körper. Die
+        // Passagiere bleiben erst sitzen und rutschen ab, sobald es steil
+        // genug wird — die auf der tiefen Seite zuerst. Vorher flogen alle
+        // im selben Augenblick in Zufallsrichtungen davon.
         this.syncRiders(last.passengers);
+        const side = last.side || 1;
         this.riders.forEach((tier) => {
-          const world = tier.getWorldPosition(new THREE.Vector3());
-          this.boat.remove(tier);
-          tier.position.copy(world);
-          this.scene.add(tier);
-          this.falling.push({ tier, at: nowP, vx: (Math.random() - 0.5) * 2 + last.side * 1.5, vy: 2.5 + Math.random(), vz: (Math.random() - 0.5) * 1.5 });
+          const outward = (tier.userData.spot?.x || 0) * side;
+          tier.userData.detachAt = clampNum(0.62 - outward * 0.12 + (tier.userData.spot?.y || 0) * 0.15, 0.35, 1.1);
         });
-        this.riders = [];
-        this.leaving = { kind: "capsize", at: nowP, side: last.side || 1 };
+        this.leaving = { kind: "capsize", at: nowP, side, from: this.boat.rotation.z };
         this.burst(new THREE.Vector3(last.side * 1.5, 0.3, -0.9), ["#ffffff", "#bfe6ff", "#35c3d6"], { count: 30, speed: 3, up: 3, size: 0.1, life: 1 });
         if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "PLATSCH! −30", { color: "#bfe6ff", size: 0.4, life: 1.3 });
         this.animators.get(last.playerId)?.trigger("facepalm");
@@ -525,10 +540,37 @@ export class BalanceBoat extends MinigameScene {
     }
     // Ein altes Boot verschwindet, ein neues kommt von links.
     if (this.leaving) {
-      const u = (nowP - this.leaving.at) / 1400;
+      const u = (nowP - this.leaving.at) / (this.leaving.kind === "capsize" ? 1700 : 1400);
       if (this.leaving.kind === "capsize") {
-        this.boat.rotation.z = Math.min(1, u * 2.2) * 1.9 * -this.leaving.side;
-        this.boat.position.y = BOAT_Y - Math.max(0, u - 0.4) * 0.8;
+        // Gleichmässig beschleunigt bis kieloben (π), dann treibt es kurz und
+        // sinkt. Die Drehung kippt zur schweren Seite.
+        const s = (nowP - this.leaving.at) / 1000;
+        const dir = -this.leaving.side;
+        const roll = Math.min(Math.PI - Math.abs(this.leaving.from), 0.5 * CAPSIZE_ACCEL * s * s);
+        const spin = Math.min(CAPSIZE_ACCEL * s, 6);
+        this.boat.rotation.z = this.leaving.from + dir * roll;
+        const flipped = roll >= Math.PI - Math.abs(this.leaving.from) - 1e-3;
+        this.boat.position.y = BOAT_Y + (flipped ? -Math.min(0.9, (s - 0.95) * 0.7) : -Math.sin(roll) * 0.12);
+        this.boat.position.x = dir * -Math.sin(roll * 0.5) * 0.35;
+        // Wer zu steil sitzt, rutscht ab: mit der Bahngeschwindigkeit der
+        // Drehung (ω × r) und etwas nach aussen.
+        this.riders = this.riders.filter((tier) => {
+          if (roll < tier.userData.detachAt) {
+            tier.rotation.z = -dir * Math.min(0.5, roll * 0.4);
+            return true;
+          }
+          const world = tier.getWorldPosition(new THREE.Vector3());
+          const quat = tier.getWorldQuaternion(new THREE.Quaternion());
+          this.boat.remove(tier);
+          tier.position.copy(world);
+          tier.quaternion.copy(quat);
+          this.scene.add(tier);
+          const rx = world.x - this.boat.position.x;
+          const ry = world.y - this.boat.position.y;
+          const omega = dir * spin;
+          this.falling.push({ tier, at: nowP, vx: -omega * ry + dir * 0.6, vy: omega * rx + 0.6, vz: (Math.random() - 0.5) * 0.6, spin: dir * (3 + Math.random() * 3) });
+          return false;
+        });
       } else {
         // Hinaus aufs Meer, weg von der Kamera. Vorher segelte das Boot nach
         // rechts — mitten durch den Steg, und die Passagiere fuhren durch die
@@ -546,6 +588,8 @@ export class BalanceBoat extends MinigameScene {
         this.boat.userData.segel.visible = false;
         this.boat.rotation.z = 0;
         this.boat.rotation.y = 0;
+        this.tilt = 0;
+        this.tiltVel = 0;
         this.boat.position.set(-9, BOAT_Y, -0.9);
         this.arriveAt = nowP;
       }
@@ -555,16 +599,26 @@ export class BalanceBoat extends MinigameScene {
     }
     if (!this.leaving) this.syncRiders(state.passengers);
 
-    // Neigung: folgt dem Drehmoment, dazu ein leichtes Schaukeln.
+    // Neigung: eine gedämpfte Feder zum Drehmoment hin — das Boot schwingt
+    // nach jedem Aufprall nach und kommt dann zur Ruhe. Nahe der Kippgrenze
+    // wird die Feder weich: dann wackelt es bedrohlich.
     const target = this.leaving ? this.tilt : Math.max(-0.42, Math.min(0.42, -(state.torque / state.torqueMax) * 0.38));
-    this.tilt += (target - this.tilt) * frameLerp(0.1, dt);
+    if (!this.leaving) {
+      const danger = Math.min(1, Math.abs(state.torque) / state.torqueMax);
+      const stiffness = 16 - danger * 7;
+      const step = Math.min(dt, 0.05);
+      this.tiltVel += ((target - this.tilt) * stiffness - this.tiltVel * 3.2) * step;
+      this.tilt += this.tiltVel * step;
+    }
     if (!this.leaving || this.leaving.kind !== "capsize") {
       this.boat.rotation.z = this.tilt + Math.sin(now / 700) * WOBBLE * 0.4;
-      this.boat.position.y = BOAT_Y + Math.sin(now / 900) * 0.03;
+      this.boat.position.y = BOAT_Y + Math.sin(now / 900) * 0.03 - Math.abs(this.tiltVel) * 0.02;
     }
-    this.riders.forEach((tier) => {
+    this.riders.forEach((tier, i) => {
       const spot = tier.userData.spot;
       if (spot) tier.position.y += (spot.y - tier.position.y) * frameLerp(0.3, dt);
+      // Die Tiere stemmen sich gegen die Schräge und wanken beim Schaukeln.
+      if (!this.leaving) tier.rotation.z = -this.tilt * 0.55 - this.tiltVel * 0.08 + Math.sin(now / 260 + i) * 0.02;
     });
 
     // Fallende Tiere: Bogen ins Wasser, platschen, treiben kurz.
@@ -579,7 +633,8 @@ export class BalanceBoat extends MinigameScene {
       if (!fall.wet) {
         fall.vy -= 9 * dt;
         fall.tier.position.y += fall.vy * dt;
-        fall.tier.rotation.x += dt * 5;
+        fall.tier.rotation.z += dt * (fall.spin ?? 5);
+        fall.tier.rotation.x += dt * 1.5;
         if (fall.tier.position.y < 0) {
           fall.wet = true;
           fall.vx *= 0.2;
