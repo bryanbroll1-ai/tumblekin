@@ -156,7 +156,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆↔️ Links/Rechts wischen
 
-- **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Fang Münzen und weich den Bomben aus — fünf Fänge in Folge verdoppeln jede Münze, zehn verdreifachen sie. Am Ende kommt der Goldrausch, und eine Schatztruhe fällt in die angesagte Spur.
+- **Münzregen:** Wisch nach links oder rechts, um die Spur zu wechseln. Aus der Mine fliegen Münzen und Bomben, der Kreis in der Spur zeigt, wo sie landen. Fang Münzen und weich den Bomben aus — fünf Fänge in Folge verdoppeln jede Münze, zehn verdreifachen sie. Am Ende kommt der Goldrausch, und eine Schatztruhe fällt in die angesagte Spur.
 
 ### 👆⏺️ Bild halten · Knopf abwerfen
 

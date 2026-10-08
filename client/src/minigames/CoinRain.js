@@ -4,8 +4,8 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
 import { frameLerp } from "./Quality.js?v=tumblekin211";
 import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin211";
 
-// Münzregen: drei Spuren, oben eine Münzmaschine, die Münzen, Edelsteine und
-// Bomben ausspuckt. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den
+// Münzregen: drei Spuren vor einer Goldmine. Aus dem Stollen fliegen Münzen,
+// Edelsteine und Bomben im Bogen in die Spuren; ein Zielkreis zeigt, wo. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den
 // Wert (×2, ×3), in den letzten Sekunden kommt der Goldrausch, und zum Schluss
 // fällt eine Schatztruhe in eine vorher angesagte Spur.
 //
@@ -14,9 +14,17 @@ import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin
 // nach oben zu dem, was in ihrer Spur fällt, strecken die Arme zum Fangen,
 // rennen seitlich in die neue Spur und fliegen bei einer Bombe rußig zurück.
 const LANE_WIDTH = 1.35;
-const DROP_TOP_Y = 3.05;
 const CATCH_Y = 1.05;
 const KIN_Z = 0.7;
+const WALL_Z = -6.4;
+// Die Würfe starten im Stolleneingang, je Spur ein Stück versetzt, und fliegen
+// im Bogen nach vorn bis in Fanghöhe. Vorher fiel alles aus einer Maschine,
+// die über den Spuren schwebte und den Stollen verdeckte.
+const MOUTH_Y = 1.0;
+const MOUTH_Z = WALL_Z + 0.95;
+const ARC_HEIGHT = 1.5;
+// Kleiner als früher: eine Münze war so breit wie ein Kopf.
+const DROP_SCALE = { coin: 0.66, gem: 0.68, gold: 0.68, bomb: 0.66, jackpot: 0.8 };
 
 export class CoinRain extends MinigameScene {
   constructor(ctx) {
@@ -52,29 +60,16 @@ export class CoinRain extends MinigameScene {
       this.laneStrips.push(strip);
     }
 
-    // Die Münzmaschine: ein Kasten mit drei Rohren, der leicht hin und her
-    // wackelt und blinkt, wenn er etwas ausspuckt.
-    const machine = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3 + 0.4, 0.8, 0.9), new THREE.MeshLambertMaterial({ color: "#7a5230" }));
-    body.position.y = 0.6;
-    machine.add(body);
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 3 + 0.5, 0.14, 1.0), new THREE.MeshLambertMaterial({ color: "#5a5f68" }));
-    trim.position.y = 1.02;
-    machine.add(trim);
+    // Über dem Stolleneingang je Spur eine Lampe: sie blitzt, wenn ein Wurf in
+    // diese Spur geht.
     this.lamps = [];
     for (let lane = 0; lane < 3; lane += 1) {
-      const x = this.laneX(lane);
-      const chute = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, 0.4, 8), new THREE.MeshLambertMaterial({ color: "#6f757e" }));
-      chute.position.set(x, 0.05, 0);
-      machine.add(chute);
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.06), new THREE.MeshBasicMaterial({ color: "#5a3a22" }));
-      lamp.position.set(x, 0.62, 0.47);
-      machine.add(lamp);
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.06), new THREE.MeshBasicMaterial({ color: "#5a3a22" }));
+      lamp.position.set((lane - 1) * 0.85, 3.8, WALL_Z + 1.0);
+      scene.add(lamp);
       this.lamps.push({ lamp, flash: 0 });
     }
-    machine.position.set(0, DROP_TOP_Y + 0.1, -0.2);
-    scene.add(machine);
-    this.machine = machine;
+    this.markerGeo = new THREE.RingGeometry(0.2, 0.3, 16);
 
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
@@ -102,7 +97,7 @@ export class CoinRain extends MinigameScene {
     viele(scene, new THREE.DodecahedronGeometry(1, 0), lambert("#8f8474"), kiesel);
 
     // Felswand mit Stollen.
-    const wandZ = -6.4;
+    const wandZ = WALL_Z;
     const fels = [];
     for (let x = -9; x <= 9; x += 1.0) {
       for (let y = 0.4; y < 7; y += 0.95) fels.push({ p: [x + (zufall() - 0.5) * 0.5, y + (zufall() - 0.5) * 0.4, wandZ - zufall() * 0.5], r: [zufall(), zufall(), zufall()], s: 0.55 + zufall() * 0.35 });
@@ -222,7 +217,19 @@ export class CoinRain extends MinigameScene {
     return (index - 1.5) * 0.42;
   }
 
+  // Jeder Wurf steckt in einem Halter: die Form darin ist verkleinert, der
+  // Halter selbst darf beim Fangen aufblitzen (scale) ohne die Grösse zu verlieren.
   buildDropMesh(kind) {
+    const shape = this.buildDropShape(kind);
+    shape.scale.setScalar(DROP_SCALE[kind] ?? 0.66);
+    const holder = new THREE.Group();
+    holder.add(shape);
+    holder.userData.core = shape.userData.core;
+    holder.userData.halo = shape.userData.halo;
+    return holder;
+  }
+
+  buildDropShape(kind) {
     if (kind === "gold") {
       const coin = new THREE.Group();
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.12, 12), new THREE.MeshLambertMaterial({ color: "#ffd84a", emissive: "#ffb300", emissiveIntensity: 0.8 }));
@@ -456,7 +463,6 @@ export class CoinRain extends MinigameScene {
     // Münze im Bild noch fällt, steht beim Server auch rechtzeitig darunter.
     const elapsed = Math.max(0, this.arrivalNow() - f.minigame.startedAt);
     const fallMs = arcade.fallMs || 1400;
-    this.machine.position.x = Math.sin(now / 1600) * 0.12;
     // Goldrausch: die Maschine blinkt golden, der Himmel wird warm.
     const gold = arcade.goldFrom && elapsed >= arcade.goldFrom && !finale;
     if (gold && !this.goldStarted) {
@@ -464,7 +470,7 @@ export class CoinRain extends MinigameScene {
       this.rig.shake(0.5);
       this.feedback?.sound("sparkle");
       this.feedback?.vibrate([12, 20, 12, 20, 24]);
-      this.burst(new THREE.Vector3(0, DROP_TOP_Y + 0.6, 0), ["#ffd84a", "#ffffff", "#ff9a4d"], { count: 40, speed: 3.4, up: 2.6, size: 0.1, life: 1.2, drag: 1.2 });
+      this.burst(new THREE.Vector3(0, MOUTH_Y + 0.6, MOUTH_Z + 0.4), ["#ffd84a", "#ffffff", "#ff9a4d"], { count: 40, speed: 3.4, up: 2.6, size: 0.1, life: 1.2, drag: 1.2 });
     }
     if (this.scene.background?.isColor) {
       this.scene.background.lerp(new THREE.Color(gold ? "#ffe3a6" : "#bfe6f2"), frameLerp(0.03, dt));
@@ -495,10 +501,30 @@ export class CoinRain extends MinigameScene {
         this.dropMeshes.set(drop.id, mesh);
         const lamp = this.lamps[drop.lane];
         if (lamp) lamp.flash = 1;
+        // Der Zielkreis in der Spur: von Anfang an klar, wo der Wurf landet.
+        const marker = new THREE.Mesh(this.markerGeo, new THREE.MeshBasicMaterial({
+          color: drop.kind === "bomb" ? "#ff4a2a" : drop.kind === "gem" ? "#3fd8ff" : "#ffd84a",
+          transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide
+        }));
+        marker.rotation.x = -Math.PI / 2;
+        marker.position.set(this.laneX(drop.lane), 0.075, KIN_Z - 0.1);
+        marker.userData.isFx = true;
+        this.scene.add(marker);
+        mesh.userData.marker = marker;
       }
       const t = Math.min(1, (elapsed - fallFrom) / fallMs);
       const past = elapsed - drop.catchAt;
-      mesh.position.set(this.laneX(drop.lane) + this.machine.position.x * (1 - t), DROP_TOP_Y - t * t * (DROP_TOP_Y - CATCH_Y), KIN_Z - 0.1);
+      const fromX = this.laneX(drop.lane) * 0.4;
+      const toX = this.laneX(drop.lane);
+      const toZ = KIN_Z - 0.1;
+      const arc = ARC_HEIGHT * (drop.kind === "jackpot" ? 1.4 : 1);
+      mesh.position.set(fromX + (toX - fromX) * t, MOUTH_Y + (CATCH_Y - MOUTH_Y) * t + arc * 4 * t * (1 - t), MOUTH_Z + (toZ - MOUTH_Z) * t);
+      const marker = mesh.userData.marker;
+      if (marker) {
+        marker.visible = past < 0;
+        marker.scale.setScalar(0.7 + t * 0.9);
+        marker.material.opacity = 0.25 + t * 0.6;
+      }
       mesh.rotation.y = drop.kind === "jackpot" ? Math.sin(now / 300) * 0.4 : now / 260 + drop.id;
       // Ob jemand in der Spur stand, entscheidet sich einmal, beim Fang.
       if (past >= 0 && mesh.userData.caught === undefined) {
@@ -513,7 +539,7 @@ export class CoinRain extends MinigameScene {
         mesh.rotation.y += u * 6;
         if (!mesh.userData.flashed) {
           mesh.userData.flashed = true;
-          this.bursts.ring(mesh.position.clone(), "#ffe36b", { radius: drop.kind === "coin" ? 0.45 : 0.7, life: 0.3, y: mesh.position.y });
+          this.bursts.ring(mesh.position.clone(), "#ffe36b", { radius: drop.kind === "coin" ? 0.32 : 0.5, life: 0.3, y: mesh.position.y });
         }
       } else if (caught) {
         // Die Bombe geht an der Figur hoch (siehe unten) und ist weg.
@@ -524,7 +550,7 @@ export class CoinRain extends MinigameScene {
         // oder wem man ausgewichen ist. Vorher blieb alles in Kopfhöhe stehen
         // und verschwand.
         const fall = Math.min(1, past / 230);
-        const groundY = drop.kind === "jackpot" ? 0.3 : 0.16;
+        const groundY = drop.kind === "jackpot" ? 0.26 : 0.12;
         mesh.position.y = CATCH_Y - fall * fall * (CATCH_Y - groundY);
         if (fall >= 1) {
           if (drop.kind === "bomb") {
@@ -555,6 +581,11 @@ export class CoinRain extends MinigameScene {
     this.dropMeshes.forEach((mesh, id) => {
       if (active.has(id)) return;
       this.scene.remove(mesh);
+      const marker = mesh.userData.marker;
+      if (marker) {
+        this.scene.remove(marker);
+        marker.material.dispose();
+      }
       this.dropMeshes.delete(id);
     });
     this.lamps.forEach((entry) => {
