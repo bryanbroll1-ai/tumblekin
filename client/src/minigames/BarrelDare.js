@@ -610,6 +610,7 @@ export class BarrelDare extends MinigameScene {
   drawHud(f) {
     const { arcade, minigame } = f;
     if (!arcade) return;
+    const fass = arcade.dare || NORMAL_FASS;
     const own = arcade.players[f.controlledId];
     const lane = this.lanes.get(f.controlledId);
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
