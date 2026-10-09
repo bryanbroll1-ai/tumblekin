@@ -4,7 +4,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin213";
 import { frameLerp } from "./Quality.js?v=tumblekin213";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
-import { forecastBook } from "./Buchseite.js?v=tumblekin213";
+import { forecastBook, inHole, bookRules } from "./Buchseite.js?v=tumblekin213";
 
 // Bücherwurm — alle stehen auf der aufgeschlagenen Seite eines Riesenbuchs,
 // das auf einem Schreibtisch liegt. Hinten richtet sich die nächste Seite
@@ -24,8 +24,10 @@ const PAGE_Y = 0.02;
 const SETTLE_MS = 140;         // so schnell legt sich die aufgeschlagene Seite flach
 const LIE_Y = PAGE_Y - 0.004;  // liegt knapp unter den Sohlen, über der Buchseite darunter
 const FLY_Y = PAGE_Y + 0.02;
-const GONE_DELAY_MS = 450;     // so lange sieht man den Pfannkuchen, dann …
-const GONE_FADE_MS = 300;      // … verschwindet er unter der Seite
+// So lange nach dem Aufschlag gilt: wer in keinem Loch steht, liegt unter
+// der Seite — auch wenn die Vorausrechnung das „raus" erst einen Schritt
+// später meldet.
+const COVER_MS = 250;
 const STICK_GAP_MS = 40;       // Stick höchstens so oft schicken
 const TICK_LEAD_MS = 45;       // halber Servertakt (90 ms), siehe stickAt
 
@@ -40,7 +42,6 @@ export class BookSquirm extends MinigameScene {
     this.lastPingAt = 0;
     this.view = null;               // Vorausrechnung zur Ankunftszeit (forecastBook)
     this.flat = new Map();
-    this.goneSince = new Map();     // playerId → seit wann raus (Bildzeit)
     this.seenSlam = -1;
     this.labelY = 0.78;
     this.steam = [];
@@ -73,7 +74,17 @@ export class BookSquirm extends MinigameScene {
     const arcade = this.minigame?.arcade;
     players.forEach((player, index) => {
       const entry = arcade?.players?.[player.id];
-      this.addKin(player, index, { x: entry?.x ?? 0, ground: PAGE_Y, z: entry?.z ?? 0, facing: 0 });
+      const kin = this.addKin(player, index, { x: entry?.x ?? 0, ground: PAGE_Y, z: entry?.z ?? 0, facing: 0 });
+      // Wie hoch eine Figur ist (ohne Namensschild): so weit muss die
+      // fallende Seite noch über ihr sein, sonst wird sie zusammengedrückt.
+      if (!this.kinH) {
+        const label = kin.userData.label;
+        if (label) label.visible = false;
+        kin.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(kin);
+        if (label) label.visible = true;
+        this.kinH = Math.max(0.3, box.max.y - PAGE_Y);
+      }
     });
   }
 
@@ -451,6 +462,8 @@ export class BookSquirm extends MinigameScene {
     // Seiten: anlegen, kurz bevor sie sich aufrichten; heranklappen; liegen
     // lassen. Eine aufgeschlagene Seite bleibt vorn liegen, bis die nächste
     // auf ihr landet — dann wird sie zur Buchseite darunter.
+    this.falling = null;
+    this.landed = null;
     state.pages.forEach((page) => {
       const next = state.pages[page.index + 1];
       const started = elapsed >= page.at - 200;
@@ -484,6 +497,8 @@ export class BookSquirm extends MinigameScene {
         y = FLY_Y + (LIE_Y - FLY_Y) * r;
       }
       entry.pivot.rotation.x = angle;
+      if (elapsed >= page.at && elapsed < page.slamAt) this.falling = { page, angle };
+      if (elapsed >= page.slamAt && elapsed < page.slamAt + COVER_MS) this.landed = page;
       entry.pivot.position.y = y;
       // Nur die liegende Seite ist Boden. Im Flug schlägt sie absichtlich auf
       // alle herunter, die in keinem Loch stehen — das ist das Spiel und für
@@ -535,9 +550,9 @@ export class BookSquirm extends MinigameScene {
         const face = Math.atan2(mx, mz);
         kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.3, dt);
       }
-      // Platt gedrückt: flach wie Papier. Wer raus ist, verschwindet danach
-      // unter der Seite — nur wer trotzdem gewinnt (alle sind raus), ploppt
-      // zum Jubeln wieder auf.
+      // Platt gedrückt: flach wie Papier. Wer raus ist, liegt unter der Seite
+      // und ist damit weg — nur wer trotzdem gewinnt (alle sind raus),
+      // ploppt zum Jubeln wieder auf.
       const comeback = Boolean(f.finale) && f.places?.[player.id] === 1;
       const out = entry.outAt !== null && entry.outAt !== undefined && !comeback;
       const flat = out || view.at < (entry.flatUntil || 0);
@@ -552,24 +567,33 @@ export class BookSquirm extends MinigameScene {
         this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.4, 0)), [player.color, "#ffffff"], { count: 8, speed: 1.4, up: 1.6, size: 0.06, life: 0.5 });
       }
       this.flat.set(player.id, Boolean(flat));
+      const squash = flat ? 0.14 : 1;
+      kin.scale.y += (squash - kin.scale.y) * frameLerp(flat ? 0.6 : 0.25, dt);
+      // Die fallende Seite drückt jeden, der nicht in einem ihrer Löcher
+      // steht, schon im Fallen mit sich herunter — vorher ragte der Kopf
+      // durch das Papier.
+      const rules = bookRules(arcade);
+      const falling = this.falling;
+      let pressed = false;
+      if (falling && !flat && falling.angle > Math.PI / 2 && !inHole(rules, falling.page, entry.x, entry.z)) {
+        // Gemessen an der hinteren Kante der Figur: dort, näher am Falz,
+        // ist die Seite schon am tiefsten.
+        const back = Math.max(0, kin.position.z - 0.35 * kin.scale.z + this.D / 2);
+        const above = back * Math.sin(falling.angle) - 0.05;
+        kin.scale.y = Math.min(kin.scale.y, Math.max(0.06, above / (this.kinH * 1.1)));
+        // Liegt die Seite schon fast auf, ist die Figur unter ihr verschwunden.
+        pressed = above < 0.1;
+      }
+      kin.scale.x = kin.scale.z = 1 + (1 - kin.scale.y) * 0.35;
       // Platt unter der Seite zu liegen ist gewollt, kein Versinken.
       kin.userData.sunk = Boolean(flat) || kin.scale.y < 0.9;
-      const squash = out ? 0.06 : flat ? 0.14 : 1;
-      kin.scale.y += (squash - kin.scale.y) * frameLerp(flat ? 0.6 : 0.25, dt);
-      kin.scale.x = kin.scale.z = 1 + (1 - kin.scale.y) * 0.35;
       // Der Nullpunkt der Figur liegt in der Körpermitte; flachgedrückt muss
       // sie mit ihm absinken, sonst schwebte der Pfannkuchen über der Seite.
       animator.groundY = PAGE_Y + KIN_SOLE * kin.scale.y;
-      if (out) {
-        if (!this.goneSince.has(player.id)) this.goneSince.set(player.id, now);
-        const left = 1 - Math.max(0, now - this.goneSince.get(player.id) - GONE_DELAY_MS) / GONE_FADE_MS;
-        this.fade(player.id, Math.max(0, left));
-        kin.visible = left > 0;
-      } else if (this.goneSince.has(player.id)) {
-        this.goneSince.delete(player.id);
-        this.fade(player.id, 1);
-        kin.visible = true;
-      }
+      // Raus heisst: unter der Seite, also sofort unsichtbar — vom Bild an,
+      // in dem die Seite aufschlägt.
+      const covered = !comeback && Boolean(this.landed) && !inHole(rules, this.landed, entry.x, entry.z);
+      kin.visible = !(out || covered || pressed);
       if (f.finale) return;
       if (flat) animator.set("dizzy");
       else if (moving) animator.set("run");
