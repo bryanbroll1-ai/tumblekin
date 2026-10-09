@@ -3,15 +3,16 @@ import { createShadowBlob } from "./VoxelKit.js?v=tumblekin213";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
 import { frameLerp } from "./Quality.js?v=tumblekin213";
 import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin213";
+import { buildSortItem } from "./SortItems.js?v=tumblekin213";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
 // wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt
 // ein Schild mit ihrer Kategorie, und ab und zu tauschen die Schilder.
 //
-// Die Kisten auf dem Band sind neutral: nur das Symbol darauf sagt, wohin sie
-// gehören. Mit farbigen Paketen war das reine Farberkennung; jetzt muss man
-// kurz hinschauen und überlegen — besonders bei den Verwechslern (Orange oder
-// Basketball?).
+// Auf dem Band liegen die Dinge selbst als kleine Modelle (SortItems.js) —
+// nur ihre Form sagt, wohin sie gehören. Mit farbigen Paketen war das reine
+// Farberkennung; jetzt muss man kurz hinschauen und überlegen — besonders bei
+// den Verwechslern (Orange oder Basketball?).
 //
 // Vorher stand die Figur daneben und schaute zu, während die Pakete von
 // allein flogen. Jetzt greift sie nach dem Paket, das in Reichweite kommt,
@@ -44,7 +45,6 @@ const CATEGORIES = [
   { name: "MÜLL", icon: "🗑️" },
   { name: "SPIELZEUG", icon: "🧸" }
 ];
-const CRATE_COLOUR = "#c9a26f";
 // Wie auf dem Server: ab hier ist das vorderste Teil greifbar, so weit stehen
 // die Teile auseinander, so lange vorher wird ein Tausch angekündigt.
 const REACH_AT = 0.34;
@@ -277,34 +277,16 @@ export class SortBelt extends MinigameScene {
   // Die Paketkörper werden EINMAL gebaut und weiterverwendet. Neue Meshes je
   // Paket wären auf dem Handy der teuerste Teil der Szene — und es sind über
   // die Runde leicht sechzig Stück.
+  // Auf dem Band liegt das Ding selbst — Banane, Dose, Teddy — als kleines
+  // Modell (SortItems.js). Vorher war es eine Kiste mit einer Symbolblase
+  // darüber; man sortierte Bildchen statt Sachen.
   buildParcels() {
-    const geo = new THREE.BoxGeometry(1, 1, 1);
     for (let i = 0; i < 5; i += 1) {
       const group = new THREE.Group();
-      const box = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: CRATE_COLOUR }));
-      box.castShadow = true;
-      group.add(box);
-      // Zwei helle Bänder über das Paket: sie zeigen die Drehung und machen die
-      // Farbe auch dann noch lesbar, wenn das Paket klein am Horizont steht.
-      const tapeMat = new THREE.MeshLambertMaterial({ color: "#fff4dc" });
-      const tapeA = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.14, 0.22), tapeMat);
-      tapeA.position.y = 0.02;
-      group.add(tapeA);
-      const tapeB = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 1.04), tapeMat);
-      tapeB.position.y = 0.02;
-      group.add(tapeB);
-      // Das Ding in der Kiste: ein grosses Symbol auf weissem Teller, das
-      // immer zur Kamera zeigt.
-      const item = makeCanvasSprite(128, 128);
-      item.position.y = 1.25;
-      item.scale.set(1.8, 1.8, 1);
-      group.add(item);
       this.scene.add(group);
-
       const shadow = createShadowBlob(0.42);
       this.scene.add(shadow);
-
-      this.parcels.push({ group, box, item, shadow, wobble: Math.random() * 6.28, shownId: null });
+      this.parcels.push({ group, model: null, shadow, wobble: Math.random() * 6.28, shownId: null });
     }
   }
 
@@ -407,10 +389,13 @@ export class SortBelt extends MinigameScene {
     // Hinweiszeile war leerer Hallenboden. Jetzt sitzen sie im unteren Drittel,
     // wo der Daumen ohnehin ist, und das Band mit den kommenden Teilen füllt
     // die Mitte.
+    // Weiter weg und etwas steiler: die drei Körbe an der Bandkante müssen
+    // ganz über der Bedienung stehen — vorher lagen sie halb unter der
+    // Hinweiszeile, und man sah nicht, wohin man wirft.
     return {
-      look: [-0.25, 0.4, BELT_NEAR_Z - 3.6],
-      frame: { w: 5.2, h: 3.8 },
-      pitch: 0.62,
+      look: [-0.2, 0.2, BELT_NEAR_Z - 2.4],
+      frame: { w: 5.6, h: 5.0 },
+      pitch: 0.74,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.25, zoom: 1.35 }
     };
@@ -508,7 +493,7 @@ export class SortBelt extends MinigameScene {
     const good = this.layout[chute] === head.colour;
     this.pending.set(head.id, { chute, at: performance.now(), good });
     this.flown.add(head.id);
-    this.spawnFlight(head.icon, chute, good, beltZ(this.displayHead ?? REACH_AT));
+    this.spawnFlight(head.name, chute, good, beltZ(this.displayHead ?? REACH_AT));
     this.workerThrow(chute);
     // Das nächste Teil rückt sichtbar nach, ohne auf den Server zu warten —
     // auch für einen zweiten Wisch noch im selben Bild.
@@ -687,8 +672,8 @@ export class SortBelt extends MinigameScene {
       // auftaucht.
       const progress = head - slot * (arcade.parcelGap || 0.34);
       const z = beltZ(progress);
-      const scale = 0.62 * (parcel.size || 1);
-      visual.group.position.set(0, 0.32 + scale / 2, z);
+      const scale = 1.0 * (parcel.size || 1);
+      visual.group.position.set(0, BELT_TOP_Y, z);
       visual.group.scale.setScalar(scale);
       visual.shadow.position.set(0, 0.34, z);
       visual.shadow.scale.setScalar(scale * 1.5);
@@ -700,10 +685,12 @@ export class SortBelt extends MinigameScene {
 
       if (visual.shownId !== parcel.id) {
         visual.shownId = parcel.id;
-        paintIcon(visual.item, parcel.icon || CATEGORIES[parcel.colour]?.icon || "📦");
+        if (visual.model) visual.group.remove(visual.model);
+        visual.model = buildSortItem(parcel.name);
+        // Leicht zur Kamera gedreht, damit man die Vorderseite sieht.
+        visual.model.rotation.y = -0.35 + (parcel.id % 3) * 0.3;
+        visual.group.add(visual.model);
       }
-      // Das Symbol bleibt gleich gross, egal wie gross die Kiste ist.
-      visual.item.scale.setScalar(1.8 / Math.max(0.5, parcel.size || 1));
 
       // Das vorderste Paket hebt sich ab, sobald es greifbar ist: es wippt
       // stärker und steht einen Hauch höher.
@@ -721,12 +708,11 @@ export class SortBelt extends MinigameScene {
   // Sortierte Pakete fliegen sichtbar in ihre Rutsche. Sie einfach verschwinden
   // zu lassen liest sich wie ein Aussetzer des Spiels — man will sehen, wohin
   // die eigene Entscheidung geführt hat.
-  spawnFlight(icon, chuteIndex, good, fromZ = beltZ(0.55)) {
-    const proxy = makeCanvasSprite(128, 128);
-    paintIcon(proxy, icon || "📦");
-    proxy.scale.setScalar(0.85);
-    proxy.userData.base = 0.85;
-    proxy.position.set(0, BELT_TOP_Y + 0.6, fromZ);
+  spawnFlight(name, chuteIndex, good, fromZ = beltZ(0.55)) {
+    const proxy = buildSortItem(name);
+    proxy.scale.setScalar(0.62);
+    proxy.userData.base = 0.62;
+    proxy.position.set(0, BELT_TOP_Y + 0.2, fromZ);
     this.scene.add(proxy);
     const target = this.chutes[chuteIndex]?.group.position || new THREE.Vector3(0, 0, BELT_NEAR_Z);
     this.flying.push({
@@ -749,12 +735,12 @@ export class SortBelt extends MinigameScene {
       const ease = fly.good ? t * t : t;
       fly.mesh.position.lerpVectors(fly.from, fly.to, ease);
       fly.mesh.position.y += Math.sin(t * Math.PI) * (fly.good ? 0.9 : 1.5);
-      fly.mesh.material.rotation += fly.spin * dt * 0.5;
+      fly.mesh.rotation.x += fly.spin * dt * 0.6;
+      fly.mesh.rotation.z += fly.spin * dt * 0.4;
       fly.mesh.scale.setScalar((fly.mesh.userData.base || 1) * (fly.good ? 1 - t * 0.7 : 1 - t * 0.3));
       if (t >= 1) {
+        // Ein Klon: Geometrie und Materialien gehören dem Vorbild und bleiben.
         this.scene.remove(fly.mesh);
-        fly.mesh.material.map?.dispose();
-        fly.mesh.material.dispose();
         this.flying.splice(i, 1);
       }
     }
@@ -770,7 +756,7 @@ export class SortBelt extends MinigameScene {
     // den Griff nicht selbst ausgelöst hat.
     const flown = this.flown.delete(verdict.id);
     if (verdict.kind === "good") {
-      if (!flown) this.spawnFlight(verdict.icon, verdict.chute, true);
+      if (!flown) this.spawnFlight(verdict.name, verdict.chute, true);
       const chute = this.chutes[verdict.chute];
       if (chute) chute.flash = 1;
       const at = new THREE.Vector3(chute?.group.position.x || 0, 1.7, BELT_NEAR_Z);
@@ -782,7 +768,7 @@ export class SortBelt extends MinigameScene {
       this.feedback?.vibrate(10);
       this.workerAct("good", verdict.chute, flown);
     } else if (verdict.kind === "wrong") {
-      if (!flown) this.spawnFlight(verdict.icon, verdict.chute, false);
+      if (!flown) this.spawnFlight(verdict.name, verdict.chute, false);
       // Sagen, wohin es gehört hätte — beim Verwechsler lernt man daraus.
       const right = categories[verdict.colour]?.name || "";
       this.pop(new THREE.Vector3(0, 2.4, BELT_NEAR_Z - 1), "FALSCH", { color: "#ff9aa8", size: 0.38, life: 0.9 });
@@ -930,27 +916,6 @@ function makeCanvasSprite(width, height) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, toneMapped: false }));
   sprite.userData.canvas = canvas;
   return sprite;
-}
-
-// Symbol auf weissem Teller — auf dem Band und im Flug gut lesbar, auch
-// klein am Horizont.
-function paintIcon(sprite, icon) {
-  const canvas = sprite.userData.canvas;
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width;
-  ctx.clearRect(0, 0, w, w);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-  ctx.beginPath();
-  ctx.arc(w / 2, w / 2, w * 0.46, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.lineWidth = w * 0.04;
-  ctx.strokeStyle = "rgba(43, 58, 69, 0.35)";
-  ctx.stroke();
-  ctx.font = `${Math.floor(w * 0.6)}px ${EMOJI_FONT}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(icon, w / 2, w / 2 + w * 0.04);
-  sprite.material.map.needsUpdate = true;
 }
 
 // Rutschenschild: farbige Pille mit Symbol und Namen.
