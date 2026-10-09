@@ -1869,10 +1869,11 @@ const hockey = {
 //
 // Alle stehen auf der aufgeschlagenen Seite eines Riesenbuchs. Hinten richtet
 // sich die nächste Seite auf und klappt nach vorn — in ihr sind Löcher
-// ausgeschnitten. Wer beim Aufschlagen unter keinem Loch steht, wird platt
-// gedrückt und verliert ein Leben. Die Löcher werden weniger und kleiner, die
-// Seiten kommen schneller. Drei Leben; gewertet werden die überstandenen
-// Seiten.
+// ausgeschnitten: Rechtecke, Kreise, Rauten, Dreiecke, Plus, Sterne,
+// Sechsecke. Die Seite bleibt liegen, und hinten wartet schon die nächste.
+// Wer beim Aufschlagen unter keinem Loch steht, wird platt gedrückt und ist
+// raus. Die Löcher werden weniger und kleiner, die Seiten kommen schneller;
+// gewertet werden die überstandenen Seiten.
 //
 // Gerechnet wird in festen Schritten auf einer eigenen Uhr (bookClock), und
 // das Anlaufen ist exakt gelöst: so rechnet das Gerät genau dasselbe voraus
@@ -1906,6 +1907,46 @@ const BOOK_RULES = {
   inside: BOOK_INSIDE, flatMs: BOOK_FLAT_MS, stepMs: BOOK_STEP_MS
 };
 
+// Lochformen. `grow`: um so viel ist der Rahmen grösser als beim Rechteck,
+// damit in jede Form ungefähr gleich viel Platz zum Stehen bleibt. `round`:
+// gleich breit wie tief. `area`: Anteil am Rahmen (für die Bots).
+const BOOK_SHAPES = {
+  rect: { grow: 1, round: false, area: 1 },
+  circle: { grow: 1.12, round: true, area: 0.78 },
+  hexagon: { grow: 1.12, round: true, area: 0.75 },
+  diamond: { grow: 1.32, round: false, area: 0.5 },
+  triangle: { grow: 1.4, round: false, area: 0.5 },
+  plus: { grow: 1.28, round: true, area: 0.56 },
+  star: { grow: 1.5, round: true, area: 0.38 }
+};
+const BOOK_SHAPES_EARLY = ["rect", "circle", "rect", "hexagon"];
+const BOOK_SHAPES_ALL = Object.keys(BOOK_SHAPES);
+// Wo nur noch ein Loch bleibt, keine Zacken: der Stern liesse dann kaum Platz.
+const BOOK_SHAPES_LAST = ["rect", "circle", "hexagon", "plus", "diamond"];
+
+// Die Eckpunkte einer Lochform um (x, z) im Rahmen w × d, auf Zentimeter
+// gerundet. Die Mitte des Rahmens liegt bei jeder Form tief im Loch.
+function bookHolePoints(shape, x, z, w, d, flip = 1) {
+  const hw = w / 2;
+  const hd = d / 2;
+  let unit;
+  if (shape === "circle") unit = Array.from({ length: 16 }, (_, i) => [Math.cos((i / 16) * Math.PI * 2), Math.sin((i / 16) * Math.PI * 2)]);
+  else if (shape === "hexagon") unit = Array.from({ length: 6 }, (_, i) => [Math.cos((i / 6) * Math.PI * 2), Math.sin((i / 6) * Math.PI * 2)]);
+  else if (shape === "diamond") unit = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  else if (shape === "triangle") unit = [[0, -flip], [1, flip], [-1, flip]];
+  else if (shape === "plus") {
+    const a = 0.36;
+    unit = [[-a, -1], [a, -1], [a, -a], [1, -a], [1, a], [a, a], [a, 1], [-a, 1], [-a, a], [-1, a], [-1, -a], [-a, -a]];
+  } else if (shape === "star") {
+    unit = Array.from({ length: 10 }, (_, i) => {
+      const r = i % 2 ? 0.5 : 1;
+      const a = -Math.PI / 2 + (i / 10) * Math.PI * 2;
+      return [Math.cos(a) * r, Math.sin(a) * r * flip];
+    });
+  } else unit = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  return unit.map(([u, v]) => [Math.round((x + u * hw) * 100) / 100, Math.round((z + v * hd) * 100) / 100]);
+}
+
 function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
   const pages = [];
   let at = BOOK_FIRST_MS;
@@ -1917,16 +1958,21 @@ function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
     const count = index < 2 ? 4 : index < 5 ? 3 : index < 8 ? 2 : 1;
     const holes = [];
     const size = 1 - progress * 0.4;
+    const pool = index === 0 ? BOOK_SHAPES_EARLY : count === 1 ? BOOK_SHAPES_LAST : BOOK_SHAPES_ALL;
     for (let h = 0; h < count; h += 1) {
+      const shape = pool[Math.floor(noise(seed + index * 37 + h * 11 + 1) * pool.length) % pool.length];
+      const look = BOOK_SHAPES[shape];
       for (let tries = 0; tries < 30; tries += 1) {
         const k = seed + index * 101 + h * 13 + tries * 7;
-        const w = Math.round((1.15 + noise(k) * 0.55) * size * 100) / 100 + 0.2;
-        const d = Math.round((1.15 + noise(k + 3) * 0.55) * size * 100) / 100 + 0.2;
+        let w = Math.round(((1.15 + noise(k) * 0.55) * size * look.grow + 0.2) * 100) / 100;
+        let d = Math.round(((1.15 + noise(k + 3) * 0.55) * size * look.grow + 0.2) * 100) / 100;
+        if (look.round) w = d = Math.round(((w + d) / 2) * 100) / 100;
         const x = Math.round(((noise(k + 5) - 0.5) * (BOOK_W - w - 0.6)) * 100) / 100;
         const z = Math.round(((noise(k + 9) - 0.5) * (BOOK_D - d - 0.8)) * 100) / 100;
         const clash = holes.some((o) => Math.abs(o.x - x) < (o.w + w) / 2 + 0.4 && Math.abs(o.z - z) < (o.d + d) / 2 + 0.4);
         if (!clash) {
-          holes.push({ x, z, w, d });
+          const turn = noise(k + 17) < 0.5 ? 1 : -1;
+          holes.push({ x, z, w, d, shape, pts: bookHolePoints(shape, x, z, w, d, turn) });
           break;
         }
       }
@@ -1939,8 +1985,28 @@ function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
   return pages;
 }
 
+// Steht die Mitte einer Figur in diesem Loch — und zwar mindestens
+// BOOK_INSIDE weit von jeder Kante? Für Rechtecke ist das genau die alte
+// Regel |dx| ≤ w/2 − innen, |dz| ≤ d/2 − innen. Genau so in Buchseite.js.
+function bookInShape(hole, x, z) {
+  const pts = hole.pts;
+  if (!pts || pts.length < 3) return Math.abs(x - hole.x) <= hole.w / 2 - BOOK_INSIDE && Math.abs(z - hole.z) <= hole.d / 2 - BOOK_INSIDE;
+  let inside = false;
+  let near = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i, i += 1) {
+    const [ax, az] = pts[j];
+    const [bx, bz] = pts[i];
+    if ((bz > z) !== (az > z) && x < ((ax - bx) * (z - bz)) / (az - bz) + bx) inside = !inside;
+    const ex = bx - ax;
+    const ez = bz - az;
+    const t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1), 0, 1);
+    near = Math.min(near, Math.hypot(x - (ax + ex * t), z - (az + ez * t)));
+  }
+  return inside && near >= BOOK_INSIDE - 1e-9;
+}
+
 function bookInHole(page, x, z) {
-  return (page.holes || []).some((h) => Math.abs(x - h.x) <= h.w / 2 - BOOK_INSIDE && Math.abs(z - h.z) <= h.d / 2 - BOOK_INSIDE);
+  return (page.holes || []).some((h) => bookInShape(h, x, z));
 }
 
 function bookSpawn(index) {
@@ -1953,7 +2019,7 @@ function bookPublish(arcade, elapsed) {
   const full = arcade.secret.bookPages;
   arcade.book.pages.forEach((shown, i) => {
     if (shown.holes || elapsed < shown.at - BOOK_PUBLISH_LEAD_MS) return;
-    shown.holes = full[i].holes.map((hole) => ({ ...hole }));
+    shown.holes = full[i].holes.map((hole) => ({ ...hole, pts: hole.pts?.map((p) => [...p]) }));
   });
 }
 
@@ -2139,7 +2205,7 @@ const book = {
       const scored = page.holes.map((h, i) => {
         const dist = Math.hypot(h.x - entry.x, h.z - entry.z);
         const crowd = others.filter((o) => Math.hypot(o.x - h.x, o.z - h.z) < dist).length;
-        const room2 = Math.max(0, Math.floor((h.w - 0.2) / 0.62) * Math.floor((h.d - 0.2) / 0.62));
+        const room2 = Math.max(0, Math.floor(Math.floor((h.w - 0.2) / 0.62) * Math.floor((h.d - 0.2) / 0.62) * (BOOK_SHAPES[h.shape]?.area ?? 1)));
         return { i, cost: dist + (level(entry) === "hard" ? Math.max(0, crowd - room2 + 1) * 2.5 : level(entry) === "normal" ? crowd * 0.8 : 0) };
       }).sort((a, b) => a.cost - b.cost);
       entry.botHole = scored[0]?.i ?? 0;
@@ -2147,7 +2213,10 @@ const book = {
     }
     const hole = page.holes[entry.botHole] || page.holes[0];
     if (!hole) return { action: "steer", x: 0, y: 0 };
-    return go(hole.x + entry.botJitter.x * hole.w, hole.z + entry.botJitter.z * hole.d);
+    // In schmalen Formen (Stern, Dreieck) zielt man genauer — sonst stünde
+    // auch der starke Bot neben der Zacke.
+    const tight = BOOK_SHAPES[hole.shape]?.area ?? 1;
+    return go(hole.x + entry.botJitter.x * hole.w * tight, hole.z + entry.botJitter.z * hole.d * tight);
   },
   rank(arcade, entry) {
     const bis = entry.outAt ? Math.min(99, Math.round((entry.outMs || 0) / 1000)) : 99;
@@ -3295,7 +3364,7 @@ module.exports = {
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST, HONEY_GRACE_MS,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R, SNOW_STEP_MS, SNOW_GIANT, SNOW_GROW,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS, HOCKEY_STEP_MS, HOCKEY_LANE_STURM, HOCKEY_LANE_ABWEHR,
-    BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS, BOOK_STEP_MS, BOOK_PUBLISH_LEAD_MS,
+    BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS, BOOK_STEP_MS, BOOK_PUBLISH_LEAD_MS, BOOK_INSIDE,
     PHOTO_W, PHOTO_D, PHOTO_IN, PHOTO_COVER, PHOTO_SOLO, PHOTO_SHOVE_COOLDOWN_MS, PHOTO_STEP_MS, PHOTO_PUBLISH_LEAD_MS,
     PHOTO_SHOVE_STUN_MS, PHOTO_DASH_MS,
     BOAT_LEAD_MS, BOAT_REACH, BOAT_TORQUE_MAX, BOAT_CAPACITY, BOAT_CAPSIZE_COST, BOAT_DEPART_BONUS, BOAT_DURATION_MS, BOAT_END_MS,
@@ -3318,6 +3387,8 @@ module.exports = {
   buildPhotoShots,
   buildBookPages,
   bookInHole,
+  bookHolePoints,
+  BOOK_SHAPES,
   snowBallRadius,
   snowValue,
   snowStep,

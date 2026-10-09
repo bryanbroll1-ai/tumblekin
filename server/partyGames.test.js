@@ -922,6 +922,35 @@ test("Bücherwurm: Seiten mit Löchern, die weniger werden, und Löcher liegen i
   }
 });
 
+test("Bücherwurm: Löcher in vielen Formen — die Mitte ist immer sicher, die Zacken nicht", async () => {
+  const { inHole, bookRules } = await import("../client/src/minigames/Buchseite.js");
+  const rules = bookRules({ bookRules: { inside: C.BOOK_INSIDE } });
+  const shapes = new Set();
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (const s of [857001, 857444, 3, 91, 4242]) {
+    party.buildBookPages(s).forEach((page) => page.holes.forEach((hole) => {
+      shapes.add(hole.shape);
+      assert.ok(hole.pts.length >= 3, "jedes Loch ist ein Vieleck");
+      hole.pts.forEach(([x, z]) => assert.ok(Math.abs(x) <= C.BOOK_W / 2 && Math.abs(z) <= C.BOOK_D / 2, "Ecke liegt im Buch"));
+      assert.ok(party.bookInHole({ holes: [hole] }, hole.x, hole.z), `${hole.shape}: die Mitte ist sicher`);
+      // Gerät und Server urteilen an jedem Punkt gleich.
+      for (let i = 0; i < 40; i += 1) {
+        const x = hole.x + (rnd() - 0.5) * hole.w * 1.2;
+        const z = hole.z + (rnd() - 0.5) * hole.d * 1.2;
+        assert.equal(inHole(rules, { holes: [hole] }, x, z), party.bookInHole({ holes: [hole] }, x, z), `${hole.shape} bei ${x},${z}`);
+      }
+    }));
+  }
+  assert.ok(shapes.size >= 6, `Formen: ${[...shapes].join(", ")}`);
+  // Beim Stern ist die Rahmenecke kein Loch, beim Rechteck schon.
+  const star = { x: 0, z: 0, w: 2, d: 2, shape: "star", pts: party.bookHolePoints("star", 0, 0, 2, 2) };
+  assert.equal(party.bookInHole({ holes: [star] }, 0.8, 0.8), false);
+  const rect = { x: 0, z: 0, w: 2, d: 2, shape: "rect", pts: party.bookHolePoints("rect", 0, 0, 2, 2) };
+  assert.equal(party.bookInHole({ holes: [rect] }, 0.8, 0.8), true);
+  assert.equal(party.bookInHole({ holes: [rect] }, 0.95, 0), false, "zu nah an der Kante");
+});
+
 test("Bücherwurm: wer im Loch steht, übersteht die Seite — wer nicht, wird platt", () => {
   const g = setup("buecherwurm", 2);
   const [a, b] = g.players;
@@ -1009,11 +1038,15 @@ test("Bücherwurm: Gerät und Server rechnen Schritt für Schritt gleich", async
   for (let k = 0; k < steps; k += 1) {
     if (k % 7 === 0) {
       server.forEach(({ entry }, i) => {
-        // Meist auf ein Loch der kommenden Seite zu, damit manche überleben.
+        // Meist auf ein Loch der kommenden Seite zu, damit manche überleben:
+        // jeder auf sein eigenes und davor langsamer werdend — mit zufälligem
+        // Ziel und Tempo blieben in manchen Runden alle neben den schmaleren
+        // Formen (Stern, Dreieck) liegen.
         const page = pages.find((p) => p.index > arcade.book.slammed) || pages[0];
-        const hole = page.holes[Math.floor(rnd() * page.holes.length)];
-        const a = rnd() < 0.75 ? Math.atan2(hole.x - entry.x, hole.z - entry.z) : rnd() * Math.PI * 2;
-        const m = rnd();
+        const hole = page.holes[i % page.holes.length];
+        const toward = rnd() < 0.75;
+        const a = toward ? Math.atan2(hole.x - entry.x, hole.z - entry.z) : rnd() * Math.PI * 2;
+        const m = toward ? Math.min(1, Math.hypot(hole.x - entry.x, hole.z - entry.z) * 2) : rnd();
         [entry, device[i].entry].forEach((e) => { e.dirX = Math.sin(a) * m; e.dirZ = Math.cos(a) * m; });
       });
     }

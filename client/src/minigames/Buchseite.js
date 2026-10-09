@@ -21,9 +21,28 @@ export function bookRules(arcade) {
   return { ...DEFAULTS, ...(arcade?.bookRules || {}) };
 }
 
+// Wie bookInShape: die Mitte liegt im Vieleck des Lochs und mindestens
+// `inside` weit von jeder Kante.
+export function inShape(rules, hole, x, z) {
+  const pts = hole.pts;
+  if (!pts || pts.length < 3) return Math.abs(x - hole.x) <= hole.w / 2 - rules.inside && Math.abs(z - hole.z) <= hole.d / 2 - rules.inside;
+  let inside = false;
+  let near = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i, i += 1) {
+    const [ax, az] = pts[j];
+    const [bx, bz] = pts[i];
+    if ((bz > z) !== (az > z) && x < ((ax - bx) * (z - bz)) / (az - bz) + bx) inside = !inside;
+    const ex = bx - ax;
+    const ez = bz - az;
+    const t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1), 0, 1);
+    near = Math.min(near, Math.hypot(x - (ax + ex * t), z - (az + ez * t)));
+  }
+  return inside && near >= rules.inside - 1e-9;
+}
+
 // Wie bookInHole.
 export function inHole(rules, page, x, z) {
-  return (page?.holes || []).some((h) => Math.abs(x - h.x) <= h.w / 2 - rules.inside && Math.abs(z - h.z) <= h.d / 2 - rules.inside);
+  return (page?.holes || []).some((h) => inShape(rules, h, x, z));
 }
 
 function ease(v, target, rate, dt) {

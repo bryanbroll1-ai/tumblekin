@@ -8,8 +8,11 @@ import { forecastBook } from "./Buchseite.js?v=tumblekin213";
 
 // Bücherwurm — alle stehen auf der aufgeschlagenen Seite eines Riesenbuchs,
 // das auf einem Schreibtisch liegt. Hinten richtet sich die nächste Seite
-// auf und klappt nach vorn; in ihr sind Löcher ausgeschnitten. Wer beim
-// Aufschlagen unter keinem Loch steht, wird platt wie ein Lesezeichen.
+// auf und klappt nach vorn; in ihr sind Löcher ausgeschnitten — Rechtecke,
+// Kreise, Rauten, Dreiecke, Plus, Sterne, Sechsecke. Wer beim Aufschlagen
+// unter keinem Loch steht, wird platt wie ein Lesezeichen. Die Seite bleibt
+// liegen, man läuft auf ihr weiter, und hinten wartet schon die nächste —
+// jede mit eigenem Text und eigener Seitenzahl.
 //
 // Während die Seite heranklappt, liegt ihr Schatten auf dem Buch — mit
 // hellen Aussparungen genau dort, wo die Löcher landen werden.
@@ -18,9 +21,9 @@ import { forecastBook } from "./Buchseite.js?v=tumblekin213";
 // Brille, Tintenfass mit Feder, Globus, Schreibtischlampe, dahinter ein
 // Bücherregal und ein Fenster mit Mond.
 const PAGE_Y = 0.02;
-const RETURN_MS = 520;
-const HOLD_MS = 650;
-const PAGE_LIFT = 1.4;         // so hoch hebt die Seite ab, bevor sie zurückklappt
+const SETTLE_MS = 140;         // so schnell legt sich die aufgeschlagene Seite flach
+const LIE_Y = PAGE_Y - 0.004;  // liegt knapp unter den Sohlen, über der Buchseite darunter
+const FLY_Y = PAGE_Y + 0.02;
 const STICK_GAP_MS = 40;       // Stick höchstens so oft schicken
 const TICK_LEAD_MS = 45;       // halber Servertakt (90 ms), siehe stickAt
 
@@ -69,7 +72,6 @@ export class BookSquirm extends MinigameScene {
       const entry = arcade?.players?.[player.id];
       this.addKin(player, index, { x: entry?.x ?? 0, ground: PAGE_Y, z: entry?.z ?? 0, facing: 0 });
     });
-    this.pageTexture = seitenTextur(0);
   }
 
   buildDesk(scene) {
@@ -204,17 +206,21 @@ export class BookSquirm extends MinigameScene {
     const kanten = [];
     for (let i = 0; i < 5; i += 1) kanten.push({ p: [0, -0.13 + i * 0.03, D / 2 + 0.01], s: [W + 0.18, 0.006, 0.01] });
     viele(scene, new THREE.BoxGeometry(1, 1, 1), lambert("#cbbf9f"), kanten);
-    // Die Seite, auf der alle stehen, und die hintere Seite.
+    // Die Seite, auf der alle stehen, und die hintere Seite. Beide wechseln
+    // ihr Bild: vorn liegt, was zuletzt umgeblättert wurde, hinten die Seite,
+    // die als Nächste kommt.
     const vorn = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshLambertMaterial({ map: seitenTextur(1) }));
     vorn.rotation.x = -Math.PI / 2;
     vorn.position.set(0, 0.012, 0);
     vorn.receiveShadow = true;
     scene.add(vorn);
-    const hinten = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshLambertMaterial({ map: seitenTextur(2) }));
+    const hinten = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshLambertMaterial({ map: seitenTextur(vorderseite(0)) }));
     hinten.rotation.x = -Math.PI / 2;
     hinten.position.set(0, 0.012, -D);
     hinten.receiveShadow = true;
     scene.add(hinten);
+    this.floorFront = vorn;
+    this.floorBack = hinten;
     // Falz in der Mitte und ein Lesebändchen.
     kiste(scene, W + 0.2, 0.05, 0.12, "#d9ceb2", [0, 0.02, -D / 2], { schatten: false });
     const band = kiste(scene, 0.3, 0.02, 1.2, "#c8413b", [W / 2 - 0.5, -0.02, D / 2 + 0.45], { schatten: false });
@@ -234,19 +240,19 @@ export class BookSquirm extends MinigameScene {
     form.closePath();
     // Die Seite liegt hinten flach und klappt um die x-Achse nach vorn: ihre
     // Koordinate y (Abstand vom Falz) landet vorn bei z = -D/2 + y.
+    const umriss = (h) => lochEcken(h).map(([x, z]) => [x, z + D / 2]);
     page.holes.forEach((h) => {
+      const ecken = umriss(h);
       const loch = new THREE.Path();
-      const y = h.z + D / 2;
-      loch.moveTo(h.x - h.w / 2, y - h.d / 2);
-      loch.lineTo(h.x - h.w / 2, y + h.d / 2);
-      loch.lineTo(h.x + h.w / 2, y + h.d / 2);
-      loch.lineTo(h.x + h.w / 2, y - h.d / 2);
+      loch.moveTo(ecken[0][0], ecken[0][1]);
+      ecken.slice(1).forEach(([x, y]) => loch.lineTo(x, y));
       loch.closePath();
       form.holes.push(loch);
     });
     const geometry = new THREE.ShapeGeometry(form);
-    const texture = this.pageTexture.clone();
-    texture.needsUpdate = true;
+    // Jede Seite hat ihren eigenen Text — sonst sähe jede neue Seite aus wie
+    // die alte, die zurückkommt.
+    const texture = seitenTextur(vorderseite(page.index));
     texture.repeat.set(1 / W, 1 / D);
     texture.offset.set(0.5, 0);
     texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -256,21 +262,25 @@ export class BookSquirm extends MinigameScene {
     mesh.castShadow = true;
     // Die Rückseite hat eigenen Text — mit derselben Textur sähe man ihn
     // gespiegelt, sobald die Seite vorn liegt.
-    const rueckTextur = seitenTextur(page.index + 5);
-    // Gespiegelt und gedreht, damit sie vorn liegend lesbar ist.
-    rueckTextur.repeat.set(-1 / W, -1 / D);
+    const rueckTextur = seitenTextur(rueckseite(page.index));
+    // Vorn liegend zeigt die Formebene x nach rechts und y (Abstand vom
+    // Falz) zur Kamera: nur v muss kippen, damit die Überschrift oben am Falz
+    // steht. Mit gekipptem u war der Text spiegelverkehrt — das fiel erst
+    // auf, seit die Seite liegen bleibt.
+    rueckTextur.repeat.set(1 / W, -1 / D);
     rueckTextur.offset.set(0.5, 1);
     const rueck = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ map: rueckTextur, side: THREE.BackSide }));
     mesh.add(rueck);
-    // Die Lochkanten rot umrandet, damit man sie im Flug erkennt.
+    // Die Lochkanten rot umrandet, damit man sie im Flug erkennt. Liegt die
+    // Seite, wären sie unter ihr und flimmerten durch die Löcher.
     const kanten = page.holes.map((h) => {
-      const y = h.z + D / 2;
-      const pts = [[-1, -1], [-1, 1], [1, 1], [1, -1], [-1, -1]].map(([sx, sy]) => new THREE.Vector3(h.x + (sx * h.w) / 2, y + (sy * h.d) / 2, 0.005));
-      return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: "#ff3b52" }));
+      const pts = umriss(h).map(([x, y]) => new THREE.Vector3(x, y, 0.005));
+      const linie = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: "#ff3b52" }));
+      mesh.add(linie);
+      return linie;
     });
-    kanten.forEach((k) => mesh.add(k));
     const pivot = new THREE.Group();
-    pivot.position.set(0, PAGE_Y + 0.02, -D / 2);
+    pivot.position.set(0, FLY_Y, -D / 2);
     pivot.add(mesh);
     this.scene.add(pivot);
     // Schatten mit hellen Aussparungen, flach auf der Seite.
@@ -279,26 +289,34 @@ export class BookSquirm extends MinigameScene {
     schatten.position.set(0, PAGE_Y + 0.004, -D / 2);
     schatten.userData.isFx = true;
     this.scene.add(schatten);
-    // Leuchtende Rahmen um die Löcher auf dem Boden.
+    // Leuchtende Rahmen in der Form der Löcher auf dem Boden.
+    const rahmenMat = new THREE.MeshBasicMaterial({ color: "#6dff9a", transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
     const rahmen = page.holes.map((h) => {
-      const r = new THREE.Mesh(new THREE.RingGeometry(0.88, 1.0, 4, 1), new THREE.MeshBasicMaterial({ color: "#6dff9a", transparent: true, opacity: 0.9, depthWrite: false }));
-      r.rotation.set(-Math.PI / 2, 0, Math.PI / 4);
-      r.scale.set(h.w / Math.SQRT2, h.d / Math.SQRT2, 1);
-      r.position.set(h.x, PAGE_Y + 0.01, h.z);
+      const r = new THREE.Mesh(rahmenGeometrie(lochEcken(h), 0.03, 0.09), rahmenMat);
+      r.position.y = PAGE_Y + 0.01;
       r.userData.isFx = true;
       this.scene.add(r);
       return r;
     });
-    return { pivot, mesh, schatten, rahmen, texture };
+    return { pivot, mesh, schatten, rahmen, kanten, texture, rueckIndex: rueckseite(page.index) };
   }
 
   removePage(entry) {
     this.scene.remove(entry.pivot);
     this.scene.remove(entry.schatten);
-    entry.rahmen.forEach((r) => this.scene.remove(r));
+    entry.rahmen.forEach((r) => { this.scene.remove(r); r.geometry.dispose(); });
     entry.mesh.geometry.dispose();
     entry.texture.dispose();
-    entry.mesh.children.forEach((child) => child.material?.map?.dispose?.());
+    entry.mesh.children.forEach((child) => { child.material?.map?.dispose?.(); child.geometry !== entry.mesh.geometry && child.geometry?.dispose?.(); });
+  }
+
+  // Eine Buchseite unten (vorn oder hinten) bekommt ein neues Bild.
+  setFloor(mesh, nummer) {
+    if (!mesh || mesh.userData.nummer === nummer) return;
+    mesh.userData.nummer = nummer;
+    mesh.material.map?.dispose?.();
+    mesh.material.map = seitenTextur(nummer);
+    mesh.material.needsUpdate = true;
   }
 
   shot() {
@@ -427,49 +445,51 @@ export class BookSquirm extends MinigameScene {
     // die Figuren stehen, wo sie dann stehen.
     const elapsed = minigame.finaleAt ? now - minigame.startedAt : now + this.roundTrip - minigame.startedAt;
 
-    // Seiten: anlegen, wenn sie beginnen; heranklappen; liegen lassen;
-    // zurückblättern und entfernen.
+    // Seiten: anlegen, kurz bevor sie sich aufrichten; heranklappen; liegen
+    // lassen. Eine aufgeschlagene Seite bleibt vorn liegen, bis die nächste
+    // auf ihr landet — dann wird sie zur Buchseite darunter.
     state.pages.forEach((page) => {
+      const next = state.pages[page.index + 1];
       const started = elapsed >= page.at - 200;
-      const over = elapsed > page.slamAt + HOLD_MS + RETURN_MS + 100;
+      const over = Boolean(next) && elapsed >= next.slamAt;
       let entry = this.pages.get(page.index);
       if (started && !over && !entry && page.holes) {
         entry = this.makePage(page);
         this.pages.set(page.index, entry);
+        // Unter dieser Seite liegt hinten schon die übernächste.
+        this.setFloor(this.floorBack, vorderseite(page.index + 1));
         if (arcade.players[controlledId] && !arcade.players[controlledId].outAt) this.feedback?.sound("whoosh");
       }
       if (!entry) return;
       if (over) {
+        this.setFloor(this.floorFront, entry.rueckIndex);
         this.removePage(entry);
         this.pages.delete(page.index);
         return;
       }
       let angle;
-      let lift = 0;
+      let y = FLY_Y;
       if (elapsed < page.at) angle = 0;
       else if (elapsed < page.slamAt) {
         const u = (elapsed - page.at) / page.flip;
         // Erst langsam aufrichten, dann schneller fallen — wie eine Seite.
         angle = Math.PI * (u < 0.5 ? 0.5 * Math.pow(u * 2, 0.8) : 0.5 + 0.5 * Math.pow((u - 0.5) * 2, 1.8));
-      } else if (elapsed < page.slamAt + HOLD_MS) angle = Math.PI;
-      else {
-        // Zurückblättern: erst senkrecht abheben, dann umklappen. Vorher
-        // klappte die Seite direkt am Falz hoch und schnitt dabei durch alle,
-        // die schon wieder losgelaufen waren — die Figuren steckten eine
-        // halbe Sekunde lang in der Seite.
-        const r = Math.min(1, (elapsed - page.slamAt - HOLD_MS) / RETURN_MS);
-        // Am Ende, schon hinter dem Falz, senkt sie sich wieder ab.
-        lift = Math.min(1 - Math.pow(1 - Math.min(1, r / 0.3), 2), Math.max(0, (1 - r) / 0.25));
-        angle = Math.PI * (1 - Math.max(0, (r - 0.2) / 0.8));
+      } else {
+        // Aufgeschlagen: sie legt sich flach unter die Sohlen und bleibt.
+        angle = Math.PI;
+        const r = Math.min(1, (elapsed - page.slamAt) / SETTLE_MS);
+        y = FLY_Y + (LIE_Y - FLY_Y) * r;
       }
       entry.pivot.rotation.x = angle;
-      entry.pivot.position.y = PAGE_Y + 0.02 + lift * PAGE_LIFT;
+      entry.pivot.position.y = y;
       // Nur die liegende Seite ist Boden. Im Flug schlägt sie absichtlich auf
       // alle herunter, die in keinem Loch stehen — das ist das Spiel und für
       // die Prüfskripte kein Versinken.
-      entry.mesh.userData.isFx = angle < Math.PI - 1e-3 || lift > 0;
+      entry.mesh.userData.isFx = angle < Math.PI - 1e-3;
       const coming = elapsed < page.slamAt ? Math.max(0, (elapsed - page.at) / page.flip) : 0;
       entry.schatten.material.opacity = elapsed < page.slamAt ? 0.1 + coming * 0.45 : 0;
+      entry.schatten.visible = elapsed < page.slamAt;
+      entry.kanten.forEach((k) => { k.visible = elapsed < page.slamAt; });
       entry.rahmen.forEach((r) => {
         r.visible = elapsed < page.slamAt + 150;
         r.material.opacity = 0.55 + 0.45 * Math.sin(now / (coming > 0.6 ? 70 : 140));
@@ -594,6 +614,67 @@ export class BookSquirm extends MinigameScene {
       banner.style.background = tone;
     }
   }
+}
+
+// Welches Bild eine Seite trägt: vorn (solange sie hinten wartet) und
+// hinten (sobald sie vorn liegt). Jede Seite hat ihr eigenes.
+function vorderseite(index) {
+  return 10 + index * 2;
+}
+
+function rueckseite(index) {
+  return 11 + index * 2;
+}
+
+// Die Ecken eines Lochs auf dem Boden (x, z); ältere Stände ohne Vieleck
+// waren Rechtecke.
+function lochEcken(h) {
+  if (h.pts?.length >= 3) return h.pts;
+  return [[h.x - h.w / 2, h.z - h.d / 2], [h.x + h.w / 2, h.z - h.d / 2], [h.x + h.w / 2, h.z + h.d / 2], [h.x - h.w / 2, h.z + h.d / 2]];
+}
+
+// Ein flaches Band entlang eines Vielecks auf dem Boden (y = 0): `innen`
+// hinein, `aussen` hinaus. An spitzen Ecken (Stern) wird die Gehrung
+// begrenzt, sonst stäche sie weit heraus.
+function rahmenGeometrie(ecken, innen, aussen) {
+  const n = ecken.length;
+  let flaeche = 0;
+  for (let i = 0; i < n; i += 1) {
+    const [ax, az] = ecken[i];
+    const [bx, bz] = ecken[(i + 1) % n];
+    flaeche += ax * bz - bx * az;
+  }
+  const dreh = flaeche > 0 ? -1 : 1;
+  const normale = (a, b) => {
+    const ex = b[0] - a[0];
+    const ez = b[1] - a[1];
+    const l = Math.hypot(ex, ez) || 1;
+    return [(ez / l) * dreh, (-ex / l) * dreh];
+  };
+  const pos = [];
+  for (let i = 0; i < n; i += 1) {
+    const p = ecken[i];
+    const n1 = normale(ecken[(i - 1 + n) % n], p);
+    const n2 = normale(p, ecken[(i + 1) % n]);
+    let mx = n1[0] + n2[0];
+    let mz = n1[1] + n2[1];
+    const ml = Math.hypot(mx, mz) || 1;
+    mx /= ml;
+    mz /= ml;
+    const k = 1 / Math.max(0.45, mx * n1[0] + mz * n1[1]);
+    pos.push(p[0] - mx * innen * k, 0, p[1] - mz * innen * k, p[0] + mx * aussen * k, 0, p[1] + mz * aussen * k);
+  }
+  const index = [];
+  for (let i = 0; i < n; i += 1) {
+    const a = i * 2;
+    const b = ((i + 1) % n) * 2;
+    index.push(a, a + 1, b, b, a + 1, b + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  return g;
 }
 
 // Eine Buchseite: Rand, Seitenzahl, Überschrift, Textzeilen, ein Bildchen.
