@@ -797,6 +797,17 @@ const BOMB_PASS_LOCK_MS = 380;        // minimum hold time before passing on
 const BOMB_MIN_FUSE_MS = 4000;
 const BOMB_MAX_FUSE_MS = 8000;
 const BOMB_REVEAL_MS = 2000;          // fuse time is visible this long after a pass
+// Schonfrist: Eine eben gefangene Bombe zündet frühestens so lange nach der
+// Ankunft. Vorher gab der starke Bot sie absichtlich knapp 0,3 s vor dem
+// Knall ab — kürzer als die Haltesperre des Empfängers —, und der sah sie
+// ankommen und war im selben Augenblick raus, ohne irgendetwas tun zu
+// können. Jetzt hat jeder, der sie bekommt, nach der Sperre noch gut 0,8 s.
+// Ist die Zündschnur in der Frist abgebrannt, ist ÜBERZEIT: sichtbar für
+// alle, und jede weitere Abgabe gibt dem Nächsten eine kürzere Frist — bis
+// sie die Haltesperre erreicht und keiner mehr abgeben kann. So endet auch
+// eine Kette von Blitzabgaben nach wenigen Würfen.
+const BOMB_CATCH_MS = 1200;
+const BOMB_CATCH_STEP_MS = 200;
 // Nach einem Knall kurz durchatmen: die Explosion, der Weggeschleuderte, erst
 // dann fliegt die nächste Bombe aus dem Feuer. Vorher hatte der nächste Träger
 // sie im selben Augenblick in der Hand, in dem es knallte, und keiner sah, wer
@@ -3023,6 +3034,9 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.fuseAt = startedAt + arcade.fuseMs;
     // The fuse length is shown for a moment after each pass, then hidden.
     arcade.revealUntil = startedAt + BOMB_REVEAL_MS;
+    arcade.graceUntil = 0;
+    arcade.latePasses = 0;
+    arcade.overtime = false;
     arcade.explosions = 0;
     arcade.lastBoomId = null;
     arcade.lastBoomAt = 0;
@@ -4120,7 +4134,11 @@ function handleArcadeInput(room, player, rawInput) {
     arcade.holderSince = now;
     arcade.canPassAt = now + BOMB_PASS_LOCK_MS;
     // The fuse keeps ticking — passing moves the bomb but never resets the
-    // timer. Only an explosion lights a fresh fuse.
+    // timer. Only an explosion lights a fresh fuse. Wer sie bekommt, hat
+    // aber seine Schonfrist; reicht die über die Zündschnur hinaus, war es
+    // eine späte Abgabe, und die nächste Frist wird kürzer.
+    arcade.graceUntil = now + bombCatchMs(arcade.latePasses);
+    if (arcade.graceUntil > arcade.fuseAt) arcade.latePasses += 1;
     arcadePlayer.passes += 1;
     arcadePlayer.hasMoved = true;
     arcadePlayer.flash = "good";
@@ -5171,6 +5189,11 @@ function updateBarrel(room, minigame, arcade, dt, now) {
 
 function updateBomb(room, minigame, arcade, now) {
   if (!arcade.holderId || now < arcade.fuseAt) return;
+  // Abgebrannt, aber der Träger hat sie eben erst bekommen: Überzeit.
+  if (now < (arcade.graceUntil || 0)) {
+    arcade.overtime = true;
+    return;
+  }
   const boomId = arcade.holderId;
   const holder = arcade.players[boomId];
   if (holder && !holder.outAt) {
@@ -5207,6 +5230,15 @@ function updateBomb(room, minigame, arcade, now) {
   arcade.fuseMs = bombFuseMs(arcade.seed, arcade.explosions);
   arcade.fuseAt = lit + arcade.fuseMs;
   arcade.revealUntil = lit + BOMB_REVEAL_MS;
+  arcade.graceUntil = 0;
+  arcade.latePasses = 0;
+  arcade.overtime = false;
+}
+
+// Die Schonfrist nach der n-ten späten Abgabe derselben Zündschnur: 1,2 s,
+// dann je 0,2 s weniger, nie unter die Haltesperre (dann ist Schluss).
+function bombCatchMs(latePasses) {
+  return Math.max(BOMB_PASS_LOCK_MS, BOMB_CATCH_MS - (latePasses || 0) * BOMB_CATCH_STEP_MS);
 }
 
 function updateRedlight(room, minigame, arcade, dt, now) {
@@ -7246,19 +7278,22 @@ function arcadeBotStep(room, bot) {
       // 95 von 100 Partien gegen den mittleren.
       const streuung = profile.level === "hard" ? 100 : 240;
       player.botFuseErr = ((Math.random() + Math.random() + Math.random() - 1.5) / 0.5) * streuung;
+      // In der Überzeit zählt nur noch die Reaktion: so schnell, wie ein
+      // Mensch auf das Aufleuchten reagiert, nicht auf die Millisekunde.
+      player.botOvertimeMs = profile.reactionMs * (0.45 + Math.random() * 0.55);
+    }
+    if (arcade.overtime || now >= arcade.fuseAt) {
+      if (now >= Math.max(arcade.fuseAt, arcade.canPassAt) + (player.botOvertimeMs || 0)) handleArcadeInput(room, bot, { action: "pass" });
+      return;
     }
     // Nach jedem Weitergeben ist die Zündschnur kurz zu sehen. Wer hinschaut,
     // gibt sofort ab, wenn sie knapp wird — vorher las kein Bot sie überhaupt,
     // und das eigentliche Können des Spiels blieb ungenutzt.
     const fuseLeft = (arcade.fuseAt || 0) - now + (player.botFuseErr || 0);
-    // Der beste Wert liegt KNAPP UNTER der Mindesthaltezeit des Empfängers (380 ms):
-    // dann kann er sie nicht mehr loswerden. Zu früh abgegeben kreist die Bombe
-    // einmal herum und kommt zurück — mit 900 ms verlor der starke Bot gemessen
-    // gegen den mittleren.
-    // Mit der Streuung von oben zielt der starke Bot etwas tiefer, damit sein
-    // Wurf meist noch im Fenster landet. Gemessen zu zweit (Sieger von 600):
-    // stark gegen mittel 78 %, ein Mensch, der sofort weitergibt, gegen stark
-    // 30 %, einer, der mitzählt und spät abgibt, 56 %.
+    // Spät abgeben lohnt sich weiter: der Empfänger landet damit in der
+    // Überzeit und muss schnell reagieren. Ihn ohne jede Chance erwischen
+    // (Abgabe knapp unter seiner Haltesperre) geht seit der Schonfrist nicht
+    // mehr. Zu früh abgegeben kreist die Bombe einmal herum und kommt zurück.
     const watch = profile.level === "hard" ? 280 : profile.level === "normal" ? 600 : 0;
     if ((fuseLeft <= watch && now >= arcade.canPassAt) || now >= player.botPassAt) {
       handleArcadeInput(room, bot, { action: "pass" });
@@ -8313,6 +8348,9 @@ module.exports = {
     BARREL_WILD_MS,
     BOMB_PASS_LOCK_MS,
     BOMB_BREAK_MS,
+    BOMB_CATCH_MS,
+    BOMB_CATCH_STEP_MS,
+    bombCatchMs,
     BOMB_DUEL_LIVES,
     KNIFE_MIN_GAP_DEG,
     knifeLogAngle,

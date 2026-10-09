@@ -1338,7 +1338,13 @@ test("zuendstoff: passing moves the bomb, the fuse eliminates the holder", () =>
   assert.equal(arcade.players[victimId].lives, testRules.BOMB_DUEL_LIVES);
   let now = Date.now();
   arcade.fuseAt = now - 1;
+  // Eben gefangen: die Schonfrist hält den Knall auf, es ist Überzeit.
   testRules.updateBomb(room, minigame, arcade, now);
+  assert.equal(arcade.explosions, 0, "in der Schonfrist knallt es nicht");
+  assert.equal(arcade.overtime, true, "abgebrannt in der Schonfrist heisst Überzeit");
+  now = arcade.graceUntil;
+  testRules.updateBomb(room, minigame, arcade, now);
+  assert.equal(arcade.overtime, false, "die neue Bombe startet ohne Überzeit");
   assert.equal(arcade.players[victimId].outAt, null, "zu zweit ist man nach einem Treffer noch drin");
   assert.equal(arcade.players[victimId].lives, testRules.BOMB_DUEL_LIVES - 1);
   assert.equal(arcade.lastBoomId, victimId);
@@ -1385,6 +1391,46 @@ test("zuendstoff: zu dritt ist nach einem Knall raus, die Bombe geht weiter", ()
   assert.ok(arcade.players[victimId].outAt, "zu dritt reicht ein Knall");
   assert.notEqual(arcade.holderId, victimId, "ein Überlebender bekommt die nächste Bombe");
   assert.ok(arcade.canPassAt > now + testRules.BOMB_BREAK_MS, "Weitergeben erst nach Pause und Sperre");
+});
+
+test("zuendstoff: wer die Bombe fängt, hat immer eine Chance — die Überzeit endet trotzdem", () => {
+  const quartet = ["zh", "zi", "zj", "zk"].map((id, i) => player({ id, name: id.toUpperCase(), color: ["#fff", "#0ff", "#f0f", "#ff0"][i] }));
+  const real = Date.now;
+  let clock = 5000000;
+  Date.now = () => clock;
+  try {
+    const arcade = createArcadeState("zuendstoff", quartet, clock);
+    const minigame = { arcade, scores: {}, startedAt: clock, duration: 45000, finishing: false };
+    const room = { currentMinigame: minigame, players: quartet };
+    const holder = () => quartet.find((p) => p.id === arcade.holderId);
+    // Abgabe 1 ms vor dem Knall: der Empfänger bekommt die volle Schonfrist.
+    clock = arcade.fuseAt - 1;
+    arcade.players[arcade.holderId].lastInputAt = 0;
+    const first = arcade.holderId;
+    handleArcadeInput(room, holder(), { action: "pass" });
+    assert.notEqual(arcade.holderId, first);
+    assert.equal(arcade.graceUntil, clock + testRules.BOMB_CATCH_MS);
+    assert.ok(arcade.graceUntil - arcade.canPassAt >= 800, "nach der Haltesperre bleibt gut eine Reaktionszeit");
+    clock += 10;
+    testRules.updateBomb(room, minigame, arcade, clock);
+    assert.equal(arcade.explosions, 0, "kein Knall eine Millisekunde nach dem Fangen");
+    assert.equal(arcade.overtime, true);
+    // Jeder gibt so schnell ab, wie es überhaupt geht: die Fristen werden
+    // kürzer, bis keiner mehr abgeben kann.
+    const graces = [arcade.graceUntil - arcade.holderSince];
+    for (let i = 0; i < 12 && arcade.explosions === 0; i += 1) {
+      clock = arcade.canPassAt;
+      arcade.players[arcade.holderId].lastInputAt = 0;
+      handleArcadeInput(room, holder(), { action: "pass" });
+      if (arcade.explosions === 0) graces.push(arcade.graceUntil - arcade.holderSince);
+    }
+    assert.equal(arcade.explosions, 1, "die Überzeit endet nach wenigen Abgaben mit einem Knall");
+    assert.deepEqual(graces, [1200, 1000, 800, 600, 400, 380], "die Schonfrist schrumpft je Abgabe bis auf die Haltesperre");
+    assert.equal(arcade.overtime, false);
+    assert.equal(arcade.latePasses, 0, "die nächste Bombe beginnt von vorn");
+  } finally {
+    Date.now = real;
+  }
 });
 
 test("muenzregen: eine Serie hebt den Wert, eine Bombe setzt ihn zurück", () => {

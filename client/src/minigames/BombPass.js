@@ -475,7 +475,13 @@ export class BombPass extends MinigameScene {
     // gehen in Deckung. Nach drei Sekunden ist man ganz oben.
     const holderKin = inBreak ? null : this.kins.get(arcade.holderId);
     const heldFor = Math.max(0, now - (arcade.holderSince || now)) / 1000;
-    const tension = holderKin ? Math.min(1, Math.max(0, (heldFor - 0.4) / 2.6)) : 0;
+    // Überzeit: die Zündschnur ist runter, nur die Schonfrist des Trägers
+    // hält den Knall noch auf. Dann ist alles auf Anschlag, und über der
+    // Bombe läuft die Frist als Ring ab — jeder sieht, wie knapp es ist.
+    const overtime = Boolean(arcade.overtime) && Boolean(holderKin) && !finale;
+    const graceSpan = Math.max(1, (arcade.graceUntil || 0) - (arcade.holderSince || 0));
+    const graceLeft = overtime ? Math.max(0, Math.min(1, ((arcade.graceUntil || 0) - now) / graceSpan)) : 0;
+    const tension = overtime ? 1 : holderKin ? Math.min(1, Math.max(0, (heldFor - 0.4) / 2.6)) : 0;
     this.bombBody.emissiveIntensity = tension * tension * (0.55 + Math.abs(Math.sin(now / (260 - tension * 190))) * 0.45);
     const nextKin = this.kins.get(arcade.holderId);
     if (inBreak && nextKin && breakLeft <= RISE_MS + FLY_MS) {
@@ -537,23 +543,31 @@ export class BombPass extends MinigameScene {
     const secs = Math.max(0, Math.min(shown, Math.ceil(shown - (now - litAt) / 1000)));
     this.timerSprite.visible = this.bomb.visible && (!inBreak || breakLeft < 260);
     this.timerSprite.position.copy(this.bomb.position).y += 0.95 * this.bomb.scale.y;
-    const text = revealing ? `${secs}s` : "?";
+    const text = overtime ? `!${Math.round(graceLeft * 48)}` : revealing ? `${secs}s` : "?";
     if (text !== this.timerLast) {
       this.timerLast = text;
       const c = this.timerCtx;
       c.clearRect(0, 0, 128, 128);
-      c.fillStyle = revealing ? "rgba(255,32,56,0.92)" : "rgba(20,28,38,0.86)";
+      c.fillStyle = overtime ? "rgba(255,32,56,0.96)" : revealing ? "rgba(255,32,56,0.92)" : "rgba(20,28,38,0.86)";
       c.beginPath();
       c.arc(64, 64, 56, 0, Math.PI * 2);
       c.fill();
       c.lineWidth = 6;
-      c.strokeStyle = "#ffffff";
+      c.strokeStyle = overtime ? "rgba(255,255,255,0.3)" : "#ffffff";
       c.stroke();
+      if (overtime) {
+        // Die Schonfrist als Ring, der im Uhrzeigersinn abläuft.
+        c.lineWidth = 10;
+        c.strokeStyle = "#ffffff";
+        c.beginPath();
+        c.arc(64, 64, 54, -Math.PI / 2, -Math.PI / 2 + graceLeft * Math.PI * 2);
+        c.stroke();
+      }
       c.fillStyle = "#ffffff";
-      c.font = `900 ${revealing ? 46 : 62}px ui-rounded, system-ui, sans-serif`;
+      c.font = `900 ${overtime ? 70 : revealing ? 46 : 62}px ui-rounded, system-ui, sans-serif`;
       c.textAlign = "center";
       c.textBaseline = "middle";
-      c.fillText(text, 64, 70);
+      c.fillText(overtime ? "!" : text, 64, 70);
       this.timerTex.needsUpdate = true;
     }
     this.spark.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(now / (150 - tension * 100))) * (0.8 + tension * 1.4);
@@ -569,7 +583,7 @@ export class BombPass extends MinigameScene {
     // Dazu ein leises Ticken, das mit der Haltezeit schneller und höher wird
     // — es verrät nichts über die Zündschnur, nur wie lange man schon zögert.
     if (arcade.holderId === controlledId && holderKin && tension > 0.2 && !finale) {
-      const beatMs = 820 - tension * 470;
+      const beatMs = overtime ? 110 : 820 - tension * 470;
       if (!this.nextPulse || now >= this.nextPulse) {
         this.nextPulse = now + beatMs;
         this.feedback?.vibrate(tension > 0.7 ? [10, 60, 14] : 8);
@@ -691,8 +705,11 @@ export class BombPass extends MinigameScene {
       else text = hit?.outAt ? `💥 ${name} ist raus!` : `💥 Treffer bei ${name}!`;
       tone = "#8a3b1c";
     } else if (isHolder && !finale) {
-      text = "DU hast die Bombe!";
+      text = arcade.overtime ? "ÜBERZEIT – weg damit!" : "DU hast die Bombe!";
       tone = "#ff2038";
+    } else if (arcade.overtime && !inBreak && !finale && !own?.outAt) {
+      text = "ÜBERZEIT! Gleich knallt's";
+      tone = "#c2410c";
     }
     banner.hidden = !text;
     if (text && banner.textContent !== text) banner.textContent = text;
@@ -700,6 +717,7 @@ export class BombPass extends MinigameScene {
     banner.style.color = "#ffffff";
     this.passButton.disabled = !isHolder || Boolean(minigame.finaleAt);
     this.passButton.classList.toggle("is-hot", isHolder && !minigame.finaleAt);
+    this.passButton.classList.toggle("is-overtime", isHolder && Boolean(arcade.overtime) && !minigame.finaleAt);
 
     // Sperre nach dem Fangen: der Balken läuft voll, dann ist der Knopf scharf.
     const lockMs = Math.max(1, (arcade.canPassAt || 0) - (arcade.holderSince || 0));

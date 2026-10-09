@@ -48,7 +48,7 @@ export const MINIGAME_GUIDES = {
   ballonPump: guide("reaction", "Tippe möglichst schnell. Der größte Ballon gewinnt.", "Du kannst mit zwei Fingern abwechselnd tippen."),
   fassmut: guide("reaction", "Stoppe das fallende Fass mit einem Tipp möglichst dicht über deinem Kopf.", "Das Fass rutscht nach! Tippe, wenn sein Halteschatten im Grünen liegt."),
   fassrolle: guide("together", "Halte links oder rechts und bleib oben im grünen Streifen des Fasses.", "Lauf gegen Drehung und Wellen. Im Wildwasser ist ein Sturz endgültig."),
-  zuendstoff: guide("together", "Merk dir die Zündzeit und tippe, um die Bombe rechtzeitig weiterzugeben.", "Wer sie beim Knall hält, ist raus. Zu zweit erst beim zweiten Treffer."),
+  zuendstoff: guide("together", "Merk dir die Zündzeit und tippe, um die Bombe rechtzeitig weiterzugeben.", "Gefangen hast du immer kurz Zeit. ÜBERZEIT heißt: sofort weiter! Wer sie beim Knall hält, ist raus."),
   muenzregen: guide("skill", "Wechsle per Wisch die Spur: fang Münzen und vermeide Bomben.", "Fänge in Folge vervielfachen Punkte. Achte am Ende auf die Schatzspur."),
   blobklopfe: guide("reaction", "Tippe die auftauchenden Blobs. Schnelle Treffer bringen mehr Punkte.", "Gold bringt fünf Punkte. Die dunkelroten Stachelblobs kosten Punkte."),
   seilspringen: guide("reaction", "Tippe zum Springen, wenn das Seil unter dir durchgeht.", "Bei DOPPELT kommen zwei Sprünge kurz nacheinander. Ein Fehler und du bist raus."),

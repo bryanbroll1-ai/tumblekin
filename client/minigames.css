@@ -2231,6 +2231,20 @@ canvas.is-stunned {
   background: linear-gradient(180deg, #b0503e, #7a2a2c);
 }
 
+/* Überzeit: der Knopf pocht, solange die Schonfrist läuft. */
+.bomb-button.is-hot.is-overtime:not(.is-arming) {
+  animation: bomb-overtime 0.22s ease-in-out infinite alternate;
+}
+
+@keyframes bomb-overtime {
+  from { transform: scale(1); }
+  to { transform: scale(1.05); box-shadow: 0 8px 0 #6e0f18, 0 0 0 8px rgba(255, 220, 90, 0.55), 0 18px 34px rgba(209, 31, 44, 0.7); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bomb-button.is-hot.is-overtime:not(.is-arming) { animation: none; border-color: #ffe36b; }
+}
+
 /* --- Partyklassiker ------------------------------------------------------- */
 
 /* Tauziehen: ein grosser Knopf, jeder Tipp zieht. Er federt bei jedem Zug
