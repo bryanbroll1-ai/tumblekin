@@ -2,13 +2,17 @@ import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
 import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin213";
 import { frameLerp } from "./Quality.js?v=tumblekin213";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin213";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
 import { forecastHockey, hockeyRules, limits } from "./Puckbahn.js?v=tumblekin213";
 
 // Luftpuck — ein riesiger Airhockey-Tisch in einer Neon-Spielhalle. Jeder
-// steht auf einer Schwebescheibe in seiner Hälfte und schiebt den Puck. Das
-// eigene Tor liegt für Team 0 vorn, für Team 1 hinten; die Banden leuchten in
-// der Farbe des Teams, das sie verteidigt.
+// Spieler IST ein Airhockey-Schläger: runder Fuss in der eigenen Farbe, ein
+// Neonring in der Teamfarbe, Griff mit Knauf obendrauf, darüber das
+// Namensschild. Vorher standen Figuren auf Schwebescheiben — sie verdeckten
+// den Puck, und es sah nicht nach Airhockey aus. Das eigene Tor liegt für
+// Team 0 vorn, für Team 1 hinten; die Banden leuchten in der Farbe des
+// Teams, das sie verteidigt.
 //
 // Drumherum: Spielautomaten mit flimmernden Bildschirmen, ein Greifautomat,
 // Neonschriften, eine Discokugel, die Lichtpunkte über den Boden wirft, und
@@ -22,7 +26,7 @@ const TICK_LEAD_MS = 45;         // halber Servertakt (90 ms), siehe stickAt
 export class AirHockey extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.discs = new Map();
+    this.mallets = new Map();      // playerId → { group, body, side, r, hit, hop }
     this.roundTrip = 0;
     this.stickLog = [];            // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
     this.stickWanted = null;
@@ -31,7 +35,7 @@ export class AirHockey extends MinigameScene {
     this.view = null;              // Vorausrechnung zur Ankunftszeit (forecastHockey)
     this.ownTouchAt = 0;           // wann das Gerät den eigenen Stoss schon gezeigt hat
     this.seenGoals = 0;
-    this.labelY = 0.8;
+    this.labelY = 0.78;
     this.screens = [];
     this.spots = null;
     this.lastTouch = null;
@@ -90,28 +94,14 @@ export class AirHockey extends MinigameScene {
       const entry = arcade?.players?.[player.id];
       const r = entry?.r ?? 0.36;
       const side = entry?.side ?? index % 2;
-      this.addKin(player, index, { x: entry?.x ?? 0, ground: TABLE_Y + 0.12, z: entry?.z ?? 0, facing: side === 0 ? Math.PI : 0 });
-      // Die Schwebescheibe unter der Figur, im Teamlicht.
-      const disc = new THREE.Group();
-      const koerper = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.02, 0.12, 28), lambert("#f4f6fb"));
-      koerper.castShadow = true;
-      disc.add(koerper);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.035, 6, 28), new THREE.MeshBasicMaterial({ color: TEAM_COLORS[side] }));
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.06;
-      disc.add(ring);
-      const glow = new THREE.Mesh(new THREE.CircleGeometry(r * 1.3, 24), new THREE.MeshBasicMaterial({ color: TEAM_COLORS[side], transparent: true, opacity: 0.25, depthWrite: false }));
-      glow.rotation.x = -Math.PI / 2;
-      glow.position.y = -0.055;
-      glow.userData.isFx = true;
-      disc.add(glow);
-      const punkt = new THREE.Mesh(new THREE.CircleGeometry(0.08, 12), new THREE.MeshBasicMaterial({ color: player.color }));
-      punkt.rotation.x = -Math.PI / 2;
-      punkt.position.set(0, 0.061, r * 0.62);
-      disc.add(punkt);
-      disc.position.set(entry?.x ?? 0, TABLE_Y + 0.06, entry?.z ?? 0);
-      scene.add(disc);
-      this.discs.set(player.id, { disc, side, r });
+      const mallet = buildMallet(player.color, TEAM_COLORS[side], r);
+      mallet.group.position.set(entry?.x ?? 0, TABLE_Y, entry?.z ?? 0);
+      const label = createNameLabel(String(player.name || "?").slice(0, 8), player.color, { own: player.id === this.getControlledPlayerId() });
+      label.position.y = this.labelY;
+      mallet.group.add(label);
+      this.labels.set(player.id, label);
+      scene.add(mallet.group);
+      this.mallets.set(player.id, { ...mallet, side, r, hit: 0, hop: 0 });
       // Im Zweierteam hat jeder eine Zone — die eigene leuchtet schwach auf
       // dem Tisch, damit klar ist, warum die Scheibe dort stehen bleibt.
       if (player.id === this.getControlledPlayerId() && entry?.lane) {
@@ -133,14 +123,11 @@ export class AirHockey extends MinigameScene {
       }
     });
     if (state?.robot) {
-      const robo = new THREE.Group();
-      kiste(robo, 0.5, 0.36, 0.5, "#9aa6b8", [0, 0.3, 0]);
-      kiste(robo, 0.36, 0.08, 0.04, "#ff3b3b", [0, 0.38, 0.26], { schatten: false });
-      const scheibe2 = new THREE.Mesh(new THREE.CylinderGeometry(state.robot.r, state.robot.r, 0.12, 28), lambert("#c9d1dc"));
-      robo.add(scheibe2);
-      robo.position.set(state.robot.x, TABLE_Y + 0.06, state.robot.z);
-      scene.add(robo);
-      this.robot = robo;
+      // Allein spielt man gegen einen Automaten-Schläger: grau, rotes Licht.
+      const robo = buildMallet("#9aa6b8", "#ff3b3b", state.robot.r);
+      robo.group.position.set(state.robot.x, TABLE_Y, state.robot.z);
+      scene.add(robo.group);
+      this.robot = robo.group;
     }
   }
 
@@ -222,7 +209,12 @@ export class AirHockey extends MinigameScene {
     this.discoBall = kugel;
     const punkte = [];
     for (let i = 0; i < 26; i += 1) punkte.push({ p: [0, 0.012, 0], r: [-Math.PI / 2, 0, 0], s: 0.2 + zufall() * 0.15 });
-    this.spots = viele(scene, new THREE.CircleGeometry(1, 10), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.5, depthWrite: false }), punkte);
+    // Farbiges Licht, das sich addiert — weisse halbdurchsichtige Flecken
+    // sahen auf dem dunklen Boden aus wie graue Schlieren.
+    this.spots = viele(scene, new THREE.CircleGeometry(1, 10), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }), punkte);
+    const neon = ["#ff3b8d", "#2fd6ff", "#b57bff", "#ffe25c"].map((c) => new THREE.Color(c));
+    punkte.forEach((_, i) => this.spots.setColorAt(i, neon[i % neon.length]));
+    if (this.spots.instanceColor) this.spots.instanceColor.needsUpdate = true;
     this.spots.userData.isFx = true;
     this.spotSeeds = punkte.map(() => ({ a: zufall() * Math.PI * 2, r: 3 + zufall() * 6, s: 0.1 + zufall() * 0.2 }));
     // Anzeigetafel über dem Tisch.
@@ -315,7 +307,7 @@ export class AirHockey extends MinigameScene {
       </div>`;
     this.joystick = new VirtualJoystick({
       root: this.controls.querySelector(".joystick-slot"),
-      label: "Luftpuck: Scheibe steuern",
+      label: "Luftpuck: Schläger steuern",
       intervalMs: 60,
       feedback: this.feedback,
       surface: this.webglCanvas,
@@ -438,50 +430,57 @@ export class AirHockey extends MinigameScene {
         if (event.kind !== "touch" || event.id !== controlledId || event.at <= this.ownTouchAt) return;
         this.ownTouchAt = event.at;
         this.ownTouchShownAt = performance.now();
-        this.animators.get(controlledId)?.trigger("punch");
+        const own = this.mallets.get(controlledId);
+        if (own) own.hit = 1;
         this.burst(new THREE.Vector3(event.x, TABLE_Y + 0.1, event.z), [TEAM_COLORS[arcade.players[controlledId]?.side ?? 0], "#ffffff"], { count: 6, speed: 1.3, up: 0.8, size: 0.05, life: 0.35 });
         this.feedback?.sound("clack");
         this.feedback?.vibrate(10);
       });
     }
 
-    // Scheiben und Figuren.
+    // Die Schläger.
+    const sieger = f.finale ? ((state.score?.[0] || 0) > (state.score?.[1] || 0) ? 0 : (state.score?.[1] || 0) > (state.score?.[0] || 0) ? 1 : -1) : -1;
     players.forEach((player) => {
       const entry = view.mallets.get(player.id) || arcade.players[player.id];
       const served = arcade.players[player.id];
-      const kin = this.kins.get(player.id);
-      const animator = this.animators.get(player.id);
-      const disc = this.discs.get(player.id);
-      if (!entry || !kin || !animator || !disc) return;
+      const m = this.mallets.get(player.id);
+      if (!entry || !m) return;
       const isOwn = player.id === controlledId;
-      // Die eigene Scheibe folgt der Vorausrechnung fast ohne Verzug — sie
+      // Der eigene Schläger folgt der Vorausrechnung fast ohne Verzug — er
       // IST schon die Antwort auf den Stick.
       const follow = isOwn ? 0.75 : 0.5;
-      disc.disc.position.x += (entry.x - disc.disc.position.x) * frameLerp(follow, dt);
-      disc.disc.position.z += (entry.z - disc.disc.position.z) * frameLerp(follow, dt);
-      disc.disc.position.y = TABLE_Y + 0.06 + Math.sin(now / 200 + disc.r * 10) * 0.012;
-      kin.position.x = disc.disc.position.x;
-      kin.position.z = disc.disc.position.z;
-      // Die Figur schaut zum Puck.
-      const look = Math.atan2(this.puck.position.x - kin.position.x, this.puck.position.z - kin.position.z);
-      kin.rotation.y += Math.atan2(Math.sin(look - kin.rotation.y), Math.cos(look - kin.rotation.y)) * frameLerp(0.2, dt);
-      const moving = Math.hypot(entry.vx || 0, entry.vz || 0) > 0.6;
+      const g = m.group;
+      const px = g.position.x;
+      const pz = g.position.z;
+      g.position.x += (entry.x - g.position.x) * frameLerp(follow, dt);
+      g.position.z += (entry.z - g.position.z) * frameLerp(follow, dt);
+      // Neigt sich leicht in die Bewegung, wie unter einer Hand.
+      const vx = dt > 0 ? (g.position.x - px) / dt : 0;
+      const vz = dt > 0 ? (g.position.z - pz) / dt : 0;
+      m.body.rotation.z += (Math.max(-0.22, Math.min(0.22, -vx * 0.035)) - m.body.rotation.z) * frameLerp(0.3, dt);
+      m.body.rotation.x += (Math.max(-0.22, Math.min(0.22, vz * 0.035)) - m.body.rotation.x) * frameLerp(0.3, dt);
+      // Stoss: kurz breiter und flacher; Tor: ein Hüpfer; am Ende hüpft das
+      // Siegerteam.
+      m.hit = Math.max(0, m.hit - dt * 5);
+      m.hop = Math.max(0, m.hop - dt * 1.6);
+      const cheer = sieger === m.side ? Math.max(0, Math.sin(now / 140 + m.r * 7)) * 0.18 : 0;
+      g.position.y = TABLE_Y + Math.sin(m.hop * Math.PI * 2) * 0.12 * m.hop + cheer;
+      m.body.scale.set(1 + m.hit * 0.14, 1 - m.hit * 0.18, 1 + m.hit * 0.14);
       if (f.finale) return;
-      animator.set(moving ? "ride" : "ready");
       // Stösse der anderen (und eigene, die die Vorausrechnung nicht sah)
       // kommen vom Server.
-      if ((served?.touches || 0) > (disc.touches ?? served?.touches ?? 0)) {
+      if ((served?.touches || 0) > (m.touches ?? served?.touches ?? 0)) {
         const shown = isOwn && performance.now() - (this.ownTouchShownAt || 0) < 500;
         if (!shown) {
-          animator.trigger("punch");
-          this.burst(this.puck.position.clone().setY(TABLE_Y + 0.1), [TEAM_COLORS[disc.side], "#ffffff"], { count: 6, speed: 1.3, up: 0.8, size: 0.05, life: 0.35 });
+          m.hit = 1;
+          this.burst(this.puck.position.clone().setY(TABLE_Y + 0.1), [TEAM_COLORS[m.side], "#ffffff"], { count: 6, speed: 1.3, up: 0.8, size: 0.05, life: 0.35 });
           if (isOwn) {
             this.feedback?.sound("clack");
             this.feedback?.vibrate(10);
           }
         }
       }
-      disc.touches = served?.touches || 0;
+      m.touches = served?.touches || 0;
     });
     const robot = view.state.robot || state.robot;
     if (this.robot && robot) {
@@ -500,7 +499,8 @@ export class AirHockey extends MinigameScene {
       this.drawBoard(state.score);
       const shooter = goal.by ? players.find((pl) => pl.id === goal.by) : null;
       this.pop(at.clone().add(new THREE.Vector3(0, 0.8, 0)), goal.own ? "EIGENTOR!" : "TOR!", { color: "#ffe36b", size: 0.6, life: 1.4 });
-      if (shooter) this.animators.get(shooter.id)?.trigger("celebrate");
+      const torschuetze = shooter && this.mallets.get(shooter.id);
+      if (torschuetze && !goal.own) torschuetze.hop = 1;
       const own = arcade.players[controlledId];
       this.rig.shake(0.45);
       if (own) {
@@ -633,4 +633,42 @@ function neonTextur(text) {
 
 function escapeName(name) {
   return String(name || "?").slice(0, 6).replace(/[&<>"']/g, "");
+}
+
+// Ein Airhockey-Schläger: flacher Fuss, Neonring, kegeliger Aufbau, Griff
+// mit Knauf. `body` neigt und staucht sich, `group` trägt die Position.
+function buildMallet(color, ringColor, r) {
+  const group = new THREE.Group();
+  const body = new THREE.Group();
+  group.add(body);
+  const hell = new THREE.Color(color).lerp(new THREE.Color("#ffffff"), 0.18);
+  const dunkel = new THREE.Color(color).lerp(new THREE.Color("#000000"), 0.25);
+  const fuss = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.02, 0.08, 32), lambert(color));
+  fuss.position.y = 0.04;
+  fuss.castShadow = true;
+  body.add(fuss);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 0.93, 0.035, 8, 32), new THREE.MeshBasicMaterial({ color: ringColor }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.085;
+  body.add(ring);
+  const aufbau = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.48, r * 0.8, 0.1, 28), lambert(color));
+  aufbau.position.y = 0.13;
+  aufbau.castShadow = true;
+  body.add(aufbau);
+  const griff = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.24, r * 0.3, 0.18, 20), new THREE.MeshLambertMaterial({ color: dunkel }));
+  griff.position.y = 0.27;
+  griff.castShadow = true;
+  body.add(griff);
+  const knauf = new THREE.Mesh(new THREE.SphereGeometry(r * 0.36, 20, 14), new THREE.MeshLambertMaterial({ color: hell }));
+  knauf.scale.y = 0.8;
+  knauf.position.y = 0.38;
+  knauf.castShadow = true;
+  body.add(knauf);
+  // Ein Schein in der Ringfarbe unter dem Fuss.
+  const schein = new THREE.Mesh(new THREE.CircleGeometry(r * 1.3, 24), new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.22, depthWrite: false }));
+  schein.rotation.x = -Math.PI / 2;
+  schein.position.y = 0.006;
+  schein.userData.isFx = true;
+  group.add(schein);
+  return { group, body };
 }

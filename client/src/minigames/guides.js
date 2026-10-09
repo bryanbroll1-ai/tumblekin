@@ -75,7 +75,7 @@ export const MINIGAME_GUIDES = {
   flaggenhoch: guide("reaction", "Tippe die gezeigten Flaggen nach, wenn der Käpt'n es befiehlt.", "Nur bei „Käpt'n sagt:“ reagieren! Ohne diese Worte stillhalten."),
   honigwabe: guide("thinking", "Pflück reihum einen oder zwei Äpfel — wer eine Wabe erwischt, ist raus.", "Zähl voraus und lass die Wabe dem Nächsten. Einmal darfst du passen."),
   schneeball: guide("together", "Rolle mit dem Stick eine Schneekugel und wirf sie auf die anderen.", "Große Kugeln bringen mehr Punkte und können dich vor Treffern schützen."),
-  luftpuck: guide("together", "Steuere deine Scheibe gegen den Puck. Schieß fünf Tore mit deinem Team.", "Dein eigenes Tor hat deine Teamfarbe. Bleib in deiner leuchtenden Zone."),
+  luftpuck: guide("together", "Steuere deinen Schläger gegen den Puck. Schieß fünf Tore mit deinem Team.", "Dein eigenes Tor hat deine Teamfarbe. Bleib in deiner leuchtenden Zone."),
   buecherwurm: guide("skill", "Stell dich mit dem Stick in ein Loch, bevor die Buchseite herunterfällt.", "Jede Seite hat andere Lochformen; der Schatten zeigt sie. Einmal platt, und du bist raus."),
   schnappschuss: guide("together", "Steh beim Blitz im Bildausschnitt. In der Mitte gibt es Extrapunkte.", "Mit SCHUBS kannst du andere aus dem Foto drängen."),
   kippboot: guide("skill", "Tippe in deinem Zug, um den Passagier ins Boot fallen zu lassen.", "Außen gibt es mehr Punkte. Grün ist sicher; Kentern kostet 30 Punkte."),
