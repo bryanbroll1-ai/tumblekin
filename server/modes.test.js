@@ -521,3 +521,30 @@ test("Ablauf: ein neuer Raum hat kein Brett mehr im Zustand", () => {
     ["coins", "stars", "items", "position"].forEach((key) => assert.equal(key in player, false, `Spieler hat noch ${key}`));
   });
 });
+
+test("Einstellungen: die Bot-Stufe nimmt nur bekannte Werte an", () => {
+  const base = modes.defaultSettings();
+  assert.equal(base.botLevel, "mixed");
+  assert.equal(modes.mergeSettings(base, { botLevel: "hard" }, ALL).botLevel, "hard");
+  assert.equal(modes.mergeSettings({ ...base, botLevel: "easy" }, { botLevel: "brutal" }, ALL).botLevel, "easy");
+  assert.equal(modes.mergeSettings(base, { botLevel: { toString: null } }, ALL).botLevel, "mixed");
+});
+
+test("Bots: die eingestellte Stufe gilt für alle Bots, gemischt würfelt", () => {
+  const players = [
+    { id: "h", isBot: false },
+    { id: "b1", isBot: true },
+    { id: "b2", isBot: true }
+  ];
+  ["easy", "normal", "hard"].forEach((level) => {
+    const entries = { h: {}, b1: {}, b2: {} };
+    testRules.assignBotProfiles({ players, settings: { botLevel: level } }, entries);
+    assert.equal(entries.h.botProfile, undefined, "Menschen bekommen kein Profil");
+    assert.equal(entries.b1.botProfile.level, level);
+    assert.equal(entries.b2.botProfile.level, level);
+    assert.ok(entries.b1.botProfile.reactionMs > 0);
+  });
+  const seen = new Set();
+  for (let i = 0; i < 60; i += 1) seen.add(testRules.botProfileFor("mixed").level);
+  assert.deepEqual([...seen].sort(), ["easy", "hard", "normal"]);
+});

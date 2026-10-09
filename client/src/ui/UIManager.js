@@ -19,6 +19,9 @@ import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin21
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
+// Stufen der Bots, wie BOT_LEVELS in server/modes.js.
+const BOT_LEVELS = [["mixed", "gemischt"], ["easy", "leicht"], ["normal", "mittel"], ["hard", "schwer"]];
+
 export class UIManager {
   constructor(handlers, feedback = null, stage = null) {
     this.handlers = handlers;
@@ -224,7 +227,7 @@ export class UIManager {
     el.modeOptions.addEventListener("click", (event) => {
       const chip = event.target.closest("[data-setting]");
       if (chip && !chip.disabled) {
-        const value = Number(chip.dataset.value);
+        const value = "text" in chip.dataset ? chip.dataset.value : Number(chip.dataset.value);
         this.feedback?.sound("tap");
         this.safeAction(() => this.handlers.updateSettings({ [chip.dataset.setting]: value }));
         return;
@@ -582,6 +585,17 @@ export class UIManager {
           <button type="button" class="chip chip-wide" data-open-picker="single" ${disabled}>
             ${chosen ? `${gesture?.icon || ""} ${escapeHtml(chosen.title)}` : "🎲 Zufall"} <b>›</b>
           </button>
+        </div>`;
+    }
+    // Wie stark die Bots spielen — nur, wenn welche mitspielen.
+    if (this.state.players.some((player) => player.isBot)) {
+      const level = settings.botLevel || "mixed";
+      html += `
+        <div class="option-row">
+          <span class="option-label">Bots</span>
+          <div class="chip-row">
+            ${BOT_LEVELS.map(([value, label]) => `<button type="button" class="chip ${value === level ? "is-active" : ""}" data-setting="botLevel" data-value="${value}" data-text ${disabled}>${label}</button>`).join("")}
+          </div>
         </div>`;
     }
     this.el.modeOptions.innerHTML = html;

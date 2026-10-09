@@ -1943,9 +1943,11 @@ function startMinigame(room, reason, forcedType = null) {
 
   if (template.type === "bounceArena") {
     minigame.arena = createArenaState(room.players, minigame.startedAt, template.duration);
+    assignBotProfiles(room, minigame.arena.players);
   }
   if (template.arcadeFamily) {
     minigame.arcade = createArcadeState(template.type, room.players, minigame.startedAt);
+    assignBotProfiles(room, minigame.arcade.players);
   }
 
   room.currentMinigame = minigame;
@@ -2550,16 +2552,33 @@ function arcadeResultDetail(arcade, arcadePlayer) {
 
 // Bots get a believable skill profile: reaction delay, error rate and
 // timing spread instead of perfect play.
-function botProfile(arcadePlayer, seedHint = 0) {
-  if (!arcadePlayer.botProfile) {
-    const roll = Math.random() + seedHint * 0;
-    arcadePlayer.botProfile = roll < 0.33
-      ? { level: "easy", reactionMs: 900, mistake: 0.3, spreadMs: 650 }
-      : roll < 0.75
-        ? { level: "normal", reactionMs: 550, mistake: 0.16, spreadMs: 340 }
-        : { level: "hard", reactionMs: 300, mistake: 0.07, spreadMs: 160 };
-  }
+const BOT_PROFILES = {
+  easy: { level: "easy", reactionMs: 900, mistake: 0.3, spreadMs: 650 },
+  normal: { level: "normal", reactionMs: 550, mistake: 0.16, spreadMs: 340 },
+  hard: { level: "hard", reactionMs: 300, mistake: 0.07, spreadMs: 160 }
+};
+
+// Ein Profil für die Stufe aus den Raumeinstellungen; „mixed“ würfelt.
+function botProfileFor(level) {
+  if (BOT_PROFILES[level]) return { ...BOT_PROFILES[level] };
+  const roll = Math.random();
+  return { ...(roll < 0.33 ? BOT_PROFILES.easy : roll < 0.75 ? BOT_PROFILES.normal : BOT_PROFILES.hard) };
+}
+
+function botProfile(arcadePlayer) {
+  if (!arcadePlayer.botProfile) arcadePlayer.botProfile = botProfileFor("mixed");
   return arcadePlayer.botProfile;
+}
+
+// Beim Start eines Minispiels bekommt jeder Bot sein Profil nach der
+// eingestellten Stufe — in allen Spielen gleich, auch in den Partyklassikern,
+// deren Bots vorher ohne Profil immer „mittel“ spielten.
+function assignBotProfiles(room, entries) {
+  if (!entries) return;
+  const level = room.settings?.botLevel || "mixed";
+  room.players.forEach((player) => {
+    if (player.isBot && entries[player.id]) entries[player.id].botProfile = botProfileFor(level);
+  });
 }
 
 // Sekunden für die Ergebniszeile, deutsch: 0,8 s.
@@ -8230,6 +8249,8 @@ module.exports = {
     MINIGAMES,
     SEEK_SIZE,
     publicArcade,
+    botProfileFor,
+    assignBotProfiles,
     ESTIMATE_ROUNDS,
     ESTIMATE_GRACE_MS,
     ESTIMATE_BANDS,

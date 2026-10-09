@@ -34,8 +34,12 @@ const KNOCKOUT_LIVES = [2, 3, 5];
 const HUNT_MAX_ROUNDS = 30;
 const KNOCKOUT_MAX_ROUNDS = 40;
 
+// Wie stark die Bots spielen. „mixed“ würfelt je Bot und Minispiel neu (so
+// war es immer), die anderen Stufen gelten für alle Bots im Raum.
+const BOT_LEVELS = ["mixed", "easy", "normal", "hard"];
+
 function defaultSettings() {
-  return { length: 5, lives: 3, pool: null, single: null };
+  return { length: 5, lives: 3, pool: null, single: null, botLevel: "mixed" };
 }
 
 // Nimmt nur, was gültig ist, und lässt den Rest wie er war. Ein Client kann
@@ -64,6 +68,9 @@ function mergeSettings(current, raw, knownTypes) {
   }
   if (raw.single !== undefined) {
     next.single = raw.single === null ? null : (known.has(String(raw.single)) ? String(raw.single) : next.single);
+  }
+  if (typeof raw.botLevel === "string" && BOT_LEVELS.includes(raw.botLevel)) {
+    next.botLevel = raw.botLevel;
   }
   return next;
 }
@@ -334,6 +341,7 @@ module.exports = {
   KNOCKOUT_LIVES,
   HUNT_MAX_ROUNDS,
   KNOCKOUT_MAX_ROUNDS,
+  BOT_LEVELS,
   defaultSettings,
   mergeSettings,
   placementPoints,
