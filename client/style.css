@@ -717,21 +717,29 @@ body.has-invite .start-sheet .field:first-child {
 /* Bot-Stärke: ein Regler aus vier Farbfeldern, von gemütlich (grün) bis
    knallhart (rot), dazu der bunte Zufall. Der weisse Knopf gleitet auf die
    gewählte Stufe; darüber steht in deren Farbe, was sie heisst. */
+/* Erklärung neben dem Etikett, der Regler darunter über die volle Breite —
+   neben dem Etikett waren die Felder auf schmalen Handys zu eng für
+   „Einfach“ und „Zufall“. */
 .option-row-stack {
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 12px;
+  row-gap: 8px;
 }
 
 .option-row-stack .option-label {
-  padding-top: 3px;
+  padding-top: 2px;
 }
 
 .bot-level {
   --i: 3;
   --level: #6a4fc4;
-  display: grid;
-  flex: 1;
-  gap: 6px;
-  min-width: 0;
+  display: contents;
+}
+
+.bot-level-track {
+  grid-column: 1 / -1;
 }
 
 .bot-level-info {
@@ -809,6 +817,13 @@ body.has-invite .start-sheet .field:first-child {
 
 .bot-level-seg:disabled {
   cursor: default;
+}
+
+/* Auf sehr schmalen Handys reicht das Feld nur für das Wort. */
+@media (max-width: 359px) {
+  .bot-level-dice {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

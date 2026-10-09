@@ -674,7 +674,7 @@ export class UIManager {
             <p class="bot-level-info" data-bot-info aria-live="polite">${botLevelInfo(level)}</p>
             <div class="bot-level-track" role="radiogroup" aria-label="Stärke der Bots">
               <span class="bot-level-thumb" aria-hidden="true"></span>
-              ${BOT_LEVELS.map((entry, i) => `<button type="button" role="radio" class="bot-level-seg" data-bot-level="${entry.value}" aria-checked="${i === index}" tabindex="${i === index ? 0 : -1}" ${disabled}>${entry.value === "mixed" ? "🎲 " : ""}${entry.label}</button>`).join("")}
+              ${BOT_LEVELS.map((entry, i) => `<button type="button" role="radio" class="bot-level-seg" data-bot-level="${entry.value}" aria-checked="${i === index}" tabindex="${i === index ? 0 : -1}" ${disabled}>${entry.value === "mixed" ? '<span class="bot-level-dice" aria-hidden="true">🎲 </span>' : ""}${entry.label}</button>`).join("")}
             </div>
           </div>
         </div>`;
