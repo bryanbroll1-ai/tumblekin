@@ -22,6 +22,8 @@ import { forecastPhoto, photoRules, canShove } from "./Fotobuehne.js?v=tumblekin
 // Suchscheinwerfer, die über den Nachthimmel wandern.
 const STAGE_Y = 0.25;
 const TEPPICH_Y = STAGE_Y + 0.015;
+const TEPPICH_HALB = 1.2;        // halbe Teppichbreite
+const PODEST_TIEFE = 1.3;
 const STICK_GAP_MS = 40;         // Stick höchstens so oft schicken
 const TICK_LEAD_MS = 45;         // halber Servertakt (90 ms), siehe lands
 
@@ -166,8 +168,13 @@ export class PhotoShoot extends MinigameScene {
     // Der Teppich ist vor der Bühne ein Laufsteg bis zum Boden — als dünne
     // Platte auf Bühnenhöhe schwebte er dort, und der Fotograf stand mit den
     // Füssen darin.
-    const teppich = kiste(scene, 2.4, TEPPICH_Y, D + 8, "#b8142e", [0, TEPPICH_Y / 2, 3.8], { schatten: false });
+    const teppich = kiste(scene, TEPPICH_HALB * 2, TEPPICH_Y, D + 8, "#b8142e", [0, TEPPICH_Y / 2, 3.8], { schatten: false });
     teppich.receiveShadow = true;
+    // Das Pressepodest vor der Bühne: der Fotograf läuft dem Ausschnitt
+    // seitlich nach, weit über den schmalen Teppich hinaus — ohne Podest
+    // stand er dort in der Luft.
+    const podest = kiste(scene, W + 0.3, STAGE_Y, PODEST_TIEFE, "#22222c", [0, STAGE_Y / 2, D / 2 + 0.9]);
+    podest.receiveShadow = true;
     // Sterne im Bühnenboden.
     const zufall = streuer(41);
     const sterne = [];
@@ -218,7 +225,9 @@ export class PhotoShoot extends MinigameScene {
     [[-1, 1], [1, 1], [-1, -1], [1, -1]].forEach(([sx, sz]) => {
       const x = sx * (W / 2 + 0.25);
       const z = sz * (D / 2 + 0.25);
-      kiste(scene, 0.06, 1.8, 0.06, "#2a2a32", [x, STAGE_Y + 0.9, z], { schatten: false });
+      // Die Stative stehen knapp neben der Bühne, die Stange reicht darum
+      // bis auf den Boden.
+      kiste(scene, 0.06, STAGE_Y + 1.8, 0.06, "#2a2a32", [x, (STAGE_Y + 1.8) / 2, z], { schatten: false });
       const kopf = kiste(scene, 0.4, 0.3, 0.4, "#2a2a32", [x, STAGE_Y + 1.9, z]);
       kopf.rotation.set(0.4 * -sz, 0, 0.4 * sx);
       const glas = new THREE.Mesh(new THREE.CircleGeometry(0.14, 12), new THREE.MeshBasicMaterial({ color: "#fff4d0" }));
@@ -464,6 +473,8 @@ export class PhotoShoot extends MinigameScene {
     const fx = Math.max(-this.W / 2 + 0.4, Math.min(this.W / 2 - 0.4, aim.x));
     const walk = fx - this.fotograf.position.x;
     this.fotograf.position.x += walk * frameLerp(0.08, dt);
+    // Auf dem Teppich eine Teppichdicke höher als daneben auf dem Podest.
+    this.fotografAnimator.groundY = (Math.abs(this.fotograf.position.x) < TEPPICH_HALB ? TEPPICH_Y : STAGE_Y) + KIN_SOLE * 1.15;
     const face = Math.atan2(aim.x - this.fotograf.position.x, aim.z - this.fotograf.position.z);
     this.fotograf.rotation.y += Math.atan2(Math.sin(face - this.fotograf.rotation.y), Math.cos(face - this.fotograf.rotation.y)) * frameLerp(0.15, dt);
     this.fotografAnimator.set(Math.abs(walk) > 0.15 ? "walk" : shot ? "aim" : "idle");
