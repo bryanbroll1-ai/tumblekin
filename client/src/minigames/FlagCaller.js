@@ -21,6 +21,14 @@ const DECK_Y = 0.35;
 const BRIDGE_Y = 1.25;
 const CAPTAIN_SCALE = 1.35;
 const ROW_Z = 0.55;
+// Abstand der Matrosen: so weit, dass sich die Fahnen zweier Nachbarn nie
+// treffen — weder gesenkt (beide zeigen nach vorn) noch gehoben.
+const ROW_GAP = 1.42;
+const PLAYER_FLAG = 0.9;
+// Der Käpt'n steht vorn an der Brückenkante, wo das Geländer eine Lücke hat —
+// dahinter verdeckten ihn die Stäbe samt Flaggen.
+const CAPTAIN_Z = -1.98;
+const GAP_HALF = 1.15;
 const RAISE_MS = 520;
 const RED = "#ff3b52";
 const BLUE = "#2f7bff";
@@ -70,7 +78,7 @@ export class FlagCaller extends MinigameScene {
     this.captain = createKin("#27407a", 2);
     this.captain.scale.setScalar(CAPTAIN_SCALE);
     const capY = BRIDGE_Y + KIN_SOLE * CAPTAIN_SCALE;
-    this.captain.position.set(0, capY, -2.35);
+    this.captain.position.set(0, capY, CAPTAIN_Z);
     scene.add(this.captain);
     this.captainAnimator = new KinAnimator(this.captain);
     this.captainAnimator.groundY = capY;
@@ -87,10 +95,10 @@ export class FlagCaller extends MinigameScene {
     // Die Matrosen in einer Reihe an Deck, jeder mit zwei Flaggen.
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
-      const x = (index - (players.length - 1) / 2) * 1.05;
+      const x = (index - (players.length - 1) / 2) * ROW_GAP;
       this.addKin(player, index, { x, ground: DECK_Y, z: ROW_Z, facing: 0 });
-      const red = makeFlag(RED);
-      const blue = makeFlag(BLUE);
+      const red = makeFlag(RED, PLAYER_FLAG);
+      const blue = makeFlag(BLUE, PLAYER_FLAG);
       scene.add(red, blue);
       this.flagsOf.set(player.id, { red, blue, raise: { red: 0, blue: 0 }, until: { red: 0, blue: 0 } });
     });
@@ -169,10 +177,16 @@ export class FlagCaller extends MinigameScene {
     const stufen = [];
     for (let i = 0; i < 4; i += 1) stufen.push({ p: [1.95, DECK_Y + 0.11 + i * 0.22, -1.95 - i * 0.2], s: [0.7, 1, 1] });
     viele(scene, new THREE.BoxGeometry(1, 0.1, 0.3), lambert("#8a5a3a"), stufen);
-    const gel = [];
-    for (let x = -1.6; x <= 1.61; x += 0.4) gel.push({ p: [x, BRIDGE_Y + 0.28, -1.72] });
-    viele(scene, new THREE.BoxGeometry(0.06, 0.56, 0.06), lambert("#ffffff"), gel);
-    kiste(scene, 3.3, 0.06, 0.08, "#ffffff", [0, BRIDGE_Y + 0.56, -1.72]);
+    // Geländer nur links und rechts; die Mitte bleibt offen für den Käpt'n.
+    [-1, 1].forEach((seite) => {
+      const gel = [];
+      for (let x = GAP_HALF + 0.17; x <= 1.66; x += 0.17) gel.push({ p: [seite * x, BRIDGE_Y + 0.28, -1.72] });
+      viele(scene, new THREE.BoxGeometry(0.05, 0.56, 0.05), lambert("#ffffff"), gel);
+      const breite = 1.66 - GAP_HALF;
+      kiste(scene, breite + 0.08, 0.06, 0.08, "#ffffff", [seite * (GAP_HALF + breite / 2), BRIDGE_Y + 0.56, -1.72]);
+      kiste(scene, 0.1, 0.62, 0.1, "#ffffff", [seite * GAP_HALF, BRIDGE_Y + 0.31, -1.72]);
+      kiste(scene, 0.14, 0.08, 0.14, "#ffd15c", [seite * GAP_HALF, BRIDGE_Y + 0.66, -1.72], { schatten: false });
+    });
     // Mast, Rahe, Segel, Wimpel.
     kiste(scene, 0.22, 7, 0.22, "#8a5a3a", [0, 3.5, -4.2]);
     kiste(scene, 4.2, 0.12, 0.12, "#8a5a3a", [0, 5.8, -4.1]);
@@ -212,7 +226,7 @@ export class FlagCaller extends MinigameScene {
       rohr.rotation.z = Math.PI / 2;
       rohr.position.set(seite * 0.35, 0.36, 0);
       kanone.add(rohr);
-      kanone.position.set(seite * 2.9, DECK_Y, 0.9);
+      kanone.position.set(seite * 2.9, DECK_Y, -0.8);
       scene.add(kanone);
     });
     // Bug vorn: spitz zulaufend, mit Klüverbaum und Schaum an der Wasserlinie.
@@ -279,9 +293,9 @@ export class FlagCaller extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 1.3, -0.45],
-      frame: { w: 4.7, h: 3.9 },
-      pitch: 0.2,
+      look: [0, 1.3, -0.5],
+      frame: { w: 5.7, h: 3.9 },
+      pitch: 0.24,
       fov: 38,
       intro: { yaw: 0.6, pitch: 0.28, zoom: 1.5 },
       finale: { pull: 0.8, zoom: 0.7, lift: 0.3, orbit: 0.14 }
@@ -560,19 +574,19 @@ export class FlagCaller extends MinigameScene {
         const side = flag === "red" ? -1 : 1;
         const raise = flags.raise[flag];
         const shoulder = kin.localToWorld(new THREE.Vector3(side * 0.22, 0.05, 0));
-        const low = shoulder.clone().add(new THREE.Vector3(side * 0.12 * scale, -0.3 * scale, 0.32 * scale));
-        const high = shoulder.clone().add(new THREE.Vector3(side * 0.28 * scale, 0.9 * scale, 0.05 * scale));
+        const low = shoulder.clone().add(new THREE.Vector3(side * 0.08 * scale, -0.3 * scale, 0.32 * scale));
+        const high = shoulder.clone().add(new THREE.Vector3(side * 0.16 * scale, 0.9 * scale, 0.05 * scale));
         const target = low.lerp(high, raise);
         if (!sitting) reachArm(kin, armIndex, target, 1);
         const arm = kin.userData.arms?.[armIndex];
         const hand = arm ? arm.localToWorld(new THREE.Vector3(0, -0.16, 0.02)) : shoulder;
         const flagObj = flag === "red" ? flags.red : flags.blue;
         flagObj.position.copy(hand);
-        const down = new THREE.Vector3(side * 0.25, -0.25, 0.95).normalize();
-        const up = new THREE.Vector3(side * 0.18, 1, 0.05).normalize();
+        const down = new THREE.Vector3(side * 0.08, -0.3, 0.95).normalize();
+        const up = new THREE.Vector3(side * 0.1, 1, 0.05).normalize();
         const dir = down.lerp(up, raise).normalize();
         flagObj.quaternion.setFromUnitVectors(UP, dir);
-        flagObj.userData.cloth.position.x = side * 0.17 * flagObj.userData.size;
+        flagObj.userData.cloth.position.x = side * 0.17;
         flagObj.visible = !sitting;
       });
     };
@@ -676,7 +690,6 @@ function makeFlag(color, size = 1) {
   // unten, und die Bodenprüfung hielt ihn für eine Stufe unter dem Fuss.
   g.userData.isFx = true;
   g.userData.cloth = tuch;
-  g.userData.size = 1;
   return g;
 }
 
