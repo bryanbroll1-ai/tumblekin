@@ -11,7 +11,7 @@ export const MINIGAME_METRICS = {
   nagelbrett: "Punkte", eisstock: "Punkte", tiefenrausch: "Gesichert",
   farbenjagd: "Fläche", spuersinn: "Punkte", augenmass: "Punkte",
   tauziehen: "Züge", grimassen: "Punkte", flaggenhoch: "Richtig",
-  honigwabe: "Äpfel", schneeball: "Punkte", luftpuck: "Tore",
+  honigwabe: "Äpfel", schneeball: "Oben", luftpuck: "Tore",
   buecherwurm: "Seiten", schnappschuss: "Punkte", kippboot: "Punkte",
   rohrsalat: "Punkte"
 };

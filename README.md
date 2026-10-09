@@ -94,7 +94,7 @@ Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Ku
 - Grimassen — Jahrmarktbude
 - Flaggen hoch — Segelschiff auf See
 - Honigwabe — Bienengarten unter einem Apfelbaum
-- Schneeballhang — Gipfel mit Hütte und Tannen
+- Schneeballhang — rundes Eisplateau auf dem Gipfel, ringsum der verschneite Hang
 - Luftpuck — Neon-Spielhalle mit Discokugel
 - Bücherwurm — Riesenbuch auf dem Schreibtisch
 - Schnappschuss — Premiere auf dem roten Teppich
@@ -214,17 +214,14 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 - **Honigwabe:** Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und ist raus. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Einmal im Spiel darfst du deinen Zug ganz weiterschieben. Wer zuletzt übrig ist, gewinnt; unter Gleichen zählen die Früchte (goldene Äpfel drei).
 
-### 🕹️👆 Stick steuern, Knopf werfen
+### 🕹️💥 Stick laufen, Knopf schubsen
 
-- **Schneeballhang:** Oben auf dem Gipfel schiebt jeder eine Schneekugel vor sich her — beim Rollen wird sie grösser. WERFEN schickt sie los. Wer getroffen wird, fällt kurz um und verliert seine Kugel; der Werfer bekommt 1, 2 oder 4 Punkte, je grösser die Kugel war. Eine Riesenkugel walzt weiter und kann noch jemanden umwerfen. Trifft eine Kugel auf deine grosse Kugel vorn, zerplatzen beide: sie ist dein Schild.
+- **Schneeballhang:** Gipfelschubsen auf einem runden Eisplateau: Roll mit dem Stick eine Schneekugel vor dir her — sie wächst und macht dich schwer. Fahr damit in die anderen und stoss sie über den Rand; SCHWUNG gibt einen kurzen Antritt. Wer gestossen wird, rutscht übers Eis. Wer runterfällt, ist raus. Ab der Hälfte bröckelt der Rand. Wer zuletzt oben steht, gewinnt; danach zählt, wer länger oben war.
+- **Schnappschuss:** Premiere auf dem roten Teppich! Der Fotograf zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10 — der Stern zeigt, wer es gerade wäre), und wer ganz allein drauf ist, bekommt noch 5. Wer zuerst in der Mitte steht, hält sie im Gedränge. Herausholen kann ihn nur SCHUBS: du schnellst nach vorn, und wen du rammst, der fliegt aus dem Bild.
 
 ### ☝️↔ Mit dem Finger ziehen
 
 - **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du bist ein Airhockey-Schläger in deiner Farbe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Zieh deinen Schläger mit dem Finger über den Tisch — er folgt dir, knapp über dem Finger. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
-
-### 🕹️💥 Stick laufen, Knopf schubsen
-
-- **Schnappschuss:** Premiere auf dem roten Teppich! Der Fotograf zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10 — der Stern zeigt, wer es gerade wäre), und wer ganz allein drauf ist, bekommt noch 5. Wer zuerst in der Mitte steht, hält sie im Gedränge. Herausholen kann ihn nur SCHUBS: du schnellst nach vorn, und wen du rammst, der fliegt aus dem Bild.
 
 ### 👀👆 Mit den Augen folgen, dann tippen
 

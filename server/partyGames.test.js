@@ -564,105 +564,149 @@ test("Honigwabe: Bots spielen, bis einer übrig ist", () => {
 
 // --- Schneeballhang --------------------------------------------------------
 
-test("Schneeballhang: die Kugel wächst nur beim Rollen und ist erst ab einer Mindestgrösse wurfbereit", () => {
+test("Schneeballhang: alle starten gleich weit vom Rand und schauen zur Mitte", () => {
+  for (const n of [2, 3, 4]) {
+    const g = setup("schneeball", n);
+    const dists = g.players.map((p) => Math.hypot(g.arcade.players[p.id].x, g.arcade.players[p.id].z));
+    assert.ok(Math.max(...dists) - Math.min(...dists) < 1e-9, `${n} Spieler: ${dists}`);
+    g.players.forEach((p) => {
+      const e = g.arcade.players[p.id];
+      const toCenter = Math.atan2(-e.x, -e.z);
+      assert.ok(Math.abs(Math.atan2(Math.sin(toCenter - e.heading), Math.cos(toCenter - e.heading))) < 1e-9);
+    });
+    g.restore();
+  }
+});
+
+test("Schneeballhang: die Kugel wächst nur beim Rollen — und bremst, je grösser sie ist", () => {
   const g = setup("schneeball", 2);
   const [a] = g.players;
   const entry = g.arcade.players[a.id];
   g.run(0, 1000, 30);
   assert.equal(entry.size, C.SNOW_MIN_SIZE, "im Stehen wächst nichts");
-  g.input(a, { action: "throw" });
-  assert.equal(g.arcade.snow.balls.length, 0, "zu klein zum Werfen");
-  g.input(a, { action: "steer", x: 1, y: 0 });
-  g.run(1030, 2600, 30, (t) => { if (t % 300 < 30) g.input(a, { action: "steer", x: t % 600 < 300 ? 1 : -1, y: 0 }); });
-  assert.ok(entry.size >= C.SNOW_THROW_MIN, `nach anderthalb Sekunden Rollen: ${entry.size.toFixed(2)}`);
-  g.input(a, { action: "throw" });
-  assert.equal(g.arcade.snow.balls.length, 1);
-  assert.equal(entry.size, C.SNOW_MIN_SIZE, "nach dem Wurf beginnt eine neue Kugel");
+  Object.assign(entry, { x: 0, z: 0 });
+  let small = 0;
+  g.run(1030, 2500, 30, (t) => {
+    // Kreise rollen, damit man nicht vom Plateau fährt.
+    const a2 = t / 400;
+    g.input(a, { action: "steer", x: Math.cos(a2), y: Math.sin(a2) });
+    if (t < 1300) small = Math.max(small, Math.hypot(entry.vx, entry.vz));
+  });
+  assert.ok(entry.size > 0.4, `nach anderthalb Sekunden Rollen: ${entry.size.toFixed(2)}`);
+  Object.assign(entry, { size: 1, vx: 0, vz: 0, x: 0, z: 0 });
+  let big = 0;
+  g.run(2530, 3500, 30, (t) => {
+    const a2 = t / 400;
+    g.input(a, { action: "steer", x: Math.cos(a2), y: Math.sin(a2) });
+    big = Math.max(big, Math.hypot(entry.vx, entry.vz));
+  });
+  assert.ok(big < small * 0.93, `grosse Kugel langsamer (${big.toFixed(2)} gegen ${small.toFixed(2)})`);
   g.restore();
 });
 
-test("Schneeballhang: ein Treffer wirft um und bringt dem Werfer Punkte", () => {
+// Rammen aus 1,6 m Anlauf: wie hart wird der andere weggestossen?
+function ramm(size) {
   const g = setup("schneeball", 2);
   const [a, b] = g.players;
   const ea = g.arcade.players[a.id];
   const eb = g.arcade.players[b.id];
-  // Aufstellen: a schaut auf b, b steht mit kleiner Kugel still.
-  Object.assign(ea, { x: 0, z: 2, heading: Math.PI, size: 0.9, dirX: 0, dirZ: 0 });
-  Object.assign(eb, { x: 0, z: -2, heading: 0.5 * Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0 });
-  g.at(1000);
-  g.input(a, { action: "throw" });
-  g.run(1030, 2200, 20);
-  assert.equal(eb.taken, 1, "b wurde getroffen");
-  assert.ok(eb.stunUntil > 1000 + g.minigame.startedAt, "und liegt kurz");
-  assert.equal(ea.score, party.snowValue(0.9), "eine Riesenkugel bringt vier");
-  assert.equal(party.snowValue(0.9), 4);
-  g.restore();
-});
-
-// Ein Servertakt dauert 90 ms und mehr. Eine frisch geworfene kleine Kugel
-// rollt in dieser Zeit weiter, als sie und eine Figur zusammen breit sind —
-// in einem Stück gerechnet rollte sie durch jemanden hindurch.
-test("Schneeballhang: eine schnelle Kugel rollt nicht durch eine Figur hindurch", () => {
-  const g = setup("schneeball", 2);
-  const [a, b] = g.players;
-  const ea = g.arcade.players[a.id];
-  const eb = g.arcade.players[b.id];
-  Object.assign(ea, { x: -2, z: 3, heading: Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0, vx: 0, vz: 0 });
-  Object.assign(eb, { x: 0.33, z: 0, heading: 0.5 * Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0, vx: 0, vz: 0 });
-  // Eine kleine Kugel streift b knapp: getroffen wird nur auf einem kurzen
-  // Stück ihrer Bahn, kürzer als der Weg in einem Takt.
-  g.arcade.snow.balls.push({ id: 99, owner: a.id, x: 0, z: 0.45, vx: 0, vz: -6.2, size: 0.4, r: 0.12, value: 1, bornAt: g.now, spin: 0 });
+  Object.assign(ea, { x: 0, z: 1.6, vx: 0, vz: 0, heading: Math.PI, size, dirX: 0, dirZ: -1 });
+  Object.assign(eb, { x: 0, z: -0.4, vx: 0, vz: 0, heading: 0.5 * Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0 });
   g.at(1000);
   g.arcade.snowClock = g.now;
-  g.at(1120);
-  g.tick();
-  assert.equal(eb.taken, 1, "die Kugel trifft, statt durchzurollen");
+  // Gemessen wird der Rückstoss: wie schnell der andere wegrutscht.
+  // Die Kugel wächst beim Weiterrollen wieder — gemessen wird darum der
+  // kleinste Stand.
+  let kick = 0;
+  let sizeA = ea.size;
+  g.run(1030, 2400, 30, () => {
+    g.input(a, { action: "steer", x: 0, y: -1 });
+    kick = Math.max(kick, -eb.vz);
+    sizeA = Math.min(sizeA, ea.size);
+  });
+  const out = { kick, sliding: eb.slideUntil > 0, by: eb.lastHitBy === a.id, sizeA };
   g.restore();
+  return out;
+}
+
+test("Schneeballhang: wer mit der Kugel rammt, stösst — eine grosse härter als eine kleine", () => {
+  const klein = ramm(C.SNOW_MIN_SIZE);
+  const gross = ramm(0.9);
+  assert.ok(klein.kick > 2, `klein stösst (${klein.kick.toFixed(2)} m/s)`);
+  assert.ok(gross.kick > klein.kick * 1.2, `gross stösst härter (${gross.kick.toFixed(2)} gegen ${klein.kick.toFixed(2)} m/s)`);
+  assert.ok(gross.sliding && gross.by, "der Gestossene rutscht, und man weiss, wer es war");
+  assert.ok(gross.sizeA < 0.9, "ein harter Stoss kostet die Kugel etwas Schnee");
 });
 
-test("Schneeballhang: die eigene grosse Kugel ist ein Schild", () => {
+test("Schneeballhang: wer über den Rand rutscht, ist raus — der Schubser bekommt den Rauswurf", () => {
   const g = setup("schneeball", 2);
   const [a, b] = g.players;
   const ea = g.arcade.players[a.id];
   const eb = g.arcade.players[b.id];
-  Object.assign(ea, { x: 0, z: 2, heading: Math.PI, size: 0.6, dirX: 0, dirZ: 0 });
-  Object.assign(eb, { x: 0, z: -2, heading: 0, size: 0.9, dirX: 0, dirZ: 0 });   // schaut auf a, Kugel vorn
-  g.at(1000);
-  g.input(a, { action: "throw" });
-  g.run(1030, 2200, 20);
-  assert.equal(eb.taken, 0, "der Schild hat gehalten");
-  assert.equal(eb.blocks, 1);
-  assert.equal(ea.score, 0);
-  g.restore();
-});
-
-test("Schneeballhang: eine Riesenkugel walzt weiter und wirft einen Zweiten um", () => {
-  const g = setup("schneeball", 3);
-  const [a, b, c] = g.players;
-  const [ea, eb, ec] = [a, b, c].map((p) => g.arcade.players[p.id]);
-  Object.assign(ea, { x: 0, z: 3, heading: Math.PI, size: 0.95, dirX: 0, dirZ: 0, vx: 0, vz: 0 });
-  Object.assign(eb, { x: 0, z: 0.5, heading: 0.5 * Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0, vx: 0, vz: 0 });
-  Object.assign(ec, { x: 0.1, z: -1.2, heading: 0.5 * Math.PI, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0, vx: 0, vz: 0 });
+  Object.assign(ea, { x: 0, z: 1.2, vx: 0, vz: 0, heading: 0, size: 0.8, dirX: 0, dirZ: 1 });
+  Object.assign(eb, { x: 0, z: C.SNOW_R0 - 0.55, vx: 0, vz: 0, heading: 0, size: C.SNOW_MIN_SIZE, dirX: 0, dirZ: 0 });
   g.at(1000);
   g.arcade.snowClock = g.now;
-  g.input(a, { action: "throw" });
-  g.run(1030, 2400, 30);
-  assert.equal(eb.taken, 1, "der Erste liegt");
-  assert.equal(ec.taken, 1, "und der Zweite auch");
-  assert.equal(ea.score, 8, "zweimal vier Punkte");
+  g.run(1030, 3000, 30, () => { if (ea.outAt === null) g.input(a, { action: "steer", x: 0, y: ea.z > 2.4 ? -1 : 1 }); });
+  assert.ok(eb.outAt !== null, "b ist abgestürzt");
+  assert.equal(ea.outAt, null, "a steht noch");
+  assert.equal(ea.knockouts, 1);
+  assert.equal(eb.knockedBy, a.id);
+  assert.ok(arcadeRankingScore(g.arcade, ea) > arcadeRankingScore(g.arcade, eb), "wer oben bleibt, liegt vorn");
   g.restore();
 });
 
-test("Schneeballhang: wer gegen den Zaun drückt, rollt nicht — und seine Kugel wächst nicht", () => {
+test("Schneeballhang: wer allein vom Rand fährt, ist raus — ohne Gutschrift für andere", () => {
+  const g = setup("schneeball", 2);
+  const [a, b] = g.players;
+  const ea = g.arcade.players[a.id];
+  Object.assign(ea, { x: 0, z: 3, heading: 0 });
+  g.run(0, 1500, 30, () => g.input(a, { action: "steer", x: 0, y: 1 }));
+  assert.ok(ea.outAt !== null);
+  assert.equal(ea.knockedBy, null);
+  assert.equal(g.arcade.players[b.id].knockouts, 0);
+  g.restore();
+});
+
+test("Schneeballhang: Schwung ist ein kurzer Antritt mit Abklingzeit", () => {
   const g = setup("schneeball", 2);
   const [a] = g.players;
   const entry = g.arcade.players[a.id];
-  const wall = C.SNOW_W / 2 - C.SNOW_BODY_R;
-  Object.assign(entry, { x: wall, z: 0, vx: 0, vz: 0, size: C.SNOW_MIN_SIZE });
-  g.input(a, { action: "steer", x: 1, y: 0 });
-  g.run(0, 2000, 30, () => g.input(a, { action: "steer", x: 1, y: 0 }));
-  assert.equal(entry.x, wall);
-  assert.equal(entry.size, C.SNOW_MIN_SIZE, "im Stehen am Zaun wächst nichts");
+  Object.assign(entry, { x: 0, z: -1, heading: 0, vx: 0, vz: 0 });
+  g.at(500);
+  g.arcade.snowClock = g.now;
+  g.input(a, { action: "dash" });
+  let fastest = 0;
+  g.run(530, 800, 30, () => { fastest = Math.max(fastest, Math.hypot(entry.vx, entry.vz)); });
+  assert.ok(fastest > C.SNOW_DURATION_MS / 1e4, `schnell (${fastest.toFixed(2)})`);
+  assert.ok(fastest > 4, `Schwung schneller als Laufen (${fastest.toFixed(2)})`);
+  const dashes = entry.dashes;
+  g.input(a, { action: "dash" });
+  assert.equal(entry.dashes, dashes, "während der Abklingzeit kein zweiter");
+  g.at(500 + C.SNOW_DASH_COOLDOWN_MS + 60);
+  g.input(a, { action: "dash" });
+  assert.equal(entry.dashes, dashes + 1, "danach wieder");
+  g.restore();
+});
+
+test("Schneeballhang: der Rand bröckelt — das Plateau wird kleiner", () => {
+  assert.equal(party.snowRadiusAt(0), C.SNOW_R0);
+  assert.equal(party.snowRadiusAt(C.SNOW_DURATION_MS * 0.3), C.SNOW_R0, "erst einmal nicht");
+  assert.ok(party.snowRadiusAt(C.SNOW_DURATION_MS * 0.75) < C.SNOW_R0);
+  assert.equal(party.snowRadiusAt(C.SNOW_DURATION_MS), C.SNOW_R_END);
+});
+
+test("Schneeballhang: steht nur noch einer, endet die Runde", () => {
+  const g = setup("schneeball", 3);
+  const [a, b, c] = g.players;
+  Object.assign(g.arcade.players[b.id], { x: 0, z: 3.9, heading: 0 });
+  Object.assign(g.arcade.players[c.id], { x: 0, z: -3.9, heading: Math.PI });
+  g.run(0, 4000, 30, () => {
+    g.input(b, { action: "steer", x: 0, y: 1 });
+    g.input(c, { action: "steer", x: 0, y: -1 });
+  });
+  assert.ok(g.minigame.finaleAt, "Finale");
+  assert.equal(g.arcade.players[a.id].outAt, null);
   g.restore();
 });
 
@@ -671,7 +715,7 @@ test("Schneeballhang: gleich schnell, egal wie lang der Servertakt ist", () => {
     const g = setup("schneeball", 2);
     const [a] = g.players;
     const entry = g.arcade.players[a.id];
-    Object.assign(entry, { x: -2, z: 0, vx: 0, vz: 0, heading: Math.PI / 2 });
+    Object.assign(entry, { x: -1, z: 0, vx: 0, vz: 0, heading: Math.PI / 2 });
     g.input(a, { action: "steer", x: 1, y: 0.3 });
     g.run(0, 1440, every);        // 1440 ist ein Vielfaches von 30 und 90
     const out = { x: entry.x, z: entry.z, size: entry.size };
@@ -684,10 +728,10 @@ test("Schneeballhang: gleich schnell, egal wie lang der Servertakt ist", () => {
   assert.ok(Math.abs(fine.size - coarse.size) < 1e-9);
 });
 
-// Das Gerät rechnet das Feld bis zur Ankunft seines Sticks voraus
+// Das Gerät rechnet das Plateau bis zur Ankunft seines Sticks voraus
 // (Schneeball.js). Dafür muss es Schritt für Schritt genauso rechnen.
 test("Schneeballhang: Gerät und Server rechnen Schritt für Schritt gleich", async () => {
-  const { stepSnow, snowRules, throwBall, canThrow } = await import("../client/src/minigames/Schneeball.js");
+  const { stepSnow, snowRules, dash } = await import("../client/src/minigames/Schneeball.js");
   const g = setup("schneeball", 4);
   const arcade = g.arcade;
   const rules = snowRules(arcade);
@@ -696,39 +740,37 @@ test("Schneeballhang: Gerät und Server rechnen Schritt für Schritt gleich", as
   const ids = arcade.order;
   const server = ids.map((id) => ({ id, entry: arcade.players[id] }));
   const device = ids.map((id) => ({ id, entry: JSON.parse(JSON.stringify(arcade.players[id])) }));
-  const world = { rules, balls: [], players: new Map(device.map(({ id, entry }) => [id, entry])) };
+  const world = { rules, startedAt: arcade.snow.startedAt, duration: arcade.snow.duration, radius: rules.r0 };
   let now = arcade.startedAt;
-  let nextId = 1;
-  for (let k = 0; k < 900; k += 1) {
+  for (let k = 0; k < 1300; k += 1) {
     if (k % 8 === 0) {
       server.forEach(({ entry }, i) => {
-        // Meist auf einen Gegner zu, damit es Treffer gibt.
+        // Meist auf einen Gegner zu, damit es Stösse und Abstürze gibt; am
+        // Rand oft zurück zur Mitte.
         const other = server[(i + 1 + Math.floor(rnd() * 3)) % 4].entry;
-        const a = rnd() < 0.7 ? Math.atan2(other.x - entry.x, other.z - entry.z) : rnd() * Math.PI * 2;
-        const m = 0.3 + rnd() * 0.7;
+        const nearEdge = Math.hypot(entry.x, entry.z) > 3.2 && rnd() < 0.6;
+        const a = nearEdge ? Math.atan2(-entry.x, -entry.z) : rnd() < 0.75 ? Math.atan2(other.x - entry.x, other.z - entry.z) : rnd() * Math.PI * 2;
+        const m = 0.4 + rnd() * 0.6;
         [entry, device[i].entry].forEach((e) => { e.dirX = Math.sin(a) * m; e.dirZ = Math.cos(a) * m; });
       });
     }
-    if (k % 20 === 7) {
-      server.forEach(({ id, entry }, i) => {
-        if (!canThrow(rules, device[i].entry, now)) return;
-        arcade.snow.balls.push(party.snowThrowBall(entry, nextId, id, now));
-        world.balls.push(throwBall(rules, device[i].entry, nextId, id, now));
-        nextId += 1;
-        [entry, device[i].entry].forEach((e) => { e.size = C.SNOW_MIN_SIZE; e.lastThrowAt = now; });
+    if (k % 25 === 9) {
+      server.forEach(({ entry }, i) => {
+        if (rnd() < 0.5) return;
+        party.snowCanDash(entry, now) && Object.assign(entry, { dashUntil: now + C.SNOW_DASH_MS, dashReadyAt: now + C.SNOW_DASH_COOLDOWN_MS, dashes: entry.dashes + 1 });
+        dash(rules, device[i].entry, now);
       });
     }
     now += C.SNOW_STEP_MS;
     party.snowStep(arcade, server, C.SNOW_STEP_MS / 1000, now);
     stepSnow(world, device, C.SNOW_STEP_MS / 1000, now, []);
   }
-  const keys = ["x", "z", "vx", "vz", "heading", "size", "stunUntil", "safeUntil", "score", "taken", "blocks"];
+  const keys = ["x", "z", "vx", "vz", "heading", "size", "slideUntil", "dashUntil", "knockouts", "outAt"];
   server.forEach(({ entry }, i) => {
     keys.forEach((key) => assert.ok(Math.abs((entry[key] || 0) - (device[i].entry[key] || 0)) < 1e-6, `${key}: ${entry[key]} gegen ${device[i].entry[key]}`));
   });
-  assert.deepEqual(arcade.snow.balls.map((b) => b.id), world.balls.map((b) => b.id));
-  const hits = server.reduce((sum, { entry }) => sum + entry.taken + entry.blocks, 0);
-  assert.ok(hits >= 3, `es gab Treffer und Blocks (${hits}) — sonst prüft der Test wenig`);
+  const bumps = arcade.snow.bumps.length + arcade.snow.falls.length;
+  assert.ok(bumps >= 3, `es gab Stösse und Abstürze (${bumps}) — sonst prüft der Test wenig`);
   g.restore();
 });
 

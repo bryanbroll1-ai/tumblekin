@@ -1,21 +1,20 @@
-// Schneeballhang: Figuren und Kugeln, genau wie der Server sie rechnet
-// (snowStep in partyGames.js) — anfahren, wachsen, drehen, rempeln, rollen,
-// treffen, blocken, zerplatzen, im selben Raster fester Schritte und in
-// derselben Reihenfolge der Plätze.
+// Schneeballhang: Figuren, Kugeln, Stösse und Abstürze, genau wie der Server
+// sie rechnet (snowStep in partyGames.js) — anfahren, wachsen, drehen,
+// Schwung, zusammenprallen, rutschen, über den Rand fallen, im selben Raster
+// fester Schritte und in derselben Reihenfolge der Plätze.
 //
-// Damit rechnet das Gerät das ganze Feld bis zu dem Moment voraus, in dem ein
-// JETZT geschickter Stick beim Server ankommt: die eigene Figur mit dem
-// eigenen Stick (und dem eigenen Wurf), die anderen mit dem, den der Server
-// gerade von ihnen hat. Vorher hing die eigene Figur eine Rundreise hinter
-// dem Daumen, und ein Wurf flog erst los, wenn der Server ihn bestätigt hatte.
-// Ein Test auf dem Server hält beide Rechnungen gleich.
+// Damit rechnet das Gerät das ganze Plateau bis zu dem Moment voraus, in dem
+// ein JETZT geschickter Stick beim Server ankommt: die eigene Figur mit dem
+// eigenen Stick (und dem eigenen Schwung), die anderen mit dem, den der
+// Server gerade von ihnen hat. Ein Test auf dem Server hält beide Rechnungen
+// gleich.
 
 export const STEP_MS = 30;       // wie SNOW_STEP_MS
 const MAX_SPAN_MS = 600;         // weiter wird nie vorausgerechnet
 const DEFAULTS = {
-  w: 6.2, d: 8, speed: 3.3, drag: 0.25, accel: 14, turn: 9, grow: 0.3, minSize: 0.2, throwMin: 0.4,
-  cooldownMs: 450, ballSpeed: 6.2, friction: 2.1, stop: 0.9, bodyR: 0.3, stunMs: 1200, safeMs: 900,
-  bump: 0.62, sub: 0.12, shieldMin: 0.5, giant: 0.85, giantKeep: 0.7
+  r0: 4, rEnd: 2, shrinkFrom: 0.45, duration: 42000, speed: 3.2, drag: 0.2, accel: 10, slideAccel: 1.6,
+  slideMs: 520, turn: 7, grow: 0.22, minSize: 0.2, bodyR: 0.3, dashSpeed: 6.2, dashMs: 260, dashCooldownMs: 1500,
+  rest: 0.5, ram: 0.8, hard: 1.2, chip: 0.1, creditMs: 2500
 };
 
 function clamp(value, min, max) {
@@ -27,11 +26,19 @@ export function snowRules(arcade) {
 }
 
 export function ballRadius(size) {
-  return 0.12 + size * 0.26;
+  return 0.14 + size * 0.34;
 }
 
-export function ballValue(size, rules = DEFAULTS) {
-  return size >= rules.giant ? 4 : size >= 0.6 ? 2 : 1;
+function mass(size) {
+  return 1 + 6 * size;
+}
+
+// Wie snowRadiusAt.
+export function radiusAt(rules, elapsed, duration = rules.duration) {
+  const from = duration * rules.shrinkFrom;
+  const to = duration - 2000;
+  const u = clamp((elapsed - from) / Math.max(1, to - from), 0, 1);
+  return rules.r0 + (rules.rEnd - rules.r0) * u;
 }
 
 function ease(v, target, rate, dt) {
@@ -39,179 +46,173 @@ function ease(v, target, rate, dt) {
   return { v: target + (v - target) * fade, d: target * dt + (v - target) * (1 - fade) / rate };
 }
 
-// Wie snowThrowBall.
-export function throwBall(rules, entry, id, owner, now) {
-  const r = ballRadius(entry.size);
-  const hx = Math.sin(entry.heading);
-  const hz = Math.cos(entry.heading);
-  return {
-    id,
-    owner,
-    x: entry.x + hx * (rules.bodyR + r + 0.05),
-    z: entry.z + hz * (rules.bodyR + r + 0.05),
-    vx: hx * rules.ballSpeed + entry.vx * 0.3,
-    vz: hz * rules.ballSpeed + entry.vz * 0.3,
-    size: entry.size,
-    r,
-    value: ballValue(entry.size, rules),
-    bornAt: now,
-    spin: 0
-  };
+// Wie snowCircles: Körper und Kugel vorn.
+export function circles(rules, e) {
+  const r = ballRadius(e.size);
+  const hx = Math.sin(e.heading);
+  const hz = Math.cos(e.heading);
+  return [
+    { x: e.x, z: e.z, r: rules.bodyR, ball: false },
+    { x: e.x + hx * (rules.bodyR + r), z: e.z + hz * (rules.bodyR + r), r, ball: true }
+  ];
 }
 
-// Darf die Figur jetzt werfen? Wie die Prüfung in snow.input.
-export function canThrow(rules, entry, now) {
-  return now >= (entry.stunUntil || 0) && now - (entry.lastThrowAt || 0) >= rules.cooldownMs && entry.size >= rules.throwMin;
+// Wie snowCanDash.
+export function canDash(entry, now) {
+  return entry.outAt === null && now >= entry.dashReadyAt && now >= entry.slideUntil;
 }
 
-// Ein Rechenschritt. `world` = { rules, balls, players (id → entry für
-// Punkte) }, `entries` = [{ id, entry }] in der Reihenfolge arcade.order.
-// Ereignisse (hit, block, clash, fizzle) landen in `events`.
+export function dash(rules, entry, now) {
+  if (!canDash(entry, now)) return false;
+  entry.dashUntil = now + rules.dashMs;
+  entry.dashReadyAt = now + rules.dashCooldownMs;
+  entry.dashes = (entry.dashes || 0) + 1;
+  return true;
+}
+
+// Ein Rechenschritt, wie snowStep. `world` = { rules, startedAt, duration,
+// radius }, `entries` = [{ id, entry }]. Ereignisse (bump, fall) landen in
+// `events`.
 export function stepSnow(world, entries, dt, now, events) {
-  const { rules } = world;
-  const halfW = rules.w / 2 - rules.bodyR;
-  const halfD = rules.d / 2 - rules.bodyR;
+  const rules = world.rules;
+  const elapsed = now - world.startedAt;
+  const radius = radiusAt(rules, elapsed, world.duration);
+  world.radius = radius;
   entries.forEach(({ entry }) => {
-    const stunned = now < entry.stunUntil;
-    const want = stunned ? 0 : Math.min(1, Math.hypot(entry.dirX, entry.dirZ));
+    if (entry.outAt !== null) {
+      entry.x += entry.vx * dt;
+      entry.z += entry.vz * dt;
+      return;
+    }
+    const sliding = now < entry.slideUntil;
+    const dashing = now < entry.dashUntil;
     const top = rules.speed * (1 - rules.drag * entry.size);
-    const gx = ease(entry.vx, stunned ? 0 : entry.dirX * top, rules.accel, dt);
-    const gz = ease(entry.vz, stunned ? 0 : entry.dirZ * top, rules.accel, dt);
+    let tx = entry.dirX * top;
+    let tz = entry.dirZ * top;
+    let rate = sliding ? rules.slideAccel : rules.accel;
+    if (dashing) {
+      tx = Math.sin(entry.heading) * rules.dashSpeed;
+      tz = Math.cos(entry.heading) * rules.dashSpeed;
+      rate = rules.accel * 2;
+    }
+    const gx = ease(entry.vx, tx, rate, dt);
+    const gz = ease(entry.vz, tz, rate, dt);
     entry.vx = gx.v;
     entry.vz = gz.v;
-    const x = entry.x + gx.d;
-    const z = entry.z + gz.d;
-    entry.x = clamp(x, -halfW, halfW);
-    entry.z = clamp(z, -halfD, halfD);
-    if (x !== entry.x) entry.vx = 0;
-    if (z !== entry.z) entry.vz = 0;
+    entry.x += gx.d;
+    entry.z += gz.d;
     const speed = Math.hypot(entry.vx, entry.vz);
-    if (!stunned && speed > 0.4) entry.size = Math.min(1, entry.size + rules.grow * (speed / rules.speed) * dt);
-    if (want > 0.15) {
+    if (!sliding && speed > 0.4) entry.size = Math.min(1, entry.size + rules.grow * Math.min(1, speed / rules.speed) * dt);
+    if (!dashing && Math.hypot(entry.dirX, entry.dirZ) > 0.15) {
       const target = Math.atan2(entry.dirX, entry.dirZ);
       const diff = Math.atan2(Math.sin(target - entry.heading), Math.cos(target - entry.heading));
       entry.heading += clamp(diff, -rules.turn * dt, rules.turn * dt);
     }
   });
-
   for (let a = 0; a < entries.length; a += 1) {
     for (let b = a + 1; b < entries.length; b += 1) {
-      const one = entries[a].entry;
-      const two = entries[b].entry;
-      const dx = two.x - one.x;
-      const dz = two.z - one.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist >= rules.bump || dist < 1e-6) continue;
-      const push = (rules.bump - dist) / 2;
-      one.x = clamp(one.x - (dx / dist) * push, -halfW, halfW);
-      one.z = clamp(one.z - (dz / dist) * push, -halfD, halfD);
-      two.x = clamp(two.x + (dx / dist) * push, -halfW, halfW);
-      two.z = clamp(two.z + (dz / dist) * push, -halfD, halfD);
+      const A = entries[a].entry;
+      const B = entries[b].entry;
+      if (A.outAt !== null || B.outAt !== null) continue;
+      let best = null;
+      circles(rules, A).forEach((ca) => circles(rules, B).forEach((cb) => {
+        const dx = cb.x - ca.x;
+        const dz = cb.z - ca.z;
+        const d = Math.hypot(dx, dz);
+        const overlap = ca.r + cb.r - d;
+        if (overlap > 0 && (!best || overlap > best.overlap)) {
+          best = { overlap, nx: d > 1e-6 ? dx / d : 1, nz: d > 1e-6 ? dz / d : 0, aBall: ca.ball, bBall: cb.ball, x: (ca.x + cb.x) / 2, z: (ca.z + cb.z) / 2 };
+        }
+      }));
+      if (!best) continue;
+      const mA = mass(A.size);
+      const mB = mass(B.size);
+      const inv = 1 / mA + 1 / mB;
+      const { nx, nz } = best;
+      A.x -= nx * best.overlap * (1 / mA) / inv;
+      A.z -= nz * best.overlap * (1 / mA) / inv;
+      B.x += nx * best.overlap * (1 / mB) / inv;
+      B.z += nz * best.overlap * (1 / mB) / inv;
+      const closing = (A.vx - B.vx) * nx + (A.vz - B.vz) * nz;
+      if (closing <= 0) continue;
+      const j = (1 + rules.rest) * closing / inv;
+      A.vx -= (j / mA) * nx;
+      A.vz -= (j / mA) * nz;
+      B.vx += (j / mB) * nx;
+      B.vz += (j / mB) * nz;
+      const rammtA = best.aBall ? (best.bBall ? 0.5 : 1) : 0;
+      const rammtB = best.bBall ? (best.aBall ? 0.5 : 1) : 0;
+      if (rammtA) {
+        B.vx += nx * closing * rules.ram * rammtA * (0.5 + A.size);
+        B.vz += nz * closing * rules.ram * rammtA * (0.5 + A.size);
+      }
+      if (rammtB) {
+        A.vx -= nx * closing * rules.ram * rammtB * (0.5 + B.size);
+        A.vz -= nz * closing * rules.ram * rammtB * (0.5 + B.size);
+      }
+      if (closing < rules.hard) continue;
+      const slide = rules.slideMs * clamp(closing / 4, 0.6, 1.3);
+      const aggA = best.aBall || !best.bBall;
+      const aggB = best.bBall || !best.aBall;
+      if (aggA) {
+        B.slideUntil = Math.max(B.slideUntil, now + slide);
+        B.lastHitBy = entries[a].id;
+        B.lastHitAt = now;
+      }
+      if (aggB) {
+        A.slideUntil = Math.max(A.slideUntil, now + slide);
+        A.lastHitBy = entries[b].id;
+        A.lastHitAt = now;
+      }
+      if (best.aBall) A.size = Math.max(rules.minSize, A.size - rules.chip * Math.min(1, closing / 5));
+      if (best.bBall) B.size = Math.max(rules.minSize, B.size - rules.chip * Math.min(1, closing / 5));
+      events?.push({ kind: "bump", x: best.x, z: best.z, at: now, power: Math.round(closing * 100) / 100, ids: [entries[a].id, entries[b].id] });
     }
   }
-
-  const gone = new Set();
-  const hits = (ball) => {
-    entries.forEach(({ id, entry }) => {
-      if (gone.has(ball.id) || id === ball.owner) return;
-      if (now < entry.stunUntil || now < entry.safeUntil) return;
-      const hx = Math.sin(entry.heading);
-      const hz = Math.cos(entry.heading);
-      const shieldR = ballRadius(entry.size);
-      const sx = entry.x + hx * (rules.bodyR + shieldR);
-      const sz = entry.z + hz * (rules.bodyR + shieldR);
-      if (entry.size >= rules.shieldMin && Math.hypot(ball.x - sx, ball.z - sz) < ball.r + shieldR) {
-        gone.add(ball.id);
-        entry.size = rules.minSize;
-        entry.blocks = (entry.blocks || 0) + 1;
-        events?.push({ kind: "block", by: id, ball: ball.id, owner: ball.owner, x: (ball.x + sx) / 2, z: (ball.z + sz) / 2, at: now });
-        return;
+  entries.forEach(({ id, entry }) => {
+    if (entry.outAt !== null) return;
+    const d = Math.hypot(entry.x, entry.z);
+    if (d <= radius) return;
+    entry.outAt = elapsed;
+    entry.fellAt = now;
+    const out = Math.max(1.6, Math.hypot(entry.vx, entry.vz));
+    entry.vx = (entry.x / d) * out;
+    entry.vz = (entry.z / d) * out;
+    let by = null;
+    if (entry.lastHitBy && now - entry.lastHitAt <= rules.creditMs) {
+      const pusher = entries.find((other) => other.id === entry.lastHitBy);
+      if (pusher) {
+        pusher.entry.knockouts += 1;
+        by = entry.lastHitBy;
       }
-      if (Math.hypot(ball.x - entry.x, ball.z - entry.z) < ball.r + rules.bodyR) {
-        if (ball.size >= rules.giant) {
-          ball.vx *= rules.giantKeep;
-          ball.vz *= rules.giantKeep;
-        } else {
-          gone.add(ball.id);
-        }
-        entry.stunUntil = now + rules.stunMs;
-        entry.safeUntil = now + rules.stunMs + rules.safeMs;
-        entry.size = rules.minSize;
-        entry.taken = (entry.taken || 0) + 1;
-        entry.vx = ball.vx * 0.25;
-        entry.vz = ball.vz * 0.25;
-        const thrower = world.players?.get(ball.owner);
-        if (thrower) {
-          thrower.hits = (thrower.hits || 0) + 1;
-          thrower.score = (thrower.score || 0) + ball.value;
-        }
-        events?.push({ kind: "hit", victim: id, by: ball.owner, ball: ball.id, value: ball.value, x: entry.x, z: entry.z, at: now });
-      }
-    });
-  };
-  world.balls.forEach((ball) => {
-    const speed = Math.hypot(ball.vx, ball.vz);
-    const slower = Math.max(0, speed - rules.friction * dt);
-    if (speed > 0) {
-      ball.vx *= slower / speed;
-      ball.vz *= slower / speed;
     }
-    ball.spin += (slower / Math.max(0.1, ball.r)) * dt;
-    if (slower < rules.stop) {
-      gone.add(ball.id);
-      events?.push({ kind: "fizzle", ball: ball.id, x: ball.x, z: ball.z, at: now });
-      return;
-    }
-    const teile = Math.max(1, Math.ceil((slower * dt) / rules.sub));
-    for (let teil = 0; teil < teile && !gone.has(ball.id); teil += 1) {
-      ball.x += (ball.vx * dt) / teile;
-      ball.z += (ball.vz * dt) / teile;
-      const limX = rules.w / 2 - ball.r;
-      const limZ = rules.d / 2 - ball.r;
-      if (Math.abs(ball.x) > limX) { ball.x = Math.sign(ball.x) * limX; ball.vx *= -0.55; ball.vz *= 0.8; }
-      if (Math.abs(ball.z) > limZ) { ball.z = Math.sign(ball.z) * limZ; ball.vz *= -0.55; ball.vx *= 0.8; }
-      hits(ball);
-    }
+    entry.knockedBy = by;
+    events?.push({ kind: "fall", id, x: entry.x, z: entry.z, at: now, by });
   });
-  for (let a = 0; a < world.balls.length; a += 1) {
-    for (let b = a + 1; b < world.balls.length; b += 1) {
-      const one = world.balls[a];
-      const two = world.balls[b];
-      if (gone.has(one.id) || gone.has(two.id)) continue;
-      if (Math.hypot(one.x - two.x, one.z - two.z) < one.r + two.r) {
-        gone.add(one.id);
-        gone.add(two.id);
-        events?.push({ kind: "clash", balls: [one.id, two.id], x: (one.x + two.x) / 2, z: (one.z + two.z) / 2, at: now });
-      }
-    }
-  }
-  if (gone.size) world.balls = world.balls.filter((ball) => !gone.has(ball.id));
 }
 
-// Das Feld zur Serverzeit `to`, gerechnet vom Serverstand, der zur Serverzeit
-// `from` gilt (arcade.snowClock). `ids`: die Spieler in der Reihenfolge der
-// Plätze; `inputAt(id, serverzeit)` sagt, welchen Stick der Server für den
-// Schritt ab dieser Zeit hat, und ob ein Wurf davor ankommt ({ x, y, throw }).
+// Das Plateau zur Serverzeit `to`, gerechnet vom Serverstand, der zur
+// Serverzeit `from` gilt (arcade.snowClock). `ids`: die Spieler in der
+// Reihenfolge der Plätze; `inputAt(id, serverzeit)` sagt, welchen Stick der
+// Server für den Schritt ab dieser Zeit hat, und ob ein Schwung davor
+// ankommt ({ x, y, dash }).
 export function forecastSnow(arcade, { from, to, ids, inputAt }) {
   const rules = snowRules(arcade);
+  const src = arcade.snow || {};
   const entries = ids.map((id) => {
     const e = arcade.players[id];
     return {
       id,
       entry: {
         x: e.x, z: e.z, vx: e.vx || 0, vz: e.vz || 0, dirX: e.dirX || 0, dirZ: e.dirZ || 0, heading: e.heading || 0,
-        size: e.size ?? rules.minSize, stunUntil: e.stunUntil || 0, safeUntil: e.safeUntil || 0, lastThrowAt: e.lastThrowAt || 0,
-        score: e.score || 0, hits: e.hits || 0, taken: e.taken || 0, blocks: e.blocks || 0, throws: e.throws || 0
+        size: e.size ?? rules.minSize, slideUntil: e.slideUntil || 0, dashUntil: e.dashUntil || 0, dashReadyAt: e.dashReadyAt || 0,
+        dashes: e.dashes || 0, lastHitBy: e.lastHitBy ?? null, lastHitAt: e.lastHitAt || 0, outAt: e.outAt ?? null,
+        fellAt: e.fellAt || 0, knockedBy: e.knockedBy ?? null, knockouts: e.knockouts || 0
       }
     };
   });
-  const world = {
-    rules,
-    balls: (arcade.snow?.balls || []).map((ball) => ({ ...ball })),
-    players: new Map(entries.map(({ id, entry }) => [id, entry]))
-  };
+  const world = { rules, startedAt: src.startedAt || 0, duration: src.duration || rules.duration, radius: src.radius ?? rules.r0 };
   const events = [];
-  let predicted = 0;
   const steps = Math.floor(clamp(to - from, 0, MAX_SPAN_MS) / STEP_MS);
   for (let k = 0; k < steps; k += 1) {
     const start = from + k * STEP_MS;
@@ -219,18 +220,10 @@ export function forecastSnow(arcade, { from, to, ids, inputAt }) {
       const input = inputAt(id, start);
       entry.dirX = input.x;
       entry.dirZ = input.y;
-      // Ein Wurf, der vor diesem Schritt ankommt: wie auf dem Server aus dem
-      // Stand des letzten Schritts.
-      if (input.throw && canThrow(rules, entry, start)) {
-        predicted += 1;
-        world.balls.push(throwBall(rules, entry, `p${predicted}`, id, start));
-        events.push({ kind: "throw", by: id, ball: `p${predicted}`, at: start });
-        entry.size = rules.minSize;
-        entry.lastThrowAt = start;
-        entry.throws += 1;
-      }
+      // Ein Schwung, der vor diesem Schritt ankommt: wie auf dem Server.
+      if (input.dash && dash(rules, entry, start)) events.push({ kind: "dash", id, at: start });
     });
     stepSnow(world, entries, STEP_MS / 1000, start + STEP_MS, events);
   }
-  return { at: from + steps * STEP_MS, balls: world.balls, entries: new Map(entries.map(({ id, entry }) => [id, entry])), events };
+  return { at: from + steps * STEP_MS, radius: world.radius, entries: new Map(entries.map(({ id, entry }) => [id, entry])), events };
 }

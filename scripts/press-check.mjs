@@ -66,9 +66,12 @@ try {
  await page.waitForFunction(()=>document.querySelector('[data-cannon-launch]').textContent.includes('WINKEL STOPPEN'));
  console.log('✓ Kanonenflug: Knopf erklärt Kraft und Winkel getrennt');
  await backToLobby(page);await prepare('schneeball');
- await page.waitForFunction(()=>document.querySelector('[data-snow-throw]').disabled);
- assert.match(await page.locator('[data-snow-throw] b').textContent(),/ROLLEN/);
- console.log('✓ Schneeball: ohne fertige Kugel klarer Zustand statt wirkungslosem Werfen');
+ await page.waitForFunction(()=>!document.querySelector('[data-snow-dash]').disabled);
+ assert.match(await page.locator('[data-snow-dash] b').textContent(),/SCHWUNG/);
+ await page.locator('[data-snow-dash]').dispatchEvent('pointerdown');
+ await page.waitForFunction(()=>{const s=window.__tumblekinScene;return s.update.arcade.players[s.getControlledPlayerId()].dashes>0;});
+ await page.waitForFunction(()=>document.querySelector('[data-snow-dash]').disabled && /LÄDT/.test(document.querySelector('[data-snow-dash] b').textContent));
+ console.log('✓ Schneeball: SCHWUNG legt los und zeigt dann klar, dass er lädt');
  await backToLobby(page);
  assert.equal(await page.evaluate(()=>window.__tumblekin.ui.feedback.buttons.states.size),0,'Szenenabbau räumt die Druckzustände auf');
  assert.deepEqual(errors,[]);assert.deepEqual(server.errorOutput,[]);
