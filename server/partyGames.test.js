@@ -745,6 +745,27 @@ test("Luftpuck: jeder bleibt in seiner Hälfte", () => {
   g.restore();
 });
 
+test("Luftpuck: der Schläger folgt dem Finger — schnell, aber mit Höchsttempo, und nur in der eigenen Hälfte", () => {
+  const g = setup("luftpuck", 2);
+  const [a] = g.players;
+  const entry = g.arcade.players[a.id];
+  const start = { x: entry.x, z: entry.z };
+  g.input(a, { action: "aim", x: -1.5, z: 3 });
+  let fastest = 0;
+  g.run(0, 900, 30, () => { fastest = Math.max(fastest, Math.hypot(entry.vx, entry.vz)); });
+  assert.ok(Math.hypot(entry.x + 1.5, entry.z - 3) < 0.03, `angekommen (${entry.x.toFixed(2)}, ${entry.z.toFixed(2)} von ${start.x}, ${start.z})`);
+  assert.ok(fastest <= C.HOCKEY_AIM_SPEED + 1e-9 && fastest > C.HOCKEY_AIM_SPEED * 0.6, `Tempo ${fastest.toFixed(2)}`);
+  // Über die Mittellinie zieht der Finger ihn nicht.
+  g.input(a, { action: "aim", x: 0, z: -3 });
+  g.run(930, 2000, 30);
+  assert.ok(entry.z > 0, "Team 0 bleibt unten");
+  // Unsinn wird abgelehnt, der Stick schaltet das Ziehen ab.
+  assert.equal(g.input(a, { action: "aim", x: "links", z: 1 }).ok, false);
+  g.input(a, { action: "steer", x: 0, y: 0 });
+  assert.equal(entry.aimX, null);
+  g.restore();
+});
+
 test("Luftpuck: ein Schuss ins Tor zählt für das andere Team, dann Anstoss", () => {
   const g = setup("luftpuck", 2);
   const [a] = g.players;
@@ -885,11 +906,18 @@ test("Luftpuck: Gerät und Server rechnen Schritt für Schritt gleich", async ()
       if (k % 6 === 0) {
         server.forEach((m, i) => {
           if (m.robot) return;
-          // Meist auf den Puck zu, damit es Stösse, Tore und Abpraller gibt.
+          // Meist auf den Puck zu, damit es Stösse, Tore und Abpraller gibt —
+          // abwechselnd mit dem Stick und gezogen (Ziel auf dem Tisch).
           const p = arcade.hockey.puck;
-          const a = rnd() < 0.7 ? Math.atan2(p.x - m.e.x, p.z - m.e.z) : rnd() * Math.PI * 2;
-          const mag = 0.4 + rnd() * 0.6;
-          [m.e, device[i].e].forEach((e) => { e.dirX = Math.sin(a) * mag; e.dirZ = Math.cos(a) * mag; });
+          if (rnd() < 0.5) {
+            const tx = p.x + (rnd() - 0.5) * 0.6;
+            const tz = p.z + (rnd() - 0.5) * 0.6;
+            [m.e, device[i].e].forEach((e) => { e.aimX = tx; e.aimZ = tz; e.dirX = 0; e.dirZ = 0; e.cap = 1; });
+          } else {
+            const a = rnd() < 0.7 ? Math.atan2(p.x - m.e.x, p.z - m.e.z) : rnd() * Math.PI * 2;
+            const mag = 0.4 + rnd() * 0.6;
+            [m.e, device[i].e].forEach((e) => { e.dirX = Math.sin(a) * mag; e.dirZ = Math.cos(a) * mag; e.aimX = null; e.aimZ = null; });
+          }
         });
       }
       now += C.HOCKEY_STEP_MS;

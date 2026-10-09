@@ -40,7 +40,8 @@ async function act(type){
   if(type==='kippboot')await wait('a.boat.turn?.playerId==="practice" && Date.now()-g.startedAt>=a.boat.turn.from');
   await tap(button[type][0]);await wait(button[type][1]);return;
  }
- if(['bounceArena','tiefenrausch','farbenjagd','schneeball','luftpuck','buecherwurm','schnappschuss'].includes(type)){await stick();return;}
+ if(type==='luftpuck'){await touch('touchStart',195,560);await touch('touchMove',230,520);await wait('p.aimX!==null&&p.aimX!==undefined');await touch('touchEnd');return;}
+ if(['bounceArena','tiefenrausch','farbenjagd','schneeball','buecherwurm','schnappschuss'].includes(type)){await stick();return;}
  if(type==='finishRush'){
   await drag(190,400,-50,0);await wait('p.lane===0');
   // Die langsamen Wische im Prüfbrowser halten länger als 170 ms und starten

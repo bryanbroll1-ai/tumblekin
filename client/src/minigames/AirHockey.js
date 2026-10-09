@@ -1,6 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin213";
 import { frameLerp } from "./Quality.js?v=tumblekin213";
 import { createNameLabel } from "./VoxelKit.js?v=tumblekin213";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
@@ -29,7 +28,8 @@ export class AirHockey extends MinigameScene {
     this.mallets = new Map();      // playerId → { group, body, side, r, hit, hop }
     this.roundTrip = 0;
     this.stickLog = [];            // { at, x, y }: was das Gerät wann geschickt hat (Geräteuhr)
-    this.stickWanted = null;
+    this.inputWanted = null;       // { kind: "aim", x, z } oder { kind: "steer", x, y }
+    this.inputSent = null;
     this.stickSent = { x: 0, y: 0, clock: 0 };
     this.lastPingAt = 0;
     this.view = null;              // Vorausrechnung zur Ankunftszeit (forecastHockey)
@@ -300,52 +300,102 @@ export class AirHockey extends MinigameScene {
     };
   }
 
+  // Gezogen wird direkt: wohin der Finger auf dem Tisch zeigt, dorthin jagt
+  // der eigene Schläger — knapp über dem Finger, damit man ihn sieht.
+  // Lässt man los, bleibt er stehen. Am Computer gehen auch die Pfeiltasten.
   bind() {
-    this.controls.innerHTML = `
-      <div class="mobile-stick-controls joystick-only">
-        <div class="joystick-slot"></div>
-      </div>`;
-    this.joystick = new VirtualJoystick({
-      root: this.controls.querySelector(".joystick-slot"),
-      label: "Luftpuck: Schläger steuern",
-      intervalMs: 60,
-      feedback: this.feedback,
-      surface: this.webglCanvas,
-      globalKeys: true,
-      onVector: (x, y) => this.queueStick(x, y),
-      onEngage: () => this.feedback?.vibrate(8)
+    this.controls.innerHTML = `<p class="trace-hint">Zieh deinen Schläger mit dem Finger über den Tisch</p>`;
+    this.controls.style.pointerEvents = "none";
+    const surface = this.webglCanvas;
+    surface.style.touchAction = "none";
+    this.dragId = null;
+    this.raycaster = new THREE.Raycaster();
+    this.tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TABLE_Y);
+    this.on(surface, "pointerdown", (event) => {
+      if (this.dragId !== null) return;
+      event.preventDefault();
+      this.dragId = event.pointerId;
+      this.capturePointer(surface, event.pointerId);
+      this.aimAt(event);
+      this.feedback?.vibrate(6);
+    });
+    this.on(surface, "pointermove", (event) => {
+      if (event.pointerId !== this.dragId) return;
+      event.preventDefault();
+      this.aimAt(event);
+    });
+    const end = (event) => { if (event.pointerId === this.dragId) this.dragId = null; };
+    ["pointerup", "pointercancel", "lostpointercapture"].forEach((type) => this.on(surface, type, end));
+    this.keys = new Set();
+    const keyDir = { ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1] };
+    const steerKeys = () => {
+      let x = 0;
+      let y = 0;
+      this.keys.forEach((code) => { x += keyDir[code][0]; y += keyDir[code][1]; });
+      const len = Math.hypot(x, y) || 1;
+      this.queueInput({ kind: "steer", x: x / len, y: y / len });
+    };
+    this.on(window, "keydown", (event) => {
+      if (!keyDir[event.code] || event.target?.closest?.("input,textarea,select")) return;
+      event.preventDefault();
+      if (this.keys.has(event.code)) return;
+      this.keys.add(event.code);
+      steerKeys();
+    });
+    this.on(window, "keyup", (event) => {
+      if (!this.keys.has(event.code)) return;
+      this.keys.delete(event.code);
+      steerKeys();
     });
   }
 
   unbind() {
-    this.joystick?.destroy?.();
-    this.joystick = null;
+    this.dragId = null;
+    this.controls.style.pointerEvents = "";
   }
 
-  // Der Stick meldet sich alle 60 ms und bei jedem Richtungswechsel — dazu
-  // liest das Bild ihn in jedem Frame. Geschickt wird, was sich geändert hat,
-  // höchstens alle 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung
-  // weiss, ab wann der Server sie hat (wie in Farbenjagd).
-  queueStick(x, y) {
-    this.stickWanted = { x, y };
-    this.flushStick();
+  // Bildschirmpunkt → Tischpunkt, in die eigene Zone geklemmt.
+  aimAt(event) {
+    const minigame = this.update || this.minigame;
+    const arcade = minigame?.arcade;
+    const entry = arcade?.players?.[this.getControlledPlayerId()];
+    if (!entry || !this.camera) return;
+    const rect = this.webglCanvas.getBoundingClientRect();
+    const lift = Math.min(36, rect.height * 0.04);
+    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -(((event.clientY - lift) - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hit = this.raycaster.ray.intersectPlane(this.tablePlane, new THREE.Vector3());
+    if (!hit) return;
+    const lim = limits(hockeyRules(arcade), entry.side, entry.r, entry.lane || null);
+    this.queueInput({ kind: "aim", x: Math.max(lim.xMin, Math.min(lim.xMax, hit.x)), z: Math.max(lim.zMin, Math.min(lim.zMax, hit.z)) });
   }
 
-  flushStick() {
-    const want = this.stickWanted;
+  // Ziel oder Stick: geschickt wird, was sich geändert hat, höchstens alle
+  // 40 ms; jede Meldung kommt ins Log, damit die Vorausrechnung weiss, ab
+  // wann der Server sie hat.
+  queueInput(want) {
+    this.inputWanted = want;
+    this.flushInput();
+  }
+
+  flushInput() {
+    const want = this.inputWanted;
     const minigame = this.update || this.minigame;
     if (!want || !minigame || minigame.finaleAt) return;
     const clock = performance.now();
-    const same = Math.abs(want.x - this.stickSent.x) < 0.02 && Math.abs(want.y - this.stickSent.y) < 0.02;
-    if (same && clock - this.stickSent.clock < 400) return;
-    if (clock - this.stickSent.clock < STICK_GAP_MS) return;
-    this.stickSent = { x: want.x, y: want.y, clock };
+    const sent = this.inputSent;
+    const same = sent && sent.kind === want.kind && (want.kind === "aim"
+      ? Math.abs(want.x - sent.x) < 0.01 && Math.abs(want.z - sent.z) < 0.01
+      : Math.abs(want.x - sent.x) < 0.02 && Math.abs(want.y - sent.y) < 0.02);
+    if (same && clock - sent.clock < 400) return;
+    if (sent && clock - sent.clock < STICK_GAP_MS) return;
+    this.inputSent = { ...want, clock };
+    this.stickSent = { x: 0, y: 0, clock };
     const at = this.now();
-    this.stickLog.push({ at, x: want.x, y: want.y });
+    this.stickLog.push(want.kind === "aim" ? { at, aimX: want.x, aimZ: want.z } : { at, x: want.x, y: want.y, aimX: null, aimZ: null });
     while (this.stickLog.length > 2 && this.stickLog[1].at < at - 3000) this.stickLog.shift();
-    this.sendInput({ action: "steer", x: want.x, y: want.y })
-      .then(() => this.noteRoundTrip(performance.now() - clock))
-      .catch(() => {});
+    const payload = want.kind === "aim" ? { action: "aim", x: want.x, z: want.z } : { action: "steer", x: want.x, y: want.y };
+    this.sendInput(payload).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
   }
 
   // Ohne Stick keine Antworten, also keine Laufzeit: dann misst ein Ping.
@@ -375,8 +425,8 @@ export class AirHockey extends MinigameScene {
       if (lands(sent) <= at) pick = sent;
       else break;
     }
-    if (!pick || lands(pick) <= from) return { x: entry.dirX || 0, y: entry.dirZ || 0 };
-    return pick;
+    if (!pick || lands(pick) <= from) return served(entry);
+    return { x: pick.x || 0, y: pick.y || 0, aimX: pick.aimX ?? null, aimZ: pick.aimZ ?? null };
   }
 
   // Der Tisch zu der Serverzeit, zu der ein jetzt geschickter Stick ankommt.
@@ -393,7 +443,7 @@ export class AirHockey extends MinigameScene {
       ids,
       inputAt: (id, at) => {
         const entry = arcade.players[id];
-        return id === controlledId ? this.stickAt(at, from, entry) : { x: entry.dirX || 0, y: entry.dirZ || 0 };
+        return id === controlledId ? this.stickAt(at, from, entry) : served(entry);
       }
     });
   }
@@ -402,8 +452,7 @@ export class AirHockey extends MinigameScene {
     const { now, dt, arcade, players, controlledId } = f;
     const state = arcade?.hockey;
     if (!state) return;
-    if (this.joystick && this.joystick.pointerId !== null) this.queueStick(this.joystick.vecX, this.joystick.vecY);
-    else this.flushStick();
+    this.flushInput();
     this.pingIfIdle(f.minigame);
     this.forecast(f);
     const view = this.view;
@@ -671,4 +720,9 @@ function buildMallet(color, ringColor, r) {
   schein.userData.isFx = true;
   group.add(schein);
   return { group, body };
+}
+
+// Was der Server von einem Schläger hat: Stick oder Ziel.
+function served(entry) {
+  return { x: entry.dirX || 0, y: entry.dirZ || 0, aimX: entry.aimX ?? null, aimZ: entry.aimZ ?? null };
 }

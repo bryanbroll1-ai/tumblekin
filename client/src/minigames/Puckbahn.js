@@ -14,7 +14,8 @@ export const STEP_MS = 30;       // wie HOCKEY_STEP_MS
 const MAX_SPAN_MS = 600;         // weiter wird nie vorausgerechnet
 const DEFAULTS = {
   w: 4.4, l: 7.4, puckR: 0.22, malletR: 0.36, speed: 4.3, accel: 16, damp: 0.18, max: 9.5, wallRest: 0.9,
-  hitRest: 0.85, push: 0.35, serveMs: 1300, stepMs: 30, substeps: 5, stuckMs: 1500, laneSturm: 2.4, laneAbwehr: 1.4
+  hitRest: 0.85, push: 0.35, serveMs: 1300, stepMs: 30, substeps: 5, stuckMs: 1500, laneSturm: 2.4, laneAbwehr: 1.4,
+  aimSpeed: 7.5, aimGain: 18, aimAccel: 45
 };
 const ROBOT = "robot";
 
@@ -82,10 +83,24 @@ export function stepHockey(rules, state, mallets, now, seed, events) {
   for (let sub = 0; sub < rules.substeps; sub += 1) {
     mallets.forEach((m) => {
       const e = m.e;
-      const speed = rules.speed * (e.r > rules.malletR ? 1.08 : 1);
-      const k = Math.min(1, rules.accel * dt);
-      e.vx += ((e.dirX || 0) * speed - e.vx) * k;
-      e.vz += ((e.dirZ || 0) * speed - e.vz) * k;
+      let tvx;
+      let tvz;
+      let k;
+      if (e.aimX !== null && e.aimX !== undefined) {
+        const cap = rules.aimSpeed * (e.cap ?? 1);
+        tvx = (e.aimX - e.x) * rules.aimGain;
+        tvz = (e.aimZ - e.z) * rules.aimGain;
+        const want = Math.hypot(tvx, tvz);
+        if (want > cap) { tvx *= cap / want; tvz *= cap / want; }
+        k = Math.min(1, rules.aimAccel * dt);
+      } else {
+        const speed = rules.speed * (e.r > rules.malletR ? 1.08 : 1);
+        tvx = (e.dirX || 0) * speed;
+        tvz = (e.dirZ || 0) * speed;
+        k = Math.min(1, rules.accel * dt);
+      }
+      e.vx += (tvx - e.vx) * k;
+      e.vz += (tvz - e.vz) * k;
       const lim = limitsOf(m);
       const nx = clamp(e.x + e.vx * dt, lim.xMin, lim.xMax);
       const nz = clamp(e.z + e.vz * dt, lim.zMin, lim.zMax);
@@ -250,6 +265,7 @@ export function forecastHockey(arcade, { from, to, ids, inputAt }) {
       robot: false,
       e: {
         x: e.x, z: e.z, vx: e.vx || 0, vz: e.vz || 0, mvx: e.mvx || 0, mvz: e.mvz || 0, dirX: e.dirX || 0, dirZ: e.dirZ || 0,
+        aimX: e.aimX ?? null, aimZ: e.aimZ ?? null, cap: e.cap ?? 1,
         r: e.r, side: e.side, lane: e.lane || null, touches: e.touches || 0, lastTouchAt: e.lastTouchAt || 0, goals: e.goals || 0, ownGoals: e.ownGoals || 0
       }
     };
@@ -261,9 +277,12 @@ export function forecastHockey(arcade, { from, to, ids, inputAt }) {
     const start = from + k * STEP_MS;
     mallets.forEach((m) => {
       if (m.robot) return;
+      // Entweder ein Stick (x, y) oder ein Ziel auf dem Tisch (aimX, aimZ).
       const input = inputAt(m.id, start);
-      m.e.dirX = input.x;
-      m.e.dirZ = input.y;
+      m.e.dirX = input.x || 0;
+      m.e.dirZ = input.y || 0;
+      m.e.aimX = input.aimX ?? null;
+      m.e.aimZ = input.aimZ ?? null;
     });
     stepHockey(rules, state, mallets, start + STEP_MS, arcade.seed || 0, events);
   }

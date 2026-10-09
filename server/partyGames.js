@@ -1454,13 +1454,21 @@ const HOCKEY_STUCK_MS = 1500;          // so lange darf der Puck festhängen
 const HOCKEY_LANE_STURM = 2.4;         // so weit hinter die Mittellinie darf der Sturm
 const HOCKEY_LANE_ABWEHR = 1.4;        // so nah an die Mittellinie darf die Abwehr
 const HOCKEY_ROBOT = "robot";
+// Direkt ziehen: der Schläger jagt dem Finger nach — schnell, aber mit
+// Höchsttempo, damit niemand den Puck mit einem Sprung quer über den Tisch
+// „teleportiert". Gain: so stark zieht der Abstand; Accel: so schnell folgt
+// das Tempo.
+const HOCKEY_AIM_SPEED = 7.5;
+const HOCKEY_AIM_GAIN = 18;
+const HOCKEY_AIM_ACCEL = 45;
 
 // Die Regeln, wie das Gerät sie braucht (Puckbahn.js liest arcade.hockeyRules).
 const HOCKEY_RULES = {
   w: HOCKEY_W, l: HOCKEY_L, puckR: HOCKEY_PUCK_R, malletR: HOCKEY_MALLET_R, speed: HOCKEY_SPEED,
   accel: HOCKEY_ACCEL, damp: HOCKEY_PUCK_DAMP, max: HOCKEY_PUCK_MAX, wallRest: HOCKEY_WALL_REST,
   hitRest: HOCKEY_HIT_REST, push: HOCKEY_PUSH, serveMs: HOCKEY_SERVE_MS, stepMs: HOCKEY_STEP_MS,
-  substeps: HOCKEY_SUBSTEPS, stuckMs: HOCKEY_STUCK_MS, laneSturm: HOCKEY_LANE_STURM, laneAbwehr: HOCKEY_LANE_ABWEHR
+  substeps: HOCKEY_SUBSTEPS, stuckMs: HOCKEY_STUCK_MS, laneSturm: HOCKEY_LANE_STURM, laneAbwehr: HOCKEY_LANE_ABWEHR,
+  aimSpeed: HOCKEY_AIM_SPEED, aimGain: HOCKEY_AIM_GAIN, aimAccel: HOCKEY_AIM_ACCEL
 };
 
 function hockeyLimits(side, r, lane = null) {
@@ -1525,10 +1533,26 @@ function hockeyStep(state, mallets, now, seed) {
   for (let sub = 0; sub < HOCKEY_SUBSTEPS; sub += 1) {
     mallets.forEach((m) => {
       const e = m.e;
-      const speed = HOCKEY_SPEED * (e.r > HOCKEY_MALLET_R ? 1.08 : 1);
-      const k = Math.min(1, HOCKEY_ACCEL * dt);
-      e.vx += ((e.dirX || 0) * speed - e.vx) * k;
-      e.vz += ((e.dirZ || 0) * speed - e.vz) * k;
+      let tvx;
+      let tvz;
+      let k;
+      if (e.aimX !== null && e.aimX !== undefined) {
+        // Gezogen: Richtung Finger, je weiter weg, desto schneller — bis zum
+        // Höchsttempo (Bots haben ein eigenes, je nach Stärke).
+        const cap = HOCKEY_AIM_SPEED * (e.cap ?? 1);
+        tvx = (e.aimX - e.x) * HOCKEY_AIM_GAIN;
+        tvz = (e.aimZ - e.z) * HOCKEY_AIM_GAIN;
+        const want = Math.hypot(tvx, tvz);
+        if (want > cap) { tvx *= cap / want; tvz *= cap / want; }
+        k = Math.min(1, HOCKEY_AIM_ACCEL * dt);
+      } else {
+        const speed = HOCKEY_SPEED * (e.r > HOCKEY_MALLET_R ? 1.08 : 1);
+        tvx = (e.dirX || 0) * speed;
+        tvz = (e.dirZ || 0) * speed;
+        k = Math.min(1, HOCKEY_ACCEL * dt);
+      }
+      e.vx += (tvx - e.vx) * k;
+      e.vz += (tvz - e.vz) * k;
       const lim = limitsOf(m);
       const nx = clamp(e.x + e.vx * dt, lim.xMin, lim.xMax);
       const nz = clamp(e.z + e.vz * dt, lim.zMin, lim.zMax);
@@ -1720,12 +1744,25 @@ const hockey = {
       const x = count > 1 ? (slot === 0 ? -0.9 : 0.9) : 0;
       const z = (entry.side === 0 ? 1 : -1) * (count > 1 && slot === 1 ? 2.6 : 1.8);
       const role = slot === 0 ? "sturm" : "abwehr";
-      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, r, role, lane: count > 1 ? role : null, goals: 0, ownGoals: 0, touches: 0, lastTouchAt: 0, score: 0 });
+      Object.assign(entry, { x, z, vx: 0, vz: 0, dirX: 0, dirZ: 0, aimX: null, aimZ: null, cap: 1, r, role, lane: count > 1 ? role : null, goals: 0, ownGoals: 0, touches: 0, lastTouchAt: 0, score: 0 });
     });
     hockeyServe(arcade.hockey, 0, arcade.startedAt);
   },
   input(ctx, player, entry, input) {
-    if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
+    if (input.action === "aim") {
+      // Der Finger zeigt auf den Tisch: dorthin zieht der Schläger.
+      const x = inputNumber(input.x);
+      const z = inputNumber(input.z);
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return { ok: false, error: "Ungültiges Ziel." };
+      entry.aimX = clamp(x, -HOCKEY_W / 2, HOCKEY_W / 2);
+      entry.aimZ = clamp(z, -HOCKEY_L / 2, HOCKEY_L / 2);
+      entry.dirX = 0;
+      entry.dirZ = 0;
+      // Menschen ziehen mit vollem Tempo; die Drossel setzt nur bot().
+      if (!player?.isBot) entry.cap = 1;
+      return { ok: true };
+    }
+    if (input.action !== "steer") return { ok: false, error: "Zieh deinen Schläger." };
     const x = inputNumber(input.x);
     const y = inputNumber(input.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
@@ -1733,6 +1770,8 @@ const hockey = {
     const k = len > 1 ? 1 / len : 1;
     entry.dirX = x * k;
     entry.dirZ = y * k;
+    entry.aimX = null;
+    entry.aimZ = null;
     return { ok: true };
   },
   update(ctx) {
@@ -1842,12 +1881,10 @@ const hockey = {
     }
     tx = clamp(tx + (Math.random() - 0.5) * sloppy, lim.xMin, lim.xMax);
     tz = clamp(tz + (Math.random() - 0.5) * sloppy, lim.zMin, lim.zMax);
-    const dx = tx - entry.x;
-    const dz = tz - entry.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 0.05) return { action: "steer", x: 0, y: 0 };
-    const gain = Math.min(1, d * byLevel(entry, 1.4, 2.2, 3.2));
-    return { action: "steer", x: (dx / d) * gain, y: (dz / d) * gain };
+    // Bots ziehen wie Menschen — nur mit gedrosseltem Höchsttempo je nach
+    // Stärke (das setzt der Server, kein Gerät kann es).
+    entry.cap = byLevel(entry, 0.5, 0.68, 0.82);
+    return { action: "aim", x: tx, z: tz };
   },
   rank(arcade, entry) {
     const score = arcade.hockey?.score || [0, 0];
@@ -1944,7 +1981,9 @@ function bookHolePoints(shape, x, z, w, d, flip = 1) {
       return [Math.cos(a) * r, Math.sin(a) * r * flip];
     });
   } else unit = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
-  return unit.map(([u, v]) => [Math.round((x + u * hw) * 100) / 100, Math.round((z + v * hd) * 100) / 100]);
+  // `|| 0`: aus −0 wird 0 — sonst unterschiede sich das Loch nach der
+  // Übertragung (JSON kennt kein −0) vom Original.
+  return unit.map(([u, v]) => [Math.round((x + u * hw) * 100) / 100 || 0, Math.round((z + v * hd) * 100) / 100 || 0]);
 }
 
 function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
@@ -1967,8 +2006,8 @@ function buildBookPages(seed, durationMs = BOOK_DURATION_MS) {
         let w = Math.round(((1.15 + noise(k) * 0.55) * size * look.grow + 0.2) * 100) / 100;
         let d = Math.round(((1.15 + noise(k + 3) * 0.55) * size * look.grow + 0.2) * 100) / 100;
         if (look.round) w = d = Math.round(((w + d) / 2) * 100) / 100;
-        const x = Math.round(((noise(k + 5) - 0.5) * (BOOK_W - w - 0.6)) * 100) / 100;
-        const z = Math.round(((noise(k + 9) - 0.5) * (BOOK_D - d - 0.8)) * 100) / 100;
+        const x = Math.round(((noise(k + 5) - 0.5) * (BOOK_W - w - 0.6)) * 100) / 100 || 0;
+        const z = Math.round(((noise(k + 9) - 0.5) * (BOOK_D - d - 0.8)) * 100) / 100 || 0;
         const clash = holes.some((o) => Math.abs(o.x - x) < (o.w + w) / 2 + 0.4 && Math.abs(o.z - z) < (o.d + d) / 2 + 0.4);
         if (!clash) {
           const turn = noise(k + 17) < 0.5 ? 1 : -1;
@@ -2138,7 +2177,20 @@ const book = {
     });
   },
   input(ctx, player, entry, input) {
-    if (input.action !== "steer") return { ok: false, error: "Lenke mit dem Stick." };
+    if (input.action === "aim") {
+      // Der Finger zeigt auf den Tisch: dorthin zieht der Schläger.
+      const x = inputNumber(input.x);
+      const z = inputNumber(input.z);
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return { ok: false, error: "Ungültiges Ziel." };
+      entry.aimX = clamp(x, -HOCKEY_W / 2, HOCKEY_W / 2);
+      entry.aimZ = clamp(z, -HOCKEY_L / 2, HOCKEY_L / 2);
+      entry.dirX = 0;
+      entry.dirZ = 0;
+      // Menschen ziehen mit vollem Tempo; die Drossel setzt nur bot().
+      if (!player?.isBot) entry.cap = 1;
+      return { ok: true };
+    }
+    if (input.action !== "steer") return { ok: false, error: "Zieh deinen Schläger." };
     const x = inputNumber(input.x);
     const y = inputNumber(input.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "Ungültige Richtung." };
@@ -2146,6 +2198,8 @@ const book = {
     const k = len > 1 ? 1 / len : 1;
     entry.dirX = x * k;
     entry.dirZ = y * k;
+    entry.aimX = null;
+    entry.aimZ = null;
     return { ok: true };
   },
   update(ctx) {
@@ -3364,6 +3418,7 @@ module.exports = {
     HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST, HONEY_GRACE_MS,
     SNOW_W, SNOW_D, SNOW_THROW_MIN, SNOW_MIN_SIZE, SNOW_STUN_MS, SNOW_BODY_R, SNOW_STEP_MS, SNOW_GIANT, SNOW_GROW,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS, HOCKEY_STEP_MS, HOCKEY_LANE_STURM, HOCKEY_LANE_ABWEHR,
+    HOCKEY_AIM_SPEED, HOCKEY_AIM_GAIN, HOCKEY_AIM_ACCEL,
     BOOK_W, BOOK_D, BOOK_LIVES, BOOK_FLAT_MS, BOOK_STEP_MS, BOOK_PUBLISH_LEAD_MS, BOOK_INSIDE,
     PHOTO_W, PHOTO_D, PHOTO_IN, PHOTO_COVER, PHOTO_SOLO, PHOTO_SHOVE_COOLDOWN_MS, PHOTO_STEP_MS, PHOTO_PUBLISH_LEAD_MS,
     PHOTO_SHOVE_STUN_MS, PHOTO_DASH_MS,
