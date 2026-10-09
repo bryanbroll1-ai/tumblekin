@@ -121,6 +121,7 @@ Grundlage war eine Bildreihe aller 40 Spiele (früh, Mitte, spät, Finale, Ergeb
 | Angelduell | Vierstellige Fangwerte liefen in den Chips ineinander. | Chips mit Innenabstand. |
 | Bumper Pool (quer) | Stand- und Spielerleiste überlappten. | Spielerleiste weiter rechts. |
 | Schneeballhang | Bots schoben eine noch stehende Figur nach 0,7 s vom Plateau. | Die ersten 2–3 s rollen die Bots nur und halten Abstand. |
+| Bumper Pool (Bots) | Bot-Waage umgekehrt: der starke Bot lag hinter dem mittleren (fuhr für ferne Opfer selbst an den Rand). | Greift den Nächsten an, zielt genauer; mittel/schwach lenken ungenauer — 1,82 / 2,35 / 3,33. |
 | Podest | Der Vierte stand halb in der dritten Stufe. | Neben der Stufe, auf ihrer Tiefe. |
 | Lobby | „Mehr“ klappte unter dem Startknopf auf. | Die Karte scrollt mit. |
 | Spielauswahl | Die drei Schalter standen je in einer eigenen Zeile. | Kompakt in einer Zeile. |
