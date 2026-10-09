@@ -615,7 +615,7 @@ export class ColorRush extends MinigameScene {
           const entscheidung = arcade.round >= (arcade.roundCount ?? 8);
           banner.textContent = phase.name === "drop"
             ? `${name}!`
-            : entscheidung ? `ENTSCHEIDUNG — nur ein Feld! ${name}  ${secs}` : `Lauf auf ${name}!  ${secs}`;
+            : entscheidung ? `ENTSCHEIDUNG — nur ein Feld! ${name} · ${secs} s` : `Lauf auf ${name}! · ${secs} s`;
           banner.style.background = COLORS[arcade.targetColor];
           banner.style.color = arcade.targetColor === 2 ? "#5c4508" : "#1b2530";
         }
