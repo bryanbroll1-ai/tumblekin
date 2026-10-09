@@ -6,16 +6,25 @@ import { frameLerp } from "./Quality.js?v=tumblekin212";
 import { kiste, lambert, zaun, wimpel, heuballen, scheune, sonnenblumen, wolken, himmel, viele, streuer } from "./Kulisse.js?v=tumblekin212";
 
 // Tauziehen auf dem Dorffest: zwei Teams am Seil, dazwischen die Schlammgrube.
-// Die Seilmitte trägt ein rotes Band; wird es über die Kante der Grube auf
-// eine Seite gezogen, landet das andere Team im Schlamm.
+// Wer zuerst mit dem Fuss im Schlamm steht, hat verloren: das Seil läuft so
+// weit, dass der Vorderste des unterlegenen Teams genau im Augenblick der
+// Entscheidung an die Kante kommt — dann reisst ihn das Siegerteam mit einem
+// Ruck hinein.
+//
+// Vorher war die Grube so breit, dass der Vorderste schon mitten im Spiel
+// knietief im Schlamm stand, obwohl noch nichts entschieden war.
 //
 // Die Figuren hängen am Seil, nicht daneben: ihre Hände liegen jedes Bild auf
 // dem Seil (afterAnimate), und das ganze Team rutscht mit, wenn das Seil
-// rutscht. Wer vorn steht und verliert, steht plötzlich bis zu den Knien im
-// Schlamm.
-const LINE = 1.1;            // halbe Breite der Grube = Siegeslinie
+// rutscht.
+const LINE = 0.8;            // halbe Breite der Grube
+const MUD_EDGE = LINE - 0.08;    // ab hier steht ein Fuss im Schlamm
 const FRONT_GAP = 1.45;      // Band bis zur vordersten Figur
 const SPACING = 0.82;        // Abstand im Team
+// Seilweg bis zur Entscheidung (Server: pos = ±1): der Vorderste der
+// Verlierer steht dann genau an der Schlammkante.
+const TRAVEL = FRONT_GAP - MUD_EDGE;
+const YANK = 0.6;            // der Ruck danach, hinein in die Grube
 const ROPE_Y = 0.5;
 const MUD_TOP = 0.012;
 const MUD_SINK = -0.2;
@@ -123,11 +132,18 @@ export class TugOfWar extends MinigameScene {
     mud.position.set(0, MUD_TOP - 0.25, 0);
     mud.receiveShadow = true;
     scene.add(mud);
-    // Glanzflecken auf dem Schlamm.
+    // Glanzflecken auf dem Schlamm — ganz innerhalb der Grube. Vorher waren
+    // sie bis zu 0,55 gross und lagen am Rand halb auf den weissen Brettern
+    // und der Wiese: braune Scheiben, die aus der Grube herausragten.
     const zufall = streuer(5);
     const flecken = [];
+    const fleckMax = 0.26;
     for (let i = 0; i < 9; i += 1) {
-      flecken.push({ p: [(zufall() - 0.5) * 1.8, MUD_TOP + 0.003, (zufall() - 0.5) * 2.2], r: [-Math.PI / 2, 0, zufall() * 3], s: [0.2 + zufall() * 0.35, 0.12 + zufall() * 0.2, 1] });
+      flecken.push({
+        p: [(zufall() - 0.5) * 2 * (LINE - 0.06 - fleckMax), MUD_TOP + 0.003, (zufall() - 0.5) * 2 * (1.24 - fleckMax)],
+        r: [-Math.PI / 2, 0, zufall() * 3],
+        s: [0.12 + zufall() * (fleckMax - 0.12), 0.08 + zufall() * 0.1, 1]
+      });
     }
     viele(scene, new THREE.CircleGeometry(1, 10), new THREE.MeshBasicMaterial({ color: "#8b5a34" }), flecken);
     // Bretter an den Kanten, weiss gestrichen: das ist die Linie.
@@ -139,7 +155,7 @@ export class TugOfWar extends MinigameScene {
     // Blasen im Schlamm — steigen auf und platzen.
     for (let i = 0; i < 6; i += 1) {
       const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshStandardMaterial({ color: "#8a5a35", roughness: 0.2 }));
-      bubble.position.set((zufall() - 0.5) * 1.7, MUD_TOP, (zufall() - 0.5) * 2);
+      bubble.position.set((zufall() - 0.5) * (LINE * 2 - 0.4), MUD_TOP, (zufall() - 0.5) * 2);
       bubble.userData.phase = zufall() * 3;
       bubble.userData.rate = 0.5 + zufall() * 0.6;
       scene.add(bubble);
@@ -308,9 +324,12 @@ export class TugOfWar extends MinigameScene {
     const target = pulling ? Math.max(-1, Math.min(1, state.pos + state.vel * age)) : state.pos;
     // Nach der Entscheidung reisst das Siegerteam die anderen mit einem Ruck
     // in den Schlamm — schneller als das Seil sonst läuft.
-    const catchUp = state.phase === "show" || state.phase === "over" ? 0.12 : 0.3;
+    const decided = state.phase === "show" || state.phase === "over";
+    const catchUp = decided ? 0.12 : 0.3;
     this.pos += (target - this.pos) * frameLerp(catchUp, dt);
-    const flagX = this.pos * LINE;
+    const yank = decided && state.winner !== null && state.winner !== undefined ? (state.winner === 0 ? -1 : 1) * YANK : 0;
+    this.yankX = (this.yankX || 0) + (yank - (this.yankX || 0)) * frameLerp(0.14, dt);
+    const flagX = this.pos * TRAVEL + this.yankX;
 
     // Die Entscheidung: Konfetti, Wackeln, Ton — einmal.
     if (!this.decided && (state.phase === "show" || state.phase === "over")) {
@@ -347,7 +366,7 @@ export class TugOfWar extends MinigameScene {
     this.tails[1].rotation.z = Math.atan2(0.7, ROPE_Y);
     if (this.sack) {
       const x = flagX + FRONT_GAP;
-      this.sack.position.set(x, Math.abs(x) < LINE - 0.05 ? MUD_SINK : 0, 0);
+      this.sack.position.set(x, decided && Math.abs(x) < MUD_EDGE ? MUD_SINK : 0, 0);
       this.sack.rotation.z = -0.25 - (state.vel || 0) * 0.5;
     }
 
@@ -388,7 +407,9 @@ export class TugOfWar extends MinigameScene {
 
       const x = flagX + dir * (FRONT_GAP + seat.slot * SPACING) + dir * jerk;
       const z = seat.slot % 2 ? -0.1 : 0.1;
-      const mud = Math.abs(x) < LINE - 0.08;
+      // In den Schlamm geht es erst mit der Entscheidung — vorher steht man
+      // höchstens an der Kante auf dem Brett.
+      const mud = decided && Math.abs(x) < MUD_EDGE;
       const wasMud = this.inMud.get(player.id) || false;
       if (mud && !wasMud) {
         this.burst(new THREE.Vector3(x, 0.2, z), ["#6e4526", "#8b5a34", "#4f3019"], { count: 18, speed: 1.8, up: 2.2, size: 0.08, life: 0.8 });
