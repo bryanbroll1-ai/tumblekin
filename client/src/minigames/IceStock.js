@@ -337,7 +337,9 @@ export class IceStock extends MinigameScene {
       // wischen" auf dem Eis leicht zur Seite, und die Bahn lief im Bild
       // schief nach rechts oben.
       yaw: 0,
-      pitch: 0.62,
+      // Etwas steiler: das Haus und die Steine darin erscheinen grösser, und
+      // oben liegt Eis statt Weihnachtsmarkt.
+      pitch: 0.74,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.25, zoom: 1.3 }
     };

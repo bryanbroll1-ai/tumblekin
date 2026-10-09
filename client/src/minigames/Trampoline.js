@@ -350,7 +350,7 @@ export class Trampoline extends MinigameScene {
     const count = Math.max(1, this.pads.size);
     return {
       look: [0, 1.3, 0],
-      frame: { w: count * LANE_GAP + 0.6, h: 3.2 },
+      frame: { w: count * LANE_GAP + 0.25, h: 3.2 },
       pitch: 0.12,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.2, zoom: 1.35 }

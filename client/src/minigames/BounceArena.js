@@ -206,7 +206,7 @@ export class BounceArena extends MinigameScene {
       left: landscape ? 146 : 0, right: 0 };
     const radius = f.minigame.arena?.radius || 1;
     // Fixed centre and complete edge: hits never yank the camera away from aim.
-    return { frame: { w: Math.max(5.4, 7.8 * radius), h: Math.max(4.6, (landscape ? 5.9 : 6.5) * radius) }, look: [0, .2, 0] };
+    return { frame: { w: Math.max(5.0, 7.1 * radius), h: Math.max(4.3, (landscape ? 5.5 : 6.0) * radius) }, look: [0, .2, 0] };
   }
   bind() {
     this.controls.innerHTML = `<div class="mobile-stick-controls joystick-only bumper-controls"><div class="joystick-slot"></div><p class="bumper-control-note">Lenken · Anlauf nehmen · Rammen<br>Loslassen bremst</p><p class="bumper-momentum" data-bumper-momentum>Kurven geben Schwung</p></div>`;

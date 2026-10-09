@@ -315,8 +315,10 @@ export class PipeMaze extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 3.8, 0],
-      frame: { w: 5.7, h: 5.6 },
+      // Bis zu den Figuren hinunter: mit nur einer Knopfreihe (Runde 1) lag
+      // die Mannschaft sonst genau hinter den Antwortknöpfen.
+      look: [0, 3.3, 0],
+      frame: { w: 5.7, h: 6.5 },
       fill: 0.97,
       pitch: 0,
       fov: 38,
@@ -325,8 +327,10 @@ export class PipeMaze extends MinigameScene {
     };
   }
 
+  // Die Mannschaft unten gehört ins Bild: mit nur einer Knopfreihe stand sie
+  // sonst hinter den Antwortknöpfen.
   keepInView() {
-    return [];
+    return [...this.kins.values()];
   }
 
   bind() {

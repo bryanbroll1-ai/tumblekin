@@ -355,7 +355,7 @@ export class RedLightGate extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 1.1, START_Z - 2.5],
+      look: [0, 1.1, START_Z - 3.2],
       frame: { w: 6.0, h: 3.6 },
       yaw: 0.14,
       pitch: 0.3,

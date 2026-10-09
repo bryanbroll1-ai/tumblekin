@@ -363,8 +363,10 @@ export class CoinRain extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 1.45, 0.5],
-      frame: { w: LANE_WIDTH * 3 + 0.6, h: 3.9 },
+      // Der Stollen gehört in die Bildmitte, die Spuren knapp darunter — vorher
+      // lag unter den Spuren ein Viertel leerer Boden.
+      look: [0, 1.75, 0.5],
+      frame: { w: LANE_WIDTH * 3 + 0.6, h: 3.6 },
       fill: 0.96,
       pitch: 0.3,
       fov: 38,

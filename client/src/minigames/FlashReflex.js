@@ -233,8 +233,8 @@ export class FlashReflex extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 1.5, -1.3],
-      frame: { w: 4.2, h: 3.9 },
+      look: [0, 1.4, -1.2],
+      frame: { w: 3.6, h: 3.4 },
       yaw: 0.62,
       pitch: 0.2,
       fov: 38,
