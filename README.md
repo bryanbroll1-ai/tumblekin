@@ -63,7 +63,7 @@ Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Ku
 - Bumper Pool — gekachelte Badeinsel, Kurvenmarkierungen, Palmen und Liegen
 - Zielgerade — Laufbahn im Stadion mit Tribünen
 - Farbflucht — Farbfest mit Pulverwolken
-- Nervenprobe — Fernsehstudio mit Publikum und Kamera
+- Nervenprobe — schlichter heller Raum, grosse Stoppuhr, Podeste in Spielerfarbe
 - Lichtwächter — Schlossgarten mit Formschnitt, Statuen und Springbrunnen
 - Pump-Panik — Geburtstagsfeier im Garten mit Torte und Geschenken
 - Fassmut — Holzhof vor dem Fasslager

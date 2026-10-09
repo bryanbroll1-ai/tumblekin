@@ -1,22 +1,25 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
 import { frameLerp } from "./Quality.js?v=tumblekin213";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
+import { kiste, lambert } from "./Kulisse.js?v=tumblekin213";
 
 // Nervenprobe: die Uhr läuft sichtbar an, dann verschwindet sie — man zählt im
 // Kopf weiter und drückt, wenn man glaubt, das Ziel sei erreicht.
 //
-// Vorher standen die Figuren hinter ihren Pulten, und die Zeitanzeige hing
-// genau vor ihren Köpfen. Jetzt steht jeder vor seinem Pult mit Buzzer, die
-// Anzeige hängt darüber, man nickt beim Zählen im Sekundentakt, haut auf den
-// Knopf und schaut dann gebannt auf die eigene Anzeige, bis aufgelöst wird.
-const PODIUM_GAP = 1.12;
-const STAGE_Y = 0.26;
+// Schlicht wie bei Wii Party: ein heller Raum ohne Publikum, Vorhang und
+// Scheinwerfer, in der Mitte gross die Stoppuhr mit der Zielzeit darüber,
+// davor die Spieler auf Podesten in ihrer Farbe, über jedem eine weisse
+// Tafel. Mehr braucht es nicht — der Blick gehört der Uhr und den Tafeln.
+const PODIUM_GAP = 1.3;
+const STAGE_Y = 0.14;
 const KIN_Z = 0.95;
-// Die grosse Stoppuhr über der Bühne: eine Umdrehung sind zehn Sekunden.
+const BOARD_Y = 1.66;
+const BOARD_Z = 0.55;
+// Die grosse Stoppuhr: eine Umdrehung sind zehn Sekunden.
 const DIAL_MS = 10000;
-const DIAL_R = 0.9;
-const DIAL_POS = [0, 3.25, -2.25];
+const DIAL_R = 1.6;
+const DIAL_POS = [0, 4.05, -1.6];
+const INK = "#1f2a44";
 
 // Das Zifferblatt: weiss, zehn Sekundenmarken, und die Zielzeit als goldener
 // Keil. Man sieht so, WO der Zeiger hin muss, und zählt nicht nur im Kopf.
@@ -25,41 +28,32 @@ function paintDial(canvas, targetMs) {
   const size = canvas.width;
   const c = size / 2;
   ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = "#fffaf0";
+  ctx.fillStyle = "#ffffff";
   ctx.beginPath();
   ctx.arc(c, c, c - 2, 0, Math.PI * 2);
   ctx.fill();
   const at = (ms) => (ms / DIAL_MS) * Math.PI * 2 - Math.PI / 2;
   // Zielkeil: ±0,25 s um die Zielzeit.
-  ctx.fillStyle = "rgba(255, 196, 0, 0.9)";
+  ctx.fillStyle = "rgba(255, 190, 30, 0.95)";
   ctx.beginPath();
   ctx.moveTo(c, c);
-  ctx.arc(c, c, c - 8, at(targetMs - 250), at(targetMs + 250));
+  ctx.arc(c, c, c - 10, at(targetMs - 250), at(targetMs + 250));
   ctx.closePath();
   ctx.fill();
   for (let s = 0; s < 10; s += 1) {
     const a = at(s * 1000);
-    ctx.strokeStyle = "#28313f";
-    ctx.lineWidth = 8;
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 10;
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.moveTo(c + Math.cos(a) * (c - 12), c + Math.sin(a) * (c - 12));
-    ctx.lineTo(c + Math.cos(a) * (c - 40), c + Math.sin(a) * (c - 40));
+    ctx.moveTo(c + Math.cos(a) * (c - 18), c + Math.sin(a) * (c - 18));
+    ctx.lineTo(c + Math.cos(a) * (c - 46), c + Math.sin(a) * (c - 46));
     ctx.stroke();
-    ctx.fillStyle = "#28313f";
-    ctx.font = "900 38px ui-rounded, system-ui, sans-serif";
+    ctx.fillStyle = INK;
+    ctx.font = "800 46px ui-rounded, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(s), c + Math.cos(a) * (c - 68), c + Math.sin(a) * (c - 68));
-  }
-  for (let s = 0; s < 50; s += 1) {
-    if (s % 5 === 0) continue;
-    const a = at(s * 200);
-    ctx.strokeStyle = "#7a8494";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(c + Math.cos(a) * (c - 12), c + Math.sin(a) * (c - 12));
-    ctx.lineTo(c + Math.cos(a) * (c - 26), c + Math.sin(a) * (c - 26));
-    ctx.stroke();
+    ctx.fillText(String(s), c + Math.cos(a) * (c - 84), c + Math.sin(a) * (c - 84));
   }
 }
 
@@ -88,19 +82,19 @@ const REVEAL_FIRST_MS = 300;
 const REVEAL_STEP_MS = 380;
 const REVEAL_SWEEP_MS = 450;
 
-// A blocky game-show clock driven by a canvas texture: dark glass screen,
-// glowing digits, rounded accent bezel.
+// Die Tafel über einem Spieler: weisse Karte, dicker Rand in der Farbe des
+// Zustands, dunkle Ziffern. Keine Neonschrift, kein Glas.
 function createTimerDisplay() {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
-  canvas.height = 128;
+  canvas.height = 136;
   const ctx = canvas.getContext("2d");
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  const dark = new THREE.MeshLambertMaterial({ color: "#1a2230" });
+  const back = new THREE.MeshLambertMaterial({ color: "#e9eef6" });
   const panel = new THREE.Mesh(
-    new THREE.BoxGeometry(1.18, 0.6, 0.12),
-    [dark, dark, dark, dark, new THREE.MeshBasicMaterial({ map: texture }), dark]
+    new THREE.BoxGeometry(1.2, 0.64, 0.06),
+    [back, back, back, back, new THREE.MeshBasicMaterial({ map: texture, transparent: true }), back]
   );
   panel.userData = { canvas, ctx, texture, lastText: null, lastAccent: null };
   return panel;
@@ -116,77 +110,49 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function paintDisplay(panel, text, accent = "#7df0a0", sub = "") {
+function paintDisplay(panel, text, accent = "#33cf4d", sub = "", ink = INK) {
   const { ctx, canvas, texture, lastText, lastAccent } = panel.userData;
-  if (lastText === text + sub && lastAccent === accent) return;
-  panel.userData.lastText = text + sub;
+  if (lastText === text + sub + ink && lastAccent === accent) return;
+  panel.userData.lastText = text + sub + ink;
   panel.userData.lastAccent = accent;
-  // Screen glass with a soft top sheen.
-  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  bg.addColorStop(0, "#182031");
-  bg.addColorStop(0.45, "#0b1220");
-  bg.addColorStop(1, "#060a12");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "rgba(255,255,255,0.07)";
-  ctx.fillRect(0, 0, canvas.width, 34);
-  // Accent bezel with glow.
-  ctx.save();
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 7;
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 14;
-  roundedRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 18);
-  ctx.stroke();
-  ctx.restore();
-  // Corner rivets for the blocky look.
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
-  [[20, 20], [canvas.width - 20, 20], [20, canvas.height - 20], [canvas.width - 20, canvas.height - 20]].forEach(([x, y]) => {
-    ctx.fillRect(x - 3, y - 3, 6, 6);
-  });
-  // Glowing digits.
-  ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = accent;
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 16;
-  ctx.font = `bold ${sub ? 50 : 58}px 'Courier New', monospace`;
+  roundedRect(ctx, 2, 2, canvas.width - 4, canvas.height - 4, 30);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  roundedRect(ctx, 13, 13, canvas.width - 26, canvas.height - 26, 20);
+  ctx.fill();
+  ctx.fillStyle = ink;
+  ctx.font = `900 ${sub ? 50 : 62}px ui-rounded, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + (sub ? -12 : 4));
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + (sub ? -14 : 3));
   if (sub) {
-    ctx.font = "bold 28px 'Courier New', monospace";
-    ctx.shadowBlur = 8;
-    ctx.fillText(sub, canvas.width / 2, canvas.height / 2 + 32);
+    ctx.font = "800 28px ui-rounded, system-ui, sans-serif";
+    ctx.fillStyle = "#5a6478";
+    ctx.fillText(sub, canvas.width / 2, canvas.height / 2 + 33);
   }
-  ctx.restore();
   texture.needsUpdate = true;
 }
 
-// Das Zielschild über der Uhr: gross, golden, damit die gesuchte Zahl dort
-// steht, wo man ohnehin hinschaut — nicht nur klein oben links in der Ecke.
+// Das Zielschild über der Uhr: eine weisse Pille mit der Zielzeit.
 function paintSign(panel, targetMs, accent) {
   const text = `ZIEL  ${(targetMs / 1000).toFixed(1).replace(".", ",")} s`;
   const { ctx, canvas, texture } = panel.userData;
   if (panel.userData.lastText === text + accent) return;
   panel.userData.lastText = text + accent;
-  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  bg.addColorStop(0, "#241838");
-  bg.addColorStop(1, "#0d0818");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.save();
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 8;
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 16;
-  roundedRect(ctx, 10, 10, canvas.width - 20, canvas.height - 20, 22);
-  ctx.stroke();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = accent;
-  ctx.font = "900 78px ui-rounded, system-ui, sans-serif";
+  roundedRect(ctx, 4, 4, canvas.width - 8, canvas.height - 8, 56);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  roundedRect(ctx, 16, 16, canvas.width - 32, canvas.height - 32, 46);
+  ctx.fill();
+  ctx.fillStyle = INK;
+  ctx.font = "900 72px ui-rounded, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 4);
-  ctx.restore();
   texture.needsUpdate = true;
 }
 
@@ -205,154 +171,34 @@ export class Nervenprobe extends MinigameScene {
   stage() {
     return {
       label: "3D Nervenprobe",
-      background: "#170e28",
-      fog: ["#241539", 22, 50],
-      lights: { sunPosition: [-4, 10, 7], skyColor: 0xb49ae8, groundColor: 0x6a4a3a, sunColor: 0xfff0d2, fillColor: 0xff9ecb, fillIntensity: 0.7 }
+      background: "#cfeaff",
+      fog: ["#cfeaff", 24, 60],
+      lights: { sunPosition: [-3, 10, 8], skyColor: 0xffffff, groundColor: 0xc9d6e8, sunColor: 0xfff8ec, sunIntensity: 2.4, hemiIntensity: 1.6 }
     };
   }
 
   hudHtml() {
     return `
-      <div class="kinetic-scorebar"><span data-nerve-clock>0.00s</span><strong data-nerve-target></strong></div>
+      <div class="kinetic-scorebar"><strong data-nerve-target></strong></div>
       <div class="color-banner" data-nerve-banner hidden></div>`;
   }
 
   build() {
     const scene = this.scene;
-    const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(26, 0.5, 34),
-      new THREE.MeshLambertMaterial({ color: "#e8a94f" })
-    );
-    floor.position.set(0, -0.25, 8);
-    floor.receiveShadow = true;
-    scene.add(floor);
-    const stage = new THREE.Mesh(
-      new THREE.BoxGeometry(9.6, 0.4, 4.8),
-      new THREE.MeshLambertMaterial({ color: "#b8478a" })
-    );
-    stage.position.set(0, 0.06, -0.4);
-    stage.receiveShadow = true;
-    scene.add(stage);
-    const carpet = new THREE.Mesh(
-      new THREE.BoxGeometry(7.8, 0.06, 1.15),
-      new THREE.MeshLambertMaterial({ color: "#e0334f" })
-    );
-    carpet.position.set(0, 0.3, 1.55);
-    carpet.receiveShadow = true;
-    scene.add(carpet);
-
-    // Die Vorbühne. Der goldene Boden reicht jetzt bis unter die Kamera und
-    // füllte damit das untere Bilddrittel mit einer einzigen hellen Fläche —
-    // schlimmer als das Loch, das er stopfen sollte. Vor der Bühne liegt
-    // deshalb dunkler Studioboden, und das Gold bleibt der Bühne.
-    const vorbuehne = new THREE.Mesh(
-      new THREE.BoxGeometry(26, 0.12, 22),
-      new THREE.MeshLambertMaterial({ color: "#2e2242" })
-    );
-    vorbuehne.position.set(0, 0.02, 14);
-    vorbuehne.receiveShadow = true;
-    scene.add(vorbuehne);
-    // Zwei warme Lichtpfützen darauf, damit die Fläche nicht tot ist.
-    [[-3.4, 6.4], [3.4, 8.2]].forEach(([x, z]) => {
-      const pfuetze = new THREE.Mesh(
-        new THREE.CircleGeometry(2.6, 20),
-        new THREE.MeshBasicMaterial({ color: "#ffb35c", transparent: true, opacity: 0.12, depthWrite: false })
-      );
-      pfuetze.rotation.x = -Math.PI / 2;
-      pfuetze.position.set(x, 0.1, z);
-      scene.add(pfuetze);
-    });
-    this.buildAudience(scene);
-    // Der Vorhang hinter der Bühne.
-    for (let i = 0; i < 12; i += 1) {
-      const pleat = new THREE.Mesh(
-        new THREE.BoxGeometry(0.95, 4.6, 0.4 + (i % 2) * 0.18),
-        new THREE.MeshLambertMaterial({ color: i % 2 === 0 ? "#7a4ddb" : "#6a3fc4" })
-      );
-      pleat.position.set((i - 5.5) * 0.95, 2.1, -3.6);
-      scene.add(pleat);
-    }
-    const valance = new THREE.Mesh(
-      new THREE.BoxGeometry(11.6, 0.55, 0.7),
-      new THREE.MeshLambertMaterial({ color: "#ffb400" })
-    );
-    valance.position.set(0, 4.55, -3.5);
-    scene.add(valance);
-
-    [[-4.9, "#ffc400"], [4.9, "#ffc400"]].forEach(([x, color]) => {
-      const pillar = new THREE.Mesh(
-        new THREE.BoxGeometry(0.6, 4.6, 0.6),
-        new THREE.MeshLambertMaterial({ color })
-      );
-      pillar.position.set(x, 2.05, -3.1);
-      scene.add(pillar);
-      const knob = new THREE.Mesh(
-        new THREE.BoxGeometry(0.8, 0.35, 0.8),
-        new THREE.MeshLambertMaterial({ color: "#ff5c8a" })
-      );
-      knob.position.set(x, 4.5, -3.1);
-      scene.add(knob);
-    });
-
-    // Bunting: candy flags strung between the pillars.
-    const flagColors = ["#ff2e6a", "#12aaff", "#ffc400", "#33cf4d", "#ff8b2e"];
-    for (let i = 0; i < 11; i += 1) {
-      const t = i / 10;
-      const sag = Math.sin(t * Math.PI) * 0.55;
-      const flag = new THREE.Mesh(
-        new THREE.BoxGeometry(0.26, 0.3, 0.06),
-        new THREE.MeshLambertMaterial({ color: flagColors[i % flagColors.length] })
-      );
-      flag.position.set(-4.9 + t * 9.8, 4.32 - sag, -2.95);
-      flag.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.12;
-      scene.add(flag);
-    }
-
-    // Gold star sparkles on the curtain.
-    this.stars = [];
-    [[-3.4, 3.3], [-1.2, 2.6], [1.6, 3.5], [3.6, 2.8], [0.2, 1.7], [-2.4, 1.4], [2.6, 1.6]].forEach(([x, y], index) => {
-      const star = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 0.16, 0.1),
-        new THREE.MeshLambertMaterial({ color: "#ffd76a", emissive: "#ffd76a", emissiveIntensity: 0.6 })
-      );
-      star.position.set(x, y, -3.28);
-      star.rotation.z = Math.PI / 4;
-      star.userData = { phase: index * 0.9 };
-      scene.add(star);
-      this.stars.push(star);
-    });
-
-    // Traverse mit Scheinwerfern über der Bühne — das, was in einem Studio
-    // über dem Vorhang hängt. Hier standen vorher zwei Wolken.
-    const traverse = new THREE.Mesh(
-      new THREE.BoxGeometry(13, 0.28, 0.28),
-      new THREE.MeshLambertMaterial({ color: "#3d4658" })
-    );
-    traverse.position.set(0, 6.4, -2.6);
-    scene.add(traverse);
-    for (let i = 0; i < 5; i += 1) {
-      const x = (i - 2) * 2.4;
-      const buegel = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.5, 0.1),
-        new THREE.MeshLambertMaterial({ color: "#3d4658" })
-      );
-      buegel.position.set(x, 6.05, -2.6);
-      scene.add(buegel);
-      const lampe = new THREE.Mesh(
-        new THREE.BoxGeometry(0.44, 0.44, 0.6),
-        new THREE.MeshLambertMaterial({ color: "#2b3242" })
-      );
-      lampe.position.set(x, 5.68, -2.6);
-      lampe.rotation.x = 0.45;
-      scene.add(lampe);
-      const linse = new THREE.Mesh(
-        new THREE.BoxGeometry(0.34, 0.34, 0.06),
-        new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? "#fff0b8" : "#ffc9e4" })
-      );
-      linse.position.set(x, 5.55, -2.35);
-      linse.rotation.x = 0.45;
-      scene.add(linse);
-    }
+    // Ein heller Boden, eine ruhige Wand, ein weisser Kreis hinter der Uhr.
+    const boden = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 0.2, 48), lambert("#f3f6fb"));
+    boden.position.set(0, -0.1, 0.5);
+    boden.receiveShadow = true;
+    scene.add(boden);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(3.1, 3.3, 48), new THREE.MeshBasicMaterial({ color: "#dbe6f4" }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(0, 0.005, 0.6);
+    scene.add(ring);
+    kiste(scene, 24, 16, 0.3, "#8fcfff", [0, 7.8, -2.6], { schatten: false });
+    kiste(scene, 24, 0.5, 0.4, "#6db8f2", [0, 0.25, -2.4], { schatten: false });
+    const halo = new THREE.Mesh(new THREE.CircleGeometry(DIAL_R + 0.55, 48), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55 }));
+    halo.position.set(DIAL_POS[0], DIAL_POS[1], -2.43);
+    scene.add(halo);
 
     this.buildStopwatch();
     this.buildTargetSign();
@@ -361,82 +207,19 @@ export class Nervenprobe extends MinigameScene {
     players.forEach((player, index) => this.addStation(player, index, players.length));
   }
 
-  // Studiopublikum vor der Bühne: drei Reihen Sitze mit Zuschauern, die man
-  // von hinten sieht, und rechts eine Fernsehkamera mit roter Lampe. Alles
-  // bleibt niedrig — die Köpfe liegen im Bild unter den Podesten.
-  buildAudience(scene) {
-    const zufall = streuer(17);
-    const plaetze = [];
-    [5.9, 7.0, 8.1].forEach((z, reihe) => {
-      for (let i = 0; i < 8; i += 1) {
-        const x = (i - 3.5) * 0.8 + (reihe % 2) * 0.25;
-        if (x > 2.0 && reihe === 0) continue;
-        plaetze.push({ x, z, farbe: ["#9a4a5a", "#9a8a4a", "#3a7a86", "#4a8a5a", "#6a5a9a", "#9a6a4a"][Math.floor(zufall() * 6)], haar: ["#2c2f38", "#6b4a2e", "#e8c15a", "#c8413b"][Math.floor(zufall() * 4)], phase: zufall() * 6 });
-      }
-    });
-    viele(scene, new THREE.BoxGeometry(0.62, 0.42, 0.1), lambert("#7a1f3a"), plaetze.map((p) => ({ p: [p.x, 0.38, p.z + 0.28] })));
-    viele(scene, new THREE.BoxGeometry(0.62, 0.08, 0.42), lambert("#5a1a2e"), plaetze.map((p) => ({ p: [p.x, 0.26, p.z + 0.06] })));
-    const koerper = new THREE.InstancedMesh(new THREE.BoxGeometry(0.38, 0.38, 0.26), new THREE.MeshLambertMaterial({ color: "#ffffff" }), plaetze.length);
-    const koepfe = new THREE.InstancedMesh(new THREE.BoxGeometry(0.28, 0.26, 0.26), new THREE.MeshLambertMaterial({ color: "#ffffff" }), plaetze.length);
-    plaetze.forEach((p, i) => {
-      koerper.setColorAt(i, new THREE.Color(p.farbe));
-      koepfe.setColorAt(i, new THREE.Color(p.haar));
-    });
-    [koerper, koepfe].forEach((m) => { m.frustumCulled = false; scene.add(m); });
-    this.audience = { plaetze, koerper, koepfe, jubel: 0 };
-    this.placeAudience(0);
-
-    // Fernsehkamera rechts.
-    const kamera = new THREE.Group();
-    kamera.position.set(2.9, 0, 5.6);
-    kamera.rotation.y = 0.35;
-    scene.add(kamera);
-    [0, 2.1, 4.2].forEach((a) => {
-      const bein = kiste(kamera, 0.05, 1.2, 0.05, "#2b3242", [Math.sin(a) * 0.25, 0.55, Math.cos(a) * 0.25], { schatten: false });
-      bein.rotation.set(Math.cos(a) * 0.35, 0, -Math.sin(a) * 0.35);
-    });
-    kiste(kamera, 0.4, 0.4, 0.7, "#2b3242", [0, 1.3, 0]);
-    const objektiv = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.35, 12), lambert("#1a1e28"));
-    objektiv.rotation.x = Math.PI / 2;
-    objektiv.position.set(0, 1.3, -0.5);
-    kamera.add(objektiv);
-    this.tally = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: "#ff3040" }));
-    this.tally.position.set(0.14, 1.55, -0.2);
-    kamera.add(this.tally);
-    kiste(kamera, 0.03, 0.03, 0.6, "#8a90a0", [0, 1.1, 0.5], { schatten: false }).rotation.x = 0.4;
-  }
-
-  placeAudience(now) {
-    const a = this.audience;
-    if (!a) return;
-    const o = new THREE.Object3D();
-    a.plaetze.forEach((p, i) => {
-      const hopser = a.jubel > 0 ? Math.max(0, Math.sin(now / 110 + p.phase)) * 0.18 * a.jubel : Math.sin(now / 900 + p.phase) * 0.015;
-      o.position.set(p.x, 0.5 + hopser, p.z);
-      o.rotation.set(0, 0, Math.sin(now / 1300 + p.phase) * 0.04);
-      o.updateMatrix();
-      a.koerper.setMatrixAt(i, o.matrix);
-      o.position.set(p.x, 0.83 + hopser, p.z);
-      o.updateMatrix();
-      a.koepfe.setMatrixAt(i, o.matrix);
-    });
-    a.koerper.instanceMatrix.needsUpdate = true;
-    a.koepfe.instanceMatrix.needsUpdate = true;
-  }
-
   buildStopwatch() {
     const arcade = this.minigame?.arcade;
     const group = new THREE.Group();
     group.position.set(...DIAL_POS);
-    const gold = new THREE.MeshLambertMaterial({ color: "#ffc400" });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(DIAL_R + 0.12, DIAL_R + 0.12, 0.24, 40), gold);
+    const rahmen = new THREE.MeshLambertMaterial({ color: "#ffb21e" });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(DIAL_R + 0.14, DIAL_R + 0.14, 0.26, 48), rahmen);
     body.rotation.x = Math.PI / 2;
     group.add(body);
-    const crown = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.2), gold);
-    crown.position.y = DIAL_R + 0.22;
+    const crown = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.26, 0.22), rahmen);
+    crown.position.y = DIAL_R + 0.26;
     group.add(crown);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.24), new THREE.MeshLambertMaterial({ color: "#ff2038" }));
-    cap.position.y = DIAL_R + 0.38;
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.12, 0.26), lambert("#ff3b52"));
+    cap.position.y = DIAL_R + 0.44;
     group.add(cap);
 
     const canvas = document.createElement("canvas");
@@ -446,30 +229,30 @@ export class Nervenprobe extends MinigameScene {
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const face = new THREE.Mesh(new THREE.CircleGeometry(DIAL_R, 48), new THREE.MeshBasicMaterial({ map: texture }));
-    face.position.z = 0.125;
+    face.position.z = 0.135;
     group.add(face);
 
     // Der Zeiger dreht um die Mitte.
     this.hand = new THREE.Group();
-    this.hand.position.z = 0.14;
-    const needle = new THREE.Mesh(new THREE.BoxGeometry(0.05, DIAL_R * 0.86, 0.03), new THREE.MeshBasicMaterial({ color: "#ff2038" }));
+    this.hand.position.z = 0.15;
+    const needle = new THREE.Mesh(new THREE.BoxGeometry(0.07, DIAL_R * 0.84, 0.03), new THREE.MeshBasicMaterial({ color: "#ff3b52" }));
     needle.position.y = DIAL_R * 0.4;
     this.hand.add(needle);
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.05, 16), new THREE.MeshBasicMaterial({ color: "#28313f" }));
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.05, 16), new THREE.MeshBasicMaterial({ color: INK }));
     hub.rotation.x = Math.PI / 2;
     this.hand.add(hub);
     group.add(this.hand);
 
-    // Die Abdeckung: nach zwei Sekunden schiebt sie sich über das Blatt.
+    // Die Abdeckung: nach zwei Sekunden legt sie sich über das Blatt.
     const coverCanvas = document.createElement("canvas");
     coverCanvas.width = 256;
     coverCanvas.height = 256;
     const pen = coverCanvas.getContext("2d");
-    pen.fillStyle = "#2a1d45";
+    pen.fillStyle = "#3b4a6b";
     pen.beginPath();
     pen.arc(128, 128, 126, 0, Math.PI * 2);
     pen.fill();
-    pen.fillStyle = "#ff5c8a";
+    pen.fillStyle = "#ffffff";
     pen.font = "900 150px ui-rounded, system-ui, sans-serif";
     pen.textAlign = "center";
     pen.textBaseline = "middle";
@@ -477,7 +260,7 @@ export class Nervenprobe extends MinigameScene {
     const coverTex = new THREE.CanvasTexture(coverCanvas);
     coverTex.colorSpace = THREE.SRGBColorSpace;
     this.cover = new THREE.Mesh(new THREE.CircleGeometry(DIAL_R + 0.02, 48), new THREE.MeshBasicMaterial({ map: coverTex, transparent: true, opacity: 0 }));
-    this.cover.position.z = 0.16;
+    this.cover.position.z = 0.17;
     group.add(this.cover);
 
     this.dialMarks = new Map();
@@ -485,27 +268,21 @@ export class Nervenprobe extends MinigameScene {
     this.dial = group;
   }
 
-  // Das Schild hängt an zwei Seilen von der Traverse, direkt über der Uhr.
+  // Das Zielschild schwebt direkt über der Uhr.
   buildTargetSign() {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
-    canvas.height = 128;
+    canvas.height = 136;
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    const dark = new THREE.MeshLambertMaterial({ color: "#1a1228" });
     const sign = new THREE.Mesh(
-      new THREE.BoxGeometry(3.4, 0.85, 0.1),
-      [dark, dark, dark, dark, new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }), dark]
+      new THREE.PlaneGeometry(3.4, 0.9),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false })
     );
     sign.userData = { canvas, ctx: canvas.getContext("2d"), texture, lastText: null };
-    sign.position.set(DIAL_POS[0], DIAL_POS[1] + 1.78, DIAL_POS[2] - 0.05);
+    sign.position.set(DIAL_POS[0], DIAL_POS[1] + DIAL_R + 1.1, DIAL_POS[2] + 0.1);
     this.scene.add(sign);
-    [-1, 1].forEach((side) => {
-      const seil = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.2, 0.03), new THREE.MeshLambertMaterial({ color: "#8a90a0" }));
-      seil.position.set(side * 1.4, sign.position.y + 1, sign.position.z);
-      this.scene.add(seil);
-    });
-    paintSign(sign, this.minigame?.arcade?.targetMs || 5000, "#ffd76a");
+    paintSign(sign, this.minigame?.arcade?.targetMs || 5000, "#ffb21e");
     this.targetSign = sign;
   }
 
@@ -527,35 +304,26 @@ export class Nervenprobe extends MinigameScene {
 
   addStation(player, index, count) {
     const x = this.stationX(index, count);
+    // Ein rundes Podest in der Farbe des Spielers.
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.5, STAGE_Y, 28), lambert(player.color));
+    pad.position.set(x, STAGE_Y / 2, KIN_Z);
+    pad.receiveShadow = true;
+    this.scene.add(pad);
     this.addKin(player, index, { x, ground: STAGE_Y, z: KIN_Z, facing: 0 });
-    // Schmales Pult rechts neben der Figur, der Buzzer auf Handhöhe — davor
-    // stehend verdeckte es die halbe Figur.
-    const px = x + 0.36;
-    const podium = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.3), new THREE.MeshLambertMaterial({ color: "#fdf5e6" }));
-    podium.position.set(px, STAGE_Y + 0.21, KIN_Z + 0.12);
-    podium.castShadow = true;
-    this.scene.add(podium);
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.08, 0.32), new THREE.MeshLambertMaterial({ color: player.color }));
-    trim.position.set(px, STAGE_Y + 0.4, KIN_Z + 0.12);
-    this.scene.add(trim);
-    const buzzer = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.09, 14), new THREE.MeshLambertMaterial({ color: "#ff2038", emissive: "#ff2038", emissiveIntensity: 0.25 }));
-    buzzer.position.set(px, STAGE_Y + 0.49, KIN_Z + 0.12);
+    // Ein schlanker Buzzer rechts neben der Figur, auf Handhöhe.
+    const px = x + 0.4;
+    const saeule = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.2), lambert("#ffffff"));
+    saeule.position.set(px, STAGE_Y + 0.25, KIN_Z + 0.12);
+    saeule.castShadow = true;
+    this.scene.add(saeule);
+    const buzzer = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.08, 16), new THREE.MeshLambertMaterial({ color: "#ff3b52", emissive: "#ff3b52", emissiveIntensity: 0.2 }));
+    buzzer.position.set(px, STAGE_Y + 0.54, KIN_Z + 0.12);
     this.scene.add(buzzer);
-    // Anzeige über und hinter der Figur, mit Lampe und Namen.
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.58, 0.1), new THREE.MeshLambertMaterial({ color: player.color }));
-    frame.position.set(x, 1.75, 0.05);
-    this.scene.add(frame);
+    // Die Tafel schwebt über dem Kopf.
     const display = createTimerDisplay();
-    display.scale.setScalar(0.82);
-    display.position.set(x, 1.75, 0.11);
+    display.position.set(x, BOARD_Y, BOARD_Z);
     this.scene.add(display);
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.6, 0.08), new THREE.MeshLambertMaterial({ color: "#c0c9d4" }));
-    post.position.set(x, 0.8, -0.02);
-    this.scene.add(post);
-    const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshLambertMaterial({ color: "#2ee86a", emissive: new THREE.Color("#2ee86a"), emissiveIntensity: 0.8 }));
-    bulb.position.set(x + 0.45, 2.12, 0.08);
-    this.scene.add(bulb);
-    this.stations.set(player.id, { x, buzzer, display, bulb });
+    this.stations.set(player.id, { x, buzzer, display });
   }
 
   // Die Posen des Finales (Jubel, Enttäuschung) erst, wenn die Auflösung
@@ -566,20 +334,14 @@ export class Nervenprobe extends MinigameScene {
 
   shot() {
     const count = Math.max(1, this.stations.size);
-    // Breit genug für die äusseren Anzeigen, hoch genug für die Stoppuhr über
-    // der Bühne. Vorher schnitt die Auflösung die linke Anzeige an, und das
-    // halbe Bild darunter war leerer Studioboden.
-    // Hoch genug für Uhr UND Zielschild darüber. Bei vier Spielern gibt die
-    // Breite den Abstand vor und die Höhe kommt von selbst mit; im Eins gegen
-    // Eins zoomte die Kamera auf die zwei Pulte, und Uhr und Schild lagen
-    // oberhalb des Bildes.
+    // Breit genug für die äusseren Tafeln, hoch genug für Uhr und Zielschild.
     return {
-      look: [0.15, 2.75, 0.4],
-      frame: { w: count * PODIUM_GAP + 1.1, h: 6.2 },
-      pitch: 0.14,
+      look: [0, 3.25, 0.2],
+      frame: { w: Math.max(4.2, count * PODIUM_GAP + 0.9), h: 7.2 },
+      pitch: 0.12,
       fov: 36,
-      intro: { yaw: 0.5, pitch: 0.2, zoom: 1.4 },
-      // Die Auflösung IST das Finale: alle Anzeigen und die Uhr bleiben im Bild.
+      intro: { yaw: 0.45, pitch: 0.18, zoom: 1.35 },
+      // Die Auflösung IST das Finale: alle Tafeln und die Uhr bleiben im Bild.
       finale: { pull: 0.95, zoom: 1, lift: 0.1, orbit: 0.04 }
     };
   }
@@ -612,11 +374,6 @@ export class Nervenprobe extends MinigameScene {
 
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
-    if (this.audience) {
-      this.audience.jubel += ((this.jubelt ? 1 : 0) - this.audience.jubel) * Math.min(1, dt * 3);
-      this.placeAudience(now);
-    }
-    if (this.tally) this.tally.visible = Math.floor(now / 700) % 2 === 0;
     if (!arcade) return;
     // Die Uhr läuft auf Ankunftszeit: Wer im Kopf weiterzählt und beim
     // Zielwert tippt, dessen Tipp kommt beim Server auch bei diesem Wert an —
@@ -683,24 +440,20 @@ export class Nervenprobe extends MinigameScene {
         paintDisplay(
           station.display,
           stoppedReally ? formatSeconds(entry.stoppedMs) : "—",
-          siegerHier ? (Math.floor(now / 160) % 2 === 0 ? "#ffd76a" : "#fff3c4") : accentFor(stoppedReally ? deviation : null),
+          siegerHier ? (Math.floor(now / 160) % 2 === 0 ? "#ffb21e" : "#ffd76a") : accentFor(stoppedReally ? deviation : null),
           stoppedReally ? formatDeviation(entry.stoppedMs, arcade.targetMs) : "kein Stopp"
         );
       } else if (revealAll) {
-        paintDisplay(station.display, "? ? ?", Math.floor(now / 140) % 2 === 0 ? "#ffd76a" : "#c8a24a");
+        paintDisplay(station.display, "?", Math.floor(now / 140) % 2 === 0 ? "#ffb21e" : "#ffd76a");
       } else if (stopped) {
-        paintDisplay(station.display, "STOP", "#8fd4ff");
+        paintDisplay(station.display, "✓", "#2f7bff", "", "#2f7bff");
       } else if (!hidden) {
-        paintDisplay(station.display, formatSeconds(elapsed), "#7df0a0");
+        paintDisplay(station.display, formatSeconds(elapsed), "#33cf4d");
       } else {
-        paintDisplay(station.display, "? ? ?", "#ff5c8a");
+        paintDisplay(station.display, "?", "#b8c3d6", "", "#8a96ad");
       }
-      station.buzzer.position.y += ((stopped ? STAGE_Y + 0.45 : STAGE_Y + 0.49) - station.buzzer.position.y) * frameLerp(0.25, dt);
-      station.buzzer.material.emissiveIntensity = stopped ? 1 : 0.25;
-      const bulbColor = offen ? accentFor(stoppedReally ? deviation : null) : revealAll ? "#ffd76a" : stopped ? "#12aaff" : hidden ? "#ff2038" : "#2ee86a";
-      station.bulb.material.color.set(bulbColor);
-      station.bulb.material.emissive.set(bulbColor);
-      station.bulb.material.emissiveIntensity = 0.8;
+      station.buzzer.position.y += ((stopped ? STAGE_Y + 0.5 : STAGE_Y + 0.54) - station.buzzer.position.y) * frameLerp(0.25, dt);
+      station.buzzer.material.emissiveIntensity = stopped ? 1 : 0.2;
 
       if (stoppedReally && !this.lastStopped.get(player.id)) {
         this.lastStopped.set(player.id, true);
@@ -709,7 +462,6 @@ export class Nervenprobe extends MinigameScene {
           this.feedback?.sound("move");
         }
         this.burst(station.buzzer.position.clone().setY(STAGE_Y + 0.6), ["#ff2038", "#ffffff"], { count: 9, speed: 1.9, up: 1.6, size: 0.07, life: 0.5, drag: 2, fadePow: 1.4 });
-        this.pop(new THREE.Vector3(station.x, 1.4, KIN_Z + 0.4), "STOPP!", { color: "#ffffff", size: 0.3, life: 0.7, rise: 0.6 });
       }
 
       // Aufdecken: Marke an der Uhr, Funken, die Abweichung als Zahl.
@@ -719,7 +471,7 @@ export class Nervenprobe extends MinigameScene {
         if (stoppedReally) this.markDial(player, entry.stoppedMs);
         const farbe = accentFor(stoppedReally ? deviation : null);
         this.burst(station.display.position.clone().add(new THREE.Vector3(0, 0, 0.2)), [farbe, "#ffffff"], { count: 10, speed: 1.6, up: 1.2, size: 0.06, life: 0.5, drag: 2 });
-        this.pop(new THREE.Vector3(station.x, 2.3, 0.4), stoppedReally ? `${(deviation / 1000).toFixed(2)} s` : "—", { color: farbe, size: isOwn ? 0.34 : 0.28, life: 0.9, rise: 0.4 });
+        this.pop(new THREE.Vector3(station.x, BOARD_Y + 0.55, BOARD_Z + 0.1), stoppedReally ? `${(deviation / 1000).toFixed(2)} s` : "—", { color: farbe, size: isOwn ? 0.34 : 0.28, life: 0.9, rise: 0.4 });
         this.feedback?.sound("pop", { pan: station.x * 0.2 });
         if (isOwn) this.feedback?.vibrate(12);
         animator.trigger(stoppedReally && deviation < 400 ? "hop" : "flinch", { height: 0.2 });
@@ -766,23 +518,16 @@ export class Nervenprobe extends MinigameScene {
         const station = this.stations.get(sieger.player.id);
         if (station) {
           this.burst(station.display.position.clone().add(new THREE.Vector3(0, 0.3, 0.2)), [sieger.player.color, "#ffd76a", "#ffffff"], { count: 30, speed: 2.6, up: 2.4, size: 0.08, life: 1, drag: 1.4 });
-          this.pop(new THREE.Vector3(station.x, 2.75, 0.4), sieger.entry.deviationMs < 100 ? "🎯 VOLLTREFFER!" : "AM NÄCHSTEN!", { color: "#ffd76a", size: 0.4, life: 1.2, rise: 0.5 });
+          this.pop(new THREE.Vector3(station.x, BOARD_Y + 0.95, BOARD_Z + 0.1), sieger.entry.deviationMs < 100 ? "🎯 VOLLTREFFER!" : "AM NÄCHSTEN!", { color: "#ffb21e", size: 0.4, life: 1.2, rise: 0.5 });
         }
       }
       this.rig.shake(0.35);
       this.feedback?.vibrate([30, 30, 60]);
     }
 
-    // Die Sterne am Vorhang glimmen nur noch leise. Vorher blinkten sie
-    // hektisch, und zwei Lichtkegel schwenkten über die Bühne — beides zog
-    // den Blick genau von dem weg, worauf es ankommt: die eigene Zählung.
-    this.stars?.forEach((star) => {
-      star.material.emissiveIntensity = 0.45 + Math.sin(now / 1800 + star.userData.phase) * 0.1;
-    });
-    // Das Zielschild leuchtet in der Auflösung auf.
+    // Das Zielschild blinkt in der Auflösung.
     if (this.targetSign) {
-      const glow = this.jubelt ? "#fff3c4" : "#ffd76a";
-      paintSign(this.targetSign, arcade.targetMs, revealAll && Math.floor(now / 200) % 2 === 0 ? "#fff3c4" : glow);
+      paintSign(this.targetSign, arcade.targetMs, revealAll && !this.jubelt && Math.floor(now / 200) % 2 === 0 ? "#ffd76a" : "#ffb21e");
     }
   }
 
@@ -792,13 +537,12 @@ export class Nervenprobe extends MinigameScene {
     const elapsed = Math.max(0, this.arrivalNow() - minigame.startedAt);
     const hidden = elapsed >= arcade.hideAfterMs;
     const revealAll = Boolean(minigame.finaleAt);
-    // Die Rundenuhr oben links zählt hier NICHT mit — sie verriete die Zeit,
-    // die man schätzen soll. Sie zeigt dasselbe wie die Anzeigen: bis zum
-    // Verstecken die Stoppuhr, danach nichts.
-    this.clockNode ||= this.hud.querySelector("[data-nerve-clock]");
-    this.clockNode.textContent = revealAll || !hidden ? `${(Math.min(elapsed, arcade.hideAfterMs) / 1000).toFixed(2)}s` : "?.??s";
+    // Oben links steht nur die Zielzeit. Eine mitlaufende Rundenuhr gibt es
+    // hier nicht — sie verriete die Zeit, die man schätzen soll; die Uhr in
+    // der Mitte und die Tafeln zeigen sie, solange man sie sehen darf.
     this.targetNode ||= this.hud.querySelector("[data-nerve-target]");
-    this.targetNode.textContent = `Ziel: ${(arcade.targetMs / 1000).toFixed(1)}s`;
+    const target = `Ziel ${(arcade.targetMs / 1000).toFixed(1).replace(".", ",")} s`;
+    if (this.targetNode.textContent !== target) this.targetNode.textContent = target;
     const banner = this.hud.querySelector("[data-nerve-banner]");
     const own = arcade.players[this.getControlledPlayerId()];
     const stopped = this.localStops?.has(f.controlledId) || (own?.stoppedMs !== null && own?.stoppedMs !== undefined);
