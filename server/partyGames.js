@@ -1398,6 +1398,17 @@ function snowBotPlan(ctx, player, entry) {
     const a = Math.atan2(entry.x, entry.z) + 0.6;
     return go(Math.sin(a) * radius * 0.5, Math.cos(a) * radius * 0.5);
   }
+  // Die ersten Sekunden: nur Kugel rollen und Abstand halten. Vorher rammte
+  // ein Bot eine Figur, die noch stillstand, schon nach 0,7 s vom Plateau —
+  // ein Mensch hat da gerade erst den Stick gefunden.
+  const sinceStart = now - (arcade.snow.startedAt || 0);
+  if (sinceStart < byLevel(entry, 3200, 2600, 2200)) {
+    const near = others.reduce((best, e) => (Math.hypot(e.x - entry.x, e.z - entry.z) < Math.hypot(best.x - entry.x, best.z - entry.z) ? e : best));
+    if (Math.hypot(near.x - entry.x, near.z - entry.z) < 1.6) return go(entry.x * 0.5 + (entry.x - near.x), entry.z * 0.5 + (entry.z - near.z));
+    const a = Math.atan2(entry.x, entry.z) + (entry.botSide || (entry.botSide = Math.random() < 0.5 ? 1 : -1)) * 0.7;
+    const rr = Math.min(radius - 1.4, Math.max(0.8, r));
+    return go(Math.sin(a) * rr, Math.cos(a) * rr, 0.8);
+  }
   // Ausweichen: rollt einer schnell und genau auf mich zu, zur Seite — und
   // zwar zur Mitte hin. Gute Spieler machen das; der schwache nie.
   if (now < (entry.botDodgeUntil || 0)) return { action: "steer", x: entry.botDodgeX, y: entry.botDodgeZ };
