@@ -210,9 +210,9 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 - **Flaggen hoch:** Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle — wer dann stillhält, hat richtig. Die Kommandos kommen immer schneller; ein Fehler, und du sitzt an Deck und schaust den anderen zu. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand.
 
-### 👆🍎 Eins oder zwei pflücken
+### 🍎🏠 Weiter oder heim?
 
-- **Honigwabe:** Vom Baum hängt eine Ranke voller Äpfel, dazwischen Honigwaben. Reihum pflückt jeder von unten einen oder zwei. Wer eine Wabe erwischt, wird gestochen und ist raus. Alles ist sichtbar — zähl ab und schieb die Wabe dem Nächsten zu. Einmal im Spiel darfst du deinen Zug ganz weiterschieben. Wer zuletzt übrig ist, gewinnt; unter Gleichen zählen die Früchte (goldene Äpfel drei).
+- **Honigwabe:** Mutprobe am Bienenbaum: Alle stehen unter einer Ranke voller Knospen, und vor jedem Griff entscheidet jeder gleichzeitig und geheim — WEITER pflücken oder HEIM. Dann geht eine Knospe auf. Äpfel werden unter allen am Baum geteilt, der Rest fällt in den Restkorb. Ein Nest weckt seine Sorte (Bienen, Wespen, Hornissen); kommt ein zweites derselben Sorte, wird jeder am Baum gestochen und sein Korb ist leer. Wer heimgeht, bringt seinen Korb in Sicherheit und teilt sich den Restkorb mit allen, die im selben Moment gehen — den goldenen Apfel (5) bekommt nur, wer ALLEIN geht. Jede Ranke hat 11 Apfelknospen, einen Goldapfel und je drei Nester. Bei Sonnenuntergang wird gestochen, wer noch am Baum hängt. Es zählt, was daheim in der Kiste liegt.
 
 ### 🕹️💥 Stick laufen, Knopf schubsen
 

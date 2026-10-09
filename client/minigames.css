@@ -2419,28 +2419,49 @@ canvas.is-stunned {
   opacity: 0.45;
 }
 
-/* Honigwabe: zwei Pflückknöpfe, nur im eigenen Zug aktiv, und ein Zeitbalken. */
+/* Honigwabe: zwei grosse Knöpfe — WEITER (Apfel) und HEIM (Haus). Die
+   eigene Wahl bleibt markiert, bis die Knospe aufgeht; umentscheiden geht. */
+.honey-controls {
+  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: row;
+}
+
 .honey-controls button {
   display: grid;
   place-items: center;
   gap: 2px;
   min-height: 108px;
   border-color: #ffffff;
-  background: linear-gradient(180deg, #ffc93c, #f09a12);
-  box-shadow: 0 7px 0 #8a5208;
-  color: #4a2a05;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.honey-controls .honey-stay {
+  background: linear-gradient(180deg, #ff7a6b, #d8302a);
+  box-shadow: 0 7px 0 #7c140f;
+  color: #ffffff;
+}
+
+.honey-controls .honey-home {
+  background: linear-gradient(180deg, #7fe08a, #2fa84a);
+  box-shadow: 0 7px 0 #14602a;
+  color: #ffffff;
 }
 
 .honey-controls button span {
-  font-size: 2.6rem;
+  font-size: 2.4rem;
   line-height: 1;
 }
 
 .honey-controls button small {
-  font-size: 0.85rem;
-  font-weight: 900;
-  letter-spacing: 0.06em;
+  font-size: 0.9rem;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.honey-controls button.is-picked {
+  transform: translateY(4px);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35), 0 0 0 5px #ffe25c;
 }
 
 .honey-controls button:disabled {
@@ -2448,25 +2469,61 @@ canvas.is-stunned {
   filter: grayscale(0.6);
 }
 
-/* Der Joker daneben: schmaler und blau, damit er nicht wie ein dritter
-   Pflückknopf aussieht. Verbraucht bleibt er als blasser Umriss stehen. */
-.honey-controls {
-  grid-template-columns: 1fr 1fr 0.78fr;
-  grid-auto-flow: row;
+/* Im flachen Querformat stehen WEITER und HEIM links und rechts am Rand —
+   über die volle Breite nahmen sie zwei Drittel der Höhe, und von Baum und
+   Ranke blieb ein Streifen. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .minigame-controls:has(.honey-controls) {
+    left: 0;
+    width: 100%;
+    transform: none;
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    pointer-events: none;
+  }
+  .minigame-controls .honey-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    pointer-events: none;
+  }
+  .honey-controls button {
+    flex: 0 0 132px;
+    width: 132px;
+    min-height: 92px;
+    pointer-events: auto;
+  }
 }
 
-.honey-controls .honey-pass {
-  background: linear-gradient(180deg, #6cc4ff, #2f86d6);
-  box-shadow: 0 7px 0 #164d80;
-  color: #06243f;
+/* Welche Nest-Sorten wach sind: blass = schläft, leuchtend = wach (ein
+   zweites Nest dieser Sorte sticht). */
+.hud-chip.honey-nests {
+  gap: 4px;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
 }
 
-.honey-controls .honey-pass span {
-  font-size: 2.1rem;
+.hud-chip.honey-nests i {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--nest);
+  color: #2a1a08;
+  font-size: 0.68rem;
+  font-style: normal;
+  opacity: 0.3;
+  filter: grayscale(1);
 }
 
-.honey-controls .honey-pass.is-used {
-  opacity: 0.22;
+.hud-chip.honey-nests i.is-awake {
+  opacity: 1;
+  filter: none;
+  box-shadow: 0 0 0 2px #ff5d73, 0 0 8px #ff5d73;
 }
 
 .honey-timer {

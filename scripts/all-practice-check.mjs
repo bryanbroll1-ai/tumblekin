@@ -32,11 +32,11 @@ async function projected(kind){return page.evaluate(async kind=>{
  return s.rig.toScreen(v);
  },kind);}
 async function act(type){
- const button={nervenprobe:['[data-nerve-stop]','p.stoppedMs!==null'],ballonPump:['[data-pump]','p.pumps>0'],fassmut:['[data-dare-brake]','p.brakeAt!==null'],kanonenflug:['[data-cannon-launch]','Boolean(p.powerAt)'],messerwurf:['[data-knife-throw]','p.throws>0'],turmbau:['[data-stack-drop]','p.hasMoved'],trampolin:['[data-bounce-jump]','p.lastTap!==null'],falschsignal:['[data-signal-react]','p.lastReact!==null'],tauziehen:['[data-tug-pull]','p.taps>0'],flaggenhoch:['[data-flag="red"]','p.raised!==null'],honigwabe:['[data-honey-take="1"]','p.picks>0'],kippboot:['[data-boat-drop]','p.drops>0']};
+ const button={nervenprobe:['[data-nerve-stop]','p.stoppedMs!==null'],ballonPump:['[data-pump]','p.pumps>0'],fassmut:['[data-dare-brake]','p.brakeAt!==null'],kanonenflug:['[data-cannon-launch]','Boolean(p.powerAt)'],messerwurf:['[data-knife-throw]','p.throws>0'],turmbau:['[data-stack-drop]','p.hasMoved'],trampolin:['[data-bounce-jump]','p.lastTap!==null'],falschsignal:['[data-signal-react]','p.lastReact!==null'],tauziehen:['[data-tug-pull]','p.taps>0'],flaggenhoch:['[data-flag="red"]','p.raised!==null'],honigwabe:['[data-honey-choice="home"]','p.choices>0'],kippboot:['[data-boat-drop]','p.drops>0']};
  if(button[type]){
   if(type==='fassmut')await wait('Date.now()>=g.startedAt+a.leadIn && !s.brakeButton?.disabled');
   if(type==='tauziehen')await wait('a.tug.phase==="pull"');
-  if(type==='honigwabe')await wait('a.honey.turn?.playerId==="practice" && Date.now()-g.startedAt>=a.honey.turn.from');
+  if(type==='honigwabe')await wait('a.honey.step && !a.honey.step.closed && p.at==="tree" && Date.now()-g.startedAt>=a.honey.step.from+150');
   if(type==='kippboot')await wait('a.boat.turn?.playerId==="practice" && Date.now()-g.startedAt>=a.boat.turn.from');
   await tap(button[type][0]);await wait(button[type][1]);return;
  }

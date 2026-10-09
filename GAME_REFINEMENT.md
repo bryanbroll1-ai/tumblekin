@@ -52,7 +52,7 @@ Alle Zeilen enthalten die gemeinsame Anzeige- und Finale-Verfeinerung. Zusätzli
 | Tauziehen | Teamtempo, gemeinsame Tipps und zwei Rundensiege | Runden; Teamwertung und Finale geprüft |
 | Grimassen | Sechs Griffpunkte, Vorlage und zeitlich begrenzter Vergleich | Punkte; zweiter Finger übernimmt Griff nicht, Capture-Verlust und Unterbrechung räumen Ziehen auf |
 | Flaggenhoch | Flaggenwahl, echte Befehle und Stillhalten bei Täuschung | Richtig; Befehl folgt der tatsächlichen Höhe der Lebensleiste |
-| Honigwabe | Zugwechsel, ein/zwei Äpfel, Wabenstrafe und einmaliges Passen | Äpfel; Hinweis folgt umgebrochener Spielerleiste |
+| Honigwabe | Gleichzeitige Wahl Weiter/Heim, Teilen, Restkorb, Gold für Alleingänger, Nester-Sorten, Sonnenuntergang | Äpfel daheim; Knöpfe im Querformat an den Seiten |
 | Schneeballhang | Kugelwachstum, Wurf, Treffer und Schutz | Punkte; Staubrate angepasst, verschwundene Kugeln und ungenutzte Vorhersagen entsorgt |
 | Luftpuck | Puckkontakt, Teamtor, Bewegungszone und fünf Tore | Tore; Puck-/Spielerbewegung und Teamwertung geprüft |
 | Bücherwurm | Seitenfall, sichere Löcher, Bewegung und drei Leben | Seiten; Hinweis folgt umgebrochener Lebensleiste |

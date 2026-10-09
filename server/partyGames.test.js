@@ -471,119 +471,181 @@ test("Flaggen hoch: ein Fehler, und man ist raus", () => {
 
 // --- Honigwabe -------------------------------------------------------------
 
-test("Honigwabe: nur wer dran ist, pflückt — und wer eine Wabe erwischt, ist raus", () => {
+// Bis die erste Wahl offen ist.
+function honeyReady(g) {
+  g.run(0, C.HONEY_LEAD_MS + 60, 30);
+  return g.arcade.honey;
+}
+// Die nächsten Knospen festlegen (liegen auf dem Server, nicht im Paket).
+function honeyDeck(g, buds) {
+  g.arcade.secret.deck = buds.map((bud) => (typeof bud === "number" ? { kind: "fruit", value: bud } : bud === "gold" ? { kind: "gold", value: C.HONEY_GOLD } : { kind: "nest", nest: bud }));
+  g.arcade.honey.budsLeft = g.arcade.secret.deck.length;
+}
+// Alle wählen (null = gar nichts drücken), dann bis nach der Auflösung laufen.
+function honeyStep(g, choices) {
+  const state = g.arcade.honey;
+  const step = state.step;
+  g.at(step.from + 50);
+  g.players.forEach((p, i) => { if (choices[i]) g.input(p, { action: choices[i] }); });
+  const end = Math.max(step.until, step.from + C.HONEY_DECIDE_MIN_MS) + C.HONEY_GRACE_MS + 20;
+  g.run(step.from + 80, end, 30);
+  return state.last;
+}
+
+test("Honigwabe: alle wählen gleichzeitig — niemand ist vor dem anderen dran", () => {
   const g = setup("honigwabe", 3);
-  g.run(0, C.HONEY_LEAD_MS + 50, 30);
-  const state = g.arcade.honey;
-  const turn = state.turn;
-  assert.ok(turn, "nach dem Vorlauf ist jemand dran");
-  const current = g.players.find((p) => p.id === turn.playerId);
-  const other = g.players.find((p) => p.id !== turn.playerId);
-  assert.equal(g.input(other, { action: "take", count: 1 }).ok, false, "wer nicht dran ist, darf nicht");
-  assert.equal(g.input(current, { action: "take", count: 3 }).ok, false, "mehr als zwei gibt es nicht");
-  // Die Ranke so stellen, dass eine Frucht und dann eine Wabe unten hängen.
-  state.vine = ["gold", "comb", "fruit", "fruit"];
-  const entry = g.arcade.players[current.id];
-  g.at(turn.from + 400);             // über die Eingabesperre der Fehlgriffe hinaus
-  g.input(current, { action: "take", count: 1 });
-  assert.equal(entry.fruits, C.HONEY_GOLD, "goldener Apfel zählt drei");
-  // Der Nächste ist dran; er greift zwei und erwischt die Wabe.
-  const next = g.players.find((p) => p.id === state.turn.playerId);
-  assert.notEqual(next.id, current.id);
-  g.arcade.players[next.id].fruits = 7;
-  g.at(state.turn.from + 10);
-  g.input(next, { action: "take", count: 2 });
-  assert.equal(g.arcade.players[next.id].stings, 1);
-  assert.ok(g.arcade.players[next.id].outAt != null, "gestochen heisst raus");
-  assert.equal(g.arcade.players[next.id].fruits, 7, "die Früchte bleiben im Korb");
-  assert.equal(state.last.stung, true);
-  assert.notEqual(state.turn.playerId, next.id, "wer raus ist, kommt nicht mehr dran");
-  // Wer raus ist, darf nicht mehr pflücken — auch nicht reihum.
-  const order = new Set();
-  for (let i = 0; i < 6 && state.turn; i += 1) {
-    order.add(state.turn.playerId);
-    const who = g.players.find((p) => p.id === state.turn.playerId);
-    state.vine = ["fruit", "fruit", "fruit", "fruit"];
-    g.at(state.turn.from + 10);
-    g.input(who, { action: "take", count: 1 });
-  }
-  assert.ok(!order.has(next.id));
-  assert.ok(arcadeRankingScore(g.arcade, g.arcade.players[current.id]) > arcadeRankingScore(g.arcade, g.arcade.players[next.id]), "wer noch dabei ist, liegt vor dem Gestochenen");
+  const state = honeyReady(g);
+  assert.ok(state.step, "nach dem Vorlauf ist die erste Wahl offen");
+  assert.ok(g.players.every((p) => g.arcade.players[p.id].at === "tree"), "alle stehen am Baum");
+  // Jeder darf wählen, und bis zum Ende der Wahl umentscheiden.
+  g.at(state.step.from + 50);
+  assert.equal(g.input(g.players[2], { action: "home" }).ok, true);
+  assert.equal(g.input(g.players[2], { action: "stay" }).ok, true);
+  assert.equal(g.input(g.players[0], { action: "take", count: 1 }).ok, false, "das alte Pflücken gibt es nicht mehr");
+  // Die Wahl selbst bleibt geheim: im Paket steht nur, DASS gewählt wurde.
+  assert.equal(g.arcade.players[g.players[2].id].decided, true);
+  assert.equal(JSON.stringify(g.arcade.honey).includes("home"), false);
+  assert.equal("deck" in g.arcade.honey, false, "die Knospen liegen nicht im Paket");
   g.restore();
 });
 
-test("Honigwabe: einmal schieben — die Ranke bleibt, der Nächste ist dran", () => {
+test("Honigwabe: Äpfel werden geteilt, der Rest bleibt hängen — wer heimgeht, nimmt Korb und Reste mit", () => {
   const g = setup("honigwabe", 3);
-  g.run(0, C.HONEY_LEAD_MS + 50, 30);
-  const state = g.arcade.honey;
-  const turn = state.turn;
-  const current = g.players.find((p) => p.id === turn.playerId);
-  const entry = g.arcade.players[current.id];
-  const vorher = [...state.vine];
-  g.at(turn.from + 10);
-  assert.equal(g.input(current, { action: "pass" }).ok, true);
-  assert.deepEqual(state.vine, vorher, "geschoben wird, nicht gepflückt");
-  assert.equal(entry.passes, 0);
-  assert.equal(state.last.passed, true);
-  assert.notEqual(state.turn.playerId, current.id, "der Nächste ist dran");
-  // Ein zweites Mal geht es nicht — auch nicht, wenn man wieder dran ist.
-  while (state.turn.playerId !== current.id) {
-    const who = g.players.find((p) => p.id === state.turn.playerId);
-    g.at(state.turn.from + 10);
-    g.input(who, { action: "take", count: 1 });
+  honeyReady(g);
+  const [a, b, c] = g.players.map((p) => g.arcade.players[p.id]);
+  honeyDeck(g, [7, 5, 2, "bee", 3]);
+  let last = honeyStep(g, ["stay", "stay", "stay"]);
+  assert.deepEqual([a.basket, b.basket, c.basket], [2, 2, 2], "sieben durch drei: je zwei");
+  assert.equal(g.arcade.honey.leftover, 1, "einer bleibt hängen");
+  assert.equal(last.share, 2);
+  // Wer nichts drückt, pflückt weiter.
+  last = honeyStep(g, [null, "stay", null]);
+  assert.deepEqual([a.basket, b.basket, c.basket], [3, 3, 3]);
+  assert.equal(g.arcade.honey.leftover, 3);
+  // Zwei gehen heim: Korb in den Vorrat, Reste geteilt (3 durch 2: je 1, einer bleibt).
+  last = honeyStep(g, ["home", "home", "stay"]);
+  assert.deepEqual(last.leavers.sort(), [g.players[0].id, g.players[1].id].sort());
+  assert.deepEqual([a.banked, b.banked], [4, 4]);
+  assert.deepEqual([a.at, b.at, c.at], ["home", "home", "tree"]);
+  assert.equal(c.basket, 3 + 2, "die Zwei für den, der allein weiterpflückt");
+  assert.equal(g.arcade.honey.leftover, 1);
+  // Wer daheim ist, wählt nicht mehr mit.
+  g.at(g.arcade.honey.step.from + 30);
+  g.input(g.players[0], { action: "stay" });
+  assert.equal(a.decided, false);
+  g.restore();
+});
+
+test("Honigwabe: das Gold bekommt nur, wer ALLEIN heimgeht", () => {
+  const g = setup("honigwabe", 3);
+  honeyReady(g);
+  const [a, b, c] = g.players.map((p) => g.arcade.players[p.id]);
+  honeyDeck(g, ["gold", 3, 3, 3]);
+  honeyStep(g, ["stay", "stay", "stay"]);
+  assert.equal(g.arcade.honey.golds, 1, "der goldene Apfel hängt");
+  honeyStep(g, ["home", "home", "stay"]);
+  assert.equal(g.arcade.honey.golds, 1, "zu zweit gegangen: das Gold bleibt hängen");
+  assert.deepEqual([a.banked, b.banked], [0, 0]);
+  const last = honeyStep(g, [null, null, "home"]);
+  assert.equal(last.goldTo, g.players[2].id);
+  assert.equal(c.banked, 3 + C.HONEY_GOLD);
+  assert.equal(c.golds, 1);
+  assert.equal(g.arcade.honey.golds, 0);
+  g.restore();
+});
+
+test("Honigwabe: das zweite Nest derselben Sorte sticht alle am Baum — die Daheim sind sicher", () => {
+  const g = setup("honigwabe", 3);
+  honeyReady(g);
+  const [a, b, c] = g.players.map((p) => g.arcade.players[p.id]);
+  honeyDeck(g, [6, "bee", "wasp", 3, "bee", 9]);
+  honeyStep(g, ["stay", "stay", "stay"]);
+  let last = honeyStep(g, ["stay", "stay", "stay"]);
+  assert.equal(last.bust, false, "das erste Bienennest weckt nur");
+  assert.equal(g.arcade.honey.awake.bee, true);
+  last = honeyStep(g, ["stay", "stay", "stay"]);
+  assert.equal(last.bust, false, "Wespen sind eine andere Sorte");
+  honeyStep(g, ["home", "stay", "stay"]);
+  assert.equal(a.banked, 2, "sein Drittel der Sechs");
+  last = honeyStep(g, [null, "stay", "stay"]);
+  assert.equal(last.bust, true);
+  assert.deepEqual(last.stung.sort(), [g.players[1].id, g.players[2].id].sort());
+  assert.deepEqual([b.basket, c.basket, b.banked, c.banked], [0, 0, 0, 0], "der Korb ist leer");
+  assert.deepEqual([b.at, c.at], ["stung", "stung"]);
+  assert.equal(last.vineEnd, true, "niemand mehr am Baum: die Ranke ist vorbei");
+  // Eine neue Ranke: alle wieder am Baum, Nester schlafen.
+  g.run(g.arcade.honey.vineEnd + 40, g.arcade.honey.vineEnd + C.HONEY_VINE_GAP_MS + 60, 30);
+  assert.equal(g.arcade.honey.vineNumber, 1);
+  assert.ok([a, b, c].every((e) => e.at === "tree" && e.basket === 0));
+  assert.equal(g.arcade.honey.awake.bee, false);
+  assert.ok(arcadeRankingScore(g.arcade, a) > arcadeRankingScore(g.arcade, b));
+  g.restore();
+});
+
+test("Honigwabe: haben alle gewählt, geht es sofort weiter; eine Wahl knapp nach der Zeit zählt noch", () => {
+  const g = setup("honigwabe", 2);
+  const state = honeyReady(g);
+  const first = state.step;
+  g.at(first.from + C.HONEY_DECIDE_MIN_MS + 100);
+  g.input(g.players[0], { action: "stay" });
+  g.input(g.players[1], { action: "stay" });
+  g.tick();
+  assert.notEqual(state.step.number, first.number, "nicht bis zum Ende der Bedenkzeit gewartet");
+  // Jetzt eine Wahl, die erst in der Schonfrist ankommt.
+  const second = state.step;
+  honeyDeck(g, [4, 4, 4]);
+  g.players.forEach((p) => { g.arcade.players[p.id].basket = 2; });
+  g.run(second.from, second.until + C.HONEY_GRACE_MS - 40, 30);
+  assert.equal(state.step.number, second.number, "innerhalb der Frist wird noch nicht aufgelöst");
+  g.at(second.until + C.HONEY_GRACE_MS - 30);
+  g.input(g.players[0], { action: "home" });
+  g.run(second.until + C.HONEY_GRACE_MS - 20, second.until + C.HONEY_GRACE_MS + 40, 30);
+  assert.equal(g.arcade.players[g.players[0].id].at, "home");
+  // Und eine, die nach der Frist kommt, nicht mehr.
+  const third = state.step;
+  g.at(third.until + C.HONEY_GRACE_MS + 40);
+  g.input(g.players[1], { action: "home" });
+  assert.equal(g.arcade.players[g.players[1].id].decided, false);
+  g.restore();
+});
+
+test("Honigwabe: bei Sonnenuntergang wird gestochen, wer noch am Baum hängt", () => {
+  const g = setup("honigwabe", 2);
+  honeyReady(g);
+  const [a, b] = g.players.map((p) => g.arcade.players[p.id]);
+  // Endlos Äpfel: ohne Heimgehen dauert die Ranke bis zum Abend.
+  honeyDeck(g, Array.from({ length: 60 }, () => 2));
+  honeyStep(g, ["stay", "stay"]);
+  honeyStep(g, ["home", "stay"]);
+  let guard = 0;
+  while (g.arcade.honey.step && guard < 60) { honeyStep(g, [null, "stay"]); guard += 1; }
+  g.run(g.now - g.minigame.startedAt, C.HONEY_DUSK_MS + 60, 30);
+  assert.equal(b.at, "stung");
+  assert.equal(b.banked, 0, "der volle Korb ist weg");
+  assert.equal(a.banked, 1);
+  assert.equal(g.arcade.honey.last.dusk, true);
+  assert.ok(arcadeRankingScore(g.arcade, a) > arcadeRankingScore(g.arcade, b));
+  g.restore();
+});
+
+test("Honigwabe: Bots spielen mehrere Ranken, und der starke sammelt mehr als der schwache", () => {
+  const sums = { easy: 0, normal: 0, hard: 0 };
+  let vines = 0;
+  for (let r = 0; r < 80; r += 1) {
+    const g = setup("honigwabe", 3, { bots: true });
+    const levels = ["easy", "normal", "hard"];
+    g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
+    for (let t = 0; t <= g.minigame.duration; t += 50) {
+      g.at(t);
+      if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
+      g.tick();
+    }
+    g.players.forEach((p, i) => { sums[levels[i]] += g.arcade.players[p.id].banked; });
+    vines += g.arcade.honey.vineNumber + 1;
+    g.restore();
   }
-  g.at(state.turn.from + 10);
-  assert.equal(g.input(current, { action: "pass" }).ok, false, "der Joker ist verbraucht");
-  g.restore();
-});
-
-test("Honigwabe: wer zu lange zögert, pflückt automatisch eine", () => {
-  const g = setup("honigwabe", 2);
-  g.run(0, C.HONEY_LEAD_MS + 50, 30);
-  const first = g.arcade.honey.turn;
-  g.run(C.HONEY_LEAD_MS + 80, first.until + C.HONEY_GRACE_MS + 60, 30);
-  assert.equal(g.arcade.honey.last.auto, true);
-  assert.notEqual(g.arcade.honey.turn.playerId, first.playerId, "danach ist der Nächste dran");
-  g.restore();
-});
-
-test("Honigwabe: ein Zug, der knapp nach der Bedenkzeit ankommt, zählt noch", () => {
-  const g = setup("honigwabe", 2);
-  g.run(0, C.HONEY_LEAD_MS + 50, 30);
-  const state = g.arcade.honey;
-  const first = state.turn;
-  const current = g.players.find((p) => p.id === first.playerId);
-  state.vine = ["fruit", "gold", "fruit", "comb", "fruit"];
-  // Der Server tickt über das Ende der Bedenkzeit, dann kommt der Zug an.
-  g.run(first.until - 20, first.until + C.HONEY_GRACE_MS - 40, 30);
-  assert.equal(state.turn.number, first.number, "innerhalb der Frist pflückt der Server nicht von selbst");
-  g.at(first.until + C.HONEY_GRACE_MS - 30);
-  assert.equal(g.input(current, { action: "take", count: 2 }).ok, true);
-  assert.equal(state.last.auto, false, "der eigene Zug zählt, nicht der automatische");
-  assert.equal(g.arcade.players[current.id].fruits, 1 + C.HONEY_GOLD);
-  g.restore();
-});
-
-test("Honigwabe: das Risiko-Abzählen stimmt zu zweit mit dem Rest-drei-Gesetz überein", () => {
-  // Zu zweit ist Abstand 3 (und jedes Vielfache) verloren: was ich auch nehme,
-  // der andere kann mir die Wabe zurückschieben.
-  assert.equal(Math.min(party.honeyRisk(3, 1, 2), party.honeyRisk(3, 2, 2)), 1);
-  assert.equal(Math.min(party.honeyRisk(4, 1, 2), party.honeyRisk(4, 2, 2)), 0);
-  assert.equal(Math.min(party.honeyRisk(5, 1, 2), party.honeyRisk(5, 2, 2)), 0);
-  assert.equal(party.honeyRisk(1, 2, 2), 1, "wer über die Wabe greift, hat sie");
-});
-
-test("Honigwabe: Bots spielen, bis einer übrig ist", () => {
-  const g = setup("honigwabe", 4, { bots: true });
-  const next = g.players.map(() => 0);
-  g.run(0, g.minigame.duration, 40, (t) => {
-    if (g.players.filter((p) => g.arcade.players[p.id].outAt == null).length <= 1) return;
-    g.players.forEach((p, i) => { if (t >= next[i]) { next[i] = t + 300; arcadeBotStep(g.room, p); } });
-  });
-  const alive = g.players.filter((p) => g.arcade.players[p.id].outAt == null);
-  assert.ok(alive.length >= 1, "mindestens einer bleibt");
-  assert.ok(g.arcade.honey.picks > 4, `${g.arcade.honey.picks} Züge`);
-  g.restore();
+  assert.ok(vines / 80 >= 2.5, `im Mittel ${vines / 80} Ranken je Spiel`);
+  assert.ok(sums.hard > sums.normal && sums.normal > sums.easy, JSON.stringify(sums));
 });
 
 // --- Schneeballhang --------------------------------------------------------
@@ -1638,7 +1700,7 @@ test("Partyklassiker: Objekte statt Zahlen in Eingaben werfen nicht", () => {
     ["luftpuck", (v) => ({ action: "steer", x: v, y: 0 })],
     ["buecherwurm", (v) => ({ action: "steer", x: 0, y: v })],
     ["schnappschuss", (v) => ({ action: "steer", x: v, y: v })],
-    ["honigwabe", (v) => ({ action: "take", count: v })],
+    ["honigwabe", (v) => ({ action: v })],
     ["rohrsalat", (v) => ({ action: "pick", valve: v })],
     ["grimassen", (v) => ({ action: "shape", h: Array(12).fill(v), final: true })]
   ];

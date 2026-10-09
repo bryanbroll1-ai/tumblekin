@@ -52,9 +52,10 @@ test('Trampolin: mehrere ausgefallene Schläge werden einmalig und unabhängig v
     result={misses:entry.misses,height:entry.height,last:entry.lastBeatIndex}; r.updateArcade(room); assert.equal(entry.misses,result.misses);
   });return result;}; assert.deepEqual(play(false),play(true));
 });
-test('Honigwabe: nach Zugablauf wird genau eine automatisch gepflückt, kein später Doppeltipp', () => round('honigwabe', ({at,input,arcade,room}) => {
-  at(1600); r.updateArcade(room); const turn=arcade.honey.turn; const entry=arcade.players[turn.playerId]; const id=turn.playerId==='a'?0:1; arcade.honey.vine=['fruit','fruit','fruit']; at(turn.until+151); input({action:'take',count:2},id);
-  assert.equal(entry.fruits,1); assert.equal(arcade.honey.last.auto,true);
+test('Honigwabe: eine Wahl nach Ablauf der Frist ändert nichts, die Auflösung kommt genau einmal', () => round('honigwabe', ({at,input,arcade,room}) => {
+  at(1700); r.updateArcade(room); const step=arcade.honey.step; arcade.secret.deck=[{kind:'fruit',value:4},{kind:'fruit',value:4}]; arcade.honey.budsLeft=2;
+  at(step.until+151); r.updateArcade(room); input({action:'home'},0); r.updateArcade(room);
+  const [a,b]=Object.values(arcade.players); assert.equal(arcade.honey.picks,1); assert.equal(a.at,'tree'); assert.equal(a.basket,2); assert.equal(b.basket,2);
 }));
 test('Kippboot: ein verspäteter Abwurf fällt an der Deadline statt an der späteren Hakenposition', () => round('kippboot', ({at,input,arcade,room}) => {
   at(1600); r.updateArcade(room); const turn=arcade.boat.turn; const id=turn.playerId==='a'?0:1; const expected=Math.round(boatSwingX(turn,turn.until)*100)/100;

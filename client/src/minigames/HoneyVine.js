@@ -1,43 +1,61 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin213";
 import { dressMeadow } from "./SceneKit.js?v=tumblekin213";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
 import { frameLerp } from "./Quality.js?v=tumblekin213";
 import { kiste, lambert, viele, streuer, zaun, sonnenblumen, himmel, wolken } from "./Kulisse.js?v=tumblekin213";
 
-// Honigwabe — ein Bienengarten im Abendlicht. Vom Ast eines grossen Baumes
-// hängt eine Ranke: Äpfel, ab und zu ein goldener, dazwischen Honigwaben, um
-// die Bienen summen. Wer dran ist, tritt an die Ranke und pflückt von unten
-// eine oder zwei. Erwischt man eine Wabe, fallen einem vor Schreck vier
-// der Früchte aus dem Korb, und die Bienen jagen einen einmal um den Baum.
+// Honigwabe — Mutprobe am Bienenbaum. Vom Ast hängt eine Ranke voller
+// geschlossener Knospen, alle stehen gemeinsam darunter, und vor jedem Griff
+// entscheidet jeder gleichzeitig und geheim: WEITER pflücken oder HEIM. Dann
+// geht die unterste Knospe auf: Äpfel werden unter allen am Baum geteilt (der
+// Rest fällt in den Restkorb an der Ranke), ein goldener Apfel bleibt dort,
+// bis einer allein heimgeht, und ein Nest weckt seine Sorte — oben am Ast
+// summt es dann. Das zweite Nest derselben Sorte, und der Schwarm sticht alle,
+// die noch am Baum sind: Korb leer. Wer heimgeht, kippt seinen Korb in die
+// eigene Kiste vorn und teilt sich mit den anderen Heimgehern den Restkorb.
+//
+// Jede Figur hat ihre eigene Gasse: oben am Baum, unten bei ihrer Kiste. So
+// verdeckt niemand den anderen, egal wer wo steht.
 const VINE_X = 0;
 const VINE_Z = 0.15;
-const VINE_BOTTOM = 1.0;
-const SPACING = 0.34;
-const BRANCH_Y = 5.75;
-const PICK_SPOT = new THREE.Vector3(0.42, 0, 0.62);
-const SLOT_INNER = 1.0;            // innerster Platz, weit genug neben dem Pflückplatz
-const SLOT_GAP = 0.65;             // Abstand der Plätze, von der Ranke nach aussen
-const FLY_MS = 520;
+const BRANCH_Y = 4.3;
+const BUD_BOTTOM = 2.4;          // die nächste Knospe hängt immer hier
+const BUD_GAP = 0.3;
+const MAX_BUDS = 6;              // so viele Knospen sind zu sehen, der Rest steckt im Laub
+const REST_Y = 1.88;             // Restkorb unter der Ranke
+const LANE = 0.66;
+const TREE_Z = 0.85;
+const HOME_Z = 2.4;
+const NEST_SLOTS = { bee: [-0.72, 0], wasp: [0.62, 0], hornet: [1.12, 0] };
+const NEST_LOOK = {
+  bee: { color: "#f0a91c", stripe: "#7a4a06", name: "Bienen", short: "B" },
+  wasp: { color: "#c9c2b0", stripe: "#3a3630", name: "Wespen", short: "W" },
+  hornet: { color: "#b8481e", stripe: "#3a1606", name: "Hornissen", short: "H" }
+};
+const FLY_MS = 560;
+const SLEEP_GREY = new THREE.Color("#8d8a80");
+const DUSK_WARN_MS = 12000;
 
 export class HoneyVine extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.items = [];              // Meshes entlang der Ranke, von unten
+    this.lanes = new Map();       // playerId → { tree, home }
+    this.baskets = new Map();     // playerId → { group, pile, shown }
+    this.crates = new Map();      // playerId → { group, pile, shown }
+    this.buds = [];
     this.flying = [];
-    this.seenPicks = 0;
-    this.vineNumber = -1;
-    this.homes = new Map();
-    this.baskets = new Map();
-    this.chase = new Map();       // playerId → bis wann die Bienen jagen
-    this.labelY = 0.78;
+    this.nests = new Map();       // Sorte → { group, awake }
     this.bees = [];
+    this.chase = new Map();       // playerId → bis wann die Bienen jagen
+    this.thinks = new Map();      // playerId → Schild „?“/„✓“
+    this.vineNumber = null;
+    this.seenPicks = 0;
+    this.choice = null;           // { step, action } — die eigene Wahl
     this.roundTrip = 0;
     this.measured = false;
     this.lastPingAt = 0;
-    // Der eigene Zug, schon gezeigt, aber vom Server noch nicht bestätigt:
-    // { number, count, passed, at }.
-    this.pending = null;
+    this.labelY = 0.78;
+    this.restShown = "";
   }
 
   stage() {
@@ -59,66 +77,47 @@ export class HoneyVine extends MinigameScene {
 
   build() {
     const scene = this.scene;
-    himmel(scene, { oben: "#6fa8e0", unten: "#ffcf96" });
+    this.sky = himmel(scene, { oben: "#6fa8e0", unten: "#ffcf96" });
     this.buildGarden(scene);
     this.buildTree(scene);
 
     const players = this.getState()?.players || [];
     const n = Math.max(1, players.length);
-    const left = Math.ceil(n / 2);
     players.forEach((player, index) => {
-      // Links und rechts der Ranke, mit einer Lücke in der Mitte. Im
-      // Halbkreis standen die beiden inneren genau zwischen Kamera und
-      // Pflückplatz — wer gerade dran war, verschwand hinter dem Nachbarn.
-      const outward = index < left ? left - 1 - index : index - left;
-      const x = (n === 1 ? 1 : index < left ? -1 : 1) * (SLOT_INNER + outward * SLOT_GAP);
-      const z = 1.5 - Math.abs(x) * 0.15;
-      const home = new THREE.Vector3(x, 0, z);
-      this.homes.set(player.id, home);
-      this.addKin(player, index, { x, ground: 0, z, facing: Math.atan2(VINE_X - x, VINE_Z - z) });
-      // Korb neben der Figur.
-      const korb = new THREE.Group();
-      const koerper = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.22, 10, 1, true), lambert("#b98a55", { side: THREE.DoubleSide }));
-      koerper.position.y = 0.11;
-      koerper.castShadow = true;
-      korb.add(koerper);
-      kiste(korb, 0.3, 0.02, 0.3, "#8a6238", [0, 0.01, 0], { schatten: false });
-      const henkel = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.02, 6, 12, Math.PI), lambert("#8a6238"));
-      henkel.position.y = 0.22;
-      korb.add(henkel);
+      const x = (index - (n - 1) / 2) * LANE;
+      const tree = new THREE.Vector3(x, 0, TREE_Z + Math.abs(x) * 0.12);
+      const home = new THREE.Vector3(x * 1.3, 0, HOME_Z);
+      this.lanes.set(player.id, { tree, home });
+      this.addKin(player, index, { x: tree.x, ground: 0, z: tree.z, facing: Math.PI });
+      // Der Korb in der Hand — er wandert mit der Figur.
+      const korb = this.makeBasket(0.16);
+      scene.add(korb.group);
+      this.baskets.set(player.id, korb);
+      // Die Kiste daheim: hier liegt, was zählt.
+      const kiste_ = new THREE.Group();
+      kiste(kiste_, 0.5, 0.26, 0.34, "#b98a55", [0, 0.13, 0]);
+      kiste(kiste_, 0.54, 0.05, 0.38, "#8a6238", [0, 0.27, 0], { schatten: false });
+      const band = kiste(kiste_, 0.52, 0.06, 0.02, player.color, [0, 0.16, 0.175], { schatten: false });
+      band.material = lambert(player.color);
       const pile = new THREE.Group();
-      korb.add(pile);
-      // Der Korb steht vorn neben den Füssen — seitlich fiel er aussen aus dem Bild.
-      const side = x >= 0 ? 1 : -1;
-      korb.position.set(x + side * 0.22, 0, z + 0.42);
-      scene.add(korb);
-      this.baskets.set(player.id, { group: korb, pile, shown: -1 });
+      kiste_.add(pile);
+      kiste_.position.set(home.x, 0, home.z + 0.38);
+      scene.add(kiste_);
+      this.crates.set(player.id, { group: kiste_, pile, shown: -1 });
+      // Denkblase über dem Kopf: „?“ solange gewählt wird, „✓“ wenn gewählt.
+      const think = this.makeBubble(player.color);
+      think.sprite.visible = false;
+      scene.add(think.sprite);
+      this.thinks.set(player.id, think);
     });
 
-    // Ring unter dem, der dran ist.
-    this.turnRing = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.44, 32), new THREE.MeshBasicMaterial({ color: "#ffe25c", transparent: true, opacity: 0.9 }));
-    this.turnRing.rotation.x = -Math.PI / 2;
-    this.turnRing.position.y = 0.02;
-    scene.add(this.turnRing);
-
-    // Zahlen neben den beiden untersten Früchten, wenn man selbst dran ist.
-    this.tags = ["1", "2"].map((text) => {
-      const tag = createNameLabel(text, "#ffd15c");
-      tag.scale.multiplyScalar(0.85);
-      tag.visible = false;
-      scene.add(tag);
-      return tag;
-    });
-
-    // Bienen — ein fester Satz, der um die Waben kreist oder jemanden jagt.
-    for (let i = 0; i < 12; i += 1) {
+    // Bienen: ein fester Satz, der um wache Nester kreist oder jemanden jagt.
+    for (let i = 0; i < 24; i += 1) {
       const biene = new THREE.Group();
       kiste(biene, 0.07, 0.06, 0.09, "#ffc62e", [0, 0, 0], { schatten: false });
       kiste(biene, 0.072, 0.062, 0.025, "#2a2230", [0, 0, 0.01], { schatten: false });
       const f = kiste(biene, 0.1, 0.01, 0.05, "#ffffff", [0, 0.04, 0], { schatten: false });
       f.material = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7 });
-      // Fliegende Bienen sind kein Boden, auf dem jemand stehen könnte — auch
-      // wenn eine im Finale dicht über den Kopf des Siegers schwirrt.
       biene.userData = { phase: i * 0.77, wing: f, isFx: true };
       biene.visible = false;
       scene.add(biene);
@@ -126,6 +125,75 @@ export class HoneyVine extends MinigameScene {
     }
   }
 
+  // Denkblase: ein runder Knopf mit „?“ oder „✓“ in der Spielerfarbe.
+  makeBubble(color) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+    sprite.renderOrder = 6;
+    sprite.scale.set(0.3, 0.3, 1);
+    const bubble = { sprite, canvas, texture, color, text: null };
+    this.paintBubble(bubble, "?");
+    return bubble;
+  }
+
+  paintBubble(bubble, text) {
+    bubble.text = text;
+    const ctx = bubble.canvas.getContext("2d");
+    ctx.clearRect(0, 0, 128, 128);
+    ctx.beginPath();
+    ctx.arc(64, 64, 54, 0, Math.PI * 2);
+    ctx.fillStyle = text === "✓" ? "#1fbf5b" : "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = bubble.color;
+    ctx.stroke();
+    ctx.fillStyle = text === "✓" ? "#ffffff" : "#2a2230";
+    ctx.font = "1000 78px ui-rounded, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 64, 70);
+    bubble.texture.needsUpdate = true;
+  }
+
+  makeBasket(r) {
+    const group = new THREE.Group();
+    const koerper = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.75, r * 1.1, 8, 1, true), lambert("#b98a55", { side: THREE.DoubleSide }));
+    koerper.position.y = r * 0.55;
+    koerper.castShadow = true;
+    group.add(koerper);
+    kiste(group, r * 1.5, 0.02, r * 1.5, "#8a6238", [0, 0.01, 0], { schatten: false });
+    const henkel = new THREE.Mesh(new THREE.TorusGeometry(r * 0.85, 0.015, 5, 10, Math.PI), lambert("#8a6238"));
+    henkel.position.y = r * 1.1;
+    group.add(henkel);
+    const pile = new THREE.Group();
+    group.add(pile);
+    return { group, pile, shown: -1, r };
+  }
+
+  // Äpfel in einem Korb oder einer Kiste anhäufen (bis `cap` sichtbar).
+  fillPile(pile, count, { cap, r, y, gold = 0, w = null }) {
+    pile.clear();
+    const shown = Math.min(cap, count);
+    for (let i = 0; i < shown; i += 1) {
+      const golden = i < gold;
+      const apfel = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), new THREE.MeshLambertMaterial({ color: golden ? "#ffe02e" : "#e0343c", emissive: golden ? "#fff09a" : "#000000", emissiveIntensity: golden ? 0.35 : 0 }));
+      if (w) {
+        const perRow = Math.max(1, Math.floor(w / (r * 2.1)));
+        const row = Math.floor(i / perRow);
+        const col = i % perRow;
+        apfel.position.set((col - (Math.min(perRow, shown) - 1) / 2) * r * 2.1, y + row * r * 1.6, ((row % 2) - 0.5) * r * 0.8);
+      } else {
+        const a = i * 2.4;
+        const rr = i === 0 ? 0 : r * 1.2;
+        apfel.position.set(Math.cos(a) * rr, y + Math.floor(i / 4) * r * 1.1, Math.sin(a) * rr);
+      }
+      pile.add(apfel);
+    }
+  }
   buildGarden(scene) {
     kiste(scene, 70, 0.5, 60, "#74ad62", [0, -0.25, 0], { schatten: false });
     dressMeadow(scene, {
@@ -219,154 +287,211 @@ export class HoneyVine extends MinigameScene {
   buildTree(scene) {
     const rinde = lambert("#6b4a2e");
     const stamm = new THREE.Mesh(new THREE.BoxGeometry(0.75, BRANCH_Y + 0.6, 0.75), rinde);
-    stamm.position.set(-1.25, (BRANCH_Y + 0.6) / 2, -1.2);
+    stamm.position.set(-1.45, (BRANCH_Y + 0.6) / 2, -1.2);
     stamm.castShadow = true;
     scene.add(stamm);
-    // Wurzeln.
-    [[-1.7, -1.2, 0.5], [-0.85, -1.0, -0.4], [-1.3, -0.75, 1.4]].forEach(([x, z, dreh]) => {
+    [[-1.9, -1.2, 0.5], [-1.05, -1.0, -0.4], [-1.5, -0.75, 1.4]].forEach(([x, z, dreh]) => {
       const wurzel = kiste(scene, 0.25, 0.22, 0.7, "#6b4a2e", [x, 0.08, z]);
       wurzel.rotation.y = dreh;
     });
-    // Der Ast, an dem die Ranke hängt.
-    const ast = kiste(scene, 1.8, 0.32, 0.32, "#6b4a2e", [-0.4, BRANCH_Y, -0.55]);
-    ast.rotation.y = -0.55;
-    kiste(scene, 0.4, 0.26, 0.9, "#6b4a2e", [VINE_X, BRANCH_Y, VINE_Z - 0.3]);
-    // Krone.
-    const kronen = [[-1.2, 7.2, -1.4, 2.0], [0.3, 6.9, -1.0, 1.5], [-2.5, 6.6, -0.8, 1.4], [-0.6, 8.1, -1.8, 1.5], [1.1, 7.6, -1.8, 1.2], [-2.0, 7.8, -2.2, 1.3]];
+    // Der Ast quer über die Szene: links die Ranke, rechts die Nester.
+    const ast = kiste(scene, 3.0, 0.28, 0.3, "#6b4a2e", [-0.1, BRANCH_Y, -0.1]);
+    ast.rotation.z = 0.04;
+    kiste(scene, 0.75, 0.26, 0.5, "#6b4a2e", [-1.2, BRANCH_Y + 0.05, -0.6]);
+    const kronen = [[-1.4, 6.1, -1.4, 1.8], [0.2, 5.8, -1.0, 1.4], [-2.6, 5.6, -0.8, 1.3], [-0.7, 6.9, -1.8, 1.4], [1.2, 6.4, -1.6, 1.2], [-2.1, 6.7, -2.2, 1.2]];
     viele(scene, new THREE.DodecahedronGeometry(1, 0), lambert("#4f8f3e"), kronen.filter((_, i) => i % 2 === 0).map(([x, y, z, s]) => ({ p: [x, y, z], s, r: [0, x, 0] })), { schatten: true });
     viele(scene, new THREE.DodecahedronGeometry(1, 0), lambert("#6aa84f"), kronen.filter((_, i) => i % 2 === 1).map(([x, y, z, s]) => ({ p: [x, y, z], s, r: [0, x, 0] })), { schatten: true });
-    // Ein paar Äpfel in der Krone.
-    viele(scene, new THREE.SphereGeometry(0.12, 8, 6), lambert("#e0343c"), [[-0.2, 6.3, -0.3], [-2.2, 6.1, -0.2], [0.9, 7.0, -1.0], [-1.6, 6.5, 0.1]].map((p) => ({ p })));
-    // Die Ranke selbst: ein dünner Stängel von Ast bis zur untersten Frucht.
-    this.stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6), lambert("#4f8f3e"));
-    this.stem.castShadow = true;
-    scene.add(this.stem);
-    this.leaves = viele(scene, new THREE.BoxGeometry(0.14, 0.02, 0.08), lambert("#6aa84f"), Array.from({ length: 10 }, (_, i) => ({
-      p: [VINE_X + (i % 2 ? 0.07 : -0.07), VINE_BOTTOM + 0.17 + i * SPACING * 1.3, VINE_Z],
-      r: [0, 0, i % 2 ? 0.5 : -0.5]
-    })));
+    // Die Ranke: ein Stängel vom Ast bis zum Restkorb.
+    const stiel = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, BRANCH_Y - REST_Y, 6), lambert("#4f8f3e"));
+    stiel.position.set(VINE_X, (BRANCH_Y + REST_Y) / 2, VINE_Z - 0.03);
+    stiel.castShadow = true;
+    scene.add(stiel);
+    // Der Restkorb unter der Ranke: was beim Teilen nicht aufgeht.
+    const rest = this.makeBasket(0.22);
+    rest.group.position.set(VINE_X, REST_Y - 0.24, VINE_Z);
+    [-1, 1].forEach((seite) => {
+      const schnur = kiste(rest.group, 0.015, 0.36, 0.015, "#8a6238", [seite * 0.17, 0.4, 0], { schatten: false });
+      schnur.rotation.z = seite * -0.35;
+    });
+    scene.add(rest.group);
+    this.rest = rest;
+    // Nester am Ast: jede Sorte hat ihren Platz. Schlafend klein und blass,
+    // wach gross, bunt und umschwirrt.
+    Object.entries(NEST_SLOTS).forEach(([sorte, [x]]) => {
+      const nest = this.makeNest(sorte);
+      nest.position.set(x, BRANCH_Y - 0.36, VINE_Z);
+      scene.add(nest);
+      this.nests.set(sorte, { group: nest, awake: false, wake: 0 });
+    });
   }
 
-  makeItem(kind) {
+  makeNest(sorte) {
+    const look = NEST_LOOK[sorte];
     const g = new THREE.Group();
-    if (kind === "comb") {
-      // Dunkler Bernstein mit fast schwarzen Zellen: auf dem Handy muss die
-      // Wabe auf einen Blick anders aussehen als ein goldener Apfel — vorher
-      // waren beide gelb-orange.
-      const wabe = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.13, 6), new THREE.MeshLambertMaterial({ color: "#d9820a", emissive: "#a85a00", emissiveIntensity: 0.12 }));
+    const faden = kiste(g, 0.02, 0.18, 0.02, "#6b4a2e", [0, 0.2, 0], { schatten: false });
+    faden.castShadow = false;
+    if (sorte === "bee") {
+      // Bienenwabe: Bernstein-Sechseck mit dunklen Zellen.
+      const wabe = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.14, 6), new THREE.MeshLambertMaterial({ color: look.color }));
       wabe.rotation.x = Math.PI / 2;
       wabe.rotation.y = Math.PI / 6;
-      wabe.castShadow = true;
       g.add(wabe);
-      // Zellen als dunklere Sechsecke auf der Vorderseite.
       [[0, 0], [0.09, 0.05], [-0.09, 0.05], [0.09, -0.05], [-0.09, -0.05], [0, 0.1], [0, -0.1]].forEach(([x, y]) => {
-        const zelle = new THREE.Mesh(new THREE.CircleGeometry(0.045, 6), lambert("#4a2604"));
-        zelle.position.set(x, y, 0.068);
+        const zelle = new THREE.Mesh(new THREE.CircleGeometry(0.045, 6), lambert(look.stripe));
+        zelle.position.set(x, y, 0.072);
         g.add(zelle);
       });
-      const tropfen = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), lambert("#ffb52e"));
-      tropfen.position.set(0.04, -0.2, 0.02);
-      tropfen.scale.y = 1.4;
-      g.add(tropfen);
     } else {
-      const gold = kind === "gold";
-      const apfel = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 9), new THREE.MeshLambertMaterial({ color: gold ? "#ffe02e" : "#e0343c", emissive: gold ? "#fff09a" : "#000000", emissiveIntensity: gold ? 0.32 : 0 }));
-      apfel.scale.y = 0.92;
-      apfel.castShadow = true;
-      g.add(apfel);
-      kiste(g, 0.025, 0.08, 0.025, "#6b4a2e", [0, 0.15, 0], { schatten: false });
-      const blatt = kiste(g, 0.09, 0.015, 0.05, "#4f9b4a", [0.05, 0.16, 0], { schatten: false });
-      blatt.rotation.z = -0.4;
-      if (gold) {
-        const glanz = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.225, 20), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
-        g.add(glanz);
-        g.userData.glanz = glanz;
-      }
+      // Wespen- und Hornissennest: Papierkugel mit Ringen und Flugloch.
+      const kugel = new THREE.Mesh(new THREE.IcosahedronGeometry(sorte === "hornet" ? 0.23 : 0.2, 0), new THREE.MeshLambertMaterial({ color: look.color }));
+      kugel.scale.y = 1.15;
+      g.add(kugel);
+      [-0.08, 0.02, 0.12].forEach((y) => {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(sorte === "hornet" ? 0.2 : 0.175, 0.018, 4, 8), lambert(look.stripe));
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = y;
+        g.add(ring);
+      });
+      const loch = new THREE.Mesh(new THREE.CircleGeometry(0.05, 6), lambert("#1a1410"));
+      loch.position.set(0, -0.14, 0.17);
+      g.add(loch);
     }
-    g.userData.kind = kind;
+    // Eigene Materialien: schlafend wird die Farbe blass, wach wieder voll.
+    g.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.material = child.material.clone();
+      child.userData.baseColor = child.material.color.getHex();
+    });
+    g.userData.sorte = sorte;
+    return g;
+  }
+
+  makeBud() {
+    const g = new THREE.Group();
+    // Geschlossene Knospe: zwei grüne Blätter um einen Kern — was drin ist,
+    // weiss keiner.
+    const kern = new THREE.Mesh(new THREE.OctahedronGeometry(0.13, 0), lambert("#5fae4a"));
+    kern.scale.set(1, 1.3, 1);
+    kern.castShadow = true;
+    g.add(kern);
+    [-1, 1].forEach((seite) => {
+      const blatt = kiste(g, 0.1, 0.22, 0.04, "#3f8f36", [seite * 0.07, 0.02, 0.05], { schatten: false });
+      blatt.rotation.z = seite * 0.35;
+    });
     this.scene.add(g);
     return g;
   }
 
-  rebuildVine(vine, from = null) {
-    this.items.forEach((item) => this.scene.remove(item));
-    this.items = vine.map((kind, i) => {
-      const item = this.makeItem(kind);
-      item.position.set(VINE_X, from ?? VINE_BOTTOM + i * SPACING, VINE_Z);
-      return item;
+  // Was in einer offenen Knospe steckt, als kleines Bild zum Fliegen.
+  makeContent(bud) {
+    if (bud.kind === "nest") {
+      const nest = this.makeNest(bud.nest);
+      this.scene.add(nest);
+      return nest;
+    }
+    const g = new THREE.Group();
+    const gold = bud.kind === "gold";
+    const count = gold ? 1 : bud.value;
+    for (let i = 0; i < count; i += 1) {
+      const a = (i / Math.max(1, count)) * Math.PI * 2;
+      const r = count === 1 ? 0 : 0.12 + count * 0.008;
+      const apfel = new THREE.Mesh(new THREE.SphereGeometry(gold ? 0.15 : 0.085, 10, 8), new THREE.MeshLambertMaterial({ color: gold ? "#ffe02e" : "#e0343c", emissive: gold ? "#fff09a" : "#000000", emissiveIntensity: gold ? 0.4 : 0 }));
+      apfel.position.set(Math.cos(a) * r, Math.sin(a) * r * 0.8, 0.05);
+      apfel.castShadow = true;
+      g.add(apfel);
+    }
+    this.scene.add(g);
+    return g;
+  }
+
+  rebuildBuds(count) {
+    this.buds.forEach((bud) => this.scene.remove(bud));
+    this.buds = Array.from({ length: Math.min(MAX_BUDS, count) }, (_, i) => {
+      const bud = this.makeBud();
+      bud.position.set(VINE_X, BUD_BOTTOM + i * BUD_GAP, VINE_Z + 0.02);
+      return bud;
     });
   }
 
   shot() {
     return {
-      look: [0, 1.55, 0.55],
-      frame: { w: 4.3, h: 3.6 },
-      pitch: 0.3,
+      look: [0, 1.95, 1.2],
+      frame: { w: 3.4, h: 4.5 },
+      pitch: 0.24,
       fov: 38,
       intro: { yaw: 0.5, pitch: 0.28, zoom: 1.4 },
       finale: { pull: 0.8, zoom: 0.7, lift: 0.3, orbit: 0.14 }
     };
   }
 
+  keepInView() {
+    // Alle Gassen stehen ohnehin im Bild; die Ranke ist das Wichtigste.
+    return [];
+  }
+
+  // Oben stehen Stand, Nest-Anzeige und Ansage, unten die Knöpfe: das Bild
+  // bekommt den Streifen dazwischen, sonst hingen die Nester hinter der Ansage.
+  rigOptions() {
+    const r = this.webglCanvas.getBoundingClientRect();
+    const chips = this.hud.querySelector("[data-honey-chips]")?.getBoundingClientRect();
+    const bar = this.hud.querySelector(".kinetic-scorebar")?.getBoundingClientRect();
+    const buttons = this.controls.querySelector(".honey-controls")?.getBoundingClientRect();
+    const wide = r.width > r.height && r.height <= 520;
+    const top = Math.max(bar ? bar.bottom - r.top : 0, chips && chips.height ? chips.bottom - r.top : 0) + 62;
+    // Im Querformat stehen die Knöpfe links und rechts: dann sind es die
+    // Seiten, die frei bleiben müssen, nicht der untere Rand.
+    const stay = this.controls.querySelector(".honey-stay")?.getBoundingClientRect();
+    const home = this.controls.querySelector(".honey-home")?.getBoundingClientRect();
+    const insets = wide && stay && home && stay.width
+      ? { top: Math.round(top), bottom: 4, left: Math.round(stay.right - r.left + 10), right: Math.round(r.right - home.left + 10) }
+      : { top: Math.round(top), bottom: Math.round(buttons && buttons.height ? r.bottom - buttons.top + 8 : 0), left: 0, right: 0 };
+    const old = this.rig.base.insets;
+    if (!old || Object.keys(insets).some((key) => insets[key] !== old[key])) this.rig.band = null;
+    this.rig.base.insets = insets;
+    // Quer zählt die Höhe: Blick etwas tiefer und näher an die Kisten, die
+    // vorn sonst unten aus dem Bild ragten.
+    return wide ? { look: [0, 1.7, 1.75], frame: { w: 3.4, h: 4.5 } } : null;
+  }
+
   bind() {
     this.controls.innerHTML = `
       <div class="runner-lane-controls barrel-run-controls honey-controls">
-        <button type="button" data-honey-take="1"><span>1</span><small>pflücken</small></button>
-        <button type="button" data-honey-take="2"><span>2</span><small>pflücken</small></button>
-        <button type="button" class="honey-pass" data-honey-pass><span>↷</span><small>schieben</small></button>
+        <button type="button" class="honey-stay" data-honey-choice="stay"><span>🍎</span><small>weiter</small></button>
+        <button type="button" class="honey-home" data-honey-choice="home"><span>🏠</span><small>heim</small></button>
       </div>`;
-    // Einmal im Spiel: den Zug weitergeben, ohne zu pflücken.
-    const pass = this.controls.querySelector("[data-honey-pass]");
-    this.on(pass, "pointerdown", (event) => {
-      event.preventDefault();
-      if (pass.disabled) return;
-      this.feedback?.vibrate(10);
-      this.play({ action: "pass" });
-    });
-    this.controls.querySelectorAll("[data-honey-take]").forEach((button) => {
+    this.controls.querySelectorAll("[data-honey-choice]").forEach((button) => {
       this.on(button, "pointerdown", (event) => {
         event.preventDefault();
         if (button.disabled) return;
-        this.feedback?.vibrate(10);
-        this.play({ action: "take", count: Number(button.dataset.honeyTake) });
+        this.choose(button.dataset.honeyChoice);
       });
     });
   }
 
-  // Den eigenen Zug sofort zeigen: was gepflückt wird, steht ja fest — die
-  // untersten Früchte der Ranke. Der Server bestätigt ihn nur noch; kommt
-  // etwas anderes zurück (etwa der automatische Griff), gilt das.
-  play(input) {
+  // Die eigene Wahl: sofort auf den Knöpfen zeigen, an den Server schicken.
+  // Bis zum Ende der Wahl darf man umentscheiden.
+  choose(action) {
     const minigame = this.update || this.minigame;
     const state = minigame?.arcade?.honey;
     const id = this.getControlledPlayerId();
-    const entry = minigame?.arcade?.players?.[id];
-    if (!state || !entry || !this.canPlay(minigame, state, id)) return;
+    if (!state || !this.canChoose(minigame, state, id)) return;
+    this.choice = { step: state.step.number, action };
+    this.feedback?.vibrate(10);
+    this.feedback?.sound(action === "home" ? "whoosh" : "select");
     const sentAt = performance.now();
-    this.sendInput(input).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
-    if (input.action === "pass") {
-      this.pending = { number: state.picks, passed: true, at: sentAt };
-      this.showPick({ playerId: id, taken: [], passed: true }, true);
-      return;
-    }
-    const taken = state.vine.slice(0, input.count);
-    const stung = taken.includes("comb");
-    const gained = stung ? 0 : taken.reduce((sum, item) => sum + (item === "gold" ? (state.gold || 3) : item === "fruit" ? 1 : 0), 0);
-    const dropped = stung ? Math.min(entry.fruits || 0, state.stingCost ?? 4) : 0;
-    this.pending = { number: state.picks, count: input.count, passed: false, at: sentAt };
-    this.showPick({ playerId: id, taken, stung, gained, dropped, passed: false }, true);
+    this.sendInput({ action }).then(() => this.noteRoundTrip(performance.now() - sentAt)).catch(() => {});
   }
 
-  // Bin ich dran — gemessen daran, wann ein Druck jetzt beim Server ankäme?
-  canPlay(minigame, state, id) {
-    const turn = state.turn;
-    if (!turn || turn.playerId !== id || minigame.finaleAt || this.pending) return false;
+  // Kann ich jetzt wählen — gemessen daran, wann ein Druck beim Server ankäme?
+  canChoose(minigame, state, id) {
+    const step = state.step;
+    const entry = minigame?.arcade?.players?.[id];
+    if (!step || step.closed || !entry || entry.at !== "tree" || minigame.finaleAt) return false;
     const arrival = this.now() + this.roundTrip - minigame.startedAt;
-    return arrival >= turn.from && arrival <= turn.until + (state.graceMs ?? 150);
+    return arrival >= step.from && arrival <= step.until + (state.graceMs ?? 150);
   }
 
-  // Wie lange ein Zug zum Server und zurück braucht, geglättet und bei
-  // 250 ms gedeckelt. Die erste Messung gilt sofort.
   noteRoundTrip(ms) {
     if (!Number.isFinite(ms)) return;
     const clamped = Math.max(0, Math.min(250, ms));
@@ -374,245 +499,269 @@ export class HoneyVine extends MinigameScene {
     this.measured = true;
   }
 
-  // Solange man nicht selbst dran ist, ein ping pro Sekunde (bis zur ersten
-  // Messung öfter): er ändert nichts und hält die Messung frisch.
-  pingIfIdle(minigame, state, id) {
+  pingIfIdle(minigame) {
     if (minigame.finaleAt || this.now() < minigame.startedAt) return;
     const clock = performance.now();
     if (clock - this.lastPingAt < (this.measured ? 1000 : 300)) return;
-    if (state.turn?.playerId === id || this.pending) return;
     this.lastPingAt = clock;
     this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
   }
 
-  // Ein Zug im Bild: Früchte fliegen in den Korb (oder die Wabe platzt),
-  // dazu Zahl, Ton und Figur. `fly: false`, wenn die Ranke schon neu steht.
-  showPick(last, isOwn, fly = true) {
-    const basket = this.baskets.get(last.playerId);
-    const kin = this.kins.get(last.playerId);
-    const animator = this.animators.get(last.playerId);
-    if (fly && basket) {
-      const count = Math.min(last.taken.length, this.items.length);
-      const gone = this.items.splice(0, count);
-      gone.forEach((item, i) => {
-        const to = item.userData.kind === "comb"
-          ? (kin ? kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)) : item.position.clone())
-          : basket.group.position.clone().add(new THREE.Vector3(0, 0.35, 0));
-        this.flying.push({ item, from: item.position.clone(), to, at: performance.now() + i * 90, comb: item.userData.kind === "comb" });
-      });
+  fly(item, from, to, { delay = 0, arc = 0.6, done = null, shrink = 0.3 } = {}) {
+    item.position.copy(from);
+    this.flying.push({ item, from: from.clone(), to: to.clone(), at: performance.now() + delay, arc, done, shrink });
+  }
+
+  // Eine Auflösung im Bild: wer heimgeht, die offene Knospe, Teilen, Stich.
+  showReveal(last, controlledId) {
+    const isOwnLeaver = last.leavers.includes(controlledId);
+    last.leavers.forEach((id) => {
+      const kin = this.kins.get(id);
+      const gained = last.banked?.[id] ?? 0;
+      if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), gained ? `HEIM! +${gained}` : "HEIM!", { color: last.goldTo === id ? "#ffe36b" : "#b8ffb0", size: 0.36, life: 1.3 });
+      this.animators.get(id)?.trigger("hop");
+    });
+    if (last.goldTo) {
+      const lane = this.lanes.get(last.goldTo);
+      for (let i = 0; i < (last.goldCount || 1); i += 1) {
+        const gold = this.makeContent({ kind: "gold" });
+        this.fly(gold, this.rest.group.position.clone().add(new THREE.Vector3(0, 0.25, 0)), lane.home.clone().add(new THREE.Vector3(0, 0.5, 0.38)), { delay: i * 120, arc: 1.2, done: () => this.scene.remove(gold) });
+      }
+      if (last.goldTo === controlledId) this.feedback?.sound("sparkle");
     }
-    if (animator && !last.passed) animator.trigger(last.stung ? "panic" : "reach");
-    if (last.passed) {
-      // Geschoben: nichts gepflückt, der Nächste steht vor derselben Ranke.
-      if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), "GESCHOBEN!", { color: "#b8e4ff", size: 0.36, life: 1.1 });
-      if (animator) animator.trigger("shrug");
-      if (isOwn) this.feedback?.sound("whoosh");
-    } else if (last.stung) {
-      this.chase.set(last.playerId, performance.now() + 2600);
-      if (kin) {
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "AUA! RAUS!", { color: "#ffb3bd", size: 0.42, life: 1.4 });
-        if (basket) this.burst(basket.group.position.clone().add(new THREE.Vector3(0, 0.3, 0)), ["#e0343c", "#ffcf33", "#e0343c"], { count: Math.min(20, 4 + (last.dropped || 0) * 2), speed: 1.6, up: 2, size: 0.09, life: 0.9 });
+    if (isOwnLeaver) {
+      this.feedback?.sound("coin");
+      this.feedback?.vibrate(14);
+    }
+    const bud = last.bud;
+    if (!bud) return;
+    // Die unterste Knospe platzt auf.
+    const at = new THREE.Vector3(VINE_X, BUD_BOTTOM, VINE_Z + 0.08);
+    const opened = this.buds.shift();
+    if (opened) this.scene.remove(opened);
+    this.burst(at, ["#5fae4a", "#3f8f36", "#9fd67a"], { count: 10, speed: 1.2, up: 0.8, size: 0.05, life: 0.5 });
+    const content = this.makeContent(bud);
+    content.position.copy(at);
+    if (bud.kind === "fruit") {
+      // Jeder am Baum bekommt seinen Teil in den Korb, der Rest fällt in den Restkorb.
+      const share = last.share || 0;
+      last.stayers.forEach((id, k) => {
+        const korb = this.baskets.get(id);
+        const kin = this.kins.get(id);
+        if (!korb || !share) return;
+        for (let i = 0; i < Math.min(share, 4); i += 1) {
+          const apfel = this.makeContent({ kind: "fruit", value: 1 });
+          this.fly(apfel, at, korb.group.position.clone().add(new THREE.Vector3(0, 0.25, 0)), { delay: 120 + k * 60 + i * 70, done: () => this.scene.remove(apfel) });
+        }
+        if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), `+${share}`, { color: "#ffffff", size: 0.32, life: 1 });
+      });
+      const rest = bud.value - share * last.stayers.length;
+      for (let i = 0; i < rest; i += 1) {
+        const apfel = this.makeContent({ kind: "fruit", value: 1 });
+        this.fly(apfel, at, this.rest.group.position.clone().add(new THREE.Vector3(0, 0.25, 0)), { delay: 160 + i * 80, arc: 0.2, done: () => this.scene.remove(apfel) });
       }
-      if (animator) {
-        animator.set("panic");
-        animator.expression("scared", 2400);
-      }
-      if (isOwn) {
-        this.feedback?.sound("fall");
-        this.feedback?.vibrate([40, 30, 40, 30, 60]);
-        this.rig.shake(0.55);
-      } else {
-        this.feedback?.sound("pop");
-      }
+      this.scene.remove(content);
+      if (last.stayers.includes(controlledId)) this.feedback?.sound("coin");
+    } else if (bud.kind === "gold") {
+      this.fly(content, at, this.rest.group.position.clone().add(new THREE.Vector3(0, 0.3, 0)), { delay: 150, arc: 0.3, shrink: 0, done: () => this.scene.remove(content) });
+      this.pop(at.clone().add(new THREE.Vector3(0.5, 0.2, 0.3)), "GOLD!", { color: "#ffe36b", size: 0.4, life: 1.2 });
+      this.feedback?.sound("sparkle");
     } else {
-      if (kin && last.gained) {
-        const gold = last.taken.includes("gold");
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.15, 0)), `+${last.gained}`, { color: gold ? "#ffe36b" : "#ffffff", size: gold ? 0.46 : 0.36 });
-      }
-      if (isOwn) {
-        this.feedback?.sound(last.taken.includes("gold") ? "sparkle" : "coin");
-        this.feedback?.vibrate(12);
+      const nest = this.nests.get(bud.nest);
+      const look = NEST_LOOK[bud.nest];
+      if (last.bust) {
+        // Das zweite Nest: der Schwarm bricht los.
+        this.burst(at, [look.color, "#2a2230", "#ffc62e"], { count: 26, speed: 2.4, up: 1.6, size: 0.08, life: 1 });
+        this.scene.remove(content);
+        const until = performance.now() + 2600;
+        last.stung.forEach((id) => {
+          this.chase.set(id, until);
+          const kin = this.kins.get(id);
+          const korb = this.baskets.get(id);
+          if (korb) this.burst(korb.group.position.clone().add(new THREE.Vector3(0, 0.2, 0)), ["#e0343c", "#e0343c", "#ffcf33"], { count: 10, speed: 1.6, up: 1.8, size: 0.07, life: 0.9 });
+          if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.25, 0)), "AUA!", { color: "#ffb3bd", size: 0.42, life: 1.4 });
+          const animator = this.animators.get(id);
+          animator?.trigger("flinch");
+          animator?.expression("scared", 2400);
+        });
+        if (last.stung.includes(controlledId)) {
+          this.feedback?.sound("fall");
+          this.feedback?.vibrate([40, 30, 40, 30, 60]);
+          this.rig.shake(0.55);
+        } else {
+          this.feedback?.sound("pop");
+        }
+        if (nest) nest.wake = performance.now();
+      } else {
+        // Das erste Nest seiner Sorte fliegt an seinen Platz am Ast und wacht auf.
+        nest.pendingUntil = performance.now() + 100 + FLY_MS;
+        this.fly(content, at, nest.group.position, { delay: 100, arc: 0.4, shrink: 0, done: () => { this.scene.remove(content); nest.wake = performance.now(); } });
+        this.pop(at.clone().add(new THREE.Vector3(0.6, 0.1, 0.3)), `${look.name} wach!`, { color: "#ffd08a", size: 0.34, life: 1.4 });
+        this.feedback?.sound("whoosh");
       }
     }
   }
-
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.honey;
     if (!state) return;
     const elapsed = now - minigame.startedAt;
+    const nowP = performance.now();
+    this.pingIfIdle(minigame);
 
-    if (this.vineNumber < 0) {
+    // Neue Ranke: Knospen wachsen nach, Nester schlafen, der Restkorb ist leer.
+    if (this.vineNumber !== state.vineNumber) {
+      const first = this.vineNumber === null;
       this.vineNumber = state.vineNumber;
       this.seenPicks = state.picks;
-      this.rebuildVine(state.vine);
+      this.rebuildBuds(state.vineNumber < 0 ? MAX_BUDS : state.budsLeft);
+      this.nests.forEach((nest, sorte) => { nest.pendingUntil = 0; nest.wake = state.awake?.[sorte] ? nowP : 0; });
+      if (!first && state.vineNumber > 0) this.pop(new THREE.Vector3(VINE_X + 0.7, BUD_BOTTOM + 0.3, VINE_Z + 0.4), "Neue Ranke!", { color: "#b8ffb0", size: 0.4 });
     }
-
-    this.pingIfIdle(minigame, state, controlledId);
-    // Gepflückt: die untersten fliegen in den Korb (oder platzen als Wabe).
-    // Den eigenen Zug hat das Gerät schon gezeigt (play) — kommt er so
-    // zurück, ist nichts mehr zu tun.
+    // Eine Auflösung kam an.
     if (state.picks > this.seenPicks && state.last) {
       this.seenPicks = state.picks;
-      const last = state.last;
-      const isOwn = last.playerId === controlledId;
-      const mine = this.pending;
-      const confirmed = mine && isOwn && !last.auto && last.number === mine.number
-        && (mine.passed ? last.passed : !last.passed && last.taken.length === mine.count);
-      this.pending = null;
-      if (!confirmed) {
-        // Anders als vorhergesagt: die Ranke steht schon verschoben da, also
-        // nur Zahl, Ton und Figur — die Ranke richtet sich unten nach dem Server.
-        if (mine) this.rebuildVine(state.vine);
-        this.showPick(last, isOwn, !mine);
-      }
-    } else if (this.pending && performance.now() - this.pending.at > 2500) {
-      // Keine Antwort: zurück auf den Stand des Servers.
-      this.pending = null;
-      this.rebuildVine(state.vine);
+      this.showReveal(state.last, controlledId);
     }
-    // Neue Ranke wächst nach.
-    if (state.vineNumber !== this.vineNumber) {
-      this.vineNumber = state.vineNumber;
-      this.rebuildVine(state.vine, BRANCH_Y);
-      this.pop(new THREE.Vector3(VINE_X, BRANCH_Y - 0.6, VINE_Z + 0.4), "Neue Ranke!", { color: "#b8ffb0", size: 0.34 });
-    } else if (!this.pending && this.items.length !== state.vine.length) {
-      this.rebuildVine(state.vine);
-    }
-
-    // Ranke rutscht nach: jede Frucht zu ihrem Platz.
-    this.items.forEach((item, i) => {
-      const y = VINE_BOTTOM + i * SPACING;
-      item.position.y += (y - item.position.y) * frameLerp(0.12, dt);
-      item.rotation.z = Math.sin(now / 700 + i * 0.6) * 0.08;
-      if (item.userData.glanz) item.userData.glanz.scale.setScalar(1 + Math.sin(now / 200) * 0.12);
+    // Knospen: nach dem Aufplatzen rutschen die übrigen nach unten; mehr als
+    // der Server noch hat, bleibt keine.
+    const wantBuds = Math.min(MAX_BUDS, state.budsLeft);
+    while (this.buds.length > wantBuds) this.scene.remove(this.buds.pop());
+    const step = state.step;
+    const deciding = Boolean(step && !step.closed && elapsed >= step.from);
+    this.buds.forEach((bud, i) => {
+      const y = BUD_BOTTOM + i * BUD_GAP;
+      bud.position.y += (y - bud.position.y) * frameLerp(0.14, dt);
+      // Die nächste Knospe zittert, solange gewählt wird.
+      const shake = i === 0 && deciding ? Math.sin(now / 45) * 0.12 : Math.sin(now / 700 + i * 0.6) * 0.06;
+      bud.rotation.z = shake;
+      bud.scale.setScalar(i === 0 && deciding ? 1.12 + Math.sin(now / 160) * 0.05 : 1);
     });
-    const top = BRANCH_Y;
-    const bottom = this.items.length ? this.items[0].position.y + 0.1 : top - 0.2;
-    this.stem.position.set(VINE_X, (top + bottom) / 2, VINE_Z - 0.02);
-    this.stem.scale.y = Math.max(0.05, top - bottom);
 
-    // Fliegende Früchte.
-    const nowP = performance.now();
+    // Restkorb: übrig gebliebene Äpfel und das hängende Gold.
+    const restKey = `${state.leftover}/${state.golds}`;
+    if (restKey !== this.restShown) {
+      this.restShown = restKey;
+      this.fillPile(this.rest.pile, state.leftover + state.golds, { cap: 12, r: 0.06, y: 0.16, gold: state.golds });
+    }
+
+    // Nester: schlafend klein und blass, wach gross und umschwirrt.
+    this.nests.forEach((nest, sorte) => {
+      const awake = Boolean(state.awake?.[sorte]) && nowP >= (nest.pendingUntil || 0);
+      nest.awake = awake;
+      const s = awake ? 1 + Math.max(0, 1 - (nowP - nest.wake) / 400) * 0.35 : 0.62;
+      nest.group.scale.setScalar(nest.group.scale.x + (s - nest.group.scale.x) * frameLerp(0.2, dt));
+      nest.group.rotation.z = awake ? Math.sin(now / 90) * 0.08 : 0;
+      if (nest.shownAwake !== awake) {
+        nest.shownAwake = awake;
+        nest.group.traverse((child) => {
+          if (!child.isMesh || child.userData.baseColor === undefined) return;
+          child.material.color.setHex(child.userData.baseColor);
+          if (!awake) child.material.color.lerp(SLEEP_GREY, 0.65);
+        });
+      }
+    });
+
+    // Fliegende Äpfel und Nester.
     this.flying = this.flying.filter((fly) => {
       const u = Math.max(0, Math.min(1, (nowP - fly.at) / FLY_MS));
       fly.item.position.lerpVectors(fly.from, fly.to, u);
-      fly.item.position.y += Math.sin(u * Math.PI) * 0.6;
-      fly.item.scale.setScalar(1 - u * 0.4);
+      fly.item.position.y += Math.sin(u * Math.PI) * fly.arc;
+      fly.item.scale.setScalar(1 - u * fly.shrink);
       if (u >= 1) {
-        if (fly.comb) this.burst(fly.to, ["#f5a524", "#ffcf33", "#2a2230"], { count: 16, speed: 1.8, up: 1.4, size: 0.07, life: 0.8 });
-        this.scene.remove(fly.item);
+        fly.done?.();
         return false;
       }
       return true;
     });
 
-    // Körbe: sichtbare Früchte je nach Stand.
-    players.forEach((player) => {
-      const basket = this.baskets.get(player.id);
-      const entry = arcade.players[player.id];
-      if (!basket || !entry) return;
-      const shown = Math.min(9, entry.fruits || 0);
-      if (shown !== basket.shown) {
-        basket.shown = shown;
-        basket.pile.clear();
-        for (let i = 0; i < shown; i += 1) {
-          const a = i * 2.4;
-          const r = i === 0 ? 0 : 0.09;
-          const apfel = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), lambert(i % 4 === 3 ? "#ffcf33" : "#e0343c"));
-          apfel.position.set(Math.cos(a) * r, 0.2 + Math.floor(i / 4) * 0.07, Math.sin(a) * r);
-          basket.pile.add(apfel);
-        }
-      }
-    });
-
-    // Wer ist dran?
-    const turn = state.turn;
-    const turnKin = turn ? this.kins.get(turn.playerId) : null;
-    this.turnRing.visible = Boolean(turnKin) && !f.finale;
-    if (turnKin) {
-      this.turnRing.position.x = turnKin.position.x;
-      this.turnRing.position.z = turnKin.position.z;
-      this.turnRing.material.opacity = 0.6 + Math.sin(now / 150) * 0.3;
-    }
-    const ownTurn = !f.finale && this.canPlay(minigame, state, controlledId);
-    this.tags.forEach((tag, i) => {
-      const item = this.items[i];
-      tag.visible = Boolean(ownTurn && item);
-      // Auf der Seite der Ranke, auf der man NICHT steht — sonst sass die
-      // Zahl genau über dem eigenen Namensschild.
-      const side = (this.homes.get(controlledId)?.x ?? -1) >= 0 ? -1 : 1;
-      if (tag.visible) tag.position.set(VINE_X + side * 0.42, VINE_BOTTOM + i * SPACING, VINE_Z + 0.1);
-    });
-
-    // Figuren: wer dran ist, tritt an die Ranke; wer gestochen wurde, rennt.
-    const nowPerf = performance.now();
+    // Figuren: am Baum in ihrer Gasse, daheim hinter der eigenen Kiste.
     players.forEach((player) => {
       const kin = this.kins.get(player.id);
       const animator = this.animators.get(player.id);
-      const home = this.homes.get(player.id);
-      if (!kin || !animator || !home) return;
-      const chasing = nowPerf < (this.chase.get(player.id) || 0);
-      const active = turn && turn.playerId === player.id && elapsed >= turn.from - 300;
-      let target = home;
-      if (chasing) {
-        // Eine kleine Runde neben dem eigenen Platz, vom eigenen Korb weg.
-        // Vorher kreiste man weit um den Platz — mitten durch den eigenen Korb
-        // und bis in den des Nachbarn (die Körbe stehen zwischen den Figuren).
-        const u = (nowPerf / 1000) * 2.6;
-        const weg = home.x >= 0 ? -1 : 1;
-        target = new THREE.Vector3(home.x + weg * 0.25 + Math.cos(u) * 0.3, 0, home.z - 0.15 + Math.sin(u) * 0.22);
-      } else if (active) {
-        target = PICK_SPOT.clone().setX(home.x >= 0 ? 0.42 : -0.42);
-      }
+      const lane = this.lanes.get(player.id);
+      const entry = arcade.players[player.id];
+      if (!kin || !animator || !lane || !entry) return;
+      const chasing = nowP < (this.chase.get(player.id) || 0);
+      const atTree = entry.at === "tree";
+      const target = atTree ? lane.tree : lane.home;
       const dx = target.x - kin.position.x;
       const dz = target.z - kin.position.z;
       const dist = Math.hypot(dx, dz);
-      const step = Math.min(dist, (chasing ? 3.2 : 2.4) * dt);
+      const speed = chasing ? 3.4 : 2.6;
       if (dist > 0.01) {
-        kin.position.x += (dx / dist) * step;
-        kin.position.z += (dz / dist) * step;
+        const stepLen = Math.min(dist, speed * dt);
+        kin.position.x += (dx / dist) * stepLen;
+        kin.position.z += (dz / dist) * stepLen;
       }
       const moving = dist > 0.05;
-      const face = moving ? Math.atan2(dx, dz) : Math.atan2(VINE_X - kin.position.x, VINE_Z - kin.position.z);
-      kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.25, dt);
+      // Am Baum halb zur Kamera, halb zur Ranke; daheim zur Ranke hin.
+      const faceTo = moving ? Math.atan2(dx, dz) : atTree ? Math.atan2(VINE_X - kin.position.x, 2.6 - kin.position.z) : Math.atan2(VINE_X - kin.position.x, VINE_Z - kin.position.z) + Math.PI;
+      kin.rotation.y += Math.atan2(Math.sin(faceTo - kin.rotation.y), Math.cos(faceTo - kin.rotation.y)) * frameLerp(0.25, dt);
+      // Der Korb geht mit: neben der Figur, auf Hüfthöhe.
+      const korb = this.baskets.get(player.id);
+      if (korb) {
+        const side = kin.position.x >= 0 ? 1 : -1;
+        korb.group.position.set(kin.position.x + side * 0.26, 0.34 + (moving ? Math.abs(Math.sin(now / 90)) * 0.05 : 0), kin.position.z + 0.12);
+        korb.group.visible = atTree || moving;
+        if (korb.shown !== entry.basket) {
+          korb.shown = entry.basket;
+          this.fillPile(korb.pile, entry.basket, { cap: 8, r: 0.045, y: 0.13 });
+        }
+      }
+      const crate = this.crates.get(player.id);
+      const goldKey = `${entry.banked}/${entry.golds}`;
+      if (crate && crate.shown !== goldKey) {
+        crate.shown = goldKey;
+        this.fillPile(crate.pile, entry.banked, { cap: 18, r: 0.05, y: 0.33, gold: Math.min(entry.golds || 0, 3), w: 0.44 });
+      }
+      // Denkblase: wer am Baum wählt, zeigt „?“, wer gewählt hat, „✓“.
+      const think = this.thinks.get(player.id);
+      if (think) {
+        const show = deciding && atTree && !moving && !f.finale;
+        think.sprite.visible = show;
+        if (show) {
+          const text = entry.decided ? "✓" : "?";
+          if (think.text !== text) this.paintBubble(think, text);
+          think.sprite.position.set(kin.position.x, 1.5, kin.position.z);
+        }
+      }
       if (f.finale) return;
-      const out = arcade.players[player.id]?.outAt != null;
       if (chasing) animator.set("panic");
       else if (moving) animator.set("walk");
-      else if (out) {
-        // Raus: sitzt traurig neben dem Korb und schaut den anderen zu.
-        animator.set("sad");
-        animator.lookAt(turnKin ? turnKin.position.clone().add(new THREE.Vector3(0, 0.6, 0)) : null);
-      }
-      else if (active) {
-        animator.set("think");
-        animator.lookAt(this.items[0]?.position || null);
-      } else {
-        animator.set("idle");
-        animator.lookAt(turnKin ? turnKin.position.clone().add(new THREE.Vector3(0, 0.6, 0)) : null);
-      }
+      else if (entry.at === "stung") animator.set("sad");
+      else if (entry.at === "home") animator.set(elapsed - (state.last?.at ?? -1e9) < 900 && state.last?.leavers?.includes(player.id) ? "happy" : "idle");
+      else if (deciding) animator.set(entry.decided ? "ready" : "think");
+      else animator.set("focus");
+      animator.lookAt(atTree ? new THREE.Vector3(VINE_X, BUD_BOTTOM, VINE_Z) : null);
     });
 
-    // Bienen: kreisen um die sichtbaren Waben — oder jagen einen Gestochenen.
-    const combs = this.items.filter((item) => item.userData.kind === "comb" && item.position.y < BRANCH_Y - 0.3);
-    const chased = [...this.chase.entries()].filter(([, until]) => nowPerf < until).map(([id]) => this.kins.get(id)).filter(Boolean);
+    // Bienen: um wache Nester — oder hinter Gestochenen her.
+    const awakeNests = [...this.nests.values()].filter((nest) => nest.awake).map((nest) => nest.group.position);
+    const chased = [...this.chase.entries()].filter(([, until]) => nowP < until).map(([id]) => this.kins.get(id)).filter(Boolean);
     this.bees.forEach((biene, i) => {
-      const u = nowPerf / 1000 * (2.2 + (i % 3) * 0.5) + biene.userData.phase;
+      const u = nowP / 1000 * (2.2 + (i % 3) * 0.5) + biene.userData.phase;
       let center = null;
-      let radius = 0.32;
-      if (chased.length && i < 8) {
-        center = chased[i % chased.length].position.clone().add(new THREE.Vector3(0, 0.55, 0));
-        radius = 0.45;
-      } else if (combs.length) {
-        center = combs[i % combs.length].position;
+      let radius = 0.34;
+      if (chased.length && i < 16) {
+        center = chased[i % chased.length].position.clone().add(new THREE.Vector3(0, 0.6, 0));
+        radius = 0.42;
+      } else if (awakeNests.length && i % 8 < 4) {
+        center = awakeNests[i % awakeNests.length];
       }
       biene.visible = Boolean(center);
       if (!center) return;
       biene.position.set(center.x + Math.cos(u) * radius, center.y + Math.sin(u * 1.7) * 0.18, center.z + Math.sin(u) * radius);
       biene.rotation.y = -u;
-      biene.userData.wing.rotation.z = Math.sin(nowPerf / 18) * 0.6;
+      biene.userData.wing.rotation.z = Math.sin(nowP / 18) * 0.6;
     });
+
+    // Abenddämmerung: die letzten Sekunden färben den Himmel.
+    const dusk = Math.max(0, Math.min(1, 1 - (state.duskMs - elapsed) / DUSK_WARN_MS));
+    if (this.sky && this.duskShown !== Math.round(dusk * 40)) {
+      this.duskShown = Math.round(dusk * 40);
+      this.sky.material.color.setRGB(1 - dusk * 0.35, 1 - dusk * 0.5, 1 - dusk * 0.2);
+    }
   }
 
   drawHud(f) {
@@ -621,76 +770,80 @@ export class HoneyVine extends MinigameScene {
     if (!state) return;
     const own = arcade.players[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    const text = String(own?.fruits || 0);
+    const text = String(own?.banked || 0);
     if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
     const chips = this.hud.querySelector("[data-honey-chips]");
     if (chips) {
+      // Je Spieler: Vorrat daheim, dazu der Korb am Baum oder 🐝 nach einem Stich.
       const html = room.players.map((player) => {
         const entry = arcade.players[player.id];
-        const active = state.turn?.playerId === player.id;
-        const out = entry?.outAt != null;
-        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${active ? " is-turn" : ""}${out ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${out ? "raus" : `🍎${entry?.fruits || 0}`}</span>`;
-      }).join("");
+        const where = entry?.at === "tree" ? ` 🧺${entry.basket || 0}` : entry?.at === "stung" ? " 🐝" : " 🏠";
+        return `<span class="hud-chip${player.id === controlledId ? " is-own" : ""}${entry?.at === "stung" ? " is-out" : ""}" style="--chip:${player.color}"><b>${escapeName(player.name)}</b>${entry?.banked || 0}${where}</span>`;
+      }).join("")
+        + `<span class="hud-chip honey-nests">${(state.nests || []).map((sorte) => `<i class="${state.awake?.[sorte] ? "is-awake" : ""}" style="--nest:${NEST_LOOK[sorte]?.color || "#fff"}" title="${NEST_LOOK[sorte]?.name || sorte}">${NEST_LOOK[sorte]?.short || "?"}</i>`).join("")}</span>`;
       if (html !== this.chipsHtml) {
         this.chipsHtml = html;
         chips.innerHTML = html;
       }
     }
     const elapsed = now - minigame.startedAt;
-    const turn = state.turn;
-    // Ob man dran ist und wie viel Bedenkzeit bleibt, gilt für die Ankunft
-    // beim Server — der Balken ist leer, wenn ein Druck nicht mehr ankäme.
-    const arrival = elapsed + this.roundTrip;
-    const ownTurn = this.canPlay(minigame, state, controlledId);
+    const step = state.step;
+    const canChoose = this.canChoose(minigame, state, controlledId);
+    const last = state.last;
+    const recent = last && elapsed - last.at < 1300;
+    const nameOf = (id) => escapeName(room.players.find((p) => p.id === id)?.name);
     const banner = this.hud.querySelector("[data-honey-banner]");
     let message = null;
     let tone = "#12aaff";
-    const lastWho = state.last ? room.players.find((p) => p.id === state.last.playerId) : null;
-    if (elapsed < state.leadMs) message = "Schau dir die Ranke an …";
-    else if (ownTurn) {
-      // Der eigene Zug geht vor: wer dran ist, muss es sofort sehen — auch
-      // wenn der Vorgänger eben erst geschoben hat.
-      // Kurz, damit es in eine Zeile passt: die Knöpfe zeigen die Wahl.
-      message = state.last?.passed && elapsed - state.last.at < 1100 && state.last.playerId !== controlledId
-        ? `${escapeName(lastWho?.name)} schiebt zu dir!`
-        : "Du bist dran!";
-      tone = "#1fbf5b";
-    } else if (state.last && elapsed - state.last.at < 1300 && state.last.stung) {
-      message = state.last.playerId === controlledId ? "Gestochen — du bist raus! 🐝" : `${escapeName(lastWho?.name)} ist raus! 🐝`;
+    const duskIn = state.duskMs - elapsed;
+    if (elapsed < state.leadMs) message = "Alle an den Baum!";
+    else if (recent && last.dusk) {
+      message = last.stung.includes(controlledId) ? "Sonnenuntergang — gestochen! 🐝" : "Feierabend!";
+      tone = "#8a4fd6";
+    } else if (recent && last.bust) {
+      const look = NEST_LOOK[last.bud?.nest];
+      message = last.stung.includes(controlledId) ? `${look?.name || "Bienen"}! Korb weg! 🐝` : `${look?.name || "Bienen"} stechen!`;
       tone = "#ff5d73";
-    } else if (state.last && elapsed - state.last.at < 1100 && state.last.passed) {
-      message = state.last.playerId === controlledId ? "Geschoben!" : `${escapeName(lastWho?.name)} schiebt weiter!`;
+    } else if (recent && last.goldTo) {
+      message = last.goldTo === controlledId ? "Allein heim — das Gold ist deins!" : `${nameOf(last.goldTo)} holt das Gold!`;
+      tone = "#ffc400";
+    } else if (recent && last.leavers.length) {
+      message = last.leavers.includes(controlledId) ? `Heim mit ${last.banked?.[controlledId] ?? 0}!` : `${last.leavers.map(nameOf).join(" + ")} ${last.leavers.length > 1 ? "gehen" : "geht"} heim`;
+      tone = "#1fbf5b";
+    } else if (canChoose) {
+      message = duskIn < 6000 ? `Weiter oder heim? Sonne weg in ${Math.max(1, Math.ceil(duskIn / 1000))} s!` : "Weiter oder heim?";
+      tone = duskIn < 6000 ? "#8a4fd6" : "#8a6238";
+    } else if (own?.at === "home" && step) {
+      message = "Daheim — schau zu!";
       tone = "#3d8fd6";
-    } else if (turn && !(turn.playerId === controlledId && this.pending)) {
-      const who = room.players.find((p) => p.id === turn.playerId);
-      message = turn.playerId === controlledId ? "Gleich bist du dran …" : `${escapeName(who?.name)} ist dran …`;
-      tone = "#8a6238";
+    } else if (own?.at === "stung" && step) {
+      message = "Gestochen — nächste Ranke!";
+      tone = "#ff5d73";
+    } else if (!step && state.vineEnd !== null && state.overAt === null) {
+      message = "Eine neue Ranke wächst …";
+      tone = "#1fbf5b";
     }
     if (banner) {
       banner.hidden = !message || Boolean(minigame.finaleAt);
       if (message && banner.textContent !== message) banner.textContent = message;
       banner.style.background = tone;
+      banner.style.color = tone === "#ffc400" ? "#5c4508" : "#ffffff";
     }
     const timer = this.hud.querySelector("[data-honey-timer]");
     if (timer) {
-      timer.hidden = !ownTurn || Boolean(minigame.finaleAt);
-      if (ownTurn) {
-        // Mehrzeilige Ansagen und kleine Ansichten dürfen den Balken nicht überdecken.
+      timer.hidden = !canChoose || Boolean(minigame.finaleAt);
+      if (canChoose) {
         if (banner && !banner.hidden) timer.style.top = `${banner.offsetTop + banner.offsetHeight + 6}px`;
-        const share = Math.max(0, Math.min(1, (turn.until - arrival) / Math.max(1, turn.until - turn.from)));
+        const arrival = elapsed + this.roundTrip;
+        const share = Math.max(0, Math.min(1, (step.until - arrival) / Math.max(1, step.until - step.from)));
         timer.firstElementChild.style.width = `${Math.round(share * 100)}%`;
       }
     }
-    this.controls.querySelectorAll("[data-honey-take]").forEach((button) => {
-      const count = Number(button.dataset.honeyTake);
-      button.disabled = !ownTurn || state.vine.length < count;
+    const mine = this.choice && step && this.choice.step === step.number ? this.choice.action : null;
+    this.controls.querySelectorAll("[data-honey-choice]").forEach((button) => {
+      button.disabled = !canChoose;
+      button.classList.toggle("is-picked", canChoose && mine === button.dataset.honeyChoice);
     });
-    const pass = this.controls.querySelector("[data-honey-pass]");
-    if (pass) {
-      const left = own?.passes || 0;
-      pass.disabled = !ownTurn || left <= 0 || room.players.length < 2;
-      pass.classList.toggle("is-used", left <= 0);
-    }
   }
 }
 

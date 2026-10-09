@@ -693,320 +693,360 @@ const flags = {
 
 // --- Honigwabe -------------------------------------------------------------
 //
-// Am Ast hängt eine Ranke voller Früchte, dazwischen Honigwaben. Reihum
-// pflückt jeder von unten eine oder zwei. Wer eine Wabe erwischt, wird
-// gestochen — und lässt vor Schreck die Hälfte seiner Früchte fallen. Alles
-// ist sichtbar: wer abzählt, schiebt die Wabe dem Nächsten zu und greift nach
-// den goldenen Früchten (drei Punkte), wenn sie sicher zu haben sind.
+// Mutprobe am Bienenbaum. Von einem Ast hängt eine Ranke voller geschlossener
+// Knospen. Alle stehen gemeinsam am Baum, und vor jedem Griff entscheidet
+// jeder GLEICHZEITIG und geheim: weiterpflücken oder heimgehen. Dann geht die
+// nächste Knospe auf:
 //
-// Zuerst war ein Stich das Aus, wie im Vorbild. Zu viert entschied dann fast
-// nur die Sitzordnung: wer hinter einem guten Spieler sitzt, bekam die Wabe
-// zugeschoben, und zum Ausgleichen blieb keine Gelegenheit. Gemessen gewann
-// der starke Bot nicht häufiger als der schwache. Jetzt bleibt jeder bis zum
-// Schluss dabei, und wer besser zählt, sammelt mehr.
+//   - Äpfel werden gerecht unter allen geteilt, die noch am Baum sind; was
+//     nicht aufgeht, bleibt als Rest an der Ranke hängen.
+//   - Ein goldener Apfel (5) bleibt hängen, bis jemand ALLEIN heimgeht.
+//   - Ein Nest (Bienen, Wespen oder Hornissen) weckt seine Sorte. Kommt ein
+//     zweites Nest DERSELBEN Sorte, sticht der Schwarm alle, die noch am Baum
+//     sind: ihr Korb ist leer, die Ranke für sie vorbei.
 //
-// Danach kostete ein Stich die HÄLFTE des Korbs, dann vier Früchte. Beides
-// fühlte sich nicht nach dem Vorbild an: ein Stich muss wehtun. Jetzt ist
-// ein Stich wieder das Aus — aber gegen die Sitzordnung von damals helfen
-// zwei Dinge: die Reihenfolge wird mit jeder Ranke neu gemischt, und jeder
-// darf einmal seinen Zug weiterschieben. Wer zuletzt übrig ist, gewinnt;
-// unter Gleichen zählen die Früchte.
-const HONEY_LEAD_MS = 1500;
-// Etwas flotter als zuerst: mit 4,2 s Bedenkzeit und 0,7 s Pause kam jeder in
-// 46 Sekunden nur auf vier Züge — zu wenige Entscheidungen, als dass gutes
-// Zählen sich gegen einen einzigen unglücklichen Stich durchsetzen konnte.
-const HONEY_TURN_MS = 3600;            // so lange hat man Zeit, dann wird eine gepflückt
-const HONEY_TURN_MIN_MS = 2400;
-const HONEY_GAP_MS = 500;              // nach dem Pflücken, bis der Nächste dran ist
-const HONEY_STING_MS = 1500;           // nach einem Stich
-const HONEY_DURATION_MS = 46000;
-const HONEY_VINE = 14;
-const HONEY_GOLD = 3;
-const HONEY_STING_COST = 0;            // ein Stich ist das Aus, die Früchte bleiben im Korb
-const HONEY_PASSES = 1;                // so oft darf jeder seinen Zug weiterschieben
-// Das Gerät zeigt die Bedenkzeit nach der Ankunftszeit beim Server (siehe
-// HoneyVine.js). Was trotzdem knapp danach ankommt, zählt noch: erst nach
-// dieser Frist pflückt der Server von selbst.
+// Wer heimgeht, bringt seinen Korb in Sicherheit und teilt sich mit den
+// anderen, die im selben Moment gehen, die Reste an der Ranke. Wenn alle
+// daheim oder gestochen sind, wächst eine neue Ranke. Bei Sonnenuntergang
+// (Spielende) sticht es alle, die noch am Baum hängen. Gezählt wird, was
+// daheim im Vorrat liegt.
+//
+// Vorher war es das Nim-Spiel aus dem Vorbild: reihum eine oder zwei von
+// unten, wer die Wabe erwischt, ist raus. Alles lag offen, also gab es ein
+// festes Rezept (abzählen, die Wabe dem Nächsten lassen), und wer wann dran
+// war, entschied mit. Jetzt zieht niemand vor dem anderen, und die richtige
+// Wahl hängt davon ab, was die anderen tun: bleiben alle, wird geteilt; geht
+// einer allein, bekommt er alle Reste und das Gold.
+const HONEY_LEAD_MS = 1600;
+const HONEY_DECIDE_MS = 2600;          // höchstens so lange wird entschieden
+const HONEY_DECIDE_MIN_MS = 700;       // so lange mindestens, auch wenn alle schon gewählt haben
+const HONEY_REVEAL_MS = 1250;          // Knospe auf, teilen, heimgehen — bis zur nächsten Wahl
+const HONEY_VINE_GAP_MS = 2000;        // nach einer Ranke, bis die nächste dasteht
+const HONEY_DURATION_MS = 60000;
+const HONEY_DUSK_MS = HONEY_DURATION_MS - 700;   // Sonnenuntergang: wer noch am Baum ist, wird gestochen
+const HONEY_MIN_VINE_MS = 9000;        // eine neue Ranke nur, wenn noch so viel Zeit ist
+const HONEY_FRUITS = [1, 2, 2, 3, 3, 4, 4, 5, 6, 7, 8];
+const HONEY_GOLD = 5;
+const HONEY_NESTS = ["bee", "wasp", "hornet"];
+const HONEY_NESTS_EACH = 3;
+const HONEY_BUDS = HONEY_FRUITS.length + 1 + HONEY_NESTS.length * HONEY_NESTS_EACH;
+// Was knapp nach dem Ende der Wahl ankommt, zählt noch (siehe HoneyVine.js:
+// das Gerät zeigt die Zeit bis zur Ankunft beim Server).
 const HONEY_GRACE_MS = 150;
 
-function buildHoneyVine(seed, number) {
-  const items = [];
-  let nextComb = 2 + Math.floor(noise(seed + number * 97) * 3);      // erste Wabe an Stelle 2 bis 4
-  for (let i = 0; i < HONEY_VINE; i += 1) {
-    if (i === nextComb) {
-      items.push("comb");
-      nextComb = i + 3 + Math.floor(noise(seed + number * 97 + i * 13) * 3);
-    } else {
-      items.push(noise(seed + number * 31 + i * 7) < 0.18 ? "gold" : "fruit");
-    }
+// Die Knospen einer Ranke, gemischt. Die Zusammensetzung ist bekannt (und
+// steht in der Hilfe), nur die Reihenfolge nicht — sie bleibt auf dem Server.
+function buildHoneyDeck(seed, number) {
+  const deck = [
+    ...HONEY_FRUITS.map((value) => ({ kind: "fruit", value })),
+    { kind: "gold", value: HONEY_GOLD },
+    ...HONEY_NESTS.flatMap((nest) => Array.from({ length: HONEY_NESTS_EACH }, () => ({ kind: "nest", nest })))
+  ];
+  for (let i = deck.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(noise(seed + number * 131 + i * 17) * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
   }
-  return items;
+  return deck;
 }
 
-// Die Reihenfolge wird mit jeder neuen Ranke neu gemischt. Bei fester
-// Sitzordnung bekam immer derselbe die Wabe zugeschoben — wer direkt hinter
-// einem Unsicheren sass, gewann gemessen deutlich öfter, egal wie er spielte.
-function honeyOrder(arcade, room) {
-  const ids = room.players.map((player) => player.id).filter((id) => arcade.players[id]);
-  const state = arcade.honey;
-  if (!(state.orderFor === state.vineNumber && state.order?.length === ids.length && ids.every((id) => state.order.includes(id)))) {
-    const order = [...ids];
-    for (let i = order.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(noise(arcade.seed + state.vineNumber * 131 + i * 17) * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
-    }
-    state.order = order;
-    state.orderFor = state.vineNumber;
-  }
-  return state.order;
+function honeyIds(arcade, room) {
+  return room.players.map((player) => player.id).filter((id) => arcade.players[id]);
 }
 
-function honeyAlive(arcade, id) {
-  return Boolean(arcade.players[id] && !arcade.players[id].outAt);
+function honeyAtTree(arcade, room) {
+  return honeyIds(arcade, room).filter((id) => arcade.players[id].at === "tree");
 }
 
-function honeyNextTurn(ctx, afterId, delay, fresh = false) {
+// Eine neue Ranke: alle zurück an den Baum, leere Körbe.
+function honeyStartVine(ctx) {
   const { arcade, room, elapsed } = ctx;
   const state = arcade.honey;
-  const order = honeyOrder(arcade, room);
-  const alive = order.filter((id) => honeyAlive(arcade, id));
-  if (!alive.length) { state.turn = null; return; }
-  // Mit einer neuen Ranke beginnt die neue Reihenfolge vorn — ausser der
-  // Erste wäre der, der gerade gepflückt hat; dann der Zweite. Sonst ist der
-  // nächste Noch-Dabei nach dem, der eben dran war (auch wenn der gerade
-  // ausgeschieden ist).
-  let nextId;
-  if (fresh) {
-    nextId = alive[0] === afterId && alive.length > 1 ? alive[1] : alive[0];
-  } else {
-    const at = order.indexOf(afterId);
-    nextId = alive[0];
-    for (let step = 1; step <= order.length; step += 1) {
-      const candidate = order[(at + step) % order.length];
-      if (honeyAlive(arcade, candidate)) { nextId = candidate; break; }
+  state.vineNumber += 1;
+  arcade.secret.deck = buildHoneyDeck(arcade.seed, state.vineNumber);
+  state.revealed = [];
+  state.budsLeft = arcade.secret.deck.length;
+  state.leftover = 0;
+  state.golds = 0;
+  state.awake = Object.fromEntries(HONEY_NESTS.map((nest) => [nest, false]));
+  state.vineAt = elapsed;
+  state.vineEnd = null;
+  honeyIds(arcade, room).forEach((id) => {
+    const entry = arcade.players[id];
+    entry.at = "tree";
+    entry.basket = 0;
+  });
+  honeyOpenStep(ctx, elapsed + (state.vineNumber === 0 ? 0 : 900));
+}
+
+function honeyOpenStep(ctx, from) {
+  const { arcade } = ctx;
+  const state = arcade.honey;
+  state.steps += 1;
+  state.step = { number: state.steps, from, until: from + HONEY_DECIDE_MS, closed: false };
+  arcade.secret.choices = {};
+  Object.values(arcade.players).forEach((entry) => { entry.decided = false; });
+}
+
+// Die Wahl ist vorbei: erst gehen die Heimgeher (mit Korb und Resten), dann
+// geht für die übrigen die nächste Knospe auf.
+function honeyResolve(ctx) {
+  const { arcade, room, elapsed } = ctx;
+  const state = arcade.honey;
+  const step = state.step;
+  const atTree = honeyAtTree(arcade, room);
+  const choices = arcade.secret.choices || {};
+  const leavers = atTree.filter((id) => choices[id] === "home");
+  const stayers = atTree.filter((id) => choices[id] !== "home");
+  const last = { number: step.number, at: elapsed, leavers, stayers, leftoverShare: 0, goldTo: null, bud: null, share: 0, bust: false, stung: [], vineEnd: false, dusk: false, banked: {} };
+  if (leavers.length) {
+    const share = Math.floor(state.leftover / leavers.length);
+    state.leftover -= share * leavers.length;
+    last.leftoverShare = share;
+    if (leavers.length === 1 && state.golds > 0) {
+      last.goldTo = leavers[0];
+      last.goldCount = state.golds;
     }
+    leavers.forEach((id) => {
+      const entry = arcade.players[id];
+      const gold = last.goldTo === id ? state.golds * HONEY_GOLD : 0;
+      const gained = entry.basket + share + gold;
+      entry.banked += gained;
+      if (gold) entry.golds += state.golds;
+      entry.basket = 0;
+      entry.at = "home";
+      entry.homes += 1;
+      last.banked[id] = gained;
+    });
+    if (last.goldTo) state.golds = 0;
   }
-  const turnMs = Math.max(HONEY_TURN_MIN_MS, HONEY_TURN_MS - state.turns * 50);
-  const from = elapsed + delay;
-  // Kein Zug mehr, der nicht mehr zu Ende gespielt werden kann.
-  if (from + 900 > HONEY_DURATION_MS) {
-    state.turn = null;
+  const deck = arcade.secret.deck;
+  if (stayers.length && deck.length) {
+    const bud = deck.shift();
+    state.budsLeft = deck.length;
+    state.revealed.push(bud);
+    last.bud = bud;
+    if (bud.kind === "fruit") {
+      const share = Math.floor(bud.value / stayers.length);
+      state.leftover += bud.value - share * stayers.length;
+      stayers.forEach((id) => { arcade.players[id].basket += share; });
+      last.share = share;
+    } else if (bud.kind === "gold") {
+      state.golds += 1;
+    } else if (state.awake[bud.nest]) {
+      // Das zweite Nest derselben Sorte: der Schwarm sticht alle am Baum.
+      last.bust = true;
+      stayers.forEach((id) => honeySting(arcade.players[id], elapsed));
+      last.stung = [...stayers];
+    } else {
+      state.awake[bud.nest] = true;
+    }
+  } else if (stayers.length) {
+    // Ranke leergepflückt (kommt kaum vor): alle bringen ihren Korb heim.
+    stayers.forEach((id) => {
+      const entry = arcade.players[id];
+      last.banked[id] = entry.basket;
+      entry.banked += entry.basket;
+      entry.basket = 0;
+      entry.at = "home";
+    });
+  }
+  honeyScore(arcade);
+  state.last = last;
+  state.picks += 1;
+  if (honeyAtTree(arcade, room).length === 0) {
+    last.vineEnd = true;
+    state.step = null;
+    state.vineEnd = elapsed;
+    // Noch Zeit für eine Ranke? Sonst ist Feierabend.
+    if (HONEY_DUSK_MS - (elapsed + HONEY_VINE_GAP_MS) < HONEY_MIN_VINE_MS) state.overAt = elapsed;
     return;
   }
-  state.turn = { playerId: nextId, from, until: Math.min(HONEY_DURATION_MS - 200, from + turnMs), number: state.turns };
-  state.turns += 1;
+  honeyOpenStep(ctx, elapsed + HONEY_REVEAL_MS);
 }
 
-function honeyTake(ctx, player, entry, count) {
-  const { arcade, elapsed } = ctx;
-  const state = arcade.honey;
-  const taken = state.vine.splice(0, Math.min(count, state.vine.length));
-  const stung = taken.includes("comb");
-  const fruits = taken.filter((item) => item !== "comb").reduce((sum, item) => sum + (item === "gold" ? HONEY_GOLD : 1), 0);
-  const dropped = 0;
-  if (stung) {
-    // Gestochen: raus. Die Früchte bleiben im Korb — sie trennen nur noch
-    // die, die gleich lange dabei waren.
-    entry.stings += 1;
-    entry.stungAt = elapsed;
-    entry.outAt = elapsed;
-  } else {
-    entry.fruits += fruits;
-    entry.golds += taken.filter((item) => item === "gold").length;
-  }
-  entry.score = entry.fruits;
-  entry.picks += 1;
-  state.last = { playerId: player.id, taken, stung, dropped, out: stung, gained: stung ? 0 : fruits, at: elapsed, auto: false, number: state.picks };
-  state.picks += 1;
-  // Ranke leer: eine neue wächst nach.
-  let fresh = false;
-  if (state.vine.length === 0) {
-    state.vineNumber += 1;
-    state.vine = buildHoneyVine(arcade.seed, state.vineNumber);
-    state.vineAt = elapsed;
-    fresh = true;
-  }
-  honeyNextTurn(ctx, player.id, stung ? HONEY_STING_MS : HONEY_GAP_MS, fresh);
-  return state.last;
+function honeySting(entry, elapsed) {
+  entry.basket = 0;
+  entry.at = "stung";
+  entry.stings += 1;
+  entry.stungAt = elapsed;
 }
 
-// Einmal im Spiel darf jeder seinen Zug weiterschieben, ohne zu pflücken. Die
-// Ranke bleibt, wie sie ist — der Nächste steht vor genau derselben Lage.
+function honeyScore(arcade) {
+  Object.values(arcade.players).forEach((entry) => { entry.score = entry.banked; });
+}
+
+// Was ein Bot über die Ranke weiss: dasselbe wie jeder am Tisch — welche
+// Knospen offen sind und woraus eine Ranke besteht.
+function honeyOdds(state) {
+  const seen = { fruit: 0, gold: 0, nests: Object.fromEntries(HONEY_NESTS.map((nest) => [nest, 0])) };
+  let fruitSeen = 0;
+  state.revealed.forEach((bud) => {
+    if (bud.kind === "nest") seen.nests[bud.nest] += 1;
+    else if (bud.kind === "fruit") fruitSeen += bud.value;
+    else seen.gold += 1;
+  });
+  const left = Math.max(1, state.budsLeft);
+  const deadly = HONEY_NESTS.reduce((sum, nest) => sum + (state.awake[nest] ? HONEY_NESTS_EACH - seen.nests[nest] : 0), 0);
+  const fruitLeft = HONEY_FRUITS.reduce((sum, value) => sum + value, 0) - fruitSeen;
+  return { risk: deadly / left, fruitPerBud: fruitLeft / left };
+}
+
+// Soll ein Bot heimgehen? Der starke rechnet wie ein guter Spieler: Wie
+// wahrscheinlich sticht es beim nächsten Griff (welche Sorten wach sind und
+// wie viele ihrer Nester noch in den Knospen stecken), was steht auf dem
+// Spiel (der Korb und sein Teil der Reste), und was brächte der Griff,
+// geteilt durch alle am Baum? Der mittlere rechnet nur mit dem Korb und
+// verschätzt sich beim Risiko. Der schwache zählt gar nicht: er geht, wenn
+// ihm der Korb voll genug vorkommt, oder aus Angst, sobald es summt.
 //
-// Ohne den Joker war Honigwabe ein Nim-Spiel, das die Sitzordnung entschied:
-// wer im falschen Abstand zur Wabe dran war, konnte nichts mehr tun. Jetzt
-// ist genau dort eine Entscheidung zu treffen — und wer den Joker für eine
-// harmlose Lage verschwendet, hat ihn nicht mehr, wenn es darauf ankommt.
-function honeyPass(ctx, player, entry) {
-  const { arcade, elapsed } = ctx;
+// Nachgerechnet (Bots gegeneinander, je 300 Spiele): die Reste ganz
+// mitzuzählen trieb zu früh nach Hause, auf das Gold allein loszugehen
+// ebenso. Gierig auf die Reste zu warten, bis man sie allein bekommt, lohnt
+// selten — die anderen rechnen ja mit.
+function honeyBotChoice(arcade, room, player, entry, elapsed) {
   const state = arcade.honey;
-  entry.passes -= 1;
-  state.last = { playerId: player.id, taken: [], stung: false, dropped: 0, gained: 0, at: elapsed, auto: false, passed: true, number: state.picks };
-  state.picks += 1;
-  honeyNextTurn(ctx, player.id, HONEY_GAP_MS);
-  return state.last;
-}
-
-// Wie weit ist die nächste Wabe von unten weg? 0 = ganz unten.
-function honeyCombAt(vine) {
-  const index = vine.indexOf("comb");
-  return index < 0 ? Infinity : index;
-}
-
-// Wie wahrscheinlich trifft die nächste Wabe MICH, wenn ich jetzt `take`
-// nehme? Die anderen spielen dabei so, wie man es am Tisch erwartet: eine
-// Wabe direkt vor sich lassen sie liegen (bei 1 nehmen sie eine, bei 2 zwei),
-// sonst greifen sie zufällig. Ich selbst wähle später wieder das Beste.
-function honeyRisk(distance, take, players) {
-  if (take > distance) return 1;                     // ich griffe selbst in die Wabe
-  if (!Number.isFinite(distance)) return 0;          // keine Wabe mehr an der Ranke
-  const memo = new Map();
-  const f = (d, turn) => {
-    if (d === 0) return turn === 0 ? 1 : 0;
-    const key = d * 8 + turn;
-    if (memo.has(key)) return memo.get(key);
-    const next = (turn + 1) % players;
-    let value;
-    if (turn === 0) value = Math.min(...[1, 2].filter((c) => c <= d).map((c) => f(d - c, next)));
-    else if (d <= 2) value = f(0, next);
-    else value = 0.5 * f(d - 1, next) + 0.5 * f(d - 2, next);
-    memo.set(key, value);
-    return value;
-  };
-  return f(distance - take, 1 % players);
-}
-
-function honeyGain(vine, take) {
-  return vine.slice(0, take).reduce((sum, item) => sum + (item === "gold" ? HONEY_GOLD : item === "fruit" ? 1 : 0), 0);
+  const atTree = honeyAtTree(arcade, room).length;
+  const odds = honeyOdds(state);
+  const tail = HONEY_DUSK_MS - elapsed < HONEY_DECIDE_MS + HONEY_REVEAL_MS + 600;
+  const lvl = level(entry);
+  if (lvl === "easy") {
+    entry.botWant ??= 6 + Math.floor(Math.random() * 16);
+    if (tail) return Math.random() < 0.5;
+    if (entry.basket >= entry.botWant) { entry.botWant = 6 + Math.floor(Math.random() * 16); return true; }
+    return false;
+  }
+  if (tail) return true;
+  const gain = (1 - odds.risk) * odds.fruitPerBud / Math.max(1, atTree);
+  const rest = (state.leftover + state.golds * HONEY_GOLD) / Math.max(1, atTree);
+  if (lvl === "normal") {
+    const risk = Math.min(1, odds.risk * (0.4 + Math.random() * 1.2));
+    return risk * (entry.basket + rest) * entry.botGreed > (1 - risk) * odds.fruitPerBud / Math.max(1, atTree);
+  }
+  // Je mehr am Tisch, desto vorsichtiger: geteilt wird durch mehr Köpfe,
+  // verloren geht im Stich aber der ganze eigene Korb. Nachgemessen zu viert
+  // lag das Optimum knapp beim Doppelten, zu zweit beim Einfachen.
+  const caution = 1 + 0.45 * Math.max(0, honeyIds(arcade, room).length - 2);
+  return odds.risk * (entry.basket + rest) * entry.botGreed * caution > gain;
 }
 
 const honey = {
-  cooldown: 120,
+  cooldown: 0,
   fastHand: false,
-  create(arcade, players) {
+  create(arcade) {
+    arcade.secret = { deck: [], choices: {} };
     arcade.honey = {
-      vine: buildHoneyVine(arcade.seed, 0),
-      vineNumber: 0,
-      vineAt: 0,
-      turns: 0,
-      picks: 0,
-      turn: null,
-      last: null,
       leadMs: HONEY_LEAD_MS,
-      gold: HONEY_GOLD,
-      turnMs: HONEY_TURN_MS,
+      decideMs: HONEY_DECIDE_MS,
+      revealMs: HONEY_REVEAL_MS,
       graceMs: HONEY_GRACE_MS,
-      stingCost: HONEY_STING_COST
+      duskMs: HONEY_DUSK_MS,
+      gold: HONEY_GOLD,
+      buds: HONEY_BUDS,
+      nests: HONEY_NESTS,
+      nestsEach: HONEY_NESTS_EACH,
+      vineNumber: -1,
+      vineAt: 0,
+      vineEnd: null,
+      revealed: [],
+      budsLeft: HONEY_BUDS,
+      leftover: 0,
+      golds: 0,
+      awake: Object.fromEntries(HONEY_NESTS.map((nest) => [nest, false])),
+      steps: 0,
+      step: null,
+      picks: 0,
+      last: null,
+      overAt: null
     };
     Object.values(arcade.players).forEach((entry) => {
-      entry.fruits = 0;
+      entry.at = "tree";
+      entry.basket = 0;
+      entry.banked = 0;
       entry.golds = 0;
-      entry.picks = 0;
       entry.stings = 0;
+      entry.homes = 0;
       entry.stungAt = null;
-      entry.passes = HONEY_PASSES;
+      entry.decided = false;
+      entry.choices = 0;
       entry.score = 0;
     });
   },
   input(ctx, player, entry, input) {
-    const currentTurn = ctx.arcade.honey.turn;
-    if (currentTurn && ctx.elapsed >= currentTurn.until + HONEY_GRACE_MS) {
-      honey.update(ctx);
-      return { ok: true };
+    if (input.action !== "stay" && input.action !== "home") return { ok: false, error: "Weiter oder heim?" };
+    const state = ctx.arcade.honey;
+    const step = state.step;
+    if (!step || step.closed || entry.at !== "tree") return { ok: true };
+    if (ctx.elapsed < step.from || ctx.elapsed > step.until + HONEY_GRACE_MS) return { ok: true };
+    // Bis zum Ende der Wahl darf man es sich anders überlegen.
+    ctx.arcade.secret.choices[player.id] = input.action;
+    entry.decided = true;
+    entry.choices += 1;
+    // Haben alle am Baum gewählt, geht es gleich weiter.
+    const atTree = honeyAtTree(ctx.arcade, ctx.room);
+    if (atTree.every((id) => ctx.arcade.players[id].decided)) {
+      step.until = Math.max(step.from + HONEY_DECIDE_MIN_MS, Math.min(step.until, ctx.elapsed));
     }
-    if (input.action === "pass") {
-      const turn = ctx.arcade.honey.turn;
-      if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
-      if ((entry.passes || 0) <= 0) return { ok: false, error: "Du hast schon geschoben." };
-      if (ctx.elapsed < turn.from) return { ok: true };
-      honeyPass(ctx, player, entry);
-      return { ok: true };
-    }
-    if (input.action !== "take" || ![1, 2].includes(inputNumber(input.count))) return { ok: false, error: "Eine oder zwei nehmen." };
-    const turn = ctx.arcade.honey.turn;
-    if (!turn || turn.playerId !== player.id) return { ok: false, error: "Du bist nicht dran." };
-    if (ctx.elapsed < turn.from) return { ok: true };
-    honeyTake(ctx, player, entry, inputNumber(input.count));
+    if (ctx.elapsed >= step.until) honey.update(ctx);
     return { ok: true };
   },
   update(ctx) {
     const { arcade, room, elapsed } = ctx;
     const state = arcade.honey;
-    if (!state.turn && state.turns === 0 && elapsed >= HONEY_LEAD_MS) {
-      honeyNextTurn(ctx, null, 0, true);
+    if (state.overAt !== null) return;
+    if (state.vineNumber < 0) {
+      if (elapsed >= HONEY_LEAD_MS) honeyStartVine(ctx);
+      return;
     }
-    const turn = state.turn;
-    if (turn && elapsed >= turn.until + HONEY_GRACE_MS) {
-      // Zeit um: eine wird gepflückt, ob man will oder nicht.
-      const player = room.players.find((p) => p.id === turn.playerId);
-      const entry = player && arcade.players[player.id];
-      if (entry) {
-        honeyTake(ctx, player, entry, 1);
-        state.last.auto = true;
-      } else {
-        honeyNextTurn(ctx, turn.playerId, 0);
+    // Sonnenuntergang: wer jetzt noch am Baum hängt, wird gestochen.
+    if (elapsed >= HONEY_DUSK_MS) {
+      const caught = honeyAtTree(arcade, room);
+      caught.forEach((id) => honeySting(arcade.players[id], elapsed));
+      honeyScore(arcade);
+      state.last = { number: (state.step?.number ?? state.steps), at: elapsed, leavers: [], stayers: caught, leftoverShare: 0, goldTo: null, bud: null, share: 0, bust: caught.length > 0, stung: caught, vineEnd: true, dusk: true, banked: {} };
+      state.picks += 1;
+      state.step = null;
+      state.overAt = elapsed;
+      return;
+    }
+    const step = state.step;
+    if (step) {
+      // Wer gerade erst dazukam oder nichts mehr wählen kann (nicht am Baum),
+      // hält nichts auf; offen ist die Wahl bis `until` (+ Schonfrist, ausser
+      // es haben schon alle gewählt).
+      const atTree = honeyAtTree(arcade, room);
+      const all = atTree.length > 0 && atTree.every((id) => arcade.players[id].decided);
+      if (elapsed >= step.until + (all ? 0 : HONEY_GRACE_MS)) {
+        step.closed = true;
+        honeyResolve(ctx);
       }
+      return;
     }
+    if (state.vineEnd !== null && elapsed >= state.vineEnd + HONEY_VINE_GAP_MS) honeyStartVine(ctx);
   },
   bot(ctx, player, entry) {
     const { arcade, room, elapsed } = ctx;
     const state = arcade.honey;
-    const turn = state.turn;
-    if (!turn || turn.playerId !== player.id || elapsed < turn.from) return null;
-    if (entry.botTurn !== turn.number) {
-      entry.botTurn = turn.number;
-      entry.botAt = turn.from + byLevel(entry, 1300, 950, 700) + Math.random() * 600;
-      const k = honeyCombAt(state.vine);
-      const players = Math.max(1, room.players.length);
-      entry.botPass = false;
-      if ((entry.passes || 0) > 0 && players > 1) {
-        // Der Joker: der starke hebt ihn für die Wabe direkt vor sich auf, spät
-        // im Spiel auch für die verlorene Lage drei davor. Der mittlere
-        // erkennt nur die Wabe direkt vor sich, und nicht immer; der schwache
-        // schiebt irgendwann, wenn ihm gerade danach ist.
-        const late = elapsed > HONEY_DURATION_MS * 0.55;
-        if (level(entry) === "hard") entry.botPass = k === 0 || (late && k === 3);
-        else if (level(entry) === "normal") entry.botPass = k === 0 && Math.random() < 0.7;
-        else entry.botPass = Math.random() < 0.18;
-      }
-      let count;
-      if (k === 0) count = 1;                                   // verloren, so oder so
-      else if (level(entry) === "hard") {
-        // Gewinn gegen Risiko: ein Stich ist das Aus — dagegen wiegen ein
-        // paar Früchte nichts.
-        const loss = 40;
-        const value = (c) => (c > k ? -Infinity : honeyGain(state.vine, c) - honeyRisk(k, c, players) * loss);
-        const one = value(1);
-        const two = value(2);
-        count = Math.abs(one - two) < 0.05 ? 1 + Math.floor(Math.random() * 2) : one > two ? 1 : 2;
-      } else if (k === 1) count = 1;                            // die Wabe dem Nächsten lassen
-      else if (k === 2) count = 2;
-      else if (level(entry) === "normal" && state.vine[1] === "gold") count = 2;
-      else count = 1 + Math.floor(Math.random() * 2);
-      // Der schwache greift manchmal daneben, der mittlere selten.
-      if (k === 1 && Math.random() < byLevel(entry, 0.3, 0.08, 0)) count = 2;
-      if (k === 2 && Math.random() < byLevel(entry, 0.35, 0.15, 0)) count = 1;
-      entry.botCount = count;
+    const step = state.step;
+    if (!step || entry.at !== "tree" || elapsed < step.from) return null;
+    if (entry.botStep !== step.number) {
+      entry.botStep = step.number;
+      entry.botAt = step.from + byLevel(entry, 900, 650, 450) + Math.random() * 900;
+      entry.botGreed ??= 0.85 + Math.random() * 0.3;
+      entry.botChoice = honeyBotChoice(arcade, room, player, entry, elapsed) ? "home" : "stay";
     }
-    if (elapsed < entry.botAt) return null;
-    if (entry.botPass && (entry.passes || 0) > 0) return { action: "pass" };
-    return { action: "take", count: entry.botCount };
+    if (elapsed < entry.botAt || entry.decided) return null;
+    return { action: entry.botChoice };
   },
   rank(arcade, entry) {
-    // Wer länger dabei ist, liegt vorn; unter Gleichen zählen die Früchte.
-    const stayed = entry.outAt == null ? HONEY_DURATION_MS + 1000 : entry.outAt;
-    return Math.round(stayed) * 1000 + Math.min(999, entry.fruits || 0);
+    // Was daheim liegt; bei Gleichstand das meiste Gold, dann die wenigsten Stiche.
+    return Math.max(0, entry.banked || 0) * 1000 + Math.min(9, entry.golds || 0) * 100 + Math.max(0, 99 - (entry.stings || 0));
   },
   detail(arcade, entry) {
-    return entry.outAt != null
-      ? { kind: "out", value: entry.fruits || 0, label: "Früchte" }
-      : { kind: "points", value: entry.fruits || 0, label: "Früchte" };
+    return { kind: "points", value: entry.banked || 0, label: "Äpfel" };
   },
   done(ctx) {
-    // Zuletzt einer übrig: entschieden. Allein spielt man bis zum Stich.
-    const entries = Object.values(ctx.arcade.players);
-    const alive = entries.filter((entry) => !entry.outAt).length;
-    return entries.length > 1 ? alive <= 1 : alive === 0;
+    const state = ctx.arcade.honey;
+    return state.overAt !== null && ctx.elapsed >= state.overAt + 1600;
   }
 };
 
@@ -3422,7 +3462,8 @@ module.exports = {
     TUG_IMPULSE, TUG_MIN_TAP_MS,
     FACE_HANDLES, FACE_ROUNDS, FACE_LEAD_MS, FACE_SHOW_MS, FACE_SHAPE_MS, FACE_REVEAL_MS, FACE_CYCLE_MS, FACE_GRACE_MS,
     FLAG_LEAD_MS, FLAG_LIVES, FLAG_DURATION_MS, FLAG_GRACE_MS, FLAG_PUBLISH_LEAD_MS, FLAG_MIN_PRESS_MS,
-    HONEY_LEAD_MS, HONEY_TURN_MS, HONEY_GAP_MS, HONEY_STING_MS, HONEY_VINE, HONEY_GOLD, HONEY_STING_COST, HONEY_GRACE_MS,
+    HONEY_LEAD_MS, HONEY_DECIDE_MS, HONEY_DECIDE_MIN_MS, HONEY_REVEAL_MS, HONEY_VINE_GAP_MS, HONEY_DURATION_MS, HONEY_DUSK_MS,
+    HONEY_MIN_VINE_MS, HONEY_FRUITS, HONEY_GOLD, HONEY_NESTS, HONEY_NESTS_EACH, HONEY_BUDS, HONEY_GRACE_MS,
     SNOW_R0, SNOW_R_END, SNOW_MIN_SIZE, SNOW_BODY_R, SNOW_STEP_MS, SNOW_GROW, SNOW_DASH_MS, SNOW_DASH_COOLDOWN_MS, SNOW_SLIDE_MS, SNOW_DURATION_MS,
     HOCKEY_W, HOCKEY_L, HOCKEY_GOAL, HOCKEY_WIN, HOCKEY_PUCK_R, HOCKEY_MALLET_R, HOCKEY_SERVE_MS, HOCKEY_STEP_MS, HOCKEY_LANE_STURM, HOCKEY_LANE_ABWEHR,
     HOCKEY_AIM_SPEED, HOCKEY_AIM_GAIN, HOCKEY_AIM_ACCEL,
@@ -3461,9 +3502,8 @@ module.exports = {
   hockeyLimits,
   bookStep,
   photoStep,
-  buildHoneyVine,
-  honeyCombAt,
-  honeyRisk,
+  buildHoneyDeck,
+  honeyOdds,
   buildFlagCommands,
   activeFlagCommand,
   faceTarget,
