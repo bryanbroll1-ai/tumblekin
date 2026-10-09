@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin211";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin211";
-import { bindHoldInput } from "./HoldInput.js?v=tumblekin211";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
+import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin212";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin212";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin212";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin212";
 
 // Lichtwächter — "Ochs am Berg": halten heisst laufen. Solange der Riese am
 // Ende der Wiese wegschaut und summt, ist Grün. Bevor er sich umdreht, sieht

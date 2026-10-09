@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin211";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin211";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { frameLerp } from "./Quality.js?v=tumblekin211";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
+import { createCloud } from "./VoxelKit.js?v=tumblekin212";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin212";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
+import { frameLerp } from "./Quality.js?v=tumblekin212";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin212";
 
 // Turmbau: wie bei den Stapelspielen gleitet der nächste Block direkt auf der
 // nächsten Ebene über den Turm hin und her, ein Tipp setzt ihn ab. Was

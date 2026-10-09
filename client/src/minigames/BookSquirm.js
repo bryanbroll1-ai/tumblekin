@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { KIN_SOLE } from "./VoxelKit.js?v=tumblekin211";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin211";
-import { frameLerp } from "./Quality.js?v=tumblekin211";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
-import { forecastBook } from "./Buchseite.js?v=tumblekin211";
+import { KIN_SOLE } from "./VoxelKit.js?v=tumblekin212";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin212";
+import { frameLerp } from "./Quality.js?v=tumblekin212";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin212";
+import { forecastBook } from "./Buchseite.js?v=tumblekin212";
 
 // Bücherwurm — alle stehen auf der aufgeschlagenen Seite eines Riesenbuchs,
 // das auf einem Schreibtisch liegt. Hinten richtet sich die nächste Seite

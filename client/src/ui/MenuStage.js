@@ -10,10 +10,10 @@ import {
   setKinOpacity,
   finalePose,
   noise
-} from "../minigames/VoxelKit.js?v=tumblekin211";
-import { qualityTier, prefersReducedMotion, frameLerp } from "../minigames/Quality.js?v=tumblekin211";
-import { entflechteSchilder } from "../minigames/SceneKit.js?v=tumblekin211";
-import { verblocke } from "../minigames/Blockform.js?v=tumblekin211";
+} from "../minigames/VoxelKit.js?v=tumblekin212";
+import { qualityTier, prefersReducedMotion, frameLerp } from "../minigames/Quality.js?v=tumblekin212";
+import { entflechteSchilder } from "../minigames/SceneKit.js?v=tumblekin212";
+import { verblocke } from "../minigames/Blockform.js?v=tumblekin212";
 
 // Die Bühne hinter den Menüs.
 //

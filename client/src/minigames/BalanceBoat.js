@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { frameLerp } from "./Quality.js?v=tumblekin211";
-import { kiste, lambert, viele, streuer, himmel, wolken } from "./Kulisse.js?v=tumblekin211";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
+import { frameLerp } from "./Quality.js?v=tumblekin212";
+import { kiste, lambert, viele, streuer, himmel, wolken } from "./Kulisse.js?v=tumblekin212";
 
 // Kippboot — eine Südsee-Lagune. Über einem Ruderboot spannt sich eine
 // Kranbrücke; an ihr fährt eine Laufkatze hin und her, und am Haken hängt der

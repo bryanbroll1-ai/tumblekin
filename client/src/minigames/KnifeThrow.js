@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin211";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin211";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { frameLerp } from "./Quality.js?v=tumblekin211";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
+import { createCloud } from "./VoxelKit.js?v=tumblekin212";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin212";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
+import { frameLerp } from "./Quality.js?v=tumblekin212";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin212";
 
 // Messerwurf — wie die bekannten Handyspiele: vor dir dreht sich DEIN Stamm,
 // jeder Tipp wirft ein Messer von unten hinein. Sind alle Messer drin,

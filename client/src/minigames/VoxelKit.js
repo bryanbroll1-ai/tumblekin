@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin211";
+import { fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin212";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 //
@@ -17,7 +17,7 @@ export {
   finalePose,
   applyFinaleMood,
   reachArm
-} from "./Kin.js?v=tumblekin211";
+} from "./Kin.js?v=tumblekin212";
 
 // Weicher Kontaktschatten: eine runde Scheibe mit Verlauf nach aussen. Der
 // frühere Schatten war ein Quader mit harter Kante — unter jeder Figur lag ein

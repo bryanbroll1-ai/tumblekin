@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin211";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { frameLerp } from "./Quality.js?v=tumblekin211";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
-import "./SketchFigures.js?v=tumblekin211";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin212";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
+import { frameLerp } from "./Quality.js?v=tumblekin212";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin212";
+import "./SketchFigures.js?v=tumblekin212";
 
 // Spurmaler: ein riesiger Bleistift zeichnet auf der Staffelei eine Figur
 // vor — Welle, Herz, Stern, Blitz, Schnecke, das Haus vom Nikolaus … Danach

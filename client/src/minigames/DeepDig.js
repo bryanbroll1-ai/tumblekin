@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin211";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin211";
-import { eventChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin211";
-import { airToSurface, forecastDiver, jellyAt, timeToSurface } from "./Tauchgang.js?v=tumblekin211";
+import { createCloud } from "./VoxelKit.js?v=tumblekin212";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin212";
+import { eventChance, frameLerp, fxScale } from "./Quality.js?v=tumblekin212";
+import { airToSurface, forecastDiver, jellyAt, timeToSurface } from "./Tauchgang.js?v=tumblekin212";
 
 // Tiefenrausch: tauchen mit dem Stick. Gold liegt im ganzen Schacht, je tiefer
 // desto wertvoller, ganz unten eine Truhe. Die Luft sinkt — unten schneller —,
