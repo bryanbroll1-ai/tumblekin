@@ -139,6 +139,24 @@ export class Feedback {
         { noise: true, duration: 0.045, gain: 0.026 },
         tone(230, 150, 0.09, "triangle", 0.03)
       ],
+      // Luftpuck: der Puck klickt hell gegen die Bande.
+      bank: [
+        { noise: true, duration: 0.03, gain: 0.012, filterStart: 3200, filterEnd: 900 },
+        tone(700, 460, 0.07, "triangle", 0.016)
+      ],
+      // Torhupe wie in der Eishalle: tief, breit, ein Stück lang.
+      horn: [
+        { ...tone(233, 226, 0.8, "sawtooth", 0.02), attack: 0.03 },
+        { ...tone(117, 113, 0.8, "square", 0.011), attack: 0.03 },
+        { ...tone(349, 342, 0.65, "triangle", 0.01, 0.04), attack: 0.03 }
+      ],
+      // Publikum: ein Rauschen, das anschwillt, darin ein paar Rufe.
+      cheer: [
+        { noise: true, duration: 1.2, gain: 0.026, filterStart: 2600, filterEnd: 800 },
+        { noise: true, duration: 0.9, gain: 0.018, filterStart: 1900, filterEnd: 600, offset: 0.16 },
+        tone(520, 780, 0.28, "sine", 0.007, 0.08),
+        tone(660, 940, 0.26, "sine", 0.006, 0.3)
+      ],
       drop: [tone(520, 210, 0.12, "sine", 0.024)],
       whoosh: [
         { noise: true, duration: 0.2, gain: 0.016 },

@@ -1,9 +1,9 @@
-import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin213";
-import { UIManager } from "./ui/UIManager.js?v=tumblekin213";
-import { MenuStage } from "./ui/MenuStage.js?v=tumblekin213";
-import { Feedback } from "./game/Feedback.js?v=tumblekin213";
-import { ButtonFeedback } from "./game/ButtonFeedback.js?v=tumblekin213";
-import { MINIGAME_SCENES as MINIGAMES } from "./minigames/scenes.js?v=tumblekin213";
+import { ClientNetwork } from "./network/ClientNetwork.js?v=tumblekin214";
+import { UIManager } from "./ui/UIManager.js?v=tumblekin214";
+import { MenuStage } from "./ui/MenuStage.js?v=tumblekin214";
+import { Feedback } from "./game/Feedback.js?v=tumblekin214";
+import { ButtonFeedback } from "./game/ButtonFeedback.js?v=tumblekin214";
+import { MINIGAME_SCENES as MINIGAMES } from "./minigames/scenes.js?v=tumblekin214";
 
 // socket.io kommt als eigenes Skript vom Server. Fehlt es, würde
 // `new ClientNetwork()` beim Laden werfen — der Startbildschirm stünde schon im

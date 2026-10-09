@@ -2622,6 +2622,55 @@ canvas.is-stunned {
   font-size: 0.9rem;
 }
 
+/* Wer gerade getroffen hat: die Zahl springt kurz auf. */
+.hockey-goals.is-bump {
+  animation: hockey-bump 650ms cubic-bezier(.2, 1.6, .4, 1);
+}
+
+@keyframes hockey-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.7); background: #ffffff; color: #1b1630; }
+  100% { transform: scale(1); }
+}
+
+/* Tor: das Bild leuchtet vom getroffenen Tor her in der Farbe der Schützen. */
+.hockey-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 90% 60% at 50% var(--flash-y, 50%), var(--flash, #ffffff) 0%, transparent 72%);
+  opacity: 0;
+}
+
+.hockey-flash.is-on {
+  animation: hockey-flash 700ms ease-out forwards;
+}
+
+@keyframes hockey-flash {
+  from { opacity: 0.55; }
+  to { opacity: 0; }
+}
+
+/* Der Finger wischt irgendwo: ein Ring zeigt, dass es ankommt. */
+.hockey-touch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  border: 3px solid var(--touch, #ffffff);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 70%);
+  box-shadow: 0 0 18px var(--touch, #ffffff);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hockey-goals.is-bump { animation: none; }
+}
+
 /* Schnappschuss: Blitz über dem ganzen Bild und ein Polaroid mit allen, die
    drauf sind. */
 .photo-flash {

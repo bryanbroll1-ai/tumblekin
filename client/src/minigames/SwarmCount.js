@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin213";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin214";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
 
 // Augenmaß: auf einer Sommerwiese schwirren kurz Tiere herum — wie viele
 // waren es? Geschätzt wird mit dem Schieber.

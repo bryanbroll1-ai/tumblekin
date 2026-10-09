@@ -34,8 +34,9 @@ function inspectLayout() {
   const scene = window.__tumblekinScene;
   const visible = el => !el.hidden && el.getClientRects().length &&
     getComputedStyle(el).visibility !== 'hidden';
-  // Speed lines, camera flash and flying reward coins intentionally cover the HUD.
-  const decorative = '[data-runner-speed], [data-photo-flash], .coin-fly';
+  // Speed lines, camera and goal flashes, the air-hockey finger ring and flying
+  // reward coins intentionally cover the HUD.
+  const decorative = '[data-runner-speed], [data-photo-flash], [data-hockey-flash], [data-hockey-touch], .coin-fly';
   const items = [...document.querySelectorAll(
     '.kinetic-hud > *, #minigame-controls > *, #minigame-controls button, .kinetic-hud button'
   )].filter(visible).filter(el => !el.matches(decorative)).map(el => ({

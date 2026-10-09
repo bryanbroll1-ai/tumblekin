@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createKin, KinAnimator, reachArm, KIN_SOLE } from "./VoxelKit.js?v=tumblekin213";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
-import { frameLerp } from "./Quality.js?v=tumblekin213";
-import { kiste, lambert, viele, streuer, wolken, himmel } from "./Kulisse.js?v=tumblekin213";
+import { createKin, KinAnimator, reachArm, KIN_SOLE } from "./VoxelKit.js?v=tumblekin214";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
+import { frameLerp } from "./Quality.js?v=tumblekin214";
+import { kiste, lambert, viele, streuer, wolken, himmel } from "./Kulisse.js?v=tumblekin214";
 
 // Flaggen hoch — auf dem Deck eines Segelschiffs. Oben auf der Brücke steht
 // der Käpt'n mit einer roten und einer blauen Signalflagge. Ruft er „Käpt'n

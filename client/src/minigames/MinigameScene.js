@@ -11,12 +11,12 @@ import {
   applyFinaleMood,
   setKinOpacity,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin213";
-import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin213";
-import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin213";
-import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin213";
-import { frameChance } from "./Quality.js?v=tumblekin213";
-import { verblocke } from "./Blockform.js?v=tumblekin213";
+} from "./VoxelKit.js?v=tumblekin214";
+import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin214";
+import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin214";
+import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin214";
+import { frameChance } from "./Quality.js?v=tumblekin214";
+import { verblocke } from "./Blockform.js?v=tumblekin214";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 

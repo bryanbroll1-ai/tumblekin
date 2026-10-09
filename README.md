@@ -95,7 +95,7 @@ Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Ku
 - Flaggen hoch — Segelschiff auf See
 - Honigwabe — Bienengarten unter einem Apfelbaum
 - Schneeballhang — rundes Eisplateau auf dem Gipfel, ringsum der verschneite Hang
-- Luftpuck — Neon-Spielhalle mit Discokugel
+- Luftpuck — Glow-Hockey-Tisch in der Neon-Spielhalle, Publikum auf Tribünen, Scheinwerfer und Discokugel
 - Bücherwurm — Riesenbuch auf dem Schreibtisch
 - Schnappschuss — Premiere auf dem roten Teppich
 - Kippboot — Südsee-Lagune mit Kranbrücke
@@ -219,9 +219,9 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Schneeballhang:** Gipfelschubsen auf einem runden Eisplateau: Roll mit dem Stick eine Schneekugel vor dir her — sie wächst und macht dich schwer. Fahr damit in die anderen und stoss sie über den Rand; SCHWUNG gibt einen kurzen Antritt. Wer gestossen wird, rutscht übers Eis. Wer runterfällt, ist raus. Ab der Hälfte bröckelt der Rand. Wer zuletzt oben steht, gewinnt; danach zählt, wer länger oben war.
 - **Schnappschuss:** Premiere auf dem roten Teppich! Der Fotograf zeigt einen Bildausschnitt auf der Bühne, zählt herunter und blitzt. Wer im Ausschnitt steht, ist auf dem Foto (10 Punkte), wer der Mitte am nächsten ist, aufs Titelbild (+10 — der Stern zeigt, wer es gerade wäre), und wer ganz allein drauf ist, bekommt noch 5. Wer zuerst in der Mitte steht, hält sie im Gedränge. Herausholen kann ihn nur SCHUBS: du schnellst nach vorn, und wen du rammst, der fliegt aus dem Bild.
 
-### ☝️↔ Mit dem Finger ziehen
+### 👆✳️ Irgendwo wischen, Schläger folgt
 
-- **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du bist ein Airhockey-Schläger in deiner Farbe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Zieh deinen Schläger mit dem Finger über den Tisch — er folgt dir, knapp über dem Finger. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
+- **Luftpuck:** Airhockey in der Neonhalle, zwei gegen zwei. Du bist ein Airhockey-Schläger in deiner Farbe und bleibst in deiner Hälfte — im Zweierteam in deiner Zone: Sturm vorn, Abwehr hinten (sie leuchtet auf dem Tisch). Wisch irgendwo über den Bildschirm, gern unterhalb des Tisches — dein Schläger macht die Bewegung mit, ohne dass dein Finger ihn verdeckt. Von hinten angelaufen schiesst du am härtesten. Dein Tor ist das in deiner Teamfarbe. Wer zuerst fünf Tore hat, gewinnt — sonst zählt der Stand am Ende.
 
 ### 👀👆 Mit den Augen folgen, dann tippen
 

@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin213";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
-import { frameLerp } from "./Quality.js?v=tumblekin213";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin214";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
+import { frameLerp } from "./Quality.js?v=tumblekin214";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
 
 // Grimassen: oben hängt ein Gesicht im Goldrahmen, das ein Gefühl zeigt —
 // darüber steht, welches: WÜTEND, ÜBERRASCHT, VERSCHMITZT … Davor steht die

@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
-import { frameLerp } from "./Quality.js?v=tumblekin213";
-import { himmel, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin213";
-import { Nachlauf } from "./Nachlauf.js?v=tumblekin213";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
+import { frameLerp } from "./Quality.js?v=tumblekin214";
+import { himmel, kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin214";
+import { Nachlauf } from "./Nachlauf.js?v=tumblekin214";
 
 // Eisstock: nach vorn wischen schiebt den Stein los — länger heisst weiter.
 // Wer seine Steine am nächsten ans Zentrum bringt, gewinnt.

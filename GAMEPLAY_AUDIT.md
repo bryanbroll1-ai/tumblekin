@@ -126,3 +126,15 @@ Grundlage war eine Bildreihe aller 40 Spiele (früh, Mitte, spät, Finale, Ergeb
 | Lobby | „Mehr“ klappte unter dem Startknopf auf. | Die Karte scrollt mit. |
 | Spielauswahl | Die drei Schalter standen je in einer eigenen Zeile. | Kompakt in einer Zeile. |
 | Startkarte | Vor dem Bereit-Melden graue Fläche. | Himmel der Lobby. |
+
+## Nachtrag 10. Oktober 2026: Luftpuck lebendiger, Schläger relativ
+
+| Bereich | Befund | Änderung |
+| --- | --- | --- |
+| Steuerung | Der Schläger sprang unter den Finger; der Finger verdeckte genau die Stelle, an der der Puck ankam. | Relativ: Finger irgendwo aufsetzen (gern unter dem Tisch), der Schläger macht die Bewegung mit (×1,25). Kein Sprung beim Aufsetzen; am Zonenrand wird der Anker nachgezogen, die Gegenrichtung greift sofort. Ein Ring zeigt den Finger. |
+| Optik | Heller Tisch in leerer Halle, ausser dem Puck bewegte sich kaum etwas. | Dunkler Glow-Hockey-Tisch mit leuchtenden Linien; Puck in der Farbe des letzten Schützen mit Schein und Leuchtspur; Lauflicht um den Tisch; zwei Scheinwerfer; Luftteilchen über den Düsen. |
+| Treffer | Ein paar Würfel beim Stoss. | Funken in Stossrichtung, Schockwelle, Lichtfleck, Schläger blitzt; harte Schüsse rütteln das Bild. Banden blitzen an der Aufprallstelle und klicken. |
+| Tore | Pop und Würfel. | Puck versinkt im Schlitz, Konfetti aus beiden Ecken, Feuerwerk, Lauflicht und Scheinwerfer in Teamfarbe, Torhupe und Jubel, Bildschirmblitz, springende Zahl, Banner mit Torschütze; „Matchball“ und „Letzte 10 Sekunden“. |
+| Publikum | Keins. | Tribünen links (Team vorn) und rechts (Team hinten), gemischte Reihen hinter dem Tor: Köpfe folgen dem Puck, Fans springen bei Toren ihres Teams auf, die anderen lassen die Köpfe hängen. |
+
+Kosten: 145 statt 117 Zeichenaufrufe (Publikum, Funken und Konfetti je eine InstancedMesh), Bildzeit im Mittel 4,3 statt 3,3 ms — gleichauf mit Kippboot.
