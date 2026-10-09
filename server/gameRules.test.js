@@ -1782,13 +1782,42 @@ test("messerwurf: jeder hat seinen eigenen Stamm, freie Würfe stecken", () => {
   entry.lastInputAt = 0;
   handleArcadeInput(room, one, { action: "throw" });
   assert.equal(entry.clashes, 1, "dieselbe Stelle ist ein Treffer auf ein Messer");
-  assert.equal(entry.knivesLeft, 0, "der Stamm ist verloren");
-  assert.ok(entry.stunUntil > Date.now(), "kurz gesperrt");
-  // Während der Sperre zählt nichts.
+  // Wie im Vorbild: getroffen heisst raus — die Punkte bleiben.
+  assert.ok(entry.outAt, "wer ein Messer trifft, ist raus");
+  assert.equal(entry.points, 1, "die gesammelten Punkte bleiben stehen");
+  // Danach zählt kein Wurf mehr, auch nicht nach der Sperre.
   entry.lastThrowAt = 0;
   entry.lastInputAt = 0;
+  entry.stunUntil = 0;
   handleArcadeInput(room, one, { action: "throw" });
-  assert.equal(entry.throws, 2, "gesperrt wird nicht geworfen");
+  assert.equal(entry.throws, 2, "raus wird nicht mehr geworfen");
+});
+
+test("messerwurf: ruckartige Stämme stoppen und drehen um, der fünfte ist ein Boss", () => {
+  const steps = testRules.KNIFE_STAGES.find((stage) => stage.spin.kind === "steps").spin;
+  // Die Folge: [2.6 rad/s, 900 ms], [0, 380 ms], [-2.2, 700 ms], ...
+  const at = (ms) => testRules.knifeStepsAngle(steps.steps, ms / 1000);
+  assert.ok(at(800) - at(700) > 0, "erst vorwärts");
+  assert.ok(Math.abs(at(1200) - at(1100)) < 1e-9, "dann ein abrupter Stopp");
+  assert.ok(at(1600) - at(1500) < 0, "dann zurück");
+  // Geschlossen gerechnet: nach einer ganzen Periode geht es genauso weiter.
+  const period = steps.steps.reduce((sum, [, ms]) => sum + ms, 0);
+  const shift = at(period + 300) - at(300);
+  assert.ok(Math.abs(shift - (at(period) - at(0))) < 1e-9, "periodisch");
+  const boss = testRules.KNIFE_STAGES.findIndex((stage) => stage.boss);
+  assert.equal(boss, 4, "der fünfte Stamm ist der Boss");
+});
+
+test("messerwurf: sind alle raus, endet die Runde", () => {
+  const duo = ["kb", "kc"].map((id, i) => player({ id, name: id.toUpperCase(), color: ["#fff", "#0ff"][i] }));
+  const startedAt = Date.now() - 3000;
+  const arcade = createArcadeState("messerwurf", duo, startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 40000, finishing: false };
+  const room = { currentMinigame: minigame, players: duo, timers: new Set() };
+  duo.forEach((p) => { arcade.players[p.id].outAt = Date.now(); });
+  testRules.updateArcade(room);
+  assert.ok(minigame.finaleAt || minigame.finishing, "niemand kann mehr werfen — Schluss");
+  testRules.clearRoomTimers?.(room);
 });
 
 test("messerwurf: ein voller Stamm bringt Zugabe und den nächsten", () => {

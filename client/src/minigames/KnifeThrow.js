@@ -8,8 +8,9 @@ import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
 // Messerwurf — wie die bekannten Handyspiele: vor dir dreht sich DEIN Stamm,
 // jeder Tipp wirft ein Messer von unten hinein. Sind alle Messer drin,
 // zerbricht er, und der nächste kommt — mit schon steckenden Messern, Äpfeln
-// und einem anderen Drehmuster. Triffst du ein Messer, klirrt es, der Stamm
-// ist verloren, und nach einer kurzen Pause geht es mit dem nächsten weiter.
+// und einem anderen Drehmuster, mal ruckartig mit Stopps und Umkehr; der
+// fünfte ist ein Boss-Stamm. Triffst du ein Messer, klirrt es, und wie im
+// Vorbild bist du raus: deine Punkte bleiben, du schaust den anderen zu.
 // Die Stämme der anderen drehen sich klein oben auf dem Podest mit.
 //
 // Die Drehung rechnet der Client mit derselben Formel wie der Server
@@ -32,11 +33,39 @@ function logAngleDeg(spin, ms) {
     rad = spin.speed * t - (spin.amp / spin.rate) * (Math.cos(spin.rate * t) - 1) * Math.sign(spin.speed || 1);
   } else if (spin.kind === "swing") {
     rad = (spin.speed / spin.rate) * Math.sin(spin.rate * t);
+  } else if (spin.kind === "steps") {
+    rad = stepsAngle(spin.steps || [], t);
   } else {
     rad = spin.speed * t;
   }
   return (rad * 180) / Math.PI;
 }
+
+// Wie knifeStepsAngle auf dem Server: ganze Perioden plus der Rest.
+function stepsAngle(steps, t) {
+  let period = 0;
+  let perPeriod = 0;
+  steps.forEach(([v, ms]) => { period += ms / 1000; perPeriod += v * (ms / 1000); });
+  if (period <= 0) return 0;
+  const cycles = Math.floor(t / period);
+  let rest = t - cycles * period;
+  let rad = cycles * perPeriod;
+  for (const [v, ms] of steps) {
+    const d = ms / 1000;
+    if (rest <= d) return rad + v * rest;
+    rad += v * d;
+    rest -= d;
+  }
+  return rad;
+}
+
+// Farben eines Stamms: normal, Boss (dunkel mit roten Jahresringen) und
+// „raus“ (ausgeblichen).
+const LOG_LOOKS = {
+  normal: { bark: "#8a5a2c", face: "#d7a46a", ring: "#b98349" },
+  boss: { bark: "#3d2626", face: "#7a3b33", ring: "#e2524f" },
+  out: { bark: "#6f6a66", face: "#a9a29b", ring: "#8f8983" }
+};
 
 function buildKnife(color) {
   const knife = new THREE.Group();
@@ -57,15 +86,19 @@ function buildKnife(color) {
 
 function buildLog() {
   const log = new THREE.Group();
-  const bark = new THREE.Mesh(new THREE.CylinderGeometry(LOG_R, LOG_R, 0.5, 28), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
+  const barkMat = new THREE.MeshLambertMaterial({ color: "#8a5a2c" });
+  const faceMat = new THREE.MeshLambertMaterial({ color: "#d7a46a" });
+  const ringMat = new THREE.MeshLambertMaterial({ color: "#b98349" });
+  log.userData.mats = { bark: barkMat, face: faceMat, ring: ringMat };
+  const bark = new THREE.Mesh(new THREE.CylinderGeometry(LOG_R, LOG_R, 0.5, 28), barkMat);
   bark.rotation.x = Math.PI / 2;
   bark.castShadow = true;
   log.add(bark);
-  const face = new THREE.Mesh(new THREE.CircleGeometry(LOG_R - 0.06, 28), new THREE.MeshLambertMaterial({ color: "#d7a46a" }));
+  const face = new THREE.Mesh(new THREE.CircleGeometry(LOG_R - 0.06, 28), faceMat);
   face.position.z = 0.253;
   log.add(face);
   [0.25, 0.48, 0.7].forEach((r) => {
-    const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.02, r + 0.02, 28), new THREE.MeshLambertMaterial({ color: "#b98349" }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.02, r + 0.02, 28), ringMat);
     ring.position.z = 0.256;
     log.add(ring);
   });
@@ -327,7 +360,7 @@ export class KnifeThrow extends MinigameScene {
     const arcade = (this.update || this.minigame)?.arcade;
     const own = arcade?.players?.[this.getControlledPlayerId()];
     const now = this.now();
-    if (!own || now < (own.stunUntil || 0) || own.nextStageAt || own.knivesLeft <= 0) return;
+    if (!own || own.outAt || now < (own.stunUntil || 0) || own.nextStageAt || own.knivesLeft <= 0) return;
     if (now - (this.lastLocalThrow || 0) < 160) return;
     this.lastLocalThrow = now;
     this.feedback?.sound("whoosh");
@@ -395,7 +428,22 @@ export class KnifeThrow extends MinigameScene {
       mesh.position.set(Math.cos(rad) * (LOG_R + 0.13), Math.sin(rad) * (LOG_R + 0.13), 0.05);
       holder.add(mesh);
     });
-    if (fresh) st.popAt = this.now();
+    if (fresh) {
+      st.popAt = this.now();
+      if (entry.boss && st.isOwn) this.pop(st.center.clone().add(new THREE.Vector3(0, LOG_R + 0.5, 0.5)), "BOSS-STAMM!", { color: "#ff6b6b", size: 0.5, life: 1.4 });
+    }
+    this.applyLogLook(st, entry);
+  }
+
+  applyLogLook(st, entry) {
+    const look = entry.outAt ? LOG_LOOKS.out : entry.boss ? LOG_LOOKS.boss : LOG_LOOKS.normal;
+    const key = entry.outAt ? "out" : entry.boss ? "boss" : "normal";
+    if (st.lookKey === key) return;
+    st.lookKey = key;
+    const mats = st.log.userData.mats;
+    mats.bark.color.set(look.bark);
+    mats.face.color.set(look.face);
+    mats.ring.color.set(look.ring);
   }
 
   tick(f) {
@@ -417,6 +465,7 @@ export class KnifeThrow extends MinigameScene {
 
       // Neuer Stamm: kurz aufploppen.
       this.syncStuck(st, entry, player);
+      this.applyLogLook(st, entry);
       const pop = Math.min(1, (now - st.popAt) / 260);
       const breaking = entry.nextStageAt && now < entry.nextStageAt;
       const cleared = breaking && entry.lastThrow?.result === "cleared";
@@ -452,9 +501,8 @@ export class KnifeThrow extends MinigameScene {
         }
         const result = entry.lastThrow?.result;
         if (result === "clash") {
-          // Mit dem Stamm fallen auch seine Punkte — das soll man sehen.
-          const lost = entry.lastThrow?.lost || 0;
-          this.pop(to.clone().add(new THREE.Vector3(0, -0.3 * st.scale, 0.4)), lost > 0 ? `KLIRR! −${lost}` : "KLIRR!", { color: "#ff6b7f", size: 0.38 * Math.max(0.6, st.scale), life: 1.1 });
+          // Klirr — und raus. Das soll man auch bei den anderen sehen.
+          this.pop(to.clone().add(new THREE.Vector3(0, -0.3 * st.scale, 0.4)), "KLIRR! RAUS", { color: "#ff6b7f", size: 0.38 * Math.max(0.6, st.scale), life: 1.3 });
           animator.trigger("flinch");
           animator.expression("scared", 900);
           if (mine) {
@@ -492,9 +540,10 @@ export class KnifeThrow extends MinigameScene {
       const kin = st.kin;
       kin.rotation.y = st.isOwn ? Math.PI : 0;
       const stunned = now < (entry.stunUntil || 0);
-      st.hand.visible = !stunned && !breaking && entry.knivesLeft > 0;
+      st.hand.visible = !entry.outAt && !stunned && !breaking && entry.knivesLeft > 0;
       animator.lookAt(st.center);
       if (stunned) animator.set("dizzy");
+      else if (entry.outAt) animator.set("sad");
       else animator.set("ready");
     });
 
@@ -551,7 +600,7 @@ export class KnifeThrow extends MinigameScene {
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.points || 0);
     const stage = this.hud.querySelector("[data-knife-stage]");
-    if (stage && own) stage.textContent = `Stamm ${own.stage + 1} · ${own.cleared || 0} geschafft`;
+    if (stage && own) stage.textContent = `${own.boss ? "BOSS · " : ""}Stamm ${own.stage + 1} · ${own.cleared || 0} geschafft`;
     const ammo = this.hud.querySelector("[data-knife-ammo]");
     if (ammo && own) {
       const key = `${own.stage}:${own.knivesLeft}:${own.knivesTotal}`;
@@ -563,18 +612,19 @@ export class KnifeThrow extends MinigameScene {
     }
     const banner = this.hud.querySelector("[data-knife-banner]");
     if (banner) {
-      const stunned = own && now < (own.stunUntil || 0);
-      banner.hidden = !stunned;
-      if (stunned) {
-        banner.textContent = "Klirr! Nächster Stamm …";
+      const out = Boolean(own?.outAt);
+      banner.hidden = !out;
+      if (out) {
+        banner.textContent = "Klirr — du bist raus! Deine Punkte bleiben.";
         banner.style.background = "#40506a";
         banner.style.color = "#ffffff";
       }
     }
     if (this.throwButton) {
-      const waiting = !own || now < (own.stunUntil || 0) || Boolean(own.nextStageAt) || own.knivesLeft <= 0;
+      const out = Boolean(own?.outAt);
+      const waiting = !own || out || now < (own.stunUntil || 0) || Boolean(own.nextStageAt) || own.knivesLeft <= 0;
       this.throwButton.disabled = f.finale || waiting;
-      this.throwButton.querySelector(".nerve-button-face").textContent = waiting ? "NEUER STAMM …" : "WERFEN";
+      this.throwButton.querySelector(".nerve-button-face").textContent = out ? "RAUS" : waiting ? "NEUER STAMM …" : "WERFEN";
     }
   }
 }

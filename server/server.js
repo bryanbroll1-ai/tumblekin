@@ -855,9 +855,12 @@ function catchMultiplier(streak) {
 // werfen gleichzeitig. Ein Stamm ist eine Stufe mit einer festen Zahl Messer;
 // sind alle drin, zerbricht er und der nächste kommt. Manche Stämme tragen
 // schon Messer, auf manchen sitzt ein Apfel, und jeder dreht sich anders —
-// gleichmässig, schneller, stockend, mit Richtungswechseln. Die Stämme sind
-// für alle dieselben. Wer ein steckendes Messer trifft, verliert den Rest
-// dieses Stamms und macht nach einer kurzen Pause mit dem nächsten weiter.
+// gleichmässig, pendelnd, ruckartig mit Stopps und Umkehr. Der fünfte ist ein
+// Boss-Stamm. Die Stämme sind für alle dieselben. Und wie im Vorbild gilt:
+// wer ein steckendes Messer trifft, ist raus — die bis dahin gesammelten
+// Punkte bleiben stehen, danach schaut man zu. Vorher verlor man nur den
+// Stamm und warf nach einer Pause weiter; ein Klirren kostete wenig, und das
+// Werfen auf gut Glück lohnte sich.
 //
 // Vorher warf man reihum auf EINEN gemeinsamen Stamm, je ein Messer, und die
 // meiste Zeit sah man anderen beim Werfen zu.
@@ -871,14 +874,37 @@ const KNIFE_STAGE_BONUS = 5;          // für einen geschafften Stamm
 const KNIFE_APPLE_POINTS = 3;
 // Die Stämme: Messer zu werfen, schon steckende Messer, Äpfel, Drehmuster.
 // Ab dem letzten wiederholt sich der letzte mit steigendem Tempo.
+// „steps“ ist das ruckartige Muster der Vorbilder: eine feste Folge aus
+// Tempo und Dauer (rad/s, ms), die sich wiederholt — anziehen, abrupt
+// stehenbleiben, zurückdrehen, lossprinten.
 const KNIFE_STAGES = [
   { knives: 5, preset: 0, apples: 1, spin: { kind: "steady", speed: 1.6 } },
   { knives: 6, preset: 1, apples: 1, spin: { kind: "steady", speed: -2.3 } },
   { knives: 7, preset: 2, apples: 1, spin: { kind: "wobble", speed: 2.2, amp: 1.6, rate: 1.6 } },
-  { knives: 7, preset: 2, apples: 2, spin: { kind: "swing", speed: 2.8, rate: 1.15 } },
-  { knives: 8, preset: 3, apples: 1, spin: { kind: "wobble", speed: -2.6, amp: 2.4, rate: 2.1 } },
-  { knives: 8, preset: 3, apples: 2, spin: { kind: "swing", speed: 3.4, rate: 1.5 } }
+  { knives: 7, preset: 2, apples: 2, spin: { kind: "steps", steps: [[2.6, 900], [0, 380], [-2.2, 700], [4.2, 420]] } },
+  { knives: 9, preset: 3, apples: 1, boss: true, spin: { kind: "steps", steps: [[3.4, 650], [-1.2, 300], [0, 260], [-3.6, 600], [5.2, 360], [0.6, 520]] } },
+  { knives: 8, preset: 3, apples: 2, spin: { kind: "swing", speed: 3.4, rate: 1.5 } },
+  { knives: 9, preset: 3, apples: 2, spin: { kind: "steps", steps: [[-3.8, 560], [0, 240], [4.4, 480], [1.4, 420], [-5, 300]] } }
 ];
+
+// Winkel (rad) eines Schrittmusters nach `t` Sekunden: ganze Runden plus
+// der angebrochene Rest, geschlossen ausgerechnet.
+function knifeStepsAngle(steps, t) {
+  let period = 0;
+  let perPeriod = 0;
+  steps.forEach(([v, ms]) => { period += ms / 1000; perPeriod += v * (ms / 1000); });
+  if (period <= 0) return 0;
+  const cycles = Math.floor(t / period);
+  let rest = t - cycles * period;
+  let rad = cycles * perPeriod;
+  for (const [v, ms] of steps) {
+    const d = ms / 1000;
+    if (rest <= d) return rad + v * rest;
+    rad += v * d;
+    rest -= d;
+  }
+  return rad;
+}
 
 // Winkel des Stamms (Grad) nach `ms` seit Beginn der Stufe. Geschlossen
 // integriert, damit Server, Bots und Client ohne Aufsummieren dasselbe
@@ -893,6 +919,8 @@ function knifeLogAngle(spin, ms) {
     rad = spin.speed * t - (spin.amp / spin.rate) * (Math.cos(spin.rate * t) - 1) * Math.sign(spin.speed || 1);
   } else if (spin.kind === "swing") {
     rad = (spin.speed / spin.rate) * Math.sin(spin.rate * t);
+  } else if (spin.kind === "steps") {
+    rad = knifeStepsAngle(spin.steps || [], t);
   } else {
     rad = spin.speed * t;
   }
@@ -905,10 +933,13 @@ function knifeStageConfig(index) {
   const base = KNIFE_STAGES[Math.min(index, last)];
   if (index <= last) return base;
   const extra = index - last;
+  const faster = 1 + extra * 0.12;
   return {
     ...base,
     knives: base.knives + Math.min(3, extra),
-    spin: { ...base.spin, speed: base.spin.speed * (1 + extra * 0.12) }
+    spin: base.spin.kind === "steps"
+      ? { ...base.spin, steps: base.spin.steps.map(([v, ms]) => [v * faster, ms]) }
+      : { ...base.spin, speed: base.spin.speed * faster }
   };
 }
 
@@ -925,6 +956,7 @@ function setupKnifeStage(arcade, entry, index, now) {
   entry.knivesLeft = stage.knives;
   entry.knivesTotal = stage.knives;
   entry.spin = stage.spin;
+  entry.boss = Boolean(stage.boss);
   entry.stuckAngles = [];
   entry.apples = [];
   entry.nextStageAt = null;
@@ -2356,8 +2388,8 @@ function arcadeRankingScore(arcade, arcadePlayer) {
       + Math.max(0, 500 - (arcadePlayer.totalProbes || 0)));
   }
   if (arcade.family === "knife") {
-    // Punkte zuerst; bei Gleichstand weniger Fehlwürfe.
-    return Math.max(0, (arcadePlayer.points || 0) * 100 - (arcadePlayer.clashes || 0));
+    // Punkte zuerst; bei Gleichstand gewinnt, wer nicht rausgeflogen ist.
+    return Math.max(0, (arcadePlayer.points || 0) * 100 + (arcadePlayer.outAt ? 0 : 50));
   }
   if (arcade.family === "bounce") {
     // Gewertet wird die Hoehe — genau die Zahl, die auch angezeigt wird, und in
@@ -3080,6 +3112,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.lastThrowAt = 0;
       entry.lastThrow = null;            // { at, angle, result }
       entry.stunUntil = 0;
+      entry.outAt = null;                // getroffen: raus, die Punkte bleiben
       setupKnifeStage(arcade, entry, 0, startedAt);
     });
   }
@@ -4166,6 +4199,7 @@ function handleArcadeInput(room, player, rawInput) {
   if (arcade.family === "knife") {
     if (input.action !== "throw") return { ok: false, error: "Tippe, um das Messer zu werfen." };
     if (now < room.currentMinigame.startedAt) return { ok: true };
+    if (arcadePlayer.outAt) return { ok: true };
     if (now < (arcadePlayer.stunUntil || 0) || arcadePlayer.nextStageAt) return { ok: true };
     if (now - (arcadePlayer.lastThrowAt || 0) < KNIFE_COOLDOWN_MS || arcadePlayer.knivesLeft <= 0) return { ok: true };
     arcadePlayer.lastThrowAt = now;
@@ -4174,22 +4208,13 @@ function handleArcadeInput(room, player, rawInput) {
     const angle = knifeImpactAngle(arcadePlayer, now);
     const clash = arcadePlayer.stuckAngles.some((knife) => knifeAngleGap(knife.angle, angle) < KNIFE_MIN_GAP_DEG);
     if (clash) {
-      // Klirr — das Messer prallt ab, der Stamm ist verloren, und mit ihm alles,
-      // was er schon eingebracht hat: die Messer fallen heraus. Nach der Pause
-      // kommt der nächste.
-      //
-      // Vorher kostete ein Klirren nur den Bonus für den vollen Stamm, und der
-      // nächste Stamm kam sofort. Blind drauflos zu werfen lohnte sich damit:
-      // der schwache Bot, der kaum hinschaut, gewann gemessen fast so oft wie
-      // der starke. Jetzt ist ein voller Stamm etwas, das man sich verdient.
-      const lost = arcadePlayer.stagePoints || 0;
-      arcadePlayer.points = Math.max(0, arcadePlayer.points - lost);
-      arcadePlayer.stagePoints = 0;
+      // Klirr — das Messer prallt ab, und wie im Vorbild ist das Spiel damit
+      // für einen vorbei. Die Punkte bleiben; man schaut den anderen zu.
       arcadePlayer.clashes += 1;
       arcadePlayer.knivesLeft = 0;
+      arcadePlayer.outAt = now;
       arcadePlayer.stunUntil = now + KNIFE_CLASH_MS;
-      arcadePlayer.nextStageAt = now + KNIFE_CLASH_MS;
-      arcadePlayer.lastThrow = { at: now, angle, result: "clash", lost };
+      arcadePlayer.lastThrow = { at: now, angle, result: "clash", lost: 0 };
       arcadePlayer.flash = "bad";
     } else {
       arcadePlayer.stuckAngles.push({ angle, preset: false });
@@ -7455,7 +7480,7 @@ function arcadeBotStep(room, bot) {
   }
   if (arcade.family === "knife") {
     const now = Date.now();
-    if (now < minigame.startedAt || now < (player.stunUntil || 0) || player.nextStageAt || player.knivesLeft <= 0) return;
+    if (player.outAt || now < minigame.startedAt || now < (player.stunUntil || 0) || player.nextStageAt || player.knivesLeft <= 0) return;
     if (now - (player.lastThrowAt || 0) < KNIFE_COOLDOWN_MS) return;
     const profile = botProfile(player);
     // Der Bot schaut, wo sein Messer jetzt landen würde, und wirft, wenn dort
@@ -7466,8 +7491,10 @@ function arcadeBotStep(room, bot) {
     // gar nicht mehr — er wartete, bis die Zeit um war, und landete gemessen
     // auf dem LETZTEN Platz (Ø 3.57). Jetzt verlangt er nie mehr, als der Stamm
     // hergibt: höchstens die halbe grösste Lücke.
-    const misjudge = (Math.random() * 2 - 1) * (profile.level === "hard" ? 2.5 : profile.level === "normal" ? 7 : 14);
-    const buffer = profile.level === "hard" ? 2 : profile.level === "normal" ? 3.5 : 1;
+    const misjudge = (Math.random() * 2 - 1) * (profile.level === "hard" ? 1.5 : profile.level === "normal" ? 8.5 : 15);
+    // Der Sicherheitsabstand: beim starken Bot grösser als sein Schätzfehler,
+    // beim mittleren und schwachen kleiner — die klirren gelegentlich.
+    const buffer = profile.level === "hard" ? 2.5 : profile.level === "normal" ? 3.5 : 1;
     const angles = player.stuckAngles.map((knife) => knife.angle).sort((a, b) => a - b);
     let roomy = 180;
     if (angles.length > 1) {
@@ -7477,10 +7504,25 @@ function arcadeBotStep(room, bot) {
         roomy = Math.max(roomy, (next - angle) / 2);
       });
     }
-    const need = Math.min(KNIFE_MIN_GAP_DEG + buffer, roomy - 0.5);
+    // Seit ein Klirren raus bedeutet, wirft kein Bot mehr absichtlich in eine
+    // zu kleine Lücke. Der starke zielt in die Mitte der grössten Lücke und
+    // verteilt die Messer so gleichmässig wie ein geübter Mensch — sonst
+    // zerstückelt er den Stamm und hat am Ende keinen Platz mehr. Gibt es gar
+    // keine sichere Lücke, wartet er und wagt es erst nach einer Weile.
+    const safe = KNIFE_MIN_GAP_DEG + buffer;
+    const wartet = now - Math.max(player.lastThrowAt || 0, player.stageStartedAt || 0);
+    let need;
+    if (roomy - 0.5 >= safe) {
+      const spread = profile.level === "hard" ? 0.3 : 0;
+      need = Math.max(safe, roomy * spread);
+    } else {
+      if (wartet < 3500) return;
+      need = roomy - 1;
+    }
     const angle = knifeImpactAngle(player, now + BOT_TICK_LEAD_MS * 0.5) + misjudge;
     const clearance = player.stuckAngles.reduce((least, knife) => Math.min(least, knifeAngleGap(knife.angle, angle)), 180);
-    const hurry = Math.random() < profile.mistake * 0.25;
+    // Ein überhasteter Wurf trotz zu kleiner Lücke — selten, beim Schwachen öfter.
+    const hurry = Math.random() < profile.mistake * profile.mistake * 0.5;
     if (clearance >= need || hurry) handleArcadeInput(room, bot, { action: "throw" });
     return;
   }
@@ -8378,6 +8420,7 @@ module.exports = {
     KNIFE_MIN_GAP_DEG,
     knifeLogAngle,
     knifeImpactAngle,
+    knifeStepsAngle,
     setupKnifeStage,
     KNIFE_STAGES,
     KNIFE_CLASH_MS,
