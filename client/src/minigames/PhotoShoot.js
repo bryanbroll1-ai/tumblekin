@@ -26,6 +26,9 @@ const TEPPICH_HALB = 1.2;        // halbe Teppichbreite
 const PODEST_TIEFE = 1.3;
 const STICK_GAP_MS = 40;         // Stick höchstens so oft schicken
 const TICK_LEAD_MS = 45;         // halber Servertakt (90 ms), siehe lands
+// Das Foto im Polaroid: so viele Pixel, 3 : 2.
+const PHOTO_PX_W = 300;
+const PHOTO_PX_H = 200;
 
 export class PhotoShoot extends MinigameScene {
   constructor(ctx) {
@@ -508,8 +511,11 @@ export class PhotoShoot extends MinigameScene {
       if (mine) this.feedback?.vibrate(mine.cover ? [20, 30, 40] : 16);
       else this.feedback?.vibrate([40, 30, 40]);
       this.showPolaroid(result, players, controlledId);
+      // Das Bild selbst wird nach den Posen dieses Frames aufgenommen
+      // (afterAnimate) — so, wie alle gerade dastehen.
+      this.pendingPhoto = flashed?.x !== null && flashed?.x !== undefined ? flashed : null;
     } else if (this.polaroid && !this.hud.querySelector("[data-photo-polaroid]")?.hidden) {
-      // Das Foto vom Server ist massgeblich.
+      // Das Foto vom Server ist massgeblich (die Namen; das Bild bleibt).
       const confirmed = state.results.find((r) => r.index === this.polaroid.index);
       if (confirmed && photoKey(confirmed) !== this.polaroid.key) this.showPolaroid(confirmed, players, controlledId, { keepTimer: true });
     }
@@ -602,17 +608,85 @@ export class PhotoShoot extends MinigameScene {
   showPolaroid(result, players, controlledId, { keepTimer = false } = {}) {
     const card = this.hud.querySelector("[data-photo-polaroid]");
     if (!card) return;
+    if (!this.photoCanvas) {
+      card.innerHTML = `<div class="photo-picture"><canvas class="photo-shot" width="${PHOTO_PX_W}" height="${PHOTO_PX_H}" role="img" aria-label="Foto"></canvas></div><div class="photo-names"></div><p></p>`;
+      this.photoCanvas = card.querySelector("canvas");
+      this.photoNames = card.querySelector(".photo-names");
+      this.photoCaption = card.querySelector("p");
+    }
     const inside = result?.in || [];
-    const names = inside.length
+    this.photoNames.innerHTML = inside.length
       ? inside.map((item) => {
         const player = players.find((p) => p.id === item.id);
         return `<span class="photo-face${item.id === controlledId ? " is-own" : ""}" style="--chip:${player?.color || "#fff"}">${item.cover ? "⭐" : ""}${escapeName(player?.name)}<small>+${item.points}</small></span>`;
       }).join("")
       : "<em>Niemand im Bild!</em>";
-    card.innerHTML = `<div class="photo-picture">${names}</div><p>Schnappschuss ${Number(result?.index ?? 0) + 1}</p>`;
+    this.photoCaption.textContent = `Schnappschuss ${Number(result?.index ?? 0) + 1}`;
     card.hidden = false;
     this.polaroid = { index: result?.index ?? -1, key: photoKey(result) };
-    if (!keepTimer) this.polaroidUntil = performance.now() + 1600;
+    if (!keepTimer) this.polaroidUntil = performance.now() + 1800;
+  }
+
+  afterAnimate() {
+    if (!this.pendingPhoto) return;
+    const shot = this.pendingPhoto;
+    this.pendingPhoto = null;
+    this.capturePhoto(shot);
+  }
+
+  // Das Foto: die Bühne frontal aus Sicht des Fotografen, der Bildausschnitt
+  // füllt das Bild. Gerendert wird in eine Ecke des Spielbilds und von dort
+  // in die Karte kopiert — mit demselben Licht und denselben Farben wie das
+  // Spiel; das eigentliche Bild dieses Frames malt danach alles wieder zu.
+  capturePhoto(shot) {
+    const renderer = this.renderer;
+    const source = this.webglCanvas;
+    const target = this.photoCanvas;
+    if (!renderer || !source || !target) return;
+    const dpr = renderer.getPixelRatio();
+    const vw = PHOTO_PX_W / dpr;
+    const vh = PHOTO_PX_H / dpr;
+    if (source.width < PHOTO_PX_W || source.height < PHOTO_PX_H) return;
+    const cam = this.photoCam || (this.photoCam = new THREE.PerspectiveCamera(40, PHOTO_PX_W / PHOTO_PX_H, 0.1, 80));
+    // Auf Augenhöhe, so nah, dass der Ausschnitt gerade das Bild füllt —
+    // hinter den Figuren die Fotowand.
+    const r = shot.r || 1.2;
+    const dist = (r * 0.85 + 0.25) / (Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * cam.aspect);
+    cam.position.set(shot.x, STAGE_Y + 0.95, shot.z + dist);
+    cam.lookAt(shot.x, STAGE_Y + 0.6, shot.z);
+    cam.updateMatrixWorld();
+    // Was nur Spielhilfe ist, kommt nicht aufs Foto: Ausschnitt, Countdown,
+    // Stern, Namensschilder, Funken — und der Fotograf selbst. Wer zwischen
+    // Fotograf und Ausschnitt steht, stünde riesig und unscharf davor; der
+    // bleibt draussen.
+    const hidden = [this.zone, this.coverMark, this.fotograf, ...this.countSprites, ...this.labels.values()];
+    this.kins.forEach((kin) => {
+      const inside = Math.hypot(kin.position.x - shot.x, kin.position.z - shot.z) <= r;
+      if (!inside && kin.position.z > shot.z + r * 0.6) hidden.push(kin);
+    });
+    this.scene.children.forEach((child) => { if (child.isSprite || child.userData.isFx) hidden.push(child); });
+    const was = hidden.map((obj) => obj.visible);
+    hidden.forEach((obj) => { obj.visible = false; });
+    const viewport = renderer.getViewport(new THREE.Vector4());
+    const scissor = renderer.getScissor(new THREE.Vector4());
+    const scissorTest = renderer.getScissorTest();
+    try {
+      renderer.setViewport(0, 0, vw, vh);
+      renderer.setScissor(0, 0, vw, vh);
+      renderer.setScissorTest(true);
+      renderer.render(this.scene, cam);
+      const ctx = target.getContext("2d");
+      ctx.drawImage(source, 0, source.height - PHOTO_PX_H, PHOTO_PX_W, PHOTO_PX_H, 0, 0, target.width, target.height);
+    } finally {
+      renderer.setScissorTest(scissorTest);
+      renderer.setScissor(scissor);
+      renderer.setViewport(viewport);
+      hidden.forEach((obj, i) => { obj.visible = was[i]; });
+    }
+    // Entwickeln: das Bild blitzt hell auf und setzt sich.
+    target.classList.remove("is-new");
+    void target.offsetWidth;
+    target.classList.add("is-new");
   }
 
   drawHud(f) {

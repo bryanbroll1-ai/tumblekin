@@ -2587,8 +2587,9 @@ canvas.is-stunned {
   /* Unter den Spielerchips: auf 320px brechen sie in zwei Zeilen um. */
   top: max(calc(104px + env(safe-area-inset-top)), calc(var(--hud-chips-bottom, 0px) + 8px));
   left: 50%;
-  width: min(70vw, 250px);
-  padding: 10px 10px 6px;
+  /* Quer ist wenig Höhe: dann wird das Polaroid schmaler. */
+  width: min(56vw, 214px, 42vh);
+  padding: 8px 8px 6px;
   border-radius: 6px;
   background: #fbfaf4;
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
@@ -2600,36 +2601,55 @@ canvas.is-stunned {
 .photo-polaroid[hidden] { display: none; }
 
 .photo-picture {
+  overflow: hidden;
+  border-radius: 3px;
+  background: #1a1430;
+  line-height: 0;
+}
+
+.photo-shot {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+}
+
+.photo-shot.is-new {
+  animation: photo-develop 0.7s ease-out;
+}
+
+@keyframes photo-develop {
+  from { filter: brightness(2.6) saturate(0.4); }
+  to { filter: none; }
+}
+
+.photo-names {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px;
-  min-height: 64px;
-  padding: 10px 6px;
-  border-radius: 3px;
-  background: linear-gradient(180deg, #2a1d4a, #6b2a4a);
-  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
 }
 
-.photo-picture em {
-  color: #d8dcf0;
+.photo-names em {
+  color: #6b5f58;
   font-weight: 800;
+  font-size: 0.85rem;
 }
 
 .photo-face {
-  display: grid;
-  justify-items: center;
-  min-width: 52px;
-  padding: 4px 8px;
-  border-radius: 10px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 8px;
   background: var(--chip);
   color: #1c1c28;
   font-weight: 900;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
 }
 
 .photo-face.is-own {
-  box-shadow: 0 0 0 3px #ffffff;
+  box-shadow: 0 0 0 2px #1c1c28;
 }
 
 .photo-face small {
