@@ -16,14 +16,18 @@ function room(count = 2) {
   return { players, currentMinigame: game, timers: new Set() };
 }
 
-test('sprint: three shared lanes and equal, reachable obstacle course at every table size', () => {
+test('sprint: four shared lanes and equal, reachable obstacle course at every table size', () => {
+  assert.equal(P.C.LANES, 4); assert.equal(P.C.LENGTH, 120);
   for (const count of [1, 2, 3, 4]) {
     const r = room(count), a = r.currentMinigame.arcade;
-    assert.equal(a.trackLength, 100);
-    assert.ok(Object.values(a.players).every(p=>p.lane>=0 && p.lane<3));
+    assert.equal(a.trackLength, P.C.LENGTH);
+    assert.ok(Object.values(a.players).every(p=>p.lane>=0 && p.lane<P.C.LANES));
+    // Bei vier Spielern startet jeder auf seiner eigenen Spur.
+    assert.equal(new Set(Object.values(a.players).map(p=>p.lane)).size, count);
     assert.equal(a.segments, undefined);
-    assert.equal(a.hurdles.length, 12);
-    assert.ok(a.hurdles.every(row=>row.lanes.length===3 && !row.lanes.every(kind=>kind==='block')));
+    assert.equal(a.hurdles.length, P.C.ROWS);
+    assert.ok(a.hurdles.every(row=>row.lanes.length===P.C.LANES && !row.lanes.every(kind=>kind==='block')));
+    assert.ok(a.hurdles.at(-1).at < P.C.LENGTH - 5);
     for (let i = 1; i < a.hurdles.length; i++) assert.ok(a.hurdles[i].at - a.hurdles[i - 1].at > P.C.SPRINT * (P.AIR_MS + P.C.REST_MS) / 1000);
   }
   assert.deepEqual(P.course(77), P.course(77));
@@ -43,15 +47,15 @@ test('sprint: held button gains speed, release immediately recovers energy', () 
   for (let ms = 0; ms <= 1200; ms += 120) withClock(ms, () => rules.handleArcadeInput(r, r.players[0], { action: 'sprint', hold: true }));
   assert.ok(e.speed > 7.5); assert.ok(e.energy < 65);
   withClock(1201, () => rules.handleArcadeInput(r, r.players[0], { action: 'sprint', hold: false }));
-  const energy = e.energy;
+  const energy = e.energy, speed = e.speed;
   withClock(1300, () => rules.updateArcade(r));
-  assert.equal(e.holding, false); assert.ok(e.energy > energy); assert.ok(e.speed < 7.5);
+  assert.equal(e.holding, false); assert.ok(e.energy > energy); assert.ok(e.speed < speed - 0.5);
 });
 
 test('sprint: missing heartbeat releases hold at the deadline even across a long tick', () => {
   const e = entry(); e.holding = true; e.sprintAt = START;
   advance(e, 1500);
-  assert.equal(e.holding, false); assert.ok(e.energy > 95); assert.ok(e.speed < 4.6);
+  assert.equal(e.holding, false); assert.ok(e.energy > 95); assert.ok(e.speed < P.C.JOG + 0.2);
 });
 
 test('sprint: depleted held sprint stays empty until release, and never blocks jumping', () => {
@@ -148,14 +152,14 @@ test('sprint: same inputs produce the same race at 30/60/120 Hz and with delayed
 
 test('sprint: even an idle player finishes the complete course within the limit', () => {
   const e = entry(); advance(e, 32000, P.course(367));
-  assert.equal(e.progress, 100); assert.ok(e.stumbles > 0); assert.ok(e.finishMs < 32000);
+  assert.equal(e.progress, P.C.LENGTH); assert.ok(e.stumbles > 0); assert.ok(e.finishMs < 32000);
 });
 
 test('sprint: exact finish crossing outranks progress, visible equal times share the rank', () => {
-  const e = entry(); e.progress = 99.5; e.speed = 4.4; e.updatedAt = START + 1000;
+  const e = entry(); e.progress = P.C.LENGTH - 0.5; e.speed = 4.4; e.updatedAt = START + 1000;
   advance(e, 1400);
   assert.ok(e.finishedAt < START + 1200); assert.ok(e.finishMs < 1200);
-  assert.ok(P.rank(e) > P.rank({ finishedAt: null, progress: 99.999 }));
+  assert.ok(P.rank(e) > P.rank({ finishedAt: null, progress: P.C.LENGTH - 0.001 }));
   assert.equal(P.rank({ finishedAt: 1, finishMs: 17031 }), P.rank({ finishedAt: 1, finishMs: 17034 }));
 });
 
@@ -178,7 +182,7 @@ test('sprint: exhaustion and recovery progress at real epoch timestamps without 
     P.advance(e, P.course(44), start, start + ms);
     e.holding = true; e.sprintAt = start + ms;
   }
-  assert.equal(e.progress, 100);
+  assert.equal(e.progress, P.C.LENGTH);
   assert.ok(e.energy >= 0 && e.energy <= 100);
   assert.ok(e.finishMs < 32000);
 });
@@ -202,13 +206,13 @@ test('sprint: properly timed jumps and pacing beat permanent sprint and jump spa
       if(mode==='spam')P.jump(e,START+ms);
       if(mode==='timed' && kind==='jump' && P.jumpWindow(e,row))P.jump(e,START+ms);
       if(mode==='timed' && kind==='slide' && arrival<.42 && arrival>.1)P.slide(e,START+ms);
-      if(mode==='timed' && kind==='block' && arrival<.8 && row.lanes.indexOf(null)>=0)P.changeLane(e,Math.sign(row.lanes.indexOf(null)-e.lane),START+ms);
+      if(mode==='timed' && kind==='block' && arrival<.8)P.changeLane(e,Math.sign(P.escapeLane(row,e.lane)-e.lane),START+ms);
     }
     return e;
   }
   for (const seed of [37, 367, 509, 1203]) {
     const timed = race(seed, 'timed');
-    assert.equal(timed.cleared, 12); assert.equal(timed.stumbles, 0);
+    assert.equal(timed.cleared, P.C.ROWS); assert.equal(timed.stumbles, 0);
     assert.ok(timed.finishMs < race(seed, 'sprint').finishMs);
     assert.ok(timed.finishMs < race(seed, 'spam').finishMs);
   }
@@ -220,7 +224,8 @@ test('sprint: a lane swipe animates across the real collision lanes',()=>{
   assert.equal(P.obstacle(e,{lanes:['block',null,null]},START+100),'block');
   assert.equal(P.obstacle(e,{lanes:['block',null,null]},START+200),null);
   assert.ok(P.changeLane(e,1,START+200));assert.equal(e.lane,2);
-  assert.equal(P.changeLane(e,1,START+400),false);
+  assert.ok(P.changeLane(e,1,START+400));assert.equal(e.lane,3);
+  assert.equal(P.changeLane(e,1,START+600),false);assert.equal(e.lane,3);
 });
 test('sprint: only a timed slide clears an overhead gate',()=>{
   const row={index:0,at:2.64,lanes:['slide','slide','slide']};
@@ -245,7 +250,7 @@ test('sprint: slide and lateral changes do not spend sprint stamina',()=>{
 });
 test('sprint: jumping with an empty held sprint cannot preserve free sprint speed',()=>{
  const e=entry();e.energy=0;e.exhausted=true;e.speed=7.8;e.holding=true;e.sprintAt=START;
- P.jump(e,START);advance(e,400);assert.ok(e.speed<5.2);assert.equal(e.energy,0);
+ P.jump(e,START);advance(e,400);assert.ok(e.speed<P.C.JOG+.6);assert.equal(e.energy,0);
 });
 test('sprint: a collision slows the runner but still permits steering away',()=>{
  const e=entry();e.stumbleUntil=START+750;

@@ -2,27 +2,43 @@
 // A plain script module also works in the isolated practice Worker (CommonJS).
 (function (root) {
   const C = Object.freeze({
-    LENGTH: 100, JOG: 4.4, SPRINT: 7.8, ACCEL_TIME: 0.25,
+    LENGTH: 120, JOG: 5.4, SPRINT: 8.8, ACCEL_TIME: 0.25,
     ENERGY: 100, DRAIN: 30, RECOVER: 22, JUMP_COST: 0,
     JUMP_V: 5.3, GRAVITY: 13.8, REST_MS: 160,
     HURDLE_HEIGHT: 0.64, CLEARANCE: 0.74,
     STUMBLE_MS: 750, STUMBLE_SPEED: 1.9, HOLD_TTL: 420,
-    RESUME_ENERGY: 30, STEP_MS: 10, LANES: 3, LANE_MS: 200, SLIDE_MS: 700
+    RESUME_ENERGY: 30, STEP_MS: 10, LANES: 4, LANE_MS: 200, SLIDE_MS: 700,
+    ROWS: 13, FIRST_ROW: 9, ROW_GAP: 8.6
   });
   const AIR_MS = 2000 * C.JUMP_V / C.GRAVITY;
+  // Vier Spuren: in jeder Reihe ist mindestens eine ohne Kiste, und meist
+  // gibt es mehr als einen Weg — springen, sliden oder ausweichen. Welche
+  // Spur was bekommt, würfelt die Saat je Reihe neu.
   function course(seed) {
-    const patterns = [['jump', null, 'block'], ['slide', 'jump', null],
-      ['slide', 'slide', 'slide'], ['block', null, 'jump'],
-      ['jump', 'jump', 'jump'], [null, 'block', 'slide']];
-    return Array.from({ length: 12 }, (_, index) => {
+    const patterns = [['jump', null, 'block', 'slide'], ['slide', 'slide', 'slide', 'slide'],
+      ['block', 'jump', 'jump', 'block'], ['jump', 'jump', 'jump', 'jump'],
+      ['block', 'slide', null, 'block'], ['slide', 'block', 'jump', 'jump'],
+      ['block', null, 'slide', 'jump']];
+    return Array.from({ length: C.ROWS }, (_, index) => {
       const pattern = patterns[index % patterns.length];
-      const rotation = Math.abs(Math.floor(seed * 7 + index * 13)) % 3;
-      return { index, at: 8 + index * 7.7 + Math.sin(seed * .73 + index * 17.31) * .18,
-        lanes: pattern.map((_, lane) => pattern[(lane + rotation) % 3]) };
+      const hash = Math.sin(seed * 12.9898 + index * 78.233) * 43758.5453;
+      const rotation = Math.floor((hash - Math.floor(hash)) * C.LANES) % C.LANES;
+      return { index, at: C.FIRST_ROW + index * C.ROW_GAP + Math.sin(seed * .73 + index * 17.31) * .18,
+        lanes: pattern.map((_, lane) => pattern[(lane + rotation) % C.LANES]) };
     });
   }
+  // Die nächste Spur ohne Kiste — bei gleichem Weg lieber eine ganz freie.
+  function escapeLane(row, from) {
+    let best = null;
+    (row?.lanes || []).forEach((kind, lane) => {
+      if (kind === 'block') return;
+      const cost = Math.abs(lane - from) * 2 + (kind ? 1 : 0);
+      if (best === null || cost < best.cost) best = { lane, cost };
+    });
+    return best ? best.lane : from;
+  }
   function player(lane, startedAt) {
-    lane = Math.max(0, Math.min(2, lane % 3));
+    lane = Math.max(0, Math.min(C.LANES - 1, lane % C.LANES));
     return { lane, laneFrom: lane, laneAt: startedAt, laneUntil: startedAt,
       slideAt: null, slideUntil: 0, slideReadyAt: 0, slides: 0,
       diveAt: 0, diveUntil: 0, diveHeight: 0, progress: 0, speed: 0, energy: C.ENERGY, holding: false,
@@ -56,7 +72,7 @@
   }
   function changeLane(entry, dir, now) {
     if (![1, -1].includes(dir) || entry.finishedAt !== null || now < entry.laneUntil) return false;
-    const target = Math.max(0, Math.min(2, entry.lane + dir));
+    const target = Math.max(0, Math.min(C.LANES - 1, entry.lane + dir));
     if (target === entry.lane) return false;
     entry.laneFrom = lanePosition(entry, now); entry.lane = target;
     entry.laneAt = now; entry.laneUntil = now + C.LANE_MS;
@@ -80,7 +96,7 @@
   }
   function obstacle(entry, row, now) {
     if (!row) return null;
-    const lanes = row.lanes || ['jump', 'jump', 'jump'];
+    const lanes = row.lanes || Array(C.LANES).fill('jump');
     const position = lanePosition(entry, now);
     const touching = lanes.filter((kind, lane) => kind && Math.abs(position - lane) < .55);
     const lift = height(entry, now);
@@ -172,7 +188,7 @@
     const t = (hurdle.at - entry.progress) / entry.speed;
     return t > 0 && C.JUMP_V * t - C.GRAVITY * t * t / 2 >= C.CLEARANCE;
   }
-  const api = Object.freeze({ C, AIR_MS, course, player, height, jump, slide, slideFactor, changeLane, lanePosition, obstacle, rank, advance, jumpWindow });
+  const api = Object.freeze({ C, AIR_MS, course, escapeLane, player, height, jump, slide, slideFactor, changeLane, lanePosition, obstacle, rank, advance, jumpWindow });
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TumblekinSprintPhysics = api;
 })(globalThis);

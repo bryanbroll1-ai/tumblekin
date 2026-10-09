@@ -7918,8 +7918,9 @@ function arcadeBotStep(room, bot) {
     }
     const kind = row.lanes?.[player.lane] || (!row.lanes ? 'jump' : null);
     if (player.botWillJump && kind === 'block' && arrival < (hard ? .85 : easy ? .25 : .6)) {
-      const escape = [player.lane - 1, player.lane + 1].filter(lane => lane >= 0 && lane <= 2 && !row.lanes[lane]);
-      if (escape.length) handleArcadeInput(room, bot, { action: "lane", dir: escape[0] - player.lane });
+      // Zur nächsten Spur ohne Kiste, notfalls zwei Wechsel nacheinander.
+      const target = Sprint.escapeLane(row, player.lane);
+      if (target !== player.lane) handleArcadeInput(room, bot, { action: "lane", dir: Math.sign(target - player.lane) });
     }
     if (player.botWillJump && kind === 'slide' && arrival <= player.botJumpLead && arrival > .02) {
       handleArcadeInput(room, bot, { action: "slide" }); player.botWillJump = false;

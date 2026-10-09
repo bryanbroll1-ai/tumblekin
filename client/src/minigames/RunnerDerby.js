@@ -7,7 +7,10 @@ import './SprintPhysics.js?v=tumblekin213';
 
 const P = globalThis.TumblekinSprintPhysics;
 const METRE = 0.62;
-const LANE = 1.55;
+const LANE = 1.4;
+// Die Hindernisse sind für 1,55 breite Spuren gebaut; bei vier Spuren
+// werden sie mit der Spur schmaler.
+const OBSTACLE_X = LANE / 1.55;
 const footBounds = new THREE.Box3();
 const timeText = ms => `${(ms / 1000).toFixed(2).replace('.', ',')} s`;
 
@@ -32,7 +35,7 @@ function chevronSign(parent, texture, w, h, [x, y, z]) {
   return mesh;
 }
 
-// A shared three-lane race: swipe to dodge, jump and slide; hold to sprint.
+// A shared four-lane race: swipe to dodge, jump and slide; hold to sprint.
 export class RunnerDerby extends MinigameScene {
   constructor(ctx) {
     super(ctx);
@@ -49,34 +52,34 @@ export class RunnerDerby extends MinigameScene {
   }
 
   stage() {
-    return { label: '3D Zielgerade – 100-Meter-Swipe-Rennen', background: '#b9e4ef',
+    return { label: `3D Zielgerade – ${P.C.LENGTH}-Meter-Swipe-Rennen`, background: '#b9e4ef',
       fog: ['#b9e4ef', 24, 78], lights: { sunPosition: [-8, 14, 8],
         skyColor: 0xe8f7ff, groundColor: 0x729579, sunIntensity: 2.5 } };
   }
 
   hudHtml() {
-    return `<div class="kinetic-scorebar"><span data-kinetic-time>32s</span><strong data-kinetic-score>1.</strong><span data-sprint-distance>100 m</span></div>
+    return `<div class="kinetic-scorebar"><span data-kinetic-time>32s</span><strong data-kinetic-score>1.</strong><span data-sprint-distance>${P.C.LENGTH} m</span></div>
       <div class="sprint-vitals"><div><strong data-sprint-state>Bereit am Start</strong><span data-sprint-energy>100 %</span></div><div class="sprint-energy-track" role="meter" aria-label="Ausdauer" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><i data-sprint-fill></i></div></div>
       <div class="sprint-rivals" aria-label="Rennstand"></div>`;
   }
 
-  laneX(lane) { return (lane - 1) * LANE; }
+  laneX(lane) { return (lane - (P.C.LANES - 1) / 2) * LANE; }
   groundHeightAt() { return 0; }
 
   build() {
     const players = this.getState().players;
-    const width = 3 * LANE;
+    const width = P.C.LANES * LANE;
     const length = P.C.LENGTH * METRE;
     kiste(this.scene, width + 16, 0.4, length + 22, '#83b079', [0, -0.23, -length / 2]);
     kiste(this.scene, width + 0.2, 0.3, length + 8, '#b85b50', [0, -0.15, -length / 2]);
-    const stripes = Array.from({ length: 4 }, (_, i) => ({ p: [(i - 1.5) * LANE, 0.006, -length / 2] }));
+    const stripes = Array.from({ length: P.C.LANES + 1 }, (_, i) => ({ p: [(i - P.C.LANES / 2) * LANE, 0.006, -length / 2] }));
     viele(this.scene, new THREE.BoxGeometry(0.035, 0.012, length + 7), lambert('#fff3d6'), stripes);
     const marks = [];
-    for (let m = 10; m < 100; m += 10) marks.push({ p: [0, 0.009, -m * METRE] });
+    for (let m = 10; m < P.C.LENGTH; m += 10) marks.push({ p: [0, 0.009, -m * METRE] });
     viele(this.scene, new THREE.BoxGeometry(width, 0.014, 0.045), lambert('#e8bcaa'), marks);
     kiste(this.scene, width, 0.018, 0.1, '#fff8e2', [0, 0.009, 0.45]);
     const checks = [[], []];
-    for (let i = 0; i < 3 * 6; i++) for (let j = 0; j < 2; j++) {
+    for (let i = 0; i < P.C.LANES * 6; i++) for (let j = 0; j < 2; j++) {
       checks[(i + j) % 2].push({ p: [-width / 2 + (i + 0.5) * LANE / 6, 0.015, -length + (j - 0.5) * 0.26] });
     }
     checks.forEach((parts, i) => viele(this.scene, new THREE.BoxGeometry(LANE / 6, 0.025, 0.26), lambert(i ? '#fffaf0' : '#263641'), parts));
@@ -85,14 +88,14 @@ export class RunnerDerby extends MinigameScene {
     kiste(this.scene, width + 0.7, 0.38, 0.22, '#ffc95e', [0, 2.8, -length - 1.4]);
     const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 96;
     const ctx = canvas.getContext('2d'); ctx.fillStyle = '#ffc95e'; ctx.fillRect(0, 0, 512, 96);
-    ctx.fillStyle = '#253743'; ctx.font = 'bold 54px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('100 m · ZIEL', 256, 68);
+    ctx.fillStyle = '#253743'; ctx.font = 'bold 54px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${P.C.LENGTH} m · ZIEL`, 256, 68);
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(width + 0.5, 0.34), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas) }));
     sign.position.set(0, 2.8, -length - 1.27); this.scene.add(sign);
 
     // Seat blocks and spectators are instanced, keeping the stadium inexpensive.
     ['#5178a1', '#efb55d', '#599b9b'].forEach((color, row) => {
       const seats = [], heads = [];
-      for (const side of [-1, 1]) for (let i = 0; i < 22; i++) {
+      for (const side of [-1, 1]) for (let i = 0; i < Math.ceil((length + 8) / 2.8); i++) {
         const x = side * (width / 2 + 2 + row * 0.7), z = 1 - i * 2.8;
         seats.push({ p: [x, row * 0.28 + 0.25, z] });
         heads.push({ p: [x, row * 0.28 + 0.74, z] });
@@ -120,6 +123,7 @@ export class RunnerDerby extends MinigameScene {
     course.forEach(row => row.lanes.forEach((kind, lane) => {
       if (!kind) return;
       const group = new THREE.Group(); group.position.set(this.laneX(lane), 0, -row.at * METRE);
+      group.scale.x = OBSTACLE_X;
       if (kind === 'block') {
         kiste(group, 1.24, 1.8, .65, '#dc9770', [0, .9, 0]);
         for (const side of [-1, 1]) kiste(group, .085, 1.8, .68, '#fbdca7', [side * .43, .9, 0]);
@@ -169,7 +173,7 @@ export class RunnerDerby extends MinigameScene {
   }
 
   shot() {
-    return { look: [0, 0.3, -3.8], frame: { w: 5.8, h: 6.6 }, yaw: 0,
+    return { look: [0, 0.3, -3.8], frame: { w: 6.1, h: 6.6 }, yaw: 0,
       pitch: 0.55, fov: 44, ease: 0.25 };
   }
   keepInView() { return []; }
@@ -181,8 +185,10 @@ export class RunnerDerby extends MinigameScene {
     const controls = this.controls.getBoundingClientRect();
     this.rig.base.insets = { top: vitals.bottom - rect.top + 8,
       bottom: rect.bottom - controls.top + 8, left: 0, right: 0 };
-    return { look: [0, 0.35, (own?.position.z || 0) - (landscape ? 2.3 : 4.4)],
-      frame: { w: 5.8, h: landscape ? 3.9 : 6.6 } };
+    // Bei vier Spuren rückt die Kamera ein Stück zur eigenen Spur, sonst
+    // klebt ein Läufer auf der Aussenspur am Bildrand.
+    return { look: [(own?.position.x || 0) * 0.35, 0.35, (own?.position.z || 0) - (landscape ? 2.3 : 4.4)],
+      frame: { w: 6.1, h: landscape ? 3.9 : 6.6 } };
   }
 
   bind() {
@@ -351,7 +357,7 @@ export class RunnerDerby extends MinigameScene {
       const rival = this.rivals.get(player.id);
       rival.row.classList.toggle('is-own', player.id === f.controlledId);
       rival.value.textContent = entry.finishedAt !== null ? timeText(entry.finishMs) : `${Math.floor(entry.progress)} m`;
-      rival.fill.style.width = `${entry.progress}%`;
+      rival.fill.style.width = `${(entry.progress / P.C.LENGTH) * 100}%`;
     });
     const kin = this.kins.get(f.controlledId);
     if(kin)this.ownHalo.position.set(kin.position.x,.018,kin.position.z);

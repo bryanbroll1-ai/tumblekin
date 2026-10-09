@@ -125,7 +125,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆 Wischen · halten sprintet
 
-- **Zielgerade:** 100 Meter gegen die anderen auf drei gemeinsamen Spuren. Wische links/rechts zum Spurwechsel, hoch zum Springen und runter zum Sliden; runter in der Luft zieht dich schnell zum Boden. Hohe Kisten umfahren, orange Hürden überspringen, blaue Tore unterrutschen. Halte auf dem Spielfeld für Sprint: Die Ausdauer geht leer; erst Loslassen lädt sie am Boden wieder auf. Treffer kosten Tempo, du bleibst im Rennen. Alle haben dieselben Hindernisse. Die schnellste Zielzeit gewinnt; gleiche Hundertstel teilen den Platz.
+- **Zielgerade:** 120 Meter gegen die anderen auf vier gemeinsamen Spuren. Wische links/rechts zum Spurwechsel, hoch zum Springen und runter zum Sliden; runter in der Luft zieht dich schnell zum Boden. Hohe Kisten umfahren, orange Hürden überspringen, blaue Tore unterrutschen. Halte auf dem Spielfeld für Sprint: Die Ausdauer geht leer; erst Loslassen lädt sie am Boden wieder auf. Treffer kosten Tempo, du bleibst im Rennen. Alle haben dieselben Hindernisse. Die schnellste Zielzeit gewinnt; gleiche Hundertstel teilen den Platz.
 
 ### 👆✳️ In jede Richtung wischen
 
