@@ -279,7 +279,15 @@ export class UIManager {
     });
     // „Mehr“ bleibt offen, wenn der Raum neu gezeichnet wird.
     el.modeOptions.addEventListener("toggle", (event) => {
-      if (event.target.matches?.(".more-options")) this.moreOptionsOpen = event.target.open;
+      if (!event.target.matches?.(".more-options")) return;
+      const opened = event.target.open && !this.moreOptionsOpen;
+      this.moreOptionsOpen = event.target.open;
+      // Frisch aufgeklappt: die Karte so weit scrollen, dass man sieht, was
+      // aufging — vorher lag es unter dem Startknopf und man musste suchen.
+      if (opened) {
+        const sheet = event.target.closest(".sheet");
+        requestAnimationFrame(() => sheet?.scrollTo({ top: sheet.scrollHeight, behavior: "smooth" }));
+      }
     }, true);
     // Bot-Regler: ziehen …
     el.modeOptions.addEventListener("pointerdown", (event) => {

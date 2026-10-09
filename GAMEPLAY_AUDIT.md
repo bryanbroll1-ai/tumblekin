@@ -106,3 +106,22 @@ Umgesetzt nach einer ausführlichen Rückmeldung zu einzelnen Spielen:
 | Optik | Runde Formen schöner, Podestzahlen im Polygon-Look, Schwimmringe ändern. | Runde Formen facettiert statt in Voxel-Treppen, Schwimmringe als gestreifte Polygon-Donuts, Podestzahlen als Blockziffern. |
 
 Ein zufällig fehlschlagender Test (Blob-Klopfe: Stachelblob nach Rundenende) hing an der Uhrzeit und ist behoben; die Ursache wurde über alle 9973 möglichen Würfe nachgerechnet.
+
+## Nachtrag 10. Oktober 2026: Gesamtdurchgang aller Spiele und der Oberfläche
+
+Grundlage war eine Bildreihe aller 40 Spiele (früh, Mitte, spät, Finale, Ergebnistafel, mit Autopilot) und der Oberfläche (Start, Lobby, „Mehr“, Spielauswahl, Einladung, Startkarte, Menü, Ergebnis, Siegerehrung).
+
+| Bereich | Befund | Änderung |
+| --- | --- | --- |
+| Ergebnistafel | Eine lange Wertung drückte den Namen weg (Bumper Pool: Platz 1 und 2 ohne Namen, Kanonenflug „S…“). | Der Name hat Mindestbreite, die Wertung bricht um. |
+| Beschriftungen | Anzeige und Tafel nannten dasselbe verschieden (Hübe/Pumps, Blöcke/Etagen, Sprünge/Wellen), „1 Seiten“, „1 oben geblieben“, „27.1 Höhe“. | Einheitliche Begriffe, richtige Einzahl, „Bis zuletzt drin“/„Oben geblieben“, „27,1 m hoch“. |
+| Zahlen | Kommazahlen mit Punkt in acht Spielen (Fassmut, Fassrolle, Nervenprobe, Kanonenflug, Bergsteiger, Farbflucht, Trampolin, Blob-Klopfe). | Überall Komma. |
+| Luftpuck | Die 3D-Anzeigetafel zeigte die Teams umgekehrt zur Leiste oben und stand dahinter; die Discokugel hing in der Leiste. | Tafel entfernt, Kugel unter die Decke. |
+| Rohrsalat | Bei sechs Rohren waren A und F halb abgeschnitten. | Bildausschnitt breiter. |
+| Angelduell | Vierstellige Fangwerte liefen in den Chips ineinander. | Chips mit Innenabstand. |
+| Bumper Pool (quer) | Stand- und Spielerleiste überlappten. | Spielerleiste weiter rechts. |
+| Schneeballhang | Bots schoben eine noch stehende Figur nach 0,7 s vom Plateau. | Die ersten 2–3 s rollen die Bots nur und halten Abstand. |
+| Podest | Der Vierte stand halb in der dritten Stufe. | Neben der Stufe, auf ihrer Tiefe. |
+| Lobby | „Mehr“ klappte unter dem Startknopf auf. | Die Karte scrollt mit. |
+| Spielauswahl | Die drei Schalter standen je in einer eigenen Zeile. | Kompakt in einer Zeile. |
+| Startkarte | Vor dem Bereit-Melden graue Fläche. | Himmel der Lobby. |
