@@ -71,7 +71,7 @@ export const MINIGAME_GUIDES = {
   spuersinn: guide("thinking", "Tippe Felder an und finde mit den Entfernungszahlen das Versteck.", "Gezählt werden Schritte nach oben, unten, links und rechts. Weniger Tipps geben mehr Punkte."),
   augenmass: guide("thinking", "Schau, wie viele Tiere herumschwirren, und zieh den Regler auf deine Schätzung.", "Die Tiere sind nur ein paar Sekunden zu sehen. Je näher deine Zahl, desto mehr Punkte."),
   tauziehen: guide("together", "Zieh mit deinem Team am Seil — das schnellere Team gewinnt.", "Tippen, tippen, tippen: jeder Tipp zieht gleich stark. Eine Runde, fünfzehn Sekunden."),
-  grimassen: guide("thinking", "Zieh die sechs gelben Punkte, bis dein Blockkopf dem Vorbild gleicht.", "Nach zehneinhalb Sekunden wird verglichen. Drei Gesichter bringen Punkte."),
+  grimassen: guide("thinking", "Zieh die sechs gelben Punkte, bis dein Blockkopf dasselbe Gefühl zeigt wie das Vorbild.", "Nach zehneinhalb Sekunden wird verglichen. Drei Gesichter bringen Punkte."),
   flaggenhoch: guide("reaction", "Tippe die gezeigten Flaggen nach, wenn der Käpt'n es befiehlt.", "Nur bei „Käpt'n sagt:“ reagieren! Ohne diese Worte stillhalten."),
   honigwabe: guide("thinking", "Pflück reihum einen oder zwei Äpfel — wer eine Wabe erwischt, ist raus.", "Zähl voraus und lass die Wabe dem Nächsten. Einmal darfst du passen."),
   schneeball: guide("together", "Roll deine Schneekugel gross und stoss die anderen vom Gipfel.", "Grosse Kugel = harter Stoss. SCHWUNG für den Antritt. Achtung, der Rand bröckelt!"),

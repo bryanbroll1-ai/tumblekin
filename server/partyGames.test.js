@@ -164,9 +164,33 @@ test("Grimassen: wer nichts tut, bekommt nichts — wer genau trifft, alles", ()
     const target = party.faceTarget(823456, round);
     assert.equal(party.facePoints(party.faceError(new Array(12).fill(0), target), target), 0, `Runde ${round + 1}: neutral`);
     assert.equal(party.facePoints(party.faceError(target, target), target), 100, `Runde ${round + 1}: genau`);
-    const moved = target.filter((v, i) => i % 2 === 0 && Math.hypot(v, target[i + 1]) > 0.3).length;
-    assert.equal(moved, [3, 4, 6][round], `Runde ${round + 1}: ${moved} verzogene Punkte`);
   }
+});
+
+// Jedes Vorbild ist ein Gefühl, das man erkennt (und das oben dransteht):
+// erst gleichmässige, zuletzt schiefe. Abweichungen je Spiel bleiben klein,
+// damit das Gesicht noch nach seinem Namen aussieht.
+test("Grimassen: jedes Vorbild ist ein benanntes Gefühl, jede Runde ein anderes", () => {
+  const near = (target, h) => h.flat().every((v, i) => (v === 0 ? target[i] === 0 : Math.abs(target[i] - v) <= 0.08 + 1e-9));
+  const mirror = (h) => [h[1], h[0], h[2], h[4], h[3], h[5]].map(([x, y]) => [x === 0 ? 0 : -x, y]);
+  for (let seed = 1; seed <= 300; seed += 1) {
+    const names = [];
+    for (let round = 0; round < C.FACE_ROUNDS; round += 1) {
+      const mood = party.faceMoodOf(seed * 7919, round);
+      assert.ok(party.FACE_MOODS[round].includes(mood), `Runde ${round + 1}: ${mood.name} gehört in ihren Satz`);
+      const target = party.faceTarget(seed * 7919, round);
+      assert.ok(near(target, mood.h) || near(target, mirror(mood.h)), `${mood.name}: ${target.join(",")}`);
+      assert.ok(target.every((v) => v >= -1 && v <= 1));
+      const moved = target.filter((v, i) => i % 2 === 0 && Math.hypot(v, target[i + 1]) > 0.25).length;
+      assert.ok(moved >= 4, `${mood.name}: nur ${moved} Punkte verzogen`);
+      names.push(mood.name);
+    }
+    assert.equal(new Set(names).size, C.FACE_ROUNDS);
+  }
+  const g = setup("grimassen", 2);
+  assert.equal(g.arcade.face.moods.length, C.FACE_ROUNDS);
+  g.arcade.face.moods.forEach((name, round) => assert.ok(party.FACE_MOODS[round].some((mood) => mood.name === name)));
+  g.restore();
 });
 
 test("Grimassen: geformt wird nur in der Formphase, gewertet für alle gleichzeitig", () => {

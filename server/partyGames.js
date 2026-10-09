@@ -194,11 +194,11 @@ const tug = {
 
 // --- Grimassen -------------------------------------------------------------
 //
-// Oben an der Wand hängt ein verzogenes Gesicht. Vor einem steht eine
-// Gummimaske — noch ganz neutral —, und man zieht sie mit dem Finger an sechs
-// Punkten zurecht: beide Brauen, Nase, beide Mundwinkel, Kinn. Nach Ablauf
-// der Zeit wird verglichen; je näher jeder Punkt am Vorbild liegt, desto mehr
-// Punkte.
+// Oben an der Wand hängt ein Gesicht mit einem Gefühl — fröhlich, wütend,
+// überrascht … Vor einem steht eine Gummimaske, noch ganz neutral, und man
+// zieht sie mit dem Finger an sechs Punkten zurecht: beide Brauen, Nase, beide
+// Mundwinkel, Kinn. Nach Ablauf der Zeit wird verglichen; je näher jeder Punkt
+// am Vorbild liegt, desto mehr Punkte.
 //
 // Ein Punkt ist ein Versatz in [-1, 1] je Achse — das ist alles, was der Server
 // kennt. Wie weit sich die Maske dabei verzieht, rechnet der Client; beide
@@ -221,21 +221,68 @@ const FACE_MIN_INPUT_MS = 40;
 // gezogen oder losgelassen wurde, nicht mehr.
 const FACE_GRACE_MS = 150;
 
-// Das Vorbild eines Durchgangs: in Runde 1 sind drei Punkte verzogen, in
-// Runde 2 vier, in Runde 3 alle sechs. Nicht verzogene Punkte bleiben nahe 0 —
-// dort liegt die Maske am Anfang ohnehin.
+// Die Vorbilder sind Gefühle, die man erkennt — kein zufälliges Verziehen
+// mehr, bei dem ein schiefes Etwas herauskam, das nichts ausdrückte. Jede
+// Runde zieht eines aus ihrem Satz: zuerst klare, gleichmässige Gesichter,
+// dann kräftigere, zuletzt schiefe, bei denen links und rechts verschieden
+// sind (die werden zufällig gespiegelt). Kleine Abweichungen je Spiel, damit
+// man nicht auswendig lernt.
+//
+// Je Griff [x, y] in [-1, 1]. Brauen: nach innen (zur Nase) kippt die Braue
+// zur Nase hin ab — böse —, nach aussen hebt sich ihr inneres Ende — besorgt.
+// Mundwinkel hoch ist ein Lächeln, runter ein Schmollen; das Kinn nach unten
+// öffnet den Mund. Links steht vorn: bei der linken Braue ist +x „nach innen“,
+// beim linken Mundwinkel −x „nach aussen“.
+function faceMood(name, browL, browR, nose, mouthL, mouthR, chin) {
+  return { name, h: [browL, browR, nose, mouthL, mouthR, chin] };
+}
+// Gleichmässig: rechts ist das Spiegelbild von links.
+function faceEven(name, brow, nose, mouth, chin) {
+  return faceMood(name, brow, [-brow[0], brow[1]], nose, mouth, [-mouth[0], mouth[1]], chin);
+}
+const FACE_MOODS = [
+  [
+    faceEven("Fröhlich", [0, 0.4], [0, 0], [-0.35, 0.8], [0, -0.3]),
+    faceEven("Wütend", [0.75, -0.6], [0, 0.3], [0.15, -0.6], [0, 0.35]),
+    faceEven("Traurig", [-0.65, 0.4], [0, -0.2], [0, -0.75], [0, 0.3]),
+    faceEven("Überrascht", [0, 0.95], [0, 0.1], [0.42, 0], [0, -0.9])
+  ],
+  [
+    faceEven("Erschrocken", [-0.5, 0.8], [0, 0], [-0.5, -0.45], [0, -0.75]),
+    faceEven("Lachend", [-0.2, 0.55], [0, 0.25], [-0.55, 0.9], [0, -0.85]),
+    faceEven("Fies", [0.85, -0.7], [0, 0], [-0.6, 0.9], [0, 0.2]),
+    faceEven("Schmollend", [0.35, -0.25], [0, -0.25], [0.7, -0.35], [0, 0.75])
+  ],
+  [
+    faceMood("Verschmitzt", [0, 0.85], [-0.35, -0.35], [0.25, 0], [0, -0.1], [0.35, 0.85], [0.35, 0]),
+    faceMood("Verwirrt", [-0.2, 0.9], [-0.5, -0.5], [0, 0], [0, 0.35], [0, -0.5], [-0.4, 0]),
+    faceMood("Angeekelt", [0.5, -0.45], [-0.6, -0.6], [0.2, 0.6], [0.2, -0.5], [0, 0.45], [0, 0.4]),
+    faceMood("Skeptisch", [0.5, -0.5], [0, 0.9], [0, 0], [0.3, -0.3], [-0.1, 0.1], [-0.35, 0.25])
+  ]
+];
+
+// Spiegeln: linke und rechte Teile tauschen, alle x drehen sich um.
+function faceMirror(h) {
+  const flip = ([x, y]) => [x === 0 ? 0 : -x, y];
+  return [flip(h[1]), flip(h[0]), flip(h[2]), flip(h[4]), flip(h[3]), flip(h[5])];
+}
+
+function faceMoodOf(seed, round) {
+  const set = FACE_MOODS[Math.min(round, FACE_MOODS.length - 1)];
+  return set[Math.floor(noise(seed + round * 131) * set.length) % set.length];
+}
+
 function faceTarget(seed, round) {
-  const moved = Math.min(FACE_HANDLES.length, 3 + round + (round >= 2 ? 1 : 0));
-  const order = FACE_HANDLES.map((_, i) => ({ i, k: noise(seed + round * 131 + i * 17) }))
-    .sort((a, b) => a.k - b.k)
-    .map((item) => item.i);
-  const target = new Array(FACE_HANDLES.length * 2).fill(0);
-  order.slice(0, moved).forEach((handle, n) => {
-    // Kräftig verzogen, damit es etwas zu sehen gibt: mindestens 0.45 weit.
-    const angle = noise(seed + round * 57 + handle * 29 + n) * Math.PI * 2;
-    const reach = 0.45 + noise(seed + round * 91 + handle * 13) * 0.55;
-    target[handle * 2] = Math.round(Math.cos(angle) * reach * 100) / 100;
-    target[handle * 2 + 1] = Math.round(Math.sin(angle) * reach * 100) / 100;
+  const mood = faceMoodOf(seed, round);
+  const h = noise(seed + round * 57 + 3) < 0.5 ? faceMirror(mood.h) : mood.h;
+  const target = [];
+  h.forEach(([x, y], handle) => {
+    // Was im Gefühl still bleibt, bleibt genau 0 — dort liegt die Maske
+    // am Anfang ohnehin. Der Rest weicht ein wenig ab.
+    [x, y].forEach((value, axis) => {
+      const wobble = value === 0 ? 0 : (noise(seed + round * 91 + handle * 13 + axis * 7) - 0.5) * 0.16;
+      target.push(value === 0 ? 0 : Math.round(clamp(value + wobble, -1, 1) * 100) / 100);
+    });
   });
   return target;
 }
@@ -287,6 +334,7 @@ const face = {
       revealMs: FACE_REVEAL_MS,
       graceMs: FACE_GRACE_MS,
       targets: Array.from({ length: FACE_ROUNDS }, (_, round) => faceTarget(arcade.seed, round)),
+      moods: Array.from({ length: FACE_ROUNDS }, (_, round) => faceMoodOf(arcade.seed, round).name),
       scored: -1                        // bis zu welcher Runde gewertet ist
     };
     Object.values(arcade.players).forEach((entry) => {
@@ -3419,6 +3467,8 @@ module.exports = {
   buildFlagCommands,
   activeFlagCommand,
   faceTarget,
+  faceMoodOf,
+  FACE_MOODS,
   faceError,
   facePoints,
   facePhase

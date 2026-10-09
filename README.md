@@ -204,7 +204,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🙂 Gesicht zurechtziehen
 
-- **Grimassen:** Oben hängt ein verzogener Blockkopf, vor dir dein eigener — noch ganz neutral. Zieh die sechs gelben Punkte — Brauen, Nase, Mundwinkel, Kinn —, bis dein Kopf genauso aussieht. Nach zehneinhalb Sekunden wird verglichen: je näher jeder Punkt am Vorbild liegt, desto mehr Punkte. Drei Gesichter, jedes schiefer als das vorige.
+- **Grimassen:** Oben hängt ein Blockkopf mit einem Gefühl — darüber steht, welches: wütend, überrascht, verschmitzt … Vor dir steht dein eigener, noch ganz neutral. Zieh die sechs gelben Punkte — Brauen, Nase, Mundwinkel, Kinn —, bis dein Kopf genauso schaut: Brauen nach innen gucken böse, nach aussen besorgt, Mundwinkel hoch lachen, runter schmollen, und das Kinn nach unten reisst den Mund auf. Nach zehneinhalb Sekunden wird verglichen: je näher jeder Punkt am Vorbild liegt, desto mehr Punkte. Drei Gesichter, das letzte schief.
 
 ### 👆🚩 Rot oder Blau tippen
 

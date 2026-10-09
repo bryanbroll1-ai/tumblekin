@@ -4,10 +4,18 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
 import { frameLerp } from "./Quality.js?v=tumblekin213";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
 
-// Grimassen: oben hängt ein verzogenes Gesicht im Goldrahmen, davor steht die
-// eigene Blockkopf-Maske — erst neutral —, und man zieht sie an sechs Punkten
+// Grimassen: oben hängt ein Gesicht im Goldrahmen, das ein Gefühl zeigt —
+// darüber steht, welches: WÜTEND, ÜBERRASCHT, VERSCHMITZT … Davor steht die
+// eigene Blockkopf-Maske, erst neutral, und man zieht sie an sechs Punkten
 // zurecht. Wer nach Ablauf der Zeit am nächsten dran ist, bekommt die meisten
 // Punkte.
+//
+// Damit ein Gefühl auch nach einem aussieht, kann die Maske mehr als vorher:
+// Brauen kippen (nach innen gezogen böse, nach aussen besorgt), die Augen
+// werden unter tiefen Brauen schmal und unter hohen gross, die Mundwinkel
+// gehen hoch zum Lachen und runter zum Schmollen — vorher war der Mund immer
+// ein Lächeln —, und das Kinn nach unten reisst den Mund auf, mit Zähnen.
+// Alles hängt nur an den sechs Griffen; der Server vergleicht weiter genau die.
 //
 // Die Maske ist ein Blockkopf wie die Figuren: Kastenkopf mit Haarschopf,
 // Block-Augen, und an den sechs Griffen hängen Brauen, Nase, Mundwinkel und
@@ -32,6 +40,17 @@ const BROW = "#3b2414";
 const NOSE = "#ef9050";
 const LIPS = "#8a1f33";
 const MOUTH_BITS = 9;
+const MOUTH_Y = -0.445;          // Mitte der Oberlippe — die Mundwinkel kippen um sie
+const OPEN_MAX = 0.27;           // so weit reisst das Kinn den Mund auf
+const INSIDE_COLS = 6;
+const MOUTH_INSIDE = "#4a0e1c";
+const TEETH = "#fffaf0";
+// Die Figuren unten machen das Gefühl des Vorbilds kurz nach.
+const MOOD_FACES = {
+  "Fröhlich": "happy", "Wütend": "angry", "Traurig": "sad", "Überrascht": "surprised",
+  "Erschrocken": "scared", "Lachend": "joy", "Fies": "smug", "Schmollend": "sad",
+  "Verschmitzt": "smug", "Verwirrt": "dizzy", "Angeekelt": "angry", "Skeptisch": "focus"
+};
 const OWN_SCALE = 1.0;
 const OWN_POS = new THREE.Vector3(0, 1.95, 0);   // Kinn auf der Staffelei, Haar unter dem Rahmen
 const TARGET_SCALE = 0.5;
@@ -42,6 +61,8 @@ const HEAD_CENTRE = 0.215;
 const TARGET_POS = new THREE.Vector3(0, 3.92, -0.12);
 const MINI_SCALE = 0.3;
 const SEND_EVERY_MS = 70;
+// Unterkante der Ansage (oben 70 px, eine Zeile) — darunter beginnt das Bild.
+const BANNER_BOTTOM = 128;
 
 export class FaceLift extends MinigameScene {
   constructor(ctx) {
@@ -99,10 +120,19 @@ export class FaceLift extends MinigameScene {
     leinwand.position.z = -0.03;
     rahmen.add(leinwand);
     scene.add(rahmen);
-    const schild = createNameLabel("VORBILD", "#e9b949");
+    // Das Schild über dem Rahmen sagt, welches Gefühl gesucht ist.
+    const tafel = document.createElement("canvas");
+    tafel.width = 512;
+    tafel.height = 128;
+    const tafelTextur = new THREE.CanvasTexture(tafel);
+    tafelTextur.colorSpace = THREE.SRGBColorSpace;
+    const schild = new THREE.Sprite(new THREE.SpriteMaterial({ map: tafelTextur, transparent: true, depthTest: false }));
+    schild.renderOrder = 4;
+    schild.scale.set(1.16, 0.29, 1);
+    schild.position.copy(TARGET_POS).add(new THREE.Vector3(0, 0.86, 0.05));
+    schild.userData.tafel = { canvas: tafel, texture: tafelTextur, text: null };
     this.targetLabel = schild;
-    schild.position.copy(TARGET_POS).add(new THREE.Vector3(0, 0.82, 0.05));
-    schild.scale.multiplyScalar(0.8);
+    this.paintMood("VORBILD");
     scene.add(schild);
 
     // Die eigene Maske gross in der Mitte, die der anderen klein an der Wand.
@@ -178,12 +208,19 @@ export class FaceLift extends MinigameScene {
     viele(scene, new THREE.ConeGeometry(0.28, 0.45, 4), lambert("#ffd15c"), zacken.filter((_, i) => i % 2 === 0));
     viele(scene, new THREE.ConeGeometry(0.28, 0.45, 4), lambert("#28c7d9"), zacken.filter((_, i) => i % 2 === 1));
     kiste(scene, 7.4, 0.25, 0.3, "#8a2233", [0, 5.45, -0.45]);
-    // Vorhänge links und rechts mit Falten.
-    [-1, 1].forEach((seite) => {
+    // Vorhänge links und rechts mit Falten. Im Querformat rücken sie nach
+    // aussen: dort stehen Vorbild und Maske nebeneinander, und der linke
+    // Vorhang hing vorher mitten über dem Vorbild.
+    this.curtains = [-1, 1].map((seite) => {
+      const vorhang = new THREE.Group();
       const falten = [];
-      for (let i = 0; i < 5; i += 1) falten.push({ p: [seite * (2.05 + i * 0.16), 2.6, 0.15 - i * 0.05], s: [1, 1, 1] });
-      viele(scene, new THREE.CylinderGeometry(0.1, 0.14, 5.4, 8), lambert("#7a1830"), falten, { schatten: true });
-      kiste(scene, 0.12, 0.12, 0.5, "#e9b949", [seite * 2.05, 2.1, 0.3]);
+      for (let i = 0; i < 5; i += 1) falten.push({ p: [seite * i * 0.16, 2.6, 0.15 - i * 0.05], s: [1, 1, 1] });
+      viele(vorhang, new THREE.CylinderGeometry(0.1, 0.14, 5.4, 8), lambert("#7a1830"), falten, { schatten: true });
+      kiste(vorhang, 0.12, 0.12, 0.5, "#e9b949", [0, 2.1, 0.3]);
+      vorhang.position.x = seite * 2.05;
+      vorhang.userData.seite = seite;
+      scene.add(vorhang);
+      return vorhang;
     });
     // Glühbirnen-Bogen um die Maske — sie laufen wie auf dem Rummel.
     const birnen = [];
@@ -246,19 +283,27 @@ export class FaceLift extends MinigameScene {
       box(1.64, 1.38, 0.56, SKIN, [0, 0.19, 0]);
       box(1.76, 0.3, 0.64, HAIR, [0, 0.93, -0.02]);
       [[-0.52, 1.12], [0, 1.18], [0.52, 1.12]].forEach(([x, y]) => box(0.44, 0.26, 0.5, HAIR, [x, y, -0.05]));
+      parts.eyes = [];
+      parts.cheeks = [];
       [-1, 1].forEach((side) => {
         box(0.16, 0.34, 0.26, SKIN_DARK, [side * 0.9, 0.1, 0]);
-        box(0.3, 0.3, 0.06, "#ffffff", [side * 0.34, 0.12, FACE_Z]);
-        box(0.14, 0.17, 0.04, "#1c1c28", [side * 0.34, 0.1, FACE_Z + 0.045]);
-        box(0.05, 0.05, 0.02, "#ffffff", [side * 0.34 + 0.035, 0.16, FACE_Z + 0.07]);
-        box(0.22, 0.1, 0.02, "#ff9fb0", [side * 0.58, -0.18, FACE_Z + 0.005]);
+        parts.eyes.push({
+          white: box(0.3, 0.3, 0.06, "#ffffff", [side * 0.34, 0.12, FACE_Z]),
+          pupil: box(0.14, 0.17, 0.04, "#1c1c28", [side * 0.34, 0.1, FACE_Z + 0.045]),
+          glint: box(0.05, 0.05, 0.02, "#ffffff", [side * 0.34 + 0.035, 0.16, FACE_Z + 0.07])
+        });
+        parts.cheeks.push(box(0.22, 0.1, 0.02, "#ff9fb0", [side * 0.58, -0.18, FACE_Z + 0.005]));
       });
       parts.jaw = box(1, 1, 0.5, SKIN, [0, -0.6, 0]);
+      // Der offene Mund: dunkles Inneres und oben eine Zahnreihe.
+      parts.inside = Array.from({ length: INSIDE_COLS }, () => box(1, 1, 0.03, MOUTH_INSIDE, [0, 0, FACE_Z + 0.02]));
+      parts.teeth = Array.from({ length: INSIDE_COLS }, () => box(1, 1, 0.035, TEETH, [0, 0, FACE_Z + 0.03]));
     }
     const lift = ghost ? 0.06 : 0;
     parts.brows = [0, 1].map(() => box(0.42, 0.1, 0.08, BROW, [0, 0, FACE_Z + 0.06 + lift]));
     parts.nose = box(0.2, 0.24, 0.2, NOSE, [0, 0, FACE_Z + 0.1 + lift]);
     parts.mouth = Array.from({ length: MOUTH_BITS }, () => box(1, 0.1, 0.07, LIPS, [0, 0, FACE_Z + 0.04 + lift]));
+    parts.lower = Array.from({ length: MOUTH_BITS }, () => box(1, 0.1, 0.07, LIPS, [0, 0, FACE_Z + 0.04 + lift]));
     if (ghost) parts.chin = box(0.56, 0.07, 0.06, BROW, [0, 0, FACE_Z + lift]);
     this.scene.add(group);
     const mask = { mesh: group, parts, scale, ghost, shape: new Array(12).fill(0) };
@@ -273,34 +318,84 @@ export class FaceLift extends MinigameScene {
   }
 
   // Die Teile an ihre Griffe setzen. Der Mund ist eine Kette kleiner Blöcke
-  // auf einem Bogen von Mundwinkel zu Mundwinkel, der Kiefer reicht bis
-  // zum Kinngriff.
+  // auf einem Bogen von Mundwinkel zu Mundwinkel durch eine feste Mitte —
+  // Winkel hoch ist ein Lächeln, runter ein Schmollen. Das Kinn nach unten
+  // senkt die Unterlippe und öffnet den Mund; nach oben schiebt es sie vor.
   deform(mask, shape) {
     const { parts } = mask;
     parts.brows.forEach((brow, i) => {
       const [x, y] = this.handleAt(i, shape);
       brow.position.x = x;
       brow.position.y = y;
-      brow.rotation.z = (i ? -1 : 1) * (shape[i * 2 + 1] || 0) * 0.35;
+      // Nach innen gezogen kippt das innere Ende runter (böse), nach aussen
+      // hoch (besorgt). Für beide Brauen dasselbe Vorzeichen: links ist
+      // „innen“ +x, rechts −x, und gekippt wird jeweils zur Nase hin.
+      brow.rotation.z = -(shape[i * 2] || 0) * 0.5;
+    });
+    // Augen: unter tiefen Brauen schmal, unter hohen weit offen.
+    parts.eyes?.forEach((eye, i) => {
+      const open = Math.max(0.42, Math.min(1.4, 1 + (shape[i * 2 + 1] || 0) * 0.5));
+      eye.white.scale.y = open;
+      eye.pupil.scale.y = Math.max(0.5, Math.min(1.2, open));
+      eye.glint.visible = open > 0.62;
+    });
+    // Wangen gehen mit lachenden Mundwinkeln hoch.
+    parts.cheeks?.forEach((cheek, i) => {
+      cheek.position.y = -0.18 + Math.max(0, shape[(3 + i) * 2 + 1] || 0) * 0.14;
     });
     const [nx, ny] = this.handleAt(2, shape);
     parts.nose.position.x = nx;
     parts.nose.position.y = ny;
     const [lx, ly] = this.handleAt(3, shape);
     const [rx, ry] = this.handleAt(4, shape);
-    const cx = (lx + rx) / 2;
-    const cy = (ly + ry) / 2 - 0.13;
-    const point = (t) => [
-      (1 - t) * (1 - t) * lx + 2 * (1 - t) * t * cx + t * t * rx,
-      (1 - t) * (1 - t) * ly + 2 * (1 - t) * t * cy + t * t * ry
-    ];
-    parts.mouth.forEach((bit, i) => {
+    const chinX = shape[10] || 0;
+    const chinY = shape[11] || 0;
+    const mx = (lx + rx) / 2;
+    // Quadratischer Bogen von a nach b, der in der Mitte durch m geht.
+    const bogen = (my, mxx = mx) => {
+      const cx = 2 * mxx - (lx + rx) / 2;
+      const cy = 2 * my - (ly + ry) / 2;
+      return (t) => [
+        (1 - t) * (1 - t) * lx + 2 * (1 - t) * t * cx + t * t * rx,
+        (1 - t) * (1 - t) * ly + 2 * (1 - t) * t * cy + t * t * ry
+      ];
+    };
+    const kette = (bits, point, show = true) => bits.forEach((bit, i) => {
+      bit.visible = show;
+      if (!show) return;
       const [ax, ay] = point(i / MOUTH_BITS);
       const [bx, by] = point((i + 1) / MOUTH_BITS);
       bit.position.x = (ax + bx) / 2;
       bit.position.y = (ay + by) / 2;
       bit.rotation.z = Math.atan2(by - ay, bx - ax);
       bit.scale.x = Math.max(0.06, Math.hypot(bx - ax, by - ay) * 1.25);
+    });
+    const open = Math.max(0, -chinY) * OPEN_MAX;
+    // Weit offen wölbt sich auch die Oberlippe: aus dem Strich wird ein O.
+    const upper = bogen(MOUTH_Y + open * 0.5);
+    const pout = Math.max(0, chinY - 0.25) * 0.14;
+    const lower = bogen(MOUTH_Y - Math.max(open, pout), mx + chinX * 0.08);
+    kette(parts.mouth, upper);
+    kette(parts.lower, lower, open > 0.025 || pout > 0.012);
+    const offen = open > 0.03;
+    parts.inside?.forEach((col, k) => {
+      col.visible = offen;
+      const tooth = parts.teeth[k];
+      tooth.visible = offen && open > 0.07 && k > 0 && k < INSIDE_COLS - 1;
+      if (!offen) return;
+      const t = (k + 0.5) / INSIDE_COLS;
+      const [ux, uy] = upper(t);
+      const [dx, dy] = lower(t);
+      const [ax] = upper(k / INSIDE_COLS);
+      const [bx] = upper((k + 1) / INSIDE_COLS);
+      const width = Math.abs(bx - ax) * 1.1 + 0.02;
+      const gap = Math.max(0.001, uy - dy - 0.06);
+      col.position.set((ux + dx) / 2, (uy + dy) / 2, col.position.z);
+      col.scale.set(width, gap, 1);
+      if (!tooth.visible) return;
+      const h = Math.min(0.07, gap * 0.35);
+      tooth.position.set(ux, uy - 0.05 - h / 2, tooth.position.z);
+      tooth.scale.set(width * 0.9, h, 1);
     });
     const [kx, ky] = this.handleAt(5, shape);
     if (parts.jaw) {
@@ -311,6 +406,39 @@ export class FaceLift extends MinigameScene {
     }
     if (parts.chin) parts.chin.position.set(kx, ky - 0.1, parts.chin.position.z);
     mask.shape = shape.slice();
+  }
+
+  // Das Schild über dem Vorbild neu beschriften (nur wenn sich etwas ändert).
+  paintMood(text) {
+    const tafel = this.targetLabel?.userData.tafel;
+    if (!tafel || tafel.text === text) return;
+    tafel.text = text;
+    const ctx = tafel.canvas.getContext("2d");
+    ctx.clearRect(0, 0, 512, 128);
+    ctx.fillStyle = "#2a1838";
+    ctx.beginPath();
+    ctx.moveTo(62, 12);
+    ctx.arcTo(502, 12, 502, 116, 52);
+    ctx.arcTo(502, 116, 10, 116, 52);
+    ctx.arcTo(10, 116, 10, 12, 52);
+    ctx.arcTo(10, 12, 502, 12, 52);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = "#e9b949";
+    ctx.stroke();
+    let size = 68;
+    ctx.font = `1000 ${size}px ui-rounded, system-ui, sans-serif`;
+    const width = ctx.measureText(text).width;
+    if (width > 430) {
+      size = Math.floor(size * 430 / width);
+      ctx.font = `1000 ${size}px ui-rounded, system-ui, sans-serif`;
+    }
+    ctx.fillStyle = "#ffe36b";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 256, 66);
+    tafel.texture.needsUpdate = true;
   }
 
   handleWorld(mask, index, shape, into = new THREE.Vector3()) {
@@ -341,19 +469,33 @@ export class FaceLift extends MinigameScene {
       this.peerDecor.forEach(object => { object.visible = !wide; });
       this.masks.forEach((mask, id) => { if (id !== this.own) mask.mesh.visible = !wide; });
       const own = this.masks.get(this.own);
-      const ownPos = wide ? new THREE.Vector3(1.15, 2.85, 0) : OWN_POS;
+      const ownPos = wide ? new THREE.Vector3(1.25, 2.85, 0) : OWN_POS;
       own.mesh.position.copy(ownPos);
       this.ghost.mesh.position.copy(ownPos).z += 0.04;
-      const pos = wide ? new THREE.Vector3(-1.4, 2.85, -0.12) : TARGET_POS;
+      const pos = wide ? new THREE.Vector3(-1.25, 2.85, -0.12) : TARGET_POS;
       const targetScale = wide ? 0.8 : TARGET_SCALE;
       this.target.mesh.position.copy(pos).y -= HEAD_CENTRE * targetScale;
       this.target.mesh.scale.setScalar(targetScale);
       this.targetFrame.position.copy(pos).z -= 0.08;
       this.targetFrame.scale.setScalar(wide ? 0.88 / 0.56 : 1);
-      this.targetLabel.position.copy(pos).add(new THREE.Vector3(0, wide ? -1.2 : 0.82, 0.05));
+      this.targetLabel.position.copy(pos).add(new THREE.Vector3(0, wide ? 1.27 : 0.86, 0.05));
+      this.curtains.forEach((vorhang) => { vorhang.position.x = vorhang.userData.seite * (wide ? 3.05 : 2.05); });
     }
+    // Ansage und Hinweis bekommen ihren eigenen Streifen: vorher lag die
+    // zweizeilige Ansage im Querformat über beiden Gesichtern.
+    const bar = this.hud.querySelector(".kinetic-scorebar")?.getBoundingClientRect();
+    const hint = this.controls.querySelector(".trace-hint")?.getBoundingClientRect();
+    const insets = {
+      top: Math.round(Math.max(bar ? bar.bottom - r.top + 6 : 0, BANNER_BOTTOM)),
+      bottom: Math.round(hint && hint.height > 0 ? r.bottom - hint.top + 8 : 0),
+      left: 0,
+      right: 0
+    };
+    const old = this.rig.base.insets;
+    if (!old || Object.keys(insets).some((key) => insets[key] !== old[key])) this.rig.band = null;
+    this.rig.base.insets = insets;
     return this.wideLayout
-      ? { look: [0, 2.9, 0], frame: { w: 5.35, h: 2.9 } }
+      ? { look: [0, 2.98, 0], frame: { w: 5.0, h: 2.8 } }
       : { look: [0, 2.85, 0], frame: { w: 3.5, h: 3.95 } };
   }
 
@@ -525,6 +667,14 @@ export class FaceLift extends MinigameScene {
 
     // Vorbild: in der Vorlaufphase leer (neutral), danach das Ziel der Runde.
     const target = phase === "lead" ? new Array(12).fill(0) : face.targets[round];
+    const mood = phase === "lead" ? null : face.moods?.[round];
+    this.paintMood(mood ? mood.toUpperCase() : "VORBILD");
+    // Die Figuren machen das neue Gefühl kurz nach.
+    if (mood && phase === "show" && this.mimicRound !== round) {
+      this.mimicRound = round;
+      const expression = MOOD_FACES[mood];
+      if (expression) this.animators.forEach((animator) => animator.expression(expression, face.showMs));
+    }
     const tShape = this.target.shape.map((value, i) => value + (target[i] - value) * frameLerp(0.18, dt));
     this.deform(this.target, tShape);
 
@@ -585,7 +735,7 @@ export class FaceLift extends MinigameScene {
         const mask = this.masks.get(player.id);
         const animator = this.animators.get(player.id);
         const isOwn = player.id === controlledId;
-        if (mask) {
+        if (mask?.mesh.visible) {
           const at = mask.mesh.position.clone().add(new THREE.Vector3(0, isOwn ? 0.55 : 0.1, isOwn ? 0.7 : 0.4));
           this.pop(at, `+${points}`, { color: points >= 70 ? "#ffe36b" : points >= 40 ? "#ffffff" : "#ffb3bd", size: isOwn ? 0.6 : 0.32, life: 1.6, rise: 0.5 });
         }
@@ -635,8 +785,11 @@ export class FaceLift extends MinigameScene {
     let message = null;
     let tone = "#12aaff";
     if (phase === "lead") message = "Gleich hängt das Vorbild …";
-    else if (phase === "show") { message = `Gesicht ${round + 1}/${face.rounds}: Schau genau hin!`; tone = "#b57bff"; }
-    else if (phase === "shape") {
+    else if (phase === "show") {
+      const mood = face.moods?.[round];
+      message = mood ? `${round + 1}/${face.rounds}: ${mood}!` : `Gesicht ${round + 1}/${face.rounds}: Schau genau hin!`;
+      tone = "#b57bff";
+    } else if (phase === "shape") {
       const secs = Math.ceil((left || 0) / 1000);
       message = since < 1400 ? "Zieh die Maske zurecht!" : secs <= 0 ? "Stopp!" : secs <= 3 ? `Noch ${secs} …` : null;
       tone = secs <= 3 ? "#ff5d73" : "#1fbf5b";
