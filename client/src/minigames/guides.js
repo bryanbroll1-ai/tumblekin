@@ -59,7 +59,7 @@ export const MINIGAME_GUIDES = {
   ballonfahrt: guide("skill", "Halte zum Steigen, lass zum Sinken los. Wirf Sandsäcke auf die Ziele.", "Der Sack fliegt beim Fallen weiter. Aus großer Höhe musst du früher werfen."),
   trampolin: guide("reaction", "Tippe im Takt und springe möglichst hoch.", "Jeder Schlag zählt: Auslassen bricht die Serie. Deine beste Höhe bleibt gespeichert."),
   falschsignal: guide("reaction", "Tippe bei echten Ringen möglichst früh und sammle Punkte.", "Nur Ringe bis zur Randmarke sind echt. Frühe Tipps sind riskanter."),
-  spurmaler: guide("skill", "Lenke per Wisch deinen Farbroller möglichst genau entlang der Spur.", "Bleib im Band für Serienboni. Für Kristalle am Rand riskierst du deine Serie."),
+  spurmaler: guide("skill", "Schau zu, wie der Stift die Figur zeichnet, und fahr sie dann mit dem Finger nach.", "Triff möglichst die ganze Figur und mal nicht daneben — bis 100 Punkte je Figur."),
   sortierband: guide("reaction", "Wisch jedes Teil in die passende Rutsche: links, unten oder rechts.", "Die Schilder wechseln Plätze. Richtige Serien bringen Zusatzpunkte."),
   angelduell: guide("skill", "Halte, um Fische einzuholen. Lass los, wenn die Schnur zu stark gespannt ist.", "Bei einem Schub zieht der Fisch kräftiger. Eine gerissene Schnur kostet Fang."),
   leuchtfolge: guide("thinking", "Merk dir die leuchtenden Pilze und tippe die Folge nach.", "Tippe auf die Pilze oder die Farbknöpfe. Erst nach der Vorführung zählen deine Tipps."),

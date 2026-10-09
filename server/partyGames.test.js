@@ -1523,3 +1523,133 @@ test("Partyklassiker: Objekte statt Zahlen in Eingaben werfen nicht", () => {
     g.restore();
   });
 });
+
+// --- Spurmaler -------------------------------------------------------------
+
+const Sketch = require("../client/src/minigames/SketchFigures.js");
+const traceStart = (round) => C.SKETCH_LEAD_MS + round * C.SKETCH_CYCLE_MS + C.SKETCH_DRAW_MS;
+
+// Schickt einen Strich in Stücken, wie das Gerät es tut.
+function sendStroke(g, player, points, start = true) {
+  for (let i = 0; i < points.length; i += C.SKETCH_CHUNK) {
+    const result = g.input(player, { action: "stroke", pts: points.slice(i, i + C.SKETCH_CHUNK), start: start && i === 0 });
+    assert.equal(result.ok, true);
+  }
+}
+
+test("Spurmaler: genau nachgefahren gibt volle Punkte, daneben deutlich weniger, nichts gibt null", () => {
+  const g = setup("spurmaler", 3);
+  try {
+    const [good, sloppy, idle] = g.players;
+    const path = Sketch.figurePath(g.arcade.sketch.figures[0]);
+    g.at(traceStart(0) + 100);
+    sendStroke(g, good, path);
+    sendStroke(g, sloppy, path.map(([x, y]) => [x + 0.06, y + 0.02]));
+    g.run(traceStart(0) + 200, traceStart(0) + C.SKETCH_TRACE_MS + C.SKETCH_GRACE_MS + 60, 90);
+    const result = (p) => g.arcade.players[p.id].results[0];
+    assert.equal(g.arcade.sketch.scored, 0, "nach der Schonfrist gewertet");
+    assert.ok(result(good).points >= 95, `genau: ${result(good).points}`);
+    assert.ok(result(sloppy).points < 50, `daneben: ${result(sloppy).points}`);
+    assert.equal(result(idle).points, 0);
+    assert.ok(arcadeRankingScore(g.arcade, g.arcade.players[good.id]) > arcadeRankingScore(g.arcade, g.arcade.players[sloppy.id]));
+  } finally { g.restore(); }
+});
+
+test("Spurmaler: wer das ganze Brett vollkritzelt, gewinnt nichts", () => {
+  const g = setup("spurmaler", 1);
+  try {
+    const [me] = g.players;
+    g.at(traceStart(0) + 100);
+    // Zickzack über das ganze Brett: deckt die Figur ab, liegt aber meist daneben.
+    const scribble = [];
+    for (let row = 0; row <= 24; row += 1) {
+      scribble.push([row % 2 ? 0.95 : 0.05, row / 24]);
+      scribble.push([row % 2 ? 0.05 : 0.95, row / 24 + 0.02]);
+    }
+    sendStroke(g, me, Sketch.resample(scribble, 0.01).slice(0, C.SKETCH_MAX_POINTS));
+    g.run(traceStart(0) + 200, traceStart(0) + C.SKETCH_TRACE_MS + C.SKETCH_GRACE_MS + 60, 90);
+    assert.ok(g.arcade.players[me.id].results[0].points < 25, `gekritzelt: ${g.arcade.players[me.id].results[0].points}`);
+  } finally { g.restore(); }
+});
+
+test("Spurmaler: Striche zählen nur im Nachfahrfenster, nach der Schonfrist nicht mehr", () => {
+  const g = setup("spurmaler", 1);
+  try {
+    const [me] = g.players;
+    const path = Sketch.figurePath(g.arcade.sketch.figures[0]);
+    g.at(traceStart(0) - 300);                       // der Stift zeichnet noch
+    sendStroke(g, me, path);
+    assert.equal(g.arcade.players[me.id].strokeLen, 0, "während des Vorzeichnens zählt nichts");
+    g.at(traceStart(0) + C.SKETCH_TRACE_MS + C.SKETCH_GRACE_MS - 40);
+    sendStroke(g, me, path.slice(0, 20));
+    assert.equal(g.arcade.players[me.id].strokeLen, 20, "in der Schonfrist kommt noch etwas an");
+    g.run(traceStart(0) + C.SKETCH_TRACE_MS + C.SKETCH_GRACE_MS + 10, traceStart(0) + C.SKETCH_TRACE_MS + 400, 90);
+    sendStroke(g, me, path);
+    assert.equal(g.arcade.players[me.id].strokeLen, 20, "nach der Wertung zählt nichts mehr");
+  } finally { g.restore(); }
+});
+
+test("Spurmaler: Eingaben werden begrenzt und gesäubert", () => {
+  const g = setup("spurmaler", 1);
+  try {
+    const [me] = g.players;
+    g.at(traceStart(0) + 100);
+    const entry = g.arcade.players[me.id];
+    g.input(me, { action: "stroke", pts: [[2, -1], ["0.5", "0.5"], [{ toString: null }, 1], "x", [NaN, 0.2]], start: true });
+    assert.deepEqual(entry.strokes, [[[1, 0], [0.5, 0.5]]], "geklemmt, Zahlen-Text erlaubt, Unsinn verworfen");
+    const many = Array.from({ length: 200 }, (_, i) => [i / 200, 0.5]);
+    g.input(me, { action: "stroke", pts: many });
+    assert.equal(entry.strokeLen, 2 + C.SKETCH_CHUNK, "je Nachricht höchstens ein Stück");
+    for (let i = 0; i < 40; i += 1) g.input(me, { action: "stroke", pts: many });
+    assert.equal(entry.strokeLen, C.SKETCH_MAX_POINTS, "je Durchgang höchstens so viele Punkte");
+    assert.equal(g.input(me, { action: "tap" }).ok, false);
+  } finally { g.restore(); }
+});
+
+test("Spurmaler: das Gerät bekommt die Striche gepackt, nicht die Rohdaten", () => {
+  const g = setup("spurmaler", 2);
+  try {
+    const [me] = g.players;
+    const path = Sketch.figurePath(g.arcade.sketch.figures[0]);
+    g.at(traceStart(0) + 100);
+    sendStroke(g, me, path.slice(0, 200));
+    const view = publicArcade(g.arcade);
+    assert.equal(view.sketchPaths, undefined, "die Bahnen rechnet das Gerät selbst");
+    assert.equal(view.players[me.id].strokes, undefined);
+    const trail = Sketch.unpackStrokes(view.players[me.id].trail);
+    assert.ok(trail.length === 1 && trail[0].length <= 91 && trail[0].length >= 60, `gepackt: ${trail[0]?.length}`);
+    assert.ok(JSON.stringify(view).length < 2500, `Paketgrösse ${JSON.stringify(view).length}`);
+  } finally { g.restore(); }
+});
+
+test("Spurmaler: Bots fahren nach, der starke genauer als der schwache, und die Runde endet nach drei Figuren", () => {
+  const g = setup("spurmaler", 2, { bots: true });
+  try {
+    const [strong, weak] = g.players.map((p) => g.arcade.players[p.id]);
+    strong.botProfile = { level: "hard" };
+    weak.botProfile = { level: "easy" };
+    const end = C.SKETCH_DURATION_MS;
+    for (let t = 0; t <= end; t += 90) {
+      g.at(t);
+      g.players.forEach((p) => arcadeBotStep(g.room, p));
+      g.tick();
+    }
+    assert.equal(g.arcade.sketch.scored, C.SKETCH_ROUNDS - 1);
+    assert.ok(strong.score > weak.score, `stark ${strong.score}, schwach ${weak.score}`);
+    assert.ok(strong.score >= 200, `stark ${strong.score}`);
+    assert.ok(weak.score > 60, `schwach ${weak.score}`);
+    assert.deepEqual(arcadeResultDetail(g.arcade, strong), { kind: "points", value: strong.score, label: "Punkte" });
+  } finally { g.restore(); }
+});
+
+test("Spurmaler: drei verschiedene Figuren, alle ganz auf dem Brett", () => {
+  for (let seed = 1; seed < 400; seed += 7) {
+    const figures = Sketch.pickFigures(seed, C.SKETCH_ROUNDS);
+    assert.equal(new Set(figures).size, C.SKETCH_ROUNDS, `seed ${seed}: ${figures}`);
+  }
+  Object.keys(Sketch.NAMES).forEach((name) => {
+    const path = Sketch.figurePath(name);
+    path.forEach(([x, y]) => assert.ok(x >= 0.08 && x <= 0.92 && y >= 0.08 && y <= 0.92, `${name}: ${x},${y}`));
+    assert.equal(Sketch.scoreStroke(path, [path], C.SKETCH_TOLERANCE).points, 100, `${name} genau nachgefahren`);
+  });
+});

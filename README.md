@@ -173,7 +173,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### ↔️〰️ Wischen zum Lenken
 
-- **Spurmaler:** Dein Farbroller fährt von selbst die Spur hinauf — du lenkst ihn, indem du irgendwo auf dem Bildschirm nach links oder rechts wischst. Jeder Abschnitt zählt: genau in der Mitte ist perfekt, im Band gut, daneben nichts. Bleib auf der Linie, dann steigt deine Serie auf ×2 und ×3. Die Kristalle am Bandrand bringen Extrapunkte, aber wer zu weit ausschert, verliert die Serie. Jede Runde wird etwas schneller.
+- **Spurmaler:** Ein großer Stift zeichnet eine Figur vor — eine Welle, ein Herz, einen Stern, einen Blitz oder das Haus vom Nikolaus. Dann fährst du sie auf deinem Brett mit dem Finger nach, so genau du kannst; die Vorlage bleibt blass zu sehen. Gewertet wird, wie viel der Figur du triffst und wie wenig du daneben malst — bis 100 Punkte je Figur. Drei Figuren, jede kniffliger.
 
 ### 👆↔️ Ins Fach wischen
 

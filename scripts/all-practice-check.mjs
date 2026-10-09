@@ -63,7 +63,7 @@ async function act(type){
  if(type==='seilspringen'){await tap('[data-rope-jump]');await wait('p.jumpUntil>Date.now()');return;}
  if(type==='bergsteiger'){const side=await read('p.nextSide');await touch('touchStart',side<0?80:310,400);await touch('touchEnd');await wait('p.rung>0');return;}
  if(type==='ballonfahrt'){await held('canvas.kinetic-webgl','p.holding','!p.holding');await tap('[data-glide-drop]');await wait('p.bags.length===1');return;}
- if(type==='spurmaler'){const before=await read('p.targetX');await drag(190,400,60,0);await wait('p.targetX>'+before);return;}
+ if(type==='spurmaler'){await wait('s.canTrace()');await drag(190,400,60,30);await wait('(p.strokeLen||0)>1');return;}
  if(type==='sortierband'){
   await wait('s.reachableNow');const before=await read('({sorted:p.sorted,wrong:p.wrong})');await drag(190,400,0,-65);assert.deepEqual(await read('({sorted:p.sorted,wrong:p.wrong})'),before,'upward swipe must not sort right');await wait('s.reachableNow');
   const chute=await read('s.layout.indexOf(s.displayQueue[0].colour)');await drag(190,400,chute===1?0:chute===0?-70:70,chute===1?70:0);await wait('p.sorted>0');return;

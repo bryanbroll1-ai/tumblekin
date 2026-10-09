@@ -1,450 +1,302 @@
 import * as THREE from "/vendor/three/three.module.js";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin211";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin211";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin211";
+import { frameLerp } from "./Quality.js?v=tumblekin211";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin211";
+import "./SketchFigures.js?v=tumblekin211";
 
-// Spurmaler: der Farbroller fährt von selbst die Spur hinauf, man LENKT ihn —
-// irgendwo auf dem Bildschirm nach links oder rechts wischen.
+// Spurmaler: ein riesiger Bleistift zeichnet auf der Staffelei eine Figur
+// vor — Welle, Herz, Stern, Blitz, Schnecke, das Haus vom Nikolaus … Danach
+// fährt jeder sie mit dem Finger auf dem grossen Blatt nach, so genau er
+// kann; die Vorlage bleibt blass zu sehen. Gewertet wird auf dem Server
+// (SketchFigures.scoreStroke): wie viel der Figur man getroffen hat und wie
+// wenig daneben ging. Drei Figuren, jede kniffliger.
 //
-// Vorher war der Finger selbst der Pinsel: er lag auf der Spur, verdeckte sie,
-// musste in einem an Engstellen fingerbreiten Band bleiben, und jeder Ausrutscher
-// riss den Strich mit Sperre und Wiedereinstieg ab. Jetzt gibt es kein Abreissen
-// mehr. Jeder Abschnitt der Spur wird gewertet und färbt sich: kräftig in der
-// eigenen Farbe (perfekt), hell (gut) oder grau (daneben). Wer auf der Linie
-// bleibt, baut eine Serie auf (×2, ×3); wer daneben fährt, verliert sie, fährt
-// aber einfach weiter.
-const TOLERANCE = 0.09;
-const BOARD_W = 3.0;
-// Am gemessenen Bild gerechnet: die Tafel darf NICHT das ganze Fenster füllen.
-// Oben sitzt die Kopfzeile des Minispiels, unten die Hinweiszeile.
-const BOARD_H = 5.2;
-const SEGMENTS = 80;          // Auflösung von Band und Spur (Vielfaches von CELLS)
-const CELLS = 40;             // gewertete Abschnitte je Runde — wie auf dem Server
-const STEER_SPEED = 2.2;      // wie auf dem Server: so schnell folgt der Pinsel
-const PERFECT = 0.4;
-// Tempo in Runden je Sekunde, wie auf dem Server — gebraucht, um den eigenen
-// Roller vorauszurechnen.
-const SPEED_BASE = 0.2;
-const SPEED_STEP = 0.025;
-const SPEED_MAX = 0.34;
-// Wie auf dem Server: verglichen wird auch mit der Spur ein kleines Stück
-// hinter dem Pinsel. Der Leuchtring muss dieselbe Nachsicht zeigen, die der
-// Server gewährt, sonst meldet er „daneben", wo es noch zählt.
-const LAG_WINDOW = 0.03;
-const GEM_REACH = 0.035;
-
-function noise(seed) {
-  const value = Math.sin(seed * 12.9898) * 43758.5453;
-  return value - Math.floor(value);
-}
+// Die Bilder der anderen hängen klein über dem Blatt und füllen sich, während
+// sie malen.
+const S = globalThis.TumblekinSketchFigures;
+const BOARD = 3.2;                 // Kantenlänge des Blatts
+const BOARD_Y = 2.25;              // Mitte des Blatts
+const MINI = 0.86;                 // Kantenlänge der kleinen Bilder
+const MINI_Y = BOARD_Y + BOARD / 2 + 0.72;
+const TEX = 512;
+const MINI_TEX = 128;
+const SEND_EVERY_MS = 70;
+const MIN_STEP = 0.006;            // so weit muss der Finger mindestens weiter
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-// Muss Zeichen für Zeichen der Serverfunktion entsprechen, sonst malt der
-// Client eine andere Kurve als die, die gewertet wird.
-function rawPathX(seed, lap, t) {
-  const s = seed + lap * 97;
-  const swing = 0.16 + noise(s) * 0.1;
-  const detail = 0.015 + noise(s + 11) * 0.03;
-  const phase = noise(s + 23) * Math.PI * 2;
-  const bows = 1 + Math.floor(noise(s + 37) * 1.999);
-  const raw = Math.sin(t * Math.PI * bows + phase) * swing
-    + Math.sin(t * Math.PI * (bows * 2 + 1) + phase * 1.7) * detail;
-  return clamp(0.5 + raw, 0.5 - (swing + detail), 0.5 + (swing + detail));
+// Ein Blatt Papier als Leinwand-Textur.
+function makeSheet(size) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return { canvas, ctx: canvas.getContext("2d"), texture, key: "" };
 }
 
-// Jede Runde beginnt dort, wo die vorige endet (wie auf dem Server).
-function pathX(seed, lap, t) {
-  const raw = rawPathX(seed, lap, t);
-  if (lap <= 0) return raw;
-  const shift = rawPathX(seed, lap - 1, 1) - rawPathX(seed, lap, 0);
-  const fade = Math.max(0, 1 - t / 0.2);
-  return raw + shift * fade * fade * (3 - 2 * fade);
-}
-
-// Ebenfalls wie auf dem Server: an Engstellen wird das Band schmaler, und dort
-// MUSS das Bild schmaler werden.
-const NARROW_MIN = 0.5;
-function widthAt(seed, lap, t) {
-  const s = seed + lap * 97;
-  const knots = 2 + Math.floor(noise(s + 61) * 2);
-  const phase = noise(s + 71) * Math.PI * 2;
-  const wave = (Math.cos(t * Math.PI * 2 * knots + phase) + 1) / 2;
-  const edge = Math.min(1, Math.min(t, 1 - t) / 0.12);
-  const narrow = NARROW_MIN + (1 - NARROW_MIN) * wave;
-  return narrow + (1 - narrow) * (1 - edge);
-}
-
-function speedFor(lap) {
-  return Math.min(SPEED_MAX, SPEED_BASE + SPEED_STEP * lap);
-}
-
-function lagOffset(seed, lap, x, t) {
-  let best = Infinity;
-  for (let i = 0; i <= 4; i += 1) {
-    const at = clamp(t - LAG_WINDOW * (i / 4), 0, 1);
-    best = Math.min(best, Math.abs(x - pathX(seed, lap, at)));
+function paper(ctx, size) {
+  ctx.fillStyle = "#fffaf0";
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = "rgba(120, 150, 190, 0.12)";
+  ctx.lineWidth = Math.max(1, size / 256);
+  const step = size / 16;
+  ctx.beginPath();
+  for (let i = 1; i < 16; i += 1) {
+    ctx.moveTo(i * step, 0); ctx.lineTo(i * step, size);
+    ctx.moveTo(0, i * step); ctx.lineTo(size, i * step);
   }
-  return best;
+  ctx.stroke();
 }
 
-const boardX = (nx) => (nx - 0.5) * BOARD_W;
-// Das Brett liegt flach: t = 0 vorn bei der Kamera, t = 1 hinten.
-const boardZ = (t) => BOARD_H / 2 - t * BOARD_H;
-
-const _open = new THREE.Color("#546472");
-const _bandOpen = new THREE.Color("#c3d3e2");
-const _miss = new THREE.Color("#a9b1b8");
-const _white = new THREE.Color("#ffffff");
+function polyline(ctx, size, points, upTo = points.length) {
+  if (!points.length || upTo < 1) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0] * size, points[0][1] * size);
+  for (let i = 1; i < Math.min(points.length, upTo); i += 1) ctx.lineTo(points[i][0] * size, points[i][1] * size);
+  if (upTo === 1) ctx.lineTo(points[0][0] * size + 0.1, points[0][1] * size);
+  ctx.stroke();
+}
 
 export class TracePainter extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.drawnLap = -1;
-    // null, nicht "": sonst hielt paintRibbons die leere Wertung zu Beginn
-    // für schon gemalt, und die Spur blieb bis zum ersten Abschnitt schwarz.
-    this.paintedKey = null;
-    this.lastMissAt = 0;
-    this.lastLapAt = 0;
-    this.lastGemAt = 0;
+    this.ownInView = false;
     this.drag = null;
-    this.keyDir = 0;
-    this.localTarget = null;   // wohin der eigene Finger gerade lenkt
-    this.localBrush = null;    // vorhergesagte Querposition des eigenen Pinsels
-    this.shownProgress = 0;
-    this.shownTotal = null;    // gezeigte Runde + Fortschritt, vorausgerechnet
-    this.shownLap = 0;
-    this.localCells = [];      // vorläufige Wertung der Abschnitte, bis der Server sie bestätigt
-    this.localGems = new Map();  // Kristalle, die der eigene Roller schon eingesammelt haben dürfte
+    this.strokes = [];             // eigene Striche dieses Durchgangs
+    this.pending = [];             // noch nicht geschickte Punkte
+    this.pendingStart = false;
+    this.lastSentAt = 0;
+    this.localRound = -1;
+    this.openRound = -1;
     this.roundTrip = 0;
-    this.sentTarget = null;
-    this.sentAt = 0;
-    this.shownCombo = 1;
+    this.lastPingAt = 0;
+    this.seenScored = -1;
+    this.paths = [];
+    this.minis = new Map();
     this.labelY = 0.74;
   }
 
   stage() {
     return {
       label: "3D Spurmaler",
-      background: "#6b4f3a",
-      fog: ["#6b4f3a", 22, 60],
-      lights: { sunPosition: [-4, 12, 9], shadow: { left: -5, right: 5, top: 5, bottom: -5 }, hemiIntensity: 2.6 }
+      background: "#f3e2c8",
+      fog: ["#f3e2c8", 18, 46],
+      lights: { sunPosition: [-3, 10, 9], sunIntensity: 2.5, hemiIntensity: 2.2, skyColor: 0xfff4e0, groundColor: 0x8a6a4a, shadow: { left: -4, right: 4, top: 6, bottom: -1 } }
     };
   }
 
   hudHtml() {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
-      <div class="trace-lapbar" data-trace-laps></div>
-      <div class="trace-combo" data-trace-combo hidden></div>
-      <div class="color-banner trace-banner" data-trace-banner hidden></div>`;
+      <div class="color-banner" data-sketch-banner hidden></div>`;
   }
 
   build() {
     const scene = this.scene;
-    // Die Leinwand liegt auf dem Arbeitstisch eines Malerateliers — vorher lag
-    // sie auf einer Wiese, und um sie herum war nichts.
+    const arcade = this.minigame.arcade;
+    this.paths = (arcade.sketch?.figures || []).map((name) => S.figurePath(name));
     this.buildStudio(scene);
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.6, 0.16, BOARD_H + 0.6), new THREE.MeshLambertMaterial({ color: "#8a6b4a" }));
-    frame.position.y = -0.1;
-    scene.add(frame);
-    const board = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.34, 0.1, BOARD_H + 0.34), new THREE.MeshLambertMaterial({ color: "#fdf6e6" }));
-    board.position.y = -0.05;
-    board.receiveShadow = true;
-    scene.add(board);
-    // Start- und Ziellinie: man sieht, wo eine Runde anfängt und wo sie endet.
-    [[boardZ(0) + 0.05, "#ffffff"], [boardZ(1) - 0.05, "#ffd15c"]].forEach(([z, color]) => {
-      const line = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.2, 0.012, 0.06), new THREE.MeshBasicMaterial({ color, toneMapped: false }));
-      line.position.set(0, 0.006, z);
-      scene.add(line);
-    });
-    this.buildRibbons();
-    this.buildGems();
 
-    // Die eigene Figur mit Farbroller.
+    // Die Staffelei mit dem grossen Blatt.
+    const holz = "#a0703f";
+    [[-1.25, 0.12], [1.25, -0.12]].forEach(([x, tilt]) => {
+      const bein = kiste(scene, 0.12, BOARD_Y + BOARD / 2 + 0.3, 0.12, holz, [x, (BOARD_Y + BOARD / 2 + 0.3) / 2, -0.25]);
+      bein.rotation.z = tilt;
+    });
+    kiste(scene, BOARD + 0.4, 0.12, 0.3, holz, [0, BOARD_Y - BOARD / 2 - 0.08, 0.02]);
+    kiste(scene, BOARD + 0.24, BOARD + 0.24, 0.1, "#7a5330", [0, BOARD_Y, -0.08]);
+    this.sheet = makeSheet(TEX);
+    const blatt = new THREE.Mesh(new THREE.PlaneGeometry(BOARD, BOARD), new THREE.MeshLambertMaterial({ map: this.sheet.texture }));
+    blatt.position.set(0, BOARD_Y, -0.02);
+    blatt.receiveShadow = true;
+    scene.add(blatt);
+    this.blatt = blatt;
+
+    // Der riesige Bleistift.
+    this.pencil = this.makePencil();
+    this.pencil.position.set(BOARD / 2 - 0.15, BOARD_Y - BOARD / 2 + 0.25, 0.45);
+    scene.add(this.pencil);
+
+    // Die Bilder der anderen, klein über dem Blatt.
     const players = this.getState()?.players || [];
-    const index = Math.max(0, players.findIndex((player) => player.id === this.getControlledPlayerId()));
-    const me = players[index];
-    this.ownColor = me?.color || "#ff5d73";
-    if (me) {
-      const kin = this.addKin(me, index, { x: 0, ground: 0, z: boardZ(0), facing: Math.PI, scale: 0.72 });
-      const roller = new THREE.Group();
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.4), new THREE.MeshLambertMaterial({ color: "#6b4f35" }));
-      handle.position.set(0, -0.12, 0.34);
-      handle.rotation.x = 0.55;
-      roller.add(handle);
-      const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.36, 12), new THREE.MeshLambertMaterial({ color: this.ownColor }));
-      drum.rotation.z = Math.PI / 2;
-      drum.position.set(0, -0.2, 0.56);
-      roller.add(drum);
-      kin.add(roller);
-      this.drum = drum;
-      // Ein Leuchtring unter dem Roller: grün auf der Linie, rot daneben. Den
-      // sieht man auch aus dem Augenwinkel, während der Blick nach vorn geht.
-      this.cursor = new THREE.Mesh(
-        new THREE.RingGeometry(0.1, 0.16, 24),
-        new THREE.MeshBasicMaterial({ color: "#7fe06f", transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false })
-      );
-      this.cursor.rotation.x = -Math.PI / 2;
-      scene.add(this.cursor);
-    }
-  }
+    const own = this.getControlledPlayerId();
+    this.own = own;
+    const others = players.filter((player) => player.id !== own);
+    others.forEach((player, i) => {
+      const x = (i - (others.length - 1) / 2) * (MINI + 0.28);
+      kiste(scene, MINI + 0.1, MINI + 0.1, 0.06, player.color, [x, MINI_Y, -0.12], { schatten: false });
+      const sheet = makeSheet(MINI_TEX);
+      const bild = new THREE.Mesh(new THREE.PlaneGeometry(MINI, MINI), new THREE.MeshBasicMaterial({ map: sheet.texture }));
+      bild.position.set(x, MINI_Y, -0.08);
+      scene.add(bild);
+      const tag = createNameLabel(String(player.name || "?").slice(0, 8), player.color);
+      tag.position.set(x, MINI_Y - MINI / 2 - 0.16, 0.02);
+      tag.scale.multiplyScalar(0.6);
+      scene.add(tag);
+      this.minis.set(player.id, { sheet, bild });
+    });
 
-  buildRibbons() {
-    const make = (halfWidth, lift, opacity) => {
-      const count = SEGMENTS + 1;
-      const positions = new Float32Array(count * 2 * 3);
-      const colors = new Float32Array(count * 2 * 3);
-      const indices = [];
-      for (let i = 0; i < SEGMENTS; i += 1) {
-        const a = i * 2;
-        indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    // Die Figuren stehen unten vor der Staffelei.
+    players.forEach((player, index) => {
+      const x = (index - (players.length - 1) / 2) * 0.78;
+      this.addKin(player, index, { x, ground: 0, z: 1.0, facing: 0, scale: 0.72, label: false });
+      if (player.id === own) {
+        const spot = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.34, 28), new THREE.MeshBasicMaterial({ color: "#ffe25c", transparent: true, opacity: 0.85 }));
+        spot.rotation.x = -Math.PI / 2;
+        spot.position.set(x, 0.015, 1.0);
+        scene.add(spot);
       }
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-      geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-      geometry.setIndex(indices);
-      const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
-      mesh.position.y = lift;
-      this.scene.add(mesh);
-      return { mesh, geometry, halfWidth, scaleWidth: false };
-    };
-    this.band = make(TOLERANCE, 0.012, 0.55);
-    this.band.scaleWidth = true;
-    // Der „perfekt"-Streifen in der Mitte des Bandes: dort soll der Roller hin.
-    this.core = make(TOLERANCE * PERFECT, 0.016, 0.35);
-    this.core.scaleWidth = true;
-    this.trail = make(0.034, 0.024, 1);
-  }
-
-  layoutRibbons(seed, lap) {
-    [this.band, this.core, this.trail].forEach((ribbon) => {
-      const pos = ribbon.geometry.attributes.position;
-      for (let i = 0; i <= SEGMENTS; i += 1) {
-        const t = i / SEGMENTS;
-        const px = pathX(seed, lap, t);
-        const half = ribbon.scaleWidth ? ribbon.halfWidth * widthAt(seed, lap, t) : ribbon.halfWidth;
-        pos.setXYZ(i * 2, boardX(px - half), 0, boardZ(t));
-        pos.setXYZ(i * 2 + 1, boardX(px + half), 0, boardZ(t));
-      }
-      pos.needsUpdate = true;
-      ribbon.geometry.computeBoundingSphere();
     });
-    this.drawnLap = lap;
-    this.paintedKey = null;
+    this.drawSheet(true);
   }
 
-  // Die Spur färbt sich Abschnitt für Abschnitt nach der Wertung des Servers.
-  paintRibbons(cells) {
-    const key = cells;
-    if (key === this.paintedKey) return;
-    this.paintedKey = key;
-    const perfect = new THREE.Color(this.ownColor);
-    const good = new THREE.Color(this.ownColor).lerp(_white, 0.5);
-    const bandDone = new THREE.Color(this.ownColor).lerp(_white, 0.7);
-    const set = (ribbon, i, color) => {
-      ribbon.geometry.attributes.color.setXYZ(i * 2, color.r, color.g, color.b);
-      ribbon.geometry.attributes.color.setXYZ(i * 2 + 1, color.r, color.g, color.b);
-    };
-    for (let i = 0; i <= SEGMENTS; i += 1) {
-      const cell = Math.min(CELLS - 1, Math.floor((i / SEGMENTS) * CELLS));
-      const mark = cells[cell];
-      const done = mark === "P" || mark === "G" || mark === "-";
-      const trailC = mark === "P" ? perfect : mark === "G" ? good : mark === "-" ? _miss : _open;
-      set(this.trail, i, trailC);
-      set(this.band, i, done ? bandDone : _bandOpen);
-      set(this.core, i, done ? bandDone : _white);
-    }
-    [this.band, this.core, this.trail].forEach((ribbon) => { ribbon.geometry.attributes.color.needsUpdate = true; });
-  }
-
-  // Die Kristalle. Sie werden EINMAL gebaut und je Runde umgesetzt.
-  buildGems() {
-    this.gems = [];
-    for (let i = 0; i < 6; i += 1) {
-      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.11), new THREE.MeshBasicMaterial({ color: "#ffe36b", toneMapped: false }));
-      gem.visible = false;
-      gem.userData.isFx = true;
-      this.scene.add(gem);
-      const halo = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.19, 18), new THREE.MeshBasicMaterial({ color: "#ffe36b", transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false }));
-      halo.rotation.x = -Math.PI / 2;
-      halo.visible = false;
-      this.scene.add(halo);
-      this.gems.push({ gem, halo });
-    }
-  }
-
-  // Welche Kristalle zur GEZEIGTEN Runde gehören. Der Roller ist dem Server
-  // um die Netzverzögerung voraus und steht deshalb am Rundenwechsel kurz schon
-  // auf der neuen Spur — dafür schickt der Server deren Kristalle mit.
-  gemsFor(own, lap) {
-    if (own.lap === lap) return { list: own.gems || [], taken: own.gemsTaken || {} };
-    if (own.lap + 1 === lap) return { list: own.nextGems || [], taken: {} };
-    return { list: [], taken: {} };
-  }
-
-  syncGems(own, lap, t, now) {
-    const { list, taken } = this.gemsFor(own, lap);
-    const clock = performance.now();
-    this.gems.forEach((visual, i) => {
-      const data = list[i];
-      // Eingesammelt: vom Server bestätigt, oder eben erst vom eigenen Roller
-      // berührt. Bestätigt der Server den Griff nicht, taucht der Kristall
-      // nach kurzer Zeit als verpasst wieder auf — ehrlich statt geschönt.
-      const local = data ? this.localGems.get(data.index) : null;
-      const gone = !data || Boolean(taken[data.index]) || (local && clock - local < 700);
-      visual.gem.visible = !gone;
-      visual.halo.visible = !gone;
-      if (gone) return;
-      const missed = t > data.t + 0.03;
-      const x = boardX(data.x);
-      const z = boardZ(data.t);
-      visual.gem.material.color.set(missed ? "#b9b2a0" : "#ffe36b");
-      visual.halo.material.opacity = missed ? 0 : 0.5;
-      visual.gem.scale.setScalar(missed ? 0.6 : 1);
-      visual.gem.position.set(x, (missed ? 0.12 : 0.22) + (missed ? 0 : Math.sin(now / 300 + i) * 0.04), z);
-      visual.halo.position.set(x, 0.03, z);
-      visual.gem.rotation.y = now / 420 + i;
-      visual.halo.scale.setScalar(1 + Math.sin(now / 260 + i) * 0.12);
-    });
-  }
-
-  // Der eigene Roller berührt einen Kristall — so misst auch der Server:
-  // seitlicher Abstand zur Mittellinie an der Stelle des Kristalls.
-  grabGems(own, seed, lap, t) {
-    const { list, taken } = this.gemsFor(own, lap);
-    list.forEach((gem) => {
-      if (taken[gem.index] || this.localGems.has(gem.index)) return;
-      if (Math.abs(t - gem.t) > 0.02) return;
-      const lateral = this.localBrush - pathX(seed, lap, gem.t);
-      if (Math.abs(lateral - gem.offset) > GEM_REACH) return;
-      this.localGems.set(gem.index, performance.now());
-      this.burst(new THREE.Vector3(boardX(gem.x), 0.3, boardZ(gem.t)), ["#ffe36b", "#ffffff"], { count: 10, speed: 1.5, up: 1.2, size: 0.055, life: 0.45, drag: 2.0 });
-      this.feedback?.vibrate(6);
-    });
-  }
-
+  // Ein Malatelier: Holzboden, Wand mit Bildern, Farbtöpfe und ein Regal.
   buildStudio(scene) {
-    const zufall = streuer(23);
-    // Tischplatte aus Holz mit Farbspritzern.
-    const platte = new THREE.Mesh(new THREE.BoxGeometry(12, 0.4, 13), new THREE.MeshLambertMaterial({ color: "#b9895a" }));
-    platte.position.y = -0.34;
-    platte.receiveShadow = true;
-    scene.add(platte);
-    const maserung = [];
-    for (let i = 0; i < 16; i += 1) maserung.push({ p: [-5.5 + i * 0.75, -0.139, 0], s: [0.04, 1, 13] });
-    viele(scene, new THREE.BoxGeometry(1, 0.001, 1), lambert("#a57a4e"), maserung);
-    const farben = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b", "#b57bff"];
-    const spritzer = farben.map(() => []);
-    for (let i = 0; i < 40; i += 1) {
-      const x = (zufall() - 0.5) * 9;
-      const z = (zufall() - 0.5) * 11;
-      if (Math.abs(x) < BOARD_W / 2 + 0.45 && Math.abs(z) < BOARD_H / 2 + 0.45) continue;
-      spritzer[i % farben.length].push({ p: [x, -0.138, z], r: [-Math.PI / 2, 0, zufall() * 3], s: [0.05 + zufall() * 0.14, 0.04 + zufall() * 0.12, 1] });
-    }
-    farben.forEach((farbe, i) => viele(scene, new THREE.CircleGeometry(1, 8), lambert(farbe), spritzer[i]));
-    // Farbtuben, halb ausgedrückt.
-    // Ausserhalb der Leinwand, aber im hochkanten Bild: oben und unten.
-    [[-1.3, 3.05, 0.3, 0], [-0.6, 3.25, -0.4, 1], [0.9, 3.1, 0.2, 2], [1.5, -3.15, 0.9, 3], [0.7, -3.3, -0.2, 4]].forEach(([x, z, dreh, c]) => {
-      const tube = new THREE.Group();
-      kiste(tube, 0.5, 0.1, 0.18, "#e8eaee", [0, 0, 0]);
-      kiste(tube, 0.14, 0.08, 0.16, farben[c], [-0.2, 0.001, 0], { schatten: false });
-      kiste(tube, 0.08, 0.06, 0.06, "#2c2f38", [0.29, 0, 0], { schatten: false });
-      const klecks = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), lambert(farben[c]));
-      klecks.scale.y = 0.5;
-      klecks.position.set(0.38, -0.03, 0);
-      tube.add(klecks);
-      tube.position.set(x, -0.08, z);
-      tube.rotation.y = dreh;
-      scene.add(tube);
+    const zufall = streuer(31);
+    ["#c69a6b", "#b98d5e"].forEach((farbe, i) => {
+      viele(scene, new THREE.BoxGeometry(0.6, 0.1, 9), lambert(farbe), Array.from({ length: 14 }, (_, k) => k).filter((k) => k % 2 === i).map((k) => ({ p: [-4.2 + k * 0.6, -0.05, 1.5] })), { empfangen: true });
     });
-    // Palette mit Farbklecksen.
-    const palette = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.04, 20), lambert("#d9b27a"));
-    palette.scale.z = 0.72;
-    palette.position.set(-1.1, -0.12, -3.25);
-    scene.add(palette);
-    viele(scene, new THREE.SphereGeometry(0.07, 8, 6), lambert("#ffffff"), [[0, 0]].map(() => ({ p: [-0.9, -0.09, -3.5], s: [1, 0.4, 1] })));
-    farben.forEach((farbe, i) => {
-      const k = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), lambert(farbe));
-      k.scale.y = 0.4;
-      const a = -0.6 + i * 0.5;
-      k.position.set(-1.1 + Math.cos(a) * 0.42, -0.09, -3.25 + Math.sin(a) * 0.3);
-      scene.add(k);
+    kiste(scene, 14, 7, 0.3, "#f6e7cf", [0, 3.4, -1.2], { schatten: false });
+    kiste(scene, 14, 0.5, 0.34, "#d9c3a2", [0, 0.25, -1.18], { schatten: false });
+    // Bilder an der Wand links und rechts.
+    [[-3.1, 3.6, "#7ab8e8", "#ffd15c"], [3.1, 3.2, "#ff9fb0", "#71d97b"], [-3.0, 1.7, "#b57bff", "#ffffff"]].forEach(([x, y, a, b]) => {
+      kiste(scene, 1.2, 0.9, 0.08, "#8a5a32", [x, y, -1.0], { schatten: false });
+      kiste(scene, 1.0, 0.7, 0.04, a, [x, y, -0.95], { schatten: false });
+      kiste(scene, 0.36, 0.36, 0.03, b, [x + 0.15, y - 0.05, -0.92], { schatten: false });
     });
-    // Pinselglas.
-    const glas = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.44, 12, 1, true), new THREE.MeshLambertMaterial({ color: "#bfe6ff", transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-    glas.position.set(1.55, 0.08, 3.2);
-    scene.add(glas);
-    [[-0.05, 0.2, "#ff5d73"], [0.06, -0.15, "#28c7d9"], [0.02, 0.05, "#ffd15c"]].forEach(([dx, tilt, farbe]) => {
-      const stiel = kiste(scene, 0.04, 0.7, 0.04, "#8a6238", [1.55 + dx, 0.32, 3.2]);
-      stiel.rotation.z = tilt;
-      kiste(scene, 0.05, 0.1, 0.05, farbe, [1.55 + dx + Math.sin(-tilt) * -0.35, 0.68, 3.2], { schatten: false });
+    // Farbtöpfe und Pinsel.
+    [[-2.2, 0.5, "#ff5d73"], [-1.85, 0.75, "#28c7d9"], [2.0, 0.6, "#ffd15c"], [2.35, 0.4, "#71d97b"]].forEach(([x, z, farbe]) => {
+      kiste(scene, 0.26, 0.24, 0.26, "#d9dde2", [x, 0.12, z]);
+      kiste(scene, 0.22, 0.02, 0.22, farbe, [x, 0.245, z], { schatten: false });
+      const pinsel = kiste(scene, 0.035, 0.42, 0.035, "#8a6238", [x + 0.05, 0.36, z], { schatten: false });
+      pinsel.rotation.z = -0.35 + zufall() * 0.3;
     });
-    // Klebeband an den Ecken der Leinwand.
-    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
-      const band = kiste(scene, 0.34, 0.012, 0.14, "#f1e4b8", [sx * (BOARD_W / 2 + 0.2), -0.005, sz * (BOARD_H / 2 + 0.2)], { schatten: false });
-      band.rotation.y = sx * sz * 0.78;
+    // Ein Regal mit Papierrollen rechts.
+    kiste(scene, 1.0, 0.08, 0.4, "#8a5a32", [3.0, 1.0, -0.9]);
+    ["#fffaf0", "#ffe9c4", "#d8ecff"].forEach((farbe, i) => {
+      const rolle = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.7, 8), lambert(farbe));
+      rolle.rotation.z = Math.PI / 2;
+      rolle.position.set(3.0, 1.12 + i * 0.02, -0.95 + i * 0.12);
+      scene.add(rolle);
     });
-    // Schwamm und Bleistift.
-    kiste(scene, 0.44, 0.16, 0.3, "#ffd84a", [-1.7, -0.06, 3.3]).rotation.y = 0.4;
-    const stift = kiste(scene, 0.06, 0.06, 0.9, "#ffc400", [0.2, -0.1, -3.3]);
-    stift.rotation.y = -1.2;
+  }
+
+  // Ein Bleistift aus Blöcken: gelber Schaft, Metallring, rosa Radiergummi,
+  // Holzspitze mit Mine. Der Ursprung liegt an der Minenspitze.
+  makePencil() {
+    const group = new THREE.Group();
+    const stift = new THREE.Group();
+    group.add(stift);
+    kiste(stift, 0.07, 0.12, 0.07, "#2b2b36", [0, 0.06, 0]);
+    const spitze = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.32, 6), lambert("#e8c48e"));
+    spitze.rotation.x = Math.PI;
+    spitze.position.y = 0.26;
+    spitze.castShadow = true;
+    stift.add(spitze);
+    kiste(stift, 0.27, 1.7, 0.27, "#ffc928", [0, 1.27, 0]);
+    [-1, 1].forEach((side) => kiste(stift, 0.03, 1.7, 0.275, "#f2a900", [side * 0.07, 1.27, 0], { schatten: false }));
+    kiste(stift, 0.29, 0.16, 0.29, "#c9ced6", [0, 2.18, 0]);
+    kiste(stift, 0.27, 0.24, 0.27, "#ff8fa8", [0, 2.38, 0]);
+    // Schräg zum Blatt geneigt, wie eine Hand ihn hält.
+    stift.rotation.set(0.45, 0, -0.42);
+    return group;
+  }
+
+  // Wo auf dem Blatt ein Punkt (0..1, y nach unten) in der Welt liegt.
+  sheetToWorld(u, v, into = new THREE.Vector3()) {
+    return into.set((u - 0.5) * BOARD, BOARD_Y + (0.5 - v) * BOARD, 0);
   }
 
   shot() {
     return {
-      look: [0, 0, 0.1],
-      frame: { w: BOARD_W + 0.9, h: BOARD_H * Math.sin(1.1) + 0.9 },
-      fill: 0.95,
-      pitch: 1.1,
-      fov: 36,
-      intro: { yaw: 0.4, pitch: 0.3, zoom: 1.3 }
+      look: [0, (MINI_Y + MINI / 2 + 0.1) / 2, 0],
+      frame: { w: BOARD + 0.5, h: MINI_Y + MINI / 2 + 0.2 },
+      fill: 0.97,
+      pitch: 0.04,
+      fov: 38,
+      intro: { yaw: 0.3, pitch: 0.12, zoom: 1.25 },
+      finale: { pull: 0.85, zoom: 0.8, lift: 0.1, orbit: 0.08 }
     };
   }
 
+  keepInView() {
+    return [];
+  }
+
+  // --- Phasen ------------------------------------------------------------
+
+  phaseOf(at) {
+    const minigame = this.update || this.minigame;
+    const sketch = minigame?.arcade?.sketch;
+    if (!sketch) return { phase: "lead", round: 0, since: 0 };
+    const elapsed = at - minigame.startedAt;
+    const cycle = sketch.drawMs + sketch.traceMs + sketch.scoreMs;
+    const t = elapsed - sketch.leadMs;
+    if (t < 0) return { phase: "lead", round: 0, since: elapsed };
+    const round = Math.floor(t / cycle);
+    if (round >= sketch.rounds) return { phase: "over", round: sketch.rounds - 1, since: t - sketch.rounds * cycle };
+    const inner = t - round * cycle;
+    if (inner < sketch.drawMs) return { phase: "draw", round, since: inner };
+    if (inner < sketch.drawMs + sketch.traceMs) return { phase: "trace", round, since: inner - sketch.drawMs, left: sketch.drawMs + sketch.traceMs - inner };
+    return { phase: "score", round, since: inner - sketch.drawMs - sketch.traceMs };
+  }
+
+  // Die Phase zu dem Moment, in dem ein JETZT geschickter Punkt ankommt.
+  arrivalPhase() {
+    return this.phaseOf(this.now() + this.roundTrip);
+  }
+
+  canTrace() {
+    const minigame = this.update || this.minigame;
+    return Boolean(minigame && !minigame.finaleAt && this.arrivalPhase().phase === "trace");
+  }
+
+  // --- Eingabe -------------------------------------------------------------
+
   bind() {
-    this.controls.innerHTML = `<p class="trace-hint">◀ Irgendwo wischen zum Lenken ▶ · bleib auf der Linie</p>`;
+    this.controls.innerHTML = `<p class="trace-hint" data-sketch-hint>Fahr die Figur mit dem Finger nach</p>`;
     this.controls.style.pointerEvents = "none";
-    // Relatives Lenken: wo der Finger aufsetzt, ist egal — gezählt wird, wie
-    // weit er seitlich wandert, im Massstab des Bretts. So verdeckt er nie die
-    // Spur, und der Roller springt beim Aufsetzen nicht.
+    this.raycaster = new THREE.Raycaster();
+    this.pointer = new THREE.Vector2();
+    this.plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0.02);
+    const sheetAt = (event) => {
+      const rect = this.webglCanvas.getBoundingClientRect();
+      this.pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const hit = new THREE.Vector3();
+      if (!this.raycaster.ray.intersectPlane(this.plane, hit)) return null;
+      return [clamp(hit.x / BOARD + 0.5, 0, 1), clamp(0.5 - (hit.y - BOARD_Y) / BOARD, 0, 1)];
+    };
+    this.webglCanvas.style.touchAction = "none";
     this.on(this.webglCanvas, "pointerdown", (event) => {
-      if (this.drag) return;
       event.preventDefault();
+      if (this.drag) return;
+      this.drag = { pointerId: event.pointerId, last: null, fresh: true };
       this.capturePointer(this.webglCanvas, event.pointerId);
-      this.drag = {
-        id: event.pointerId,
-        x0: event.clientX,
-        from: this.localTarget ?? this.localBrush ?? 0.5,
-        gain: 1 / Math.max(80, this.boardPixelWidth())
-      };
+      this.addPoint(sheetAt(event));
     });
     this.on(this.webglCanvas, "pointermove", (event) => {
-      if (!this.drag || event.pointerId !== this.drag.id) return;
-      event.preventDefault();
-      this.localTarget = clamp(this.drag.from + (event.clientX - this.drag.x0) * this.drag.gain, 0.02, 0.98);
+      if (!this.drag || event.pointerId !== this.drag.pointerId) return;
+      // Bei schnellen Bewegungen liefert der Browser Zwischenpunkte mit.
+      const events = event.getCoalescedEvents?.() || [event];
+      events.forEach((e) => this.addPoint(sheetAt(e)));
     });
-    const up = (event) => {
-      if (!this.drag || event.pointerId !== this.drag.id) return;
+    const release = (event) => {
+      if (!this.drag || event.pointerId !== this.drag.pointerId) return;
       this.drag = null;
-      this.webglCanvas.releasePointerCapture?.(event.pointerId);
+      this.flush(true);
     };
-    this.on(this.webglCanvas, "pointerup", up);
-    this.on(this.webglCanvas, "pointercancel", up);
-    this.on(this.webglCanvas, "lostpointercapture", up);
-    // Am Rechner lenken die Pfeiltasten.
-    this.on(window, "keydown", (event) => {
-      if (event.key === "ArrowLeft" || event.key === "a") this.keyDir = -1;
-      else if (event.key === "ArrowRight" || event.key === "d") this.keyDir = 1;
-    });
-    this.on(window, "keyup", (event) => {
-      if ((event.key === "ArrowLeft" || event.key === "a") && this.keyDir < 0) this.keyDir = 0;
-      if ((event.key === "ArrowRight" || event.key === "d") && this.keyDir > 0) this.keyDir = 0;
-    });
-    const interrupt = () => { this.drag = null; this.keyDir = 0; };
+    this.on(this.webglCanvas, "pointerup", release);
+    this.on(this.webglCanvas, "pointercancel", release);
+    this.on(this.webglCanvas, "lostpointercapture", release);
+    const interrupt = () => { if (this.drag) release({ pointerId: this.drag.pointerId }); };
     this.on(window, "blur", interrupt);
+    this.on(window, "resize", interrupt);
     this.on(document, "visibilitychange", () => { if (document.hidden) interrupt(); });
   }
 
@@ -452,277 +304,272 @@ export class TracePainter extends MinigameScene {
     this.controls.style.pointerEvents = "";
   }
 
-  // Wie breit das Brett auf dem Bildschirm ist, in CSS-Pixeln.
-  boardPixelWidth() {
-    const z = boardZ(clamp(this.shownProgress, 0, 1));
-    const a = this.rig?.toScreen([boardX(0), 0, z]);
-    const b = this.rig?.toScreen([boardX(1), 0, z]);
-    if (!a || !b) return 300;
-    return Math.abs(b.x - a.x);
+  // Ein Punkt unter dem Finger. Gemalt wird nur im Nachfahrfenster; davor
+  // bleibt das Blatt leer, damit niemand über die noch laufende Vorlage malt.
+  addPoint(point) {
+    if (!point || !this.drag || !this.canTrace()) return;
+    const last = this.drag.last;
+    if (last && Math.hypot(point[0] - last[0], point[1] - last[1]) < MIN_STEP) return;
+    if (this.drag.fresh || !last || !this.strokes.length) {
+      // Ein neuer Strich: was vom alten noch wartet, geht vorher hinaus,
+      // damit die Server-Markierung „neuer Strich“ am richtigen Punkt sitzt.
+      this.flush(true);
+      this.drag.fresh = false;
+      this.strokes.push([]);
+      this.pendingStart = true;
+    }
+    const rounded = [Math.round(point[0] * 1000) / 1000, Math.round(point[1] * 1000) / 1000];
+    this.strokes[this.strokes.length - 1].push(rounded);
+    this.pending.push(rounded);
+    this.drag.last = rounded;
+    this.sheetDirty = true;
+    if (performance.now() - this.lastSentAt > SEND_EVERY_MS || this.pending.length >= 40) this.flush(false);
   }
 
-  // Lenkziel an den Server, gedrosselt — aber der letzte Stand kommt immer an:
-  // was die Drossel zurückhält, geht im nächsten freien Bild raus, und der
-  // Server verschluckt beim Lenken nichts mehr (kein Cooldown).
-  flushTarget(now) {
-    if (this.localTarget === null) return;
-    if (this.sentTarget !== null && Math.abs(this.localTarget - this.sentTarget) < 0.002) return;
-    if (now - this.sentAt < 45) return;
-    this.sentAt = now;
-    this.steeredAt = now;
-    this.sentTarget = this.localTarget;
-    const sentAt = performance.now();
-    this.sendInput({ action: "steer", x: this.localTarget })
-      .then(() => this.noteRoundTrip(performance.now() - sentAt))
-      .catch(() => {});
+  flush(force) {
+    if (!this.pending.length) return;
+    if (!force && performance.now() - this.lastSentAt < SEND_EVERY_MS) return;
+    const pts = this.pending.splice(0, 48);
+    const start = this.pendingStart;
+    this.pendingStart = false;
+    const clock = performance.now();
+    this.lastSentAt = clock;
+    this.sendInput({ action: "stroke", pts, start }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+    if (this.pending.length) this.flush(true);
   }
 
-  // Wie lange eine Lenkung zum Server und zurück braucht, geglättet.
-  //
-  // Der Server wertet den Pinsel dort, wo SEIN Roller gerade ist. Das Bild auf
-  // dem Gerät ist aber um die einfache Laufzeit alt, und die Lenkung braucht
-  // noch einmal so lange hin — gelenkt wurde also immer auf eine Stelle, die
-  // der Server längst hinter sich hatte. Bei 200 ms Rundreise kostete das in
-  // der Messung fast jeden dritten Abschnitt. Darum zeigt das Gerät den
-  // eigenen Roller genau um diese Rundreise voraus.
   noteRoundTrip(ms) {
     if (!Number.isFinite(ms)) return;
     const clamped = Math.max(0, Math.min(250, ms));
-    this.roundTrip = this.roundTrip * 0.7 + clamped * 0.3;
+    this.roundTrip = this.roundTrip ? this.roundTrip * 0.8 + clamped * 0.2 : clamped;
   }
 
-  // Wo der Server den eigenen Roller haben wird, wenn eine JETZT geschickte
-  // Lenkung ankommt — als Runde + Fortschritt. Die Uhr des Geräts läuft der
-  // des Servers um die einfache Laufzeit hinterher; eine Rundreise dazu ist
-  // die Ankunftszeit. Vor dem Anlauf und nach dem Schluss fährt nichts.
-  predictTotal(own, f, rollStart) {
-    const minigame = f.minigame || {};
-    const endAt = (minigame.startedAt || 0) + (minigame.duration || 0);
-    const snapAt = minigame.sentAt || f.now;
-    let lap = own.lap || 0;
-    let progress = own.progress || 0;
-    const aheadMs = Math.min(f.now + this.roundTrip, endAt) - Math.max(snapAt, rollStart);
-    const ahead = clamp(aheadMs / 1000, 0, 0.6);
-    if (ahead > 0 && !f.finale) {
-      progress += speedFor(lap) * ahead;
-      if (progress >= 1) {
-        const over = (progress - 1) / speedFor(lap);
-        lap += 1;
-        progress = over * speedFor(lap);
+  pingIfIdle(minigame) {
+    if (minigame.finaleAt || this.now() < minigame.startedAt) return;
+    const clock = performance.now();
+    if (clock - this.lastSentAt < 1000 || clock - this.lastPingAt < 1000) return;
+    this.lastPingAt = clock;
+    this.sendInput({ action: "ping" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
+  }
+
+  // Schliesst das Fenster (nach Ankunftszeit), geht der Rest noch hinaus.
+  syncWindow(f) {
+    const open = this.arrivalPhase().phase === "trace" && !f.finale;
+    if (open) {
+      this.openRound = this.arrivalPhase().round;
+      return;
+    }
+    if (this.openRound < 0) return;
+    this.openRound = -1;
+    this.flush(true);
+    if (this.drag) this.drag.last = null;
+  }
+
+  // --- Zeichnen ------------------------------------------------------------
+
+  // Das grosse Blatt: Papier, die Vorlage (beim Vorzeichnen so weit, wie der
+  // Stift ist, danach blass), die eigenen Striche, bei der Wertung die
+  // Vorlage kräftig darüber.
+  drawSheet(force = false) {
+    const { phase, round, since } = this.phaseOf(this.now());
+    const sketch = (this.update || this.minigame)?.arcade?.sketch;
+    const path = this.paths[round] || [];
+    const share = phase === "draw" ? clamp(since / ((sketch?.drawMs || 2600) * 0.85), 0, 1) : phase === "lead" ? 0 : 1;
+    const upTo = Math.ceil(share * path.length);
+    const key = `${phase}|${round}|${upTo}|${this.strokes.reduce((n, s) => n + s.length, 0)}`;
+    if (!force && !this.sheetDirty && key === this.sheet.key) return;
+    this.sheet.key = key;
+    this.sheetDirty = false;
+    const { ctx } = this.sheet;
+    paper(ctx, TEX);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (phase === "draw") {
+      ctx.strokeStyle = "#2b2b36";
+      ctx.lineWidth = 11;
+      polyline(ctx, TEX, path, upTo);
+    } else if (phase === "trace" || phase === "score" || phase === "over") {
+      // Die Toleranz als breites, blasses Band, darüber die gestrichelte Linie.
+      ctx.strokeStyle = "rgba(43, 43, 54, 0.1)";
+      ctx.lineWidth = (sketch?.tolerance || 0.024) * 2 * TEX;
+      polyline(ctx, TEX, path);
+      ctx.setLineDash([12, 12]);
+      ctx.strokeStyle = "rgba(43, 43, 54, 0.38)";
+      ctx.lineWidth = 6;
+      polyline(ctx, TEX, path);
+      ctx.setLineDash([]);
+      if (phase === "trace" && path.length) {
+        // Startpunkt: hier fängt die Figur an.
+        ctx.fillStyle = "#1fbf5b";
+        ctx.beginPath();
+        ctx.arc(path[0][0] * TEX, path[0][1] * TEX, 13, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
-    return lap + clamp(progress, 0, 0.9999);
+    const own = (this.getState()?.players || []).find((p) => p.id === this.own);
+    ctx.strokeStyle = own?.color || "#ff5d73";
+    ctx.lineWidth = 10;
+    this.strokes.forEach((stroke) => polyline(ctx, TEX, stroke));
+    if (phase === "score") {
+      ctx.strokeStyle = "rgba(43, 43, 54, 0.85)";
+      ctx.lineWidth = 4;
+      polyline(ctx, TEX, path);
+    }
+    this.sheet.texture.needsUpdate = true;
   }
+
+  drawMinis(arcade, players, phase, round) {
+    players.forEach((player) => {
+      const mini = this.minis.get(player.id);
+      if (!mini) return;
+      const entry = arcade.players[player.id];
+      const trail = entry?.strokeRound === round && phase !== "draw" && phase !== "lead" ? entry.trail || "" : "";
+      const key = `${phase === "draw" ? "d" : "t"}|${round}|${trail}`;
+      if (mini.sheet.key === key) return;
+      mini.sheet.key = key;
+      const { ctx } = mini.sheet;
+      paper(ctx, MINI_TEX);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      if (phase !== "lead" && phase !== "draw") {
+        ctx.strokeStyle = "rgba(43, 43, 54, 0.3)";
+        ctx.lineWidth = 2;
+        polyline(ctx, MINI_TEX, this.paths[round] || []);
+      }
+      ctx.strokeStyle = player.color;
+      ctx.lineWidth = 4;
+      S.unpackStrokes(trail).forEach((stroke) => polyline(ctx, MINI_TEX, stroke));
+      mini.sheet.texture.needsUpdate = true;
+    });
+  }
+
+  // Der Bleistift: beim Vorzeichnen sitzt seine Spitze auf der Linie, danach
+  // hebt er ab und wartet oben rechts.
+  movePencil(phase, round, since, dt, now) {
+    const sketch = (this.update || this.minigame)?.arcade?.sketch;
+    const path = this.paths[round] || [];
+    // Ausserhalb des Zeichnens lehnt er rechts unten am Blattrand.
+    const want = new THREE.Vector3(BOARD / 2 - 0.15, BOARD_Y - BOARD / 2 + 0.25, 0.45);
+    let drawing = false;
+    if (phase === "draw" && path.length) {
+      const share = since / ((sketch?.drawMs || 2600) * 0.85);
+      if (share <= 1) {
+        const at = path[Math.min(path.length - 1, Math.floor(share * path.length))];
+        this.sheetToWorld(at[0], at[1], want);
+        want.z = 0.02;
+        drawing = true;
+      }
+    }
+    const follow = drawing ? 0.7 : 0.12;
+    this.pencil.position.lerp(want, frameLerp(follow, dt));
+    this.pencil.rotation.z = drawing ? Math.sin(now / 90) * 0.03 : Math.sin(now / 700) * 0.05;
+  }
+
+  // --- Lauf ---------------------------------------------------------------
 
   tick(f) {
-    const { now, dt, arcade, controlledId, finale } = f;
-    if (!arcade) return;
-    const own = arcade.players[controlledId];
-    const kin = this.kins.get(controlledId);
-    const animator = this.animators.get(controlledId);
-    if (!own || !kin || !animator) return;
+    const { now, dt, arcade, players, controlledId } = f;
+    const sketch = arcade?.sketch;
+    if (!sketch) return;
+    if (!this.paths.length && sketch.figures) this.paths = sketch.figures.map((name) => S.figurePath(name));
+    this.syncWindow(f);
+    this.flush(false);
+    this.pingIfIdle(f.minigame);
+    const { phase, round, since } = this.phaseOf(now);
 
-    // Gefahren wird ab dem Ende des Anlaufs — auf der Serveruhr, zu der die
-    // Lenkung ankommt.
-    const rollStart = (f.minigame?.startedAt || 0) + (arcade.leadInMs || 0);
-    const endAt = (f.minigame?.startedAt || 0) + (f.minigame?.duration || 0);
-    const started = now + this.roundTrip >= rollStart;
-    // Nach dem Schluss fährt auch der Server nicht mehr — sonst liefe der
-    // Roller bis zum Finale weiter und würde dann zurückgezogen.
-    const moving = started && !finale && now + this.roundTrip < endAt;
-
-    // Vorwärts: lokal weiterfahren und sanft zur Vorhersage hin korrigieren.
-    // Ein grosser Unterschied (Aussetzer, Wiedereinstieg) wird übernommen.
-    const target = this.predictTotal(own, f, rollStart);
-    if (this.shownTotal === null || Math.abs(target - this.shownTotal) > 0.12) {
-      this.shownTotal = target;
-    } else {
-      if (moving) this.shownTotal += speedFor(Math.floor(this.shownTotal)) * dt;
-      this.shownTotal += (target - this.shownTotal) * frameLerp(0.15, dt);
+    // Neuer Durchgang: leeres Blatt.
+    if (this.localRound !== round && (phase === "draw" || phase === "trace")) {
+      this.localRound = round;
+      this.strokes = [];
+      this.pending = [];
+      if (this.drag) this.drag.last = null;
+      this.sheetDirty = true;
+      this.feedback?.sound("sparkle");
     }
-    // Die gezeigte Runde läuft nur vorwärts: ein Zurückzucken über die
-    // Ziellinie hätte die Spur zweimal neu gelegt.
-    let lap = Math.floor(this.shownTotal);
-    let t = this.shownTotal - lap;
-    if (lap < this.shownLap) {
-      lap = this.shownLap;
-      t = 0;
-    }
-    this.shownLap = lap;
-    this.shownProgress = t;
+    this.drawSheet();
+    this.drawMinis(arcade, players, phase, round);
+    this.movePencil(phase, round, since, dt, now);
 
-    if (lap !== this.drawnLap) {
-      const neueRunde = this.drawnLap >= 0;
-      this.layoutRibbons(arcade.seed, lap);
-      this.localCells = [];
-      this.localGems.clear();
-      // Neue Runde: der Roller springt vom Ziel zurück an den Start. Das ist
-      // gewollt, sah aber aus wie ein Aussetzer — jetzt ploppt die Figur mit
-      // einem Farbwölkchen unten wieder auf. Die Markierung sagt den
-      // Prüfskripten, dass dieser Sprung Absicht ist.
-      if (neueRunde) {
-        kin.userData.versetzt = performance.now();
-        animator.trigger("spawn");
-        this.burst(new THREE.Vector3(boardX(this.localBrush ?? 0.5), 0.3, boardZ(t)), ["#ffffff", "#ffe36b"], { count: 10, speed: 1.4, up: 1.2, size: 0.06, life: 0.5 });
+    // Gewertet: Punkte über dem Blatt, die Figuren reagieren.
+    if (sketch.scored > this.seenScored && sketch.scored >= 0) {
+      this.seenScored = sketch.scored;
+      const results = players.map((player) => ({ player, points: arcade.players[player.id]?.results?.[sketch.scored]?.points ?? 0 }));
+      const best = Math.max(...results.map((r) => r.points));
+      results.forEach(({ player, points }) => {
+        const animator = this.animators.get(player.id);
+        const isOwn = player.id === controlledId;
+        if (isOwn) {
+          this.pop(new THREE.Vector3(0, BOARD_Y + 0.3, 0.6), `+${points}`, { color: points >= 75 ? "#ffe36b" : points >= 45 ? "#ffffff" : "#ffb3bd", size: 0.6, life: 1.6, rise: 0.5 });
+          this.feedback?.sound(points >= 75 ? "perfect" : points >= 45 ? "coin" : "error");
+          this.feedback?.vibrate(points >= 75 ? [10, 30, 10] : 12);
+          if (points >= 75) this.burst(new THREE.Vector3(0, BOARD_Y, 0.5), ["#ffe25c", "#ff5d73", "#28c7d9", "#ffffff"], { count: 24, speed: 2.2, up: 1.8, size: 0.07, life: 1 });
+        } else {
+          const mini = this.minis.get(player.id);
+          if (mini) this.pop(mini.bild.position.clone().add(new THREE.Vector3(0, 0.1, 0.3)), `+${points}`, { color: "#ffffff", size: 0.3, life: 1.4 });
+        }
+        if (animator) {
+          if (points === best && best > 0) { animator.trigger("fistpump"); animator.expression("joy", 1500); }
+          else if (points < 35) { animator.trigger("facepalm"); animator.expression("sad", 1400); }
+          else { animator.trigger("clap"); animator.expression("happy", 1000); }
+        }
+      });
+    }
+
+    if (f.finale) return;
+    players.forEach((player) => {
+      const animator = this.animators.get(player.id);
+      if (!animator) return;
+      if (phase === "trace") {
+        animator.set(player.id === controlledId && this.drag ? "reach" : "think");
+        animator.lookAt(this.blatt.position);
+      } else if (phase === "draw") {
+        animator.set("focus");
+        animator.lookAt(this.pencil.position);
+      } else {
+        animator.set("idle");
+        animator.lookAt(null);
       }
-    }
-
-    // Eigenes Lenken: sofort im Bild, der Server bestätigt nur. Lenkt dieses
-    // Gerät gerade nicht (anderes Gerät, Autopilot), folgt das Bild dem Server.
-    if (this.localBrush === null) this.localBrush = own.brushX ?? 0.5;
-    if (this.localTarget === null) this.localTarget = own.targetX ?? this.localBrush;
-    if (this.keyDir && !finale) this.localTarget = clamp(this.localTarget + this.keyDir * STEER_SPEED * 0.55 * dt, 0.02, 0.98);
-    if (!finale) this.flushTarget(now);
-    const idle = !this.drag && !this.keyDir && now - (this.steeredAt || 0) > 400;
-    if (idle && Number.isFinite(own.targetX) && Math.abs(own.targetX - this.localTarget) > 0.004) {
-      this.localTarget = own.targetX;
-      this.sentTarget = own.targetX;
-    }
-    const reach = STEER_SPEED * dt;
-    this.localBrush += clamp(this.localTarget - this.localBrush, -reach, reach);
-    const serverX = own.brushX ?? this.localBrush;
-    if (idle && Math.abs(serverX - this.localBrush) > 0.02) this.localBrush += (serverX - this.localBrush) * frameLerp(0.2, dt);
-
-    const x = boardX(this.localBrush);
-    const z = boardZ(t);
-    kin.position.x = x;
-    kin.position.z = z + 0.1;
-    animator.groundY = 0.3 * 0.72;
-    // In Fahrtrichtung drehen: nach hinten und etwas zur Seite, wohin gelenkt wird.
-    const lean = clamp((this.localTarget - this.localBrush) * 6, -0.5, 0.5);
-    if (!finale) kin.rotation.y += Math.atan2(Math.sin(Math.PI + lean - kin.rotation.y), Math.cos(Math.PI + lean - kin.rotation.y)) * frameLerp(0.2, dt);
-
-    // Liegt der Roller auf der Linie? Gerechnet wie auf dem Server, samt dessen
-    // Nachsicht — das ist die Rückmeldung in jedem Bild.
-    const offset = lagOffset(arcade.seed, lap, this.localBrush, t);
-    const tolerance = TOLERANCE * widthAt(arcade.seed, lap, t);
-    const quality = offset <= tolerance * PERFECT ? 2 : offset <= tolerance ? 1 : 0;
-    const rolling = moving;
-
-    // Vorläufig malen: der Server wertet denselben Abschnitt erst eine
-    // Rundreise später. Bis dahin färbt das Gerät ihn nach eigener Rechnung,
-    // danach gilt die Wertung des Servers.
-    const cell = Math.min(CELLS - 1, Math.floor(t * CELLS));
-    if (rolling) this.localCells[cell] = Math.max(this.localCells[cell] ?? -1, quality);
-    const serverCells = own.lap === lap ? (own.cells || "") : "";
-    let marks = "";
-    for (let i = 0; i < CELLS; i += 1) {
-      if (i < serverCells.length) marks += serverCells[i];
-      else if (i < cell && this.localCells[i] !== undefined) marks += this.localCells[i] === 2 ? "P" : this.localCells[i] === 1 ? "G" : "-";
-      else marks += " ";
-    }
-    this.paintRibbons(marks);
-
-    if (this.cursor) {
-      this.cursor.position.set(x, 0.035, z - 0.04);
-      this.cursor.material.color.set(quality === 2 ? "#7fe06f" : quality === 1 ? "#ffd15c" : "#ff6b7f");
-      this.cursor.scale.setScalar(quality === 2 ? 1 + Math.sin(now / 90) * 0.08 : 1);
-    }
-    if (this.drum && rolling) this.drum.rotation.x += dt * 12;
-    if (!finale) {
-      animator.set(started ? "shove" : "ready");
-      animator.rate = started ? 0.8 + speedFor(lap) * 1.2 : 1;
-      if (quality === 0 && started) animator.expression("scared", 150);
-      else if ((own.streak || 0) >= 20) animator.expression("happy", 150);
-    }
-    if (rolling && quality > 0 && Math.random() < frameChance(quality === 2 ? 0.5 : 0.25, dt)) {
-      this.burst(new THREE.Vector3(x, 0.08, z - 0.15), [this.ownColor, "#ffffff"], { count: 1, speed: 0.4, up: 0.4, size: 0.045, life: 0.4, drag: 2.4 });
-    }
-    if (rolling) this.grabGems(own, arcade.seed, lap, t);
-    this.syncGems(own, lap, t, now);
-    this.reactToEvents(own, kin, animator);
-  }
-
-  reactToEvents(own, kin, animator) {
-    // Daneben: kurz und nur, wenn wirklich eine Serie verloren ging — sonst
-    // flackert beim Wiedereinfädeln eine Meldung nach der anderen.
-    if (own.lastMissAt && own.lastMissAt !== this.lastMissAt) {
-      this.lastMissAt = own.lastMissAt;
-      if ((own.lastBrokenStreak || 0) >= 5) {
-        animator.trigger("stumble");
-        animator.expression("surprised", 600);
-        const at = kin.position.clone().add(new THREE.Vector3(0, 0.9, 0));
-        this.pop(at, "Serie weg", { color: "#ff9aa8", size: 0.26, life: 0.7 });
-        this.feedback?.sound("error");
-        this.feedback?.vibrate(16);
-      }
-    }
-    const combo = Math.min(3, 1 + Math.floor((own.streak || 0) / 10));
-    if (combo !== this.shownCombo) {
-      if (combo > this.shownCombo) {
-        const at = kin.position.clone().add(new THREE.Vector3(0, 1.0, 0));
-        this.pop(at, `×${combo}!`, { color: "#ffe36b", size: 0.4, life: 0.8 });
-        this.burst(at, [this.ownColor, "#ffe36b", "#ffffff"], { count: 12, speed: 1.6, up: 1.4, size: 0.06, life: 0.5, drag: 2.0 });
-        this.feedback?.sound("sparkle");
-        this.feedback?.vibrate(10);
-      }
-      this.shownCombo = combo;
-    }
-    if (own.lastGemAt && own.lastGemAt !== this.lastGemAt) {
-      this.lastGemAt = own.lastGemAt;
-      const gem = own.lastGem;
-      const at = new THREE.Vector3(boardX(gem?.x ?? 0.5), 0.4, boardZ(gem?.t ?? 0.5));
-      // Das Funkeln kam schon beim Berühren (grabGems); hier nur, wenn das
-      // Gerät den Griff nicht selbst gesehen hat.
-      if (!this.localGems.has(gem?.index)) this.burst(at, ["#ffe36b", "#ffffff"], { count: 14, speed: 1.8, up: 1.4, size: 0.06, life: 0.55, drag: 2.0 });
-      this.pop(at, "+60", { color: "#ffe36b", size: 0.32, life: 0.7 });
-      this.feedback?.sound("coin");
-      this.feedback?.vibrate(8);
-    }
-    if (own.lastLapAt && own.lastLapAt !== this.lastLapAt) {
-      this.lastLapAt = own.lastLapAt;
-      const lap = own.lastLap;
-      animator.trigger("celebrate");
-      animator.expression("joy", 900);
-      const at = new THREE.Vector3(0, 1, boardZ(0.9));
-      this.burst(at, [this.ownColor, "#ffe36b", "#ffffff"], { count: 20, speed: 2.2, up: 2.4, size: 0.08, life: 0.7, drag: 1.6 });
-      this.pop(at, lap?.clean ? `SAUBER! ${lap.accuracy} %` : `RUNDE · ${lap?.accuracy ?? 0} %`, { color: "#ffe36b", size: 0.42, life: 1.0 });
-      this.feedback?.sound(lap?.clean ? "perfect" : "coin");
-      this.feedback?.vibrate([10, 14, 18]);
-    }
-  }
-
-  keepInView() {
-    return [...this.kins.values()];
+    });
   }
 
   drawHud(f) {
-    const { arcade, state } = f;
-    if (!arcade) return;
-    const own = arcade.players[f.controlledId];
+    const { arcade, controlledId, minigame } = f;
+    const sketch = arcade?.sketch;
+    if (!sketch) return;
+    const own = arcade.players[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = String(Math.max(0, Math.round(own?.score || 0)));
-    const laps = this.hud.querySelector("[data-trace-laps]");
-    if (laps) {
-      const html = state.players.map((player) => {
-        const entry = arcade.players[player.id];
-        const isOwn = player.id === this.getControlledPlayerId();
-        return `<span class="trace-lap-chip${isOwn ? " is-own" : ""}" style="--chip:${player.color}">${Math.round(entry?.score || 0)}</span>`;
-      }).join("");
-      if (laps.innerHTML !== html) laps.innerHTML = html;
+    const text = String(Math.round(own?.score || 0));
+    if (this.scoreNode.textContent !== text) this.scoreNode.textContent = text;
+    const banner = this.hud.querySelector("[data-sketch-banner]");
+    const { phase, round, since } = this.phaseOf(f.now);
+    const arrival = this.arrivalPhase();
+    const name = S.NAMES[sketch.figures?.[round]] || "Figur";
+    let message = null;
+    let tone = "#12aaff";
+    if (phase === "lead") message = "Gleich zeichnet der Stift vor …";
+    else if (phase === "draw") { message = `Figur ${round + 1}/${sketch.rounds}: ${name} — schau zu!`; tone = "#b57bff"; }
+    else if (phase === "trace") {
+      const secs = Math.ceil((arrival.phase === "trace" ? arrival.left : 0) / 1000);
+      message = since < 1300 ? "Fahr nach — beim grünen Punkt anfangen!" : secs <= 3 ? (secs <= 0 ? "Stopp!" : `Noch ${secs} …`) : null;
+      tone = secs <= 3 ? "#ff5d73" : "#1fbf5b";
+    } else if (phase === "score") {
+      const result = own?.results?.[round];
+      if (result) {
+        const points = result.points;
+        message = points >= 85 ? `Meisterhaft! +${points}` : points >= 60 ? `Gut getroffen! +${points}` : points >= 35 ? `Na ja … +${points}` : `Daneben … +${points}`;
+        tone = points >= 60 ? "#ffc400" : points >= 35 ? "#12aaff" : "#ff5d73";
+      }
     }
-    const combo = this.hud.querySelector("[data-trace-combo]");
-    if (combo && own) {
-      const streak = own.streak || 0;
-      const factor = Math.min(3, 1 + Math.floor(streak / 10));
-      const text = `×${factor} · Serie ${streak}`;
-      combo.hidden = streak < 3;
-      if (combo.textContent !== text) combo.textContent = text;
-      combo.dataset.level = String(factor);
+    if (banner) {
+      banner.hidden = !message || Boolean(minigame.finaleAt);
+      if (message && banner.textContent !== message) banner.textContent = message;
+      banner.style.background = tone;
+      banner.style.color = tone === "#ffc400" ? "#5c4508" : "#ffffff";
     }
-    // Im Finale gibt es nichts mehr zu lenken.
-    this.hintNode ||= this.controls.querySelector(".trace-hint");
-    if (this.hintNode) this.hintNode.hidden = Boolean(f.finale);
-    const banner = this.hud.querySelector("[data-trace-banner]");
-    if (!banner) return;
-    const waiting = f.now + this.roundTrip < (f.minigame?.startedAt || 0) + (arcade.leadInMs || 0);
-    if (waiting) {
-      banner.hidden = false;
-      banner.textContent = "Wisch zum Lenken — gleich geht's los";
-      banner.style.background = "#ffd15c";
-      banner.style.color = "#4a3400";
-    } else {
-      banner.hidden = true;
+    this.hintNode ||= this.controls.querySelector("[data-sketch-hint]");
+    if (this.hintNode) {
+      const hint = phase === "trace" ? "Fahr die Figur mit dem Finger nach" : phase === "draw" ? "Schau zu, wie der Stift zeichnet" : " ";
+      if (this.hintNode.textContent !== hint) this.hintNode.textContent = hint;
     }
   }
 }

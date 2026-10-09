@@ -105,7 +105,6 @@ const MINIGAMES = [
   { type: "ballonfahrt", title: "Ballonfahrt", duration: GLIDE_DURATION_MS, arcadeFamily: "glide" },
   { type: "trampolin", title: "Trampolin", duration: 30000, arcadeFamily: "bounce" },
   { type: "falschsignal", title: "Falschsignal", duration: FEINT_DURATION_MS, arcadeFamily: "feint" },
-  { type: "spurmaler", title: "Spurmaler", duration: 30000, arcadeFamily: "trace" },
   { type: "sortierband", title: "Sortierband", duration: BELT_DURATION_MS, arcadeFamily: "belt" },
   { type: "leuchtfolge", title: "Leuchtfolge", duration: SIMON_DURATION_MS, arcadeFamily: "simon" },
   { type: "blitzreflex", title: "Blitzreflex", duration: 19000, arcadeFamily: "react" },
@@ -137,7 +136,6 @@ const ARCADE_CONFIGS = {
   ballonfahrt: { family: "glide", seed: 467 },
   trampolin: { family: "bounce", seed: 487 },
   falschsignal: { family: "feint", seed: 491 },
-  spurmaler: { family: "trace", seed: 499 },
   sortierband: { family: "belt", seed: 503 },
   leuchtfolge: { family: "simon", seed: 521 },
   blitzreflex: { family: "react", seed: 541 },
@@ -293,52 +291,6 @@ const FEINT_DOUBLE_TAP_MS = 260;       // Nachzittern nach einem Treffer ignorie
 // nicht auf.
 const FEINT_FAKE_LIMITS = [0.56, 0.72, 0.88];
 const FEINT_BLOCK = 3;                 // je Dreierblock genau ein echter Ring
-
-// Spurmaler — der Pinsel läuft von selbst die Spur hinauf, man LENKT nur.
-//
-// Vorher war der Finger selbst der Pinsel: er musste auf der Spur liegen, in
-// einem Band, das an Engstellen nur gut ±13 Pixel breit war, durfte nicht zu
-// schnell sein (sonst riss der Strich), und nach jedem Riss kamen eine Sperre
-// und ein Wiedereinstieg genau an der Bruchstelle. Dazu verdeckte der Finger
-// die Spur, die er nachfahren sollte. Ergebnis: man rutschte alle paar
-// Sekunden ab, und die Kristalle am Rand waren kaum erreichbar.
-//
-// Jetzt wie bei „Follow the line": der Pinsel fährt mit festem Tempo nach oben,
-// der Finger wischt irgendwo auf dem Bildschirm nach links oder rechts und
-// lenkt ihn. Nichts reisst ab. Gewertet wird jeder Abschnitt der Spur —
-// perfekt, gut oder daneben —, und eine Serie ohne „daneben" steigert den
-// Faktor. Fehler kosten also die Serie, nicht das Spiel.
-const TRACE_TOLERANCE = 0.09;          // halbe Bandbreite (Brettbreite = 1)
-const TRACE_PERFECT = 0.4;             // Anteil der Toleranz, der als „perfekt" zählt
-const TRACE_CELLS = 40;                // gewertete Abschnitte je Runde
-const TRACE_CELL_PERFECT = 10;
-const TRACE_CELL_GOOD = 5;
-const TRACE_COMBO_STEP = 10;           // je zehn Abschnitte in Folge ein Faktor mehr
-const TRACE_COMBO_MAX = 3;
-// Tempo in Runden je Sekunde. Die erste Runde dauert fünf Sekunden, danach
-// wird es in jeder Runde etwas schneller — gleich für alle, das Können liegt
-// in der Genauigkeit.
-const TRACE_SPEED_BASE = 0.2;
-const TRACE_SPEED_STEP = 0.025;
-const TRACE_SPEED_MAX = 0.34;
-// Wie schnell der Pinsel seitlich dem Finger folgt. Schnell genug für jede
-// Kurve (die steilste läuft bei Höchsttempo mit rund 0.8 je Sekunde), aber kein
-// Springen: ein Wisch ans andere Ende dauert eine knappe halbe Sekunde.
-const TRACE_STEER_SPEED = 2.2;
-// Nachsicht für die Funkverzögerung: verglichen wird mit der Spur ein kleines
-// Stück HINTER dem Pinsel, denn der Finger reagiert auf das Bild, das der
-// Server schon ein paar Millisekunden hinter sich hat.
-const TRACE_LAG_WINDOW = 0.03;
-const TRACE_LEAD_IN_MS = 900;          // Anlauf: lenken ja, fahren noch nicht
-const TRACE_CLEAN_BONUS = 50;          // Zugabe für eine Runde ohne „daneben"
-const TRACE_MAX_LAPS = 40;             // Sicherheitsnetz
-// Die Spur ist nicht überall gleich breit, und am Bandrand liegen Kristalle:
-// wer nach ihnen greift, riskiert das „daneben" und damit die Serie.
-const TRACE_NARROW_MIN = 0.5;          // engste Stelle als Anteil der Toleranz
-const TRACE_GEMS_PER_LAP = 3;
-const TRACE_GEM_POINTS = 60;
-const TRACE_GEM_REACH = 0.035;         // so nah muss der Pinsel am Kristall sein
-const TRACE_GEM_SIDE = 0.85;           // wie weit aussen im Band er liegt
 
 // Sortierband — Pakete laufen auf einen zu, drei Rutschen tragen Farben, und
 // jedes Paket muss in die passende. Ersetzt den Tellerdreher: der Archetyp
@@ -2074,12 +2026,8 @@ function scheduleBotMinigameInputs(room) {
     }
 
     if (minigame.arcade) {
-      // Spurmaler ist kein Entscheidungsspiel, sondern eine Zugbewegung: ein
-      // Finger liefert laufend Positionen. Mit dem normalen Entscheidungstakt
-      // (~300 ms) käme ein Bot wegen der Sprungweite nie über 0.17 Fortschritt
-      // pro Sekunde und damit nie in die Nähe einer Hand.
-      // trace ist eine Zugbewegung, belt ein Treffen enger Bandpositionen —
-      // beide brauchen Handrate, nicht Entscheidungsrate. Bei ~300 ms wandert
+      // belt ist ein Treffen enger Bandpositionen — das braucht Handrate,
+      // nicht Entscheidungsrate. Bei ~300 ms wandert
       // ein Paket am Rundenende um 0.26 Bandanteil weiter, das Greiffenster des
       // starken Bots ist nur 0.22 breit: er verpasst es strukturell.
       // fish braucht ebenfalls einen dichten Takt: Halten wird als Ping gemeldet,
@@ -2099,7 +2047,7 @@ function scheduleBotMinigameInputs(room) {
       // Sekunde, ein Bot im langsamen Takt kam nie über drei.
       // react ebenfalls: der Bot soll seine gewählte Reaktionszeit treffen und
       // nicht den nächsten freien Schritt 400 ms später.
-      const fastHand = ["trace", "belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel", "pump", "dive", "react"].includes(minigame.arcade.family)
+      const fastHand = ["belt", "glide", "fish", "paint", "stack", "bounce", "knife", "colorgrid", "bomb", "stopclock", "cannon", "wave", "barrel", "pump", "dive", "react"].includes(minigame.arcade.family)
         || Boolean(PARTY_FAMILIES[minigame.arcade.family]?.fastHand);
       const every = fastHand
         ? 120 + Math.floor(Math.random() * 60)
@@ -2581,16 +2529,6 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     // Eine Zahl, und zwar genau die, nach der auch sortiert wird. Pakete,
     // Fehlgriffe und Serie stecken alle schon im Punktestand.
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };
-  }
-  if (arcade.family === "trace") {
-    // Eine Zahl, und zwar die, nach der auch sortiert wird. Die Oberfläche
-    // zeigte die RUNDEN — mit Kristallen und Sauber-Bonus kann aber jemand mit
-    // weniger Runden vorne liegen.
-    return {
-      kind: "points",
-      value: Math.max(0, Math.round(arcadePlayer.score || 0)),
-      label: "Punkte"
-    };
   }
   if (arcade.family === "dive") {
     // Eine Zahl: das eingezahlte Gold. Was noch im Schacht hängt, zählt bewusst
@@ -3125,46 +3063,6 @@ function createArcadeState(type, players, startedAt, options = {}) {
       entry.handled = {};              // Signalindex -> true (einmal pro Signal)
       entry.lockUntil = 0;             // Sperre nach einem Fehlgriff
       entry.lastReact = null;          // { kind, points, reactionMs, at }
-    });
-  }
-  if (config.family === "trace") {
-    arcade.tolerance = TRACE_TOLERANCE;
-    arcade.perfectShare = TRACE_PERFECT;
-    arcade.cellCount = TRACE_CELLS;
-    arcade.gemPoints = TRACE_GEM_POINTS;
-    arcade.gemReach = TRACE_GEM_REACH;
-    arcade.narrowMin = TRACE_NARROW_MIN;
-    arcade.steerSpeed = TRACE_STEER_SPEED;
-    arcade.leadInMs = TRACE_LEAD_IN_MS;
-    players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      entry.lap = 0;
-      entry.progress = 0;              // 0 unten … 1 oben auf der aktuellen Spur
-      entry.speed = traceSpeed(0);
-      entry.brushX = tracePathX(arcade.seed, 0, 0);
-      entry.targetX = entry.brushX;
-      entry.cells = "";                // Wertung der Abschnitte dieser Runde: P / G / -
-      entry.cellIndex = 0;
-      entry.cellQ = -1;
-      entry.streak = 0;
-      entry.bestStreak = 0;
-      entry.perfect = 0;
-      entry.good = 0;
-      entry.misses = 0;
-      entry.lapMisses = 0;
-      entry.lapsDone = 0;
-      entry.cleanLaps = 0;
-      entry.gems = buildTraceGems(arcade.seed, 0);
-      // Die Kristalle der NÄCHSTEN Runde: das Gerät zeigt den Roller um die
-      // Netzverzögerung voraus und ist deshalb kurz vor dem Server in der
-      // neuen Runde — dort sollen die Kristalle schon liegen.
-      entry.nextGems = buildTraceGems(arcade.seed, 1);
-      entry.gemsTaken = {};            // Index -> true, EINMAL je Kristall
-      entry.gemsTotal = 0;
-      entry.lastGemAt = 0;
-      entry.lastMissAt = 0;
-      entry.lastLapAt = 0;
-      entry.score = 0;
     });
   }
   if (config.family === "belt") {
@@ -3899,7 +3797,7 @@ function handleArcadeInput(room, player, rawInput) {
   // Das Finale zeigt bereits festgelegte Plätze. Auch direkte Aufrufe aus
   // Bots oder Werkzeugen dürfen diesen Stand nicht nachträglich verändern.
   if (minigameFrozen(minigame, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 110, stopclock: 60, redlight: 0, wave: 200, pump: 0, barrel: 0, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, trace: 0, belt: 90, fish: 60, paint: 0 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 110, stopclock: 60, redlight: 0, wave: 200, pump: 0, barrel: 0, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -3908,11 +3806,6 @@ function handleArcadeInput(room, player, rawInput) {
   // seiner Stelle und meldete FALSCH — gemessen schaffte ein schneller,
   // fehlerfreier Spieler so im Schnitt keine einzige der fünf Runden. Spam
   // bringt hier nichts: der erste falsche Tipp beendet die Runde.
-  // trace ebenfalls ohne: Lenken meldet nur ein Ziel, und das jeweils letzte
-  // gilt. Das Gerät schickt höchstens alle 45 ms — aber im Netz rücken zwei
-  // Pakete auch mal enger zusammen, und mit 45 ms Cooldown fiel dann das
-  // zweite weg. War es das letzte vor dem Anhalten des Fingers, stand der
-  // Pinsel auf dem Server daneben, während er auf dem Gerät sauber lag.
   // whack mit 80 ms: das Gerät hält zwei schnelle Tipps 120 ms auseinander,
   // damit ein Doppeltipp auf zwei Blobs nicht verschluckt wird — bei 110 ms
   // hier fraß schon ein wenig Netzschwankung den zweiten.
@@ -4531,17 +4424,6 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
 
-  if (arcade.family === "trace") {
-    // Der Finger sagt nur, WOHIN der Pinsel seitlich soll. Fahren und Werten
-    // übernimmt der Tick — so hängt nichts an der Rate, mit der ein Gerät
-    // Bewegungen meldet, und ein verschlucktes Paket reisst keinen Strich ab.
-    if (input.action !== "steer") return { ok: false, error: "Wisch nach links oder rechts, um zu lenken." };
-    const x = inputNumber(input.x);
-    if (!Number.isFinite(x)) return { ok: false, error: "Ungültige Position." };
-    arcadePlayer.targetX = clamp(x, 0.02, 0.98);
-    arcadePlayer.hasMoved = true;
-    return { ok: true };
-  }
 
   if (arcade.family === "dive") {
     // Der Stick sagt nur die Richtung; Schwimmen, Luft und Gold macht der Tick.
@@ -4798,22 +4680,6 @@ function updateArcade(room) {
     return;
   }
 
-  if (arcade.family === "trace") {
-    const dt = Math.min(0.2, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
-    arcade.lastUpdateAt = now;
-    const rolling = now - minigame.startedAt >= TRACE_LEAD_IN_MS;
-    room.players.forEach((player) => {
-      const entry = arcade.players[player.id];
-      if (!entry) return;
-      // Seitlich folgt der Pinsel dem Finger, aber er springt nicht.
-      const reach = TRACE_STEER_SPEED * dt;
-      entry.brushX += clamp(entry.targetX - entry.brushX, -reach, reach);
-      if (!rolling) return;
-      updateTraceEntry(arcade, entry, dt, now);
-      syncArcadeScore(minigame, player, entry);
-    });
-    return;
-  }
 
   if (arcade.family === "fish") {
     const dt = Math.min(0.2, Math.max(0.001, (now - (arcade.lastUpdateAt || now)) / 1000));
@@ -6161,201 +6027,6 @@ function feintPoints(radiusAtTap) {
   return Math.round(FEINT_MIN_POINTS + (FEINT_MAX_POINTS - FEINT_MIN_POINTS) * Math.pow(share, 1.25));
 }
 
-// Die Spur von Spurmaler: für den Fortschritt t (0 unten … 1 oben) die
-// Querposition. Der Weg läuft immer nach oben und kehrt nie um — so gibt es
-// keine Kreuzungen, an denen unklar wäre, wohin der Finger als nächstes soll.
-// Client und Server leiten die Kurve aus derselben Funktion ab.
-function traceRawPathX(seed, lap, t) {
-  const s = seed + lap * 97;
-  // Sanfter als zu Zeiten des Nachfahrens: gelenkt wird mit Verzögerung, und
-  // drei Bögen plus kräftiges Nebenwackeln liefen bei Höchsttempo seitlich
-  // schneller, als der Pinsel folgen kann.
-  const swing = 0.16 + arcadeNoise(s) * 0.1;
-  const detail = 0.015 + arcadeNoise(s + 11) * 0.03;
-  const phase = arcadeNoise(s + 23) * Math.PI * 2;
-  const bows = 1 + Math.floor(arcadeNoise(s + 37) * 1.999);
-  const raw = Math.sin(t * Math.PI * bows + phase) * swing
-    + Math.sin(t * Math.PI * (bows * 2 + 1) + phase * 1.7) * detail;
-  return clamp(0.5 + raw, 0.5 - (swing + detail), 0.5 + (swing + detail));
-}
-
-// Jede Runde beginnt dort, wo die vorige endet: sonst stand der Pinsel beim
-// Rundenwechsel plötzlich neben der neuen Spur, und die ersten Abschnitte
-// waren ohne jede Chance „daneben". Der Versatz läuft im ersten Fünftel aus.
-function tracePathX(seed, lap, t) {
-  const raw = traceRawPathX(seed, lap, t);
-  if (lap <= 0) return raw;
-  const shift = traceRawPathX(seed, lap - 1, 1) - traceRawPathX(seed, lap, 0);
-  const fade = Math.max(0, 1 - t / 0.2);
-  return raw + shift * fade * fade * (3 - 2 * fade);
-}
-
-// Wie weit der Finger von der Spur weg ist, an der Höhe, auf der er steht.
-// Wie breit das Toleranzband an dieser Stelle ist, als Anteil von
-// TRACE_TOLERANCE. Zwei bis drei Engstellen je Runde, an fester Stelle aus dem
-// Startwert — nicht zufällig pro Tick, sonst wäre dieselbe Stelle mal eng und
-// mal weit und ein Abriss wirkte willkürlich.
-function traceWidthAt(seed, lap, t) {
-  const s = seed + lap * 97;
-  const knots = 2 + Math.floor(arcadeNoise(s + 61) * 2);   // 2 oder 3
-  const phase = arcadeNoise(s + 71) * Math.PI * 2;
-  // Eine Schwingung, deren Wellentäler die Engstellen sind. Sie läuft an den
-  // Rändern der Runde weit aus, damit Ansetzen und Abschluss nie am Nadelöhr
-  // liegen — dort hat man den Finger noch nicht auf der Kurve.
-  const wave = (Math.cos(t * Math.PI * 2 * knots + phase) + 1) / 2;
-  const edge = Math.min(1, Math.min(t, 1 - t) / 0.12);
-  const narrow = TRACE_NARROW_MIN + (1 - TRACE_NARROW_MIN) * wave;
-  return narrow + (1 - narrow) * (1 - edge);
-}
-
-// Erlaubter Abstand zur Spur an dieser Stelle.
-function traceToleranceAt(seed, lap, t) {
-  return TRACE_TOLERANCE * traceWidthAt(seed, lap, t);
-}
-
-// Die Kristalle einer Runde. Sie liegen ABSEITS der Mittellinie, abwechselnd
-// links und rechts — genau das macht aus "im Band bleiben" ein Steuern.
-function buildTraceGems(seed, lap) {
-  const s = seed + lap * 97;
-  // Erst die weiten Abschnitte suchen, DANN die Kristalle darauf verteilen.
-  //
-  // Andersherum — feste Abstände und bei einer Engstelle ausweichen — ging
-  // zweimal schief: das Ausweichen schob einen Kristall über den nächsten
-  // hinweg, und wenn oberhalb nichts Weites mehr kam, landete er doch auf einer
-  // Engstelle. Ein Kristall am Bandrand PLUS eine Engstelle heisst aber, dass
-  // die eine Aufgabe die andere unmöglich macht.
-  const wide = [];
-  for (let t = 0.10; t <= 0.90; t += 0.01) {
-    if (traceWidthAt(seed, lap, t) >= 0.8) wide.push(t);
-  }
-  if (wide.length === 0) return [];
-
-  const gems = [];
-  for (let i = 0; i < TRACE_GEMS_PER_LAP; i += 1) {
-    // Gleichmässig über die verfügbaren Abschnitte verteilt, mit etwas Streuung.
-    const share = (i + 0.5) / TRACE_GEMS_PER_LAP;
-    const jitter = (arcadeNoise(s + i * 53) - 0.5) * 0.6 / TRACE_GEMS_PER_LAP;
-    const pick = wide[clamp(Math.round((share + jitter) * (wide.length - 1)), 0, wide.length - 1)];
-    // Zu dicht beieinander wären zwei Kristalle einer zu viel.
-    if (gems.length > 0 && pick <= gems[gems.length - 1].t + 0.05) continue;
-    const t = Math.round(pick * 1000) / 1000;
-    const side = arcadeNoise(s + i * 53 + 7) < 0.5 ? -1 : 1;
-    // `offset` ist der seitliche Versatz zur Mittellinie und die Zahl, an der
-    // gemessen wird. `x` ist nur fürs Zeichnen da: die Kurve wandert, und ein
-    // Vergleich roher x-Werte fiel deshalb manchmal von selbst richtig aus —
-    // gemessen fiel ein Kristall zu, während der Finger sauber auf der
-    // Mittellinie lag, nur weil die Kurve gerade an ihm vorbeischwang.
-    const offset = side * traceToleranceAt(seed, lap, t) * TRACE_GEM_SIDE;
-    const x = clamp(tracePathX(seed, lap, t) + offset, 0.04, 0.96);
-    gems.push({ index: gems.length, t, side, offset, x });
-  }
-  return gems;
-}
-
-function traceOffset(seed, lap, x, y) {
-  return Math.abs(x - tracePathX(seed, lap, clamp(y, 0, 1)));
-}
-
-function traceSpeed(lap) {
-  return Math.min(TRACE_SPEED_MAX, TRACE_SPEED_BASE + TRACE_SPEED_STEP * lap);
-}
-
-// Wie weit der Pinsel von der Spur weg ist — mit Nachsicht für die
-// Verzögerung: das Kleinste über ein kurzes Stück hinter dem Pinsel.
-function traceLagOffset(seed, lap, x, t) {
-  let best = Infinity;
-  for (let i = 0; i <= 4; i += 1) {
-    const at = clamp(t - TRACE_LAG_WINDOW * (i / 4), 0, 1);
-    best = Math.min(best, Math.abs(x - tracePathX(seed, lap, at)));
-  }
-  return best;
-}
-
-// Der Faktor der laufenden Serie: ×1, nach zehn Abschnitten ×2, nach zwanzig ×3.
-function traceCombo(streak) {
-  return Math.min(TRACE_COMBO_MAX, 1 + Math.floor(streak / TRACE_COMBO_STEP));
-}
-
-// Einen Abschnitt abschliessen. q: 2 perfekt, 1 gut, 0 daneben.
-function finishTraceCell(entry, q, now) {
-  entry.cells += q === 2 ? "P" : q === 1 ? "G" : "-";
-  if (q > 0) {
-    entry.streak += 1;
-    entry.bestStreak = Math.max(entry.bestStreak, entry.streak);
-    entry.score += (q === 2 ? TRACE_CELL_PERFECT : TRACE_CELL_GOOD) * traceCombo(entry.streak);
-    if (q === 2) entry.perfect += 1; else entry.good += 1;
-    return;
-  }
-  entry.lastBrokenStreak = entry.streak;
-  entry.streak = 0;
-  entry.misses += 1;
-  entry.lapMisses += 1;
-  entry.lastMissAt = now;
-  entry.flash = "bad";
-  entry.lastHitAt = now;
-}
-
-// Ein Tick für einen Spieler: vorwärts fahren, den Abschnitt werten,
-// Kristalle einsammeln, Runden abschliessen.
-function updateTraceEntry(arcade, entry, dt, now) {
-  entry.speed = traceSpeed(entry.lap);
-  entry.progress = Math.min(1, entry.progress + entry.speed * dt);
-  const offset = traceLagOffset(arcade.seed, entry.lap, entry.brushX, entry.progress);
-  const tolerance = traceToleranceAt(arcade.seed, entry.lap, entry.progress);
-  const q = offset <= tolerance * TRACE_PERFECT ? 2 : offset <= tolerance ? 1 : 0;
-  entry.onLine = q;
-
-  // Die Probe gehört zum laufenden Abschnitt. Hat der Tick Abschnitte
-  // übersprungen, bekommen sie dieselbe Wertung — keine Lücke, kein Geschenk.
-  entry.cellQ = Math.max(entry.cellQ, q);
-  const cell = Math.min(TRACE_CELLS - 1, Math.floor(entry.progress * TRACE_CELLS));
-  while (entry.cellIndex < cell) {
-    finishTraceCell(entry, entry.cellQ, now);
-    entry.cellIndex += 1;
-    entry.cellQ = q;
-  }
-
-  // Kristalle: einmal je Kristall, gemessen am seitlichen Abstand zur
-  // Mittellinie an der Stelle des Kristalls.
-  entry.gems.forEach((gem) => {
-    if (entry.gemsTaken[gem.index]) return;
-    if (Math.abs(entry.progress - gem.t) > 0.02) return;
-    const lateral = entry.brushX - tracePathX(arcade.seed, entry.lap, gem.t);
-    if (Math.abs(lateral - gem.offset) > TRACE_GEM_REACH) return;
-    entry.gemsTaken[gem.index] = true;
-    entry.gemsTotal += 1;
-    entry.score += TRACE_GEM_POINTS;
-    entry.lastGem = { index: gem.index, x: gem.x, t: gem.t, at: now };
-    entry.lastGemAt = now;
-    entry.flash = "good";
-    entry.lastHitAt = now;
-  });
-
-  if (entry.progress >= 1 && entry.lap < TRACE_MAX_LAPS) {
-    finishTraceCell(entry, entry.cellQ, now);
-    const clean = entry.lapMisses === 0;
-    const hits = [...entry.cells].filter((c) => c !== "-").length;
-    entry.lastLap = { lap: entry.lap, accuracy: Math.round((hits / TRACE_CELLS) * 100), clean, at: now };
-    if (clean) {
-      entry.cleanLaps += 1;
-      entry.score += TRACE_CLEAN_BONUS;
-    }
-    entry.lapsDone += 1;
-    entry.lapMisses = 0;
-    entry.lap += 1;
-    entry.progress = 0;
-    entry.cells = "";
-    entry.cellIndex = 0;
-    entry.cellQ = -1;
-    entry.gems = entry.nextGems || buildTraceGems(arcade.seed, entry.lap);
-    entry.nextGems = buildTraceGems(arcade.seed, entry.lap + 1);
-    entry.gemsTaken = {};
-    entry.lastLapAt = now;
-    entry.flash = "good";
-    entry.lastHitAt = now;
-  }
-}
-
 function paintIndex(col, row) {
   return row * PAINT_COLS + col;
 }
@@ -7028,15 +6699,6 @@ function advanceBeltQueue(arcade, entry, missed = false) {
   entry.queue.push(makeBeltParcel(arcade, entry.parcelSeed, entry.nextParcel));
   entry.nextParcel += 1;
   entry.beltPos = missed ? 0 : Math.max(0, entry.beltPos - BELT_GAP);
-}
-
-// Wertung: geschaffte Runden plus der angefangene Rest, ein Bonus für ganz
-// saubere Runden und ein Abzug je Abrutscher. Der Bonus ist der Grund, warum
-// sich Genauigkeit lohnt und nicht nur Tempo.
-// Der Punktestand wird laufend in `entry.score` aufsummiert (Abschnitte mal
-// Serienfaktor, Kristalle, saubere Runden) — hier nur noch lesbar gemacht.
-function traceScore(entry) {
-  return Math.round(entry.score || 0);
 }
 
 // Der Abstand VOR dem Schlag mit dieser Nummer. Innerhalb eines Taktes von acht
@@ -7929,44 +7591,6 @@ function arcadeBotStep(room, bot) {
     handleArcadeInput(room, bot, { action: "sort", chute });
     return;
   }
-  if (arcade.family === "trace") {
-    const now = Date.now();
-    const profile = botProfile(player);
-    // Der Bot lenkt wie ein Mensch: er schaut ein Stück voraus und seine Hand
-    // wackelt. Wie weit er vorausschaut und wie stark sie wackelt, ist seine
-    // Spielstärke — und ab und zu schaut der schwache kurz weg.
-    const look = profile.level === "hard" ? 0.03 : profile.level === "normal" ? 0.02 : 0.005;
-    const shake = profile.level === "hard" ? 0.3 : profile.level === "normal" ? 0.62 : 0.95;
-    const lapseChance = profile.level === "hard" ? 0.004 : profile.level === "normal" ? 0.012 : 0.03;
-    if (player.driftPhase === undefined) {
-      player.driftPhase = Math.random() * Math.PI * 2;
-      player.driftPeriod = 700 + Math.random() * 700;
-    }
-    if (now > (player.botLapseUntil || 0) && Math.random() < lapseChance) {
-      player.botLapseUntil = now + 350 + Math.random() * 400;
-      player.botLapseSide = Math.random() < 0.5 ? -1 : 1;
-    }
-    const t = clamp(player.progress + look, 0, 1);
-    const centre = tracePathX(arcade.seed, player.lap, t);
-    const tolerance = traceToleranceAt(arcade.seed, player.lap, t);
-    let aim = centre;
-    // Kristalle: EINMAL je Kristall entscheiden, ob er danach greift.
-    const gem = (player.gems || []).find((candidate) => !player.gemsTaken[candidate.index]
-      && candidate.t >= player.progress - 0.01 && candidate.t - player.progress < 0.07);
-    if (gem) {
-      const key = `${player.lap}:${gem.index}`;
-      if (player.botGemKey !== key) {
-        player.botGemKey = key;
-        const wants = profile.level === "hard" ? 0.85 : profile.level === "normal" ? 0.5 : 0.15;
-        player.botGoesForGem = Math.random() < wants;
-      }
-      if (player.botGoesForGem) aim = tracePathX(arcade.seed, player.lap, gem.t) + gem.offset;
-    }
-    const wobble = Math.sin(now / player.driftPeriod + player.driftPhase) * shake * tolerance;
-    const lapse = now < (player.botLapseUntil || 0) ? player.botLapseSide * tolerance * 1.8 : 0;
-    handleArcadeInput(room, bot, { action: "steer", x: aim + wobble + lapse });
-    return;
-  }
   if (arcade.family === "feint") {
     const now = Date.now();
     if (now < player.lockUntil) return;
@@ -8729,28 +8353,6 @@ module.exports = {
     buildFeintSignals,
     activeFeintSignal,
     feintPoints,
-    TRACE_TOLERANCE,
-    TRACE_NARROW_MIN,
-    TRACE_GEMS_PER_LAP,
-    TRACE_GEM_POINTS,
-    TRACE_GEM_REACH,
-    traceWidthAt,
-    traceToleranceAt,
-    buildTraceGems,
-    TRACE_CLEAN_BONUS,
-    TRACE_CELLS,
-    TRACE_PERFECT,
-    TRACE_CELL_PERFECT,
-    TRACE_CELL_GOOD,
-    TRACE_SPEED_BASE,
-    TRACE_STEER_SPEED,
-    TRACE_LEAD_IN_MS,
-    tracePathX,
-    traceOffset,
-    traceLagOffset,
-    traceSpeed,
-    traceCombo,
-    traceScore,
     BELT_COLOURS,
     BELT_CHUTES,
     BELT_QUEUE,

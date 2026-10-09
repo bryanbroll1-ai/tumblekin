@@ -39,6 +39,8 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+const Sketch = require("../client/src/minigames/SketchFigures.js");
+
 // Dieselbe Rauschfunktion wie in server.js: aus einem Seed eine Zahl in [0, 1).
 function noise(seed) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
@@ -3078,6 +3080,179 @@ const pipes = {
 
 // ---------------------------------------------------------------------------
 
+// --- Spurmaler -------------------------------------------------------------
+//
+// Ein grosser Stift zeichnet auf der Staffelei eine Figur vor — eine Welle,
+// ein Herz, einen Stern, das Haus vom Nikolaus … Danach fährt jeder sie auf
+// seinem eigenen Brett mit dem Finger nach, so genau er kann. Die Vorlage
+// bleibt blass sichtbar. Nach Ablauf der Zeit wird verglichen (SketchFigures:
+// Abdeckung mal Genauigkeit, bis 100 Punkte), drei Figuren, jede kniffliger.
+//
+// Vorher lenkte man einen Farbroller, der von selbst eine Spur hinauffuhr —
+// mit links-rechts-Wischen. Das war eher ein Lenkspiel als Malen.
+//
+// Die Striche kommen in Stücken vom Gerät (höchstens SKETCH_CHUNK Punkte je
+// Nachricht, SKETCH_MAX_POINTS je Durchgang), gezählt nur im Nachfahrfenster
+// nach Serverzeit samt kurzer Schonfrist.
+const SKETCH_ROUNDS = 3;
+const SKETCH_LEAD_MS = 900;
+const SKETCH_DRAW_MS = 2600;           // der grosse Stift zeichnet vor
+const SKETCH_TRACE_MS = 6500;          // nachfahren
+const SKETCH_SCORE_MS = 2400;          // vergleichen
+const SKETCH_CYCLE_MS = SKETCH_DRAW_MS + SKETCH_TRACE_MS + SKETCH_SCORE_MS;
+const SKETCH_DURATION_MS = SKETCH_LEAD_MS + SKETCH_ROUNDS * SKETCH_CYCLE_MS + 400;
+const SKETCH_TOLERANCE = 0.024;        // Brettbreite = 1; bis hierher voll, bis zum Doppelten weniger
+const SKETCH_CHUNK = 48;
+const SKETCH_MAX_POINTS = 600;
+const SKETCH_GRACE_MS = 150;
+const SKETCH_PACKED_POINTS = 90;       // so viele Punkte je Spieler gehen ans Gerät
+
+function sketchPhase(elapsed) {
+  const t = elapsed - SKETCH_LEAD_MS;
+  if (t < 0) return { phase: "lead", round: 0, since: elapsed };
+  const round = Math.floor(t / SKETCH_CYCLE_MS);
+  if (round >= SKETCH_ROUNDS) return { phase: "over", round: SKETCH_ROUNDS - 1, since: t - SKETCH_ROUNDS * SKETCH_CYCLE_MS };
+  const inner = t - round * SKETCH_CYCLE_MS;
+  if (inner < SKETCH_DRAW_MS) return { phase: "draw", round, since: inner };
+  if (inner < SKETCH_DRAW_MS + SKETCH_TRACE_MS) return { phase: "trace", round, since: inner - SKETCH_DRAW_MS };
+  return { phase: "score", round, since: inner - SKETCH_DRAW_MS - SKETCH_TRACE_MS };
+}
+
+function sketchRound3(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
+const sketch = {
+  cooldown: 0,
+  fastHand: true,
+  create(arcade) {
+    const figures = Sketch.pickFigures(arcade.seed, SKETCH_ROUNDS);
+    arcade.sketch = {
+      figures,
+      rounds: SKETCH_ROUNDS,
+      leadMs: SKETCH_LEAD_MS,
+      drawMs: SKETCH_DRAW_MS,
+      traceMs: SKETCH_TRACE_MS,
+      scoreMs: SKETCH_SCORE_MS,
+      tolerance: SKETCH_TOLERANCE,
+      scored: -1
+    };
+    arcade.sketchPaths = figures.map((name) => Sketch.figurePath(name));
+    Object.values(arcade.players).forEach((entry) => {
+      entry.strokes = [];
+      entry.strokeLen = 0;
+      entry.strokeRound = -1;
+      entry.results = [];              // je Durchgang { points, coverage, precision }
+      entry.score = 0;
+      entry.lastStrokeAt = 0;
+    });
+  },
+  input(ctx, player, entry, input) {
+    if (input.action !== "stroke") return { ok: false, error: "Fahr die Figur mit dem Finger nach." };
+    const { phase, round } = sketchPhase(ctx.elapsed - SKETCH_GRACE_MS);
+    const now = sketchPhase(ctx.elapsed);
+    if (now.phase !== "trace" && !(phase === "trace" && now.round === round)) return { ok: true };
+    const current = now.phase === "trace" ? now.round : round;
+    if (ctx.arcade.sketch.scored >= current) return { ok: true };
+    if (entry.strokeRound !== current) {
+      entry.strokeRound = current;
+      entry.strokes = [];
+      entry.strokeLen = 0;
+    }
+    const raw = Array.isArray(input.pts) ? input.pts.slice(0, SKETCH_CHUNK) : [];
+    const points = [];
+    raw.forEach((point) => {
+      if (!Array.isArray(point)) return;
+      const x = inputNumber(point[0]);
+      const y = inputNumber(point[1]);
+      if (Number.isFinite(x) && Number.isFinite(y)) points.push([sketchRound3(clamp(x, 0, 1)), sketchRound3(clamp(y, 0, 1))]);
+    });
+    if (!points.length) return { ok: true };
+    const room = SKETCH_MAX_POINTS - entry.strokeLen;
+    if (room <= 0) return { ok: true };
+    if (input.start || !entry.strokes.length) entry.strokes.push([]);
+    const add = points.slice(0, room);
+    entry.strokes[entry.strokes.length - 1].push(...add);
+    entry.strokeLen += add.length;
+    entry.lastStrokeAt = ctx.now;
+    return { ok: true };
+  },
+  update(ctx) {
+    const { arcade, elapsed } = ctx;
+    const state = arcade.sketch;
+    // Gewertet wird nach der Schonfrist hinter dem Nachfahren, für alle
+    // gleichzeitig.
+    const graced = sketchPhase(elapsed - SKETCH_GRACE_MS);
+    const due = graced.phase === "score" || graced.phase === "over" ? graced.round : graced.round - 1;
+    while (state.scored < due) {
+      state.scored += 1;
+      const path = arcade.sketchPaths[state.scored];
+      Object.values(arcade.players).forEach((entry) => {
+        const strokes = entry.strokeRound === state.scored ? entry.strokes : [];
+        const result = Sketch.scoreStroke(path, strokes, SKETCH_TOLERANCE);
+        entry.results[state.scored] = result;
+        entry.score += result.points;
+      });
+    }
+  },
+  bot(ctx, player, entry) {
+    const { arcade, now, elapsed } = ctx;
+    const { phase, round, since } = sketchPhase(elapsed);
+    if (phase !== "trace") return null;
+    if (entry.botRound !== round) {
+      entry.botRound = round;
+      // Der Bot fährt die Figur mit einer weichen, festen Abweichung nach —
+      // wie eine leicht zitternde Hand —, und der schwache lässt am Ende
+      // etwas aus.
+      const path = arcade.sketchPaths[round];
+      const wobble = byLevel(entry, 0.034, 0.022, 0.012);
+      const reach = byLevel(entry, 0.8, 0.93, 1);
+      const phaseA = Math.random() * 6;
+      const phaseB = Math.random() * 6;
+      const stop = Math.max(2, Math.floor(path.length * reach));
+      entry.botPlan = path.slice(0, stop).map(([x, y], i) => [
+        clamp(x + Math.sin(i * 0.11 + phaseA) * wobble, 0, 1),
+        clamp(y + Math.cos(i * 0.13 + phaseB) * wobble, 0, 1)
+      ]);
+      entry.botSent = 0;
+      entry.botStartMs = byLevel(entry, 700, 450, 300) + Math.random() * 300;
+      entry.botSpanMs = SKETCH_TRACE_MS * byLevel(entry, 0.8, 0.7, 0.6);
+    }
+    if (since < entry.botStartMs || now - (entry.botLastAt || 0) < 90) return null;
+    const share = clamp((since - entry.botStartMs) / entry.botSpanMs, 0, 1);
+    const want = Math.floor(share * entry.botPlan.length);
+    if (want <= entry.botSent) return null;
+    const chunk = entry.botPlan.slice(entry.botSent, Math.min(want, entry.botSent + SKETCH_CHUNK));
+    const start = entry.botSent === 0;
+    entry.botSent += chunk.length;
+    entry.botLastAt = now;
+    return { action: "stroke", pts: chunk, start };
+  },
+  rank(arcade, entry) {
+    // Punkte zuerst; bei Gleichstand die bessere Abdeckung.
+    const coverage = (entry.results || []).reduce((sum, r) => sum + (r?.coverage || 0), 0);
+    return Math.max(0, Math.round(entry.score || 0)) * 1000 + Math.min(999, Math.round(coverage * 333));
+  },
+  detail(arcade, entry) {
+    return { kind: "points", value: Math.max(0, Math.round(entry.score || 0)), label: "Punkte" };
+  },
+  done(ctx) {
+    return sketchPhase(ctx.elapsed).phase === "over";
+  },
+  // Die Striche gehen gepackt ans Gerät (zwei Zeichen je Punkt, höchstens
+  // SKETCH_PACKED_POINTS je Spieler), die Figuren als Namen — die Bahn
+  // rechnet jedes Gerät selbst aus SketchFigures.
+  publicView(arcade) {
+    const { sketchPaths, players, ...rest } = arcade;
+    const view = {};
+    Object.entries(players || {}).forEach(([id, entry]) => {
+      const { strokes, ...shown } = entry;
+      view[id] = { ...shown, trail: Sketch.packStrokes(strokes || [], SKETCH_PACKED_POINTS) };
+    });
+    return { ...rest, players: view };
+  }
+};
+
 const PARTY_FAMILIES = {
   tug,
   face,
@@ -3088,7 +3263,8 @@ const PARTY_FAMILIES = {
   book,
   photo,
   boat,
-  pipes
+  pipes,
+  sketch
 };
 
 // Katalogeinträge: dieselbe Form wie MINIGAMES und ARCADE_CONFIGS in server.js.
@@ -3102,7 +3278,8 @@ const PARTY_GAMES = [
   { type: "buecherwurm", title: "Bücherwurm", duration: BOOK_DURATION_MS, arcadeFamily: "book", seed: 857 },
   { type: "schnappschuss", title: "Schnappschuss", duration: PHOTO_DURATION_MS, arcadeFamily: "photo", seed: 859 },
   { type: "kippboot", title: "Kippboot", duration: BOAT_DURATION_MS, arcadeFamily: "boat", seed: 863 },
-  { type: "rohrsalat", title: "Rohrsalat", duration: PIPE_DURATION_MS, arcadeFamily: "pipes", seed: 877 }
+  { type: "rohrsalat", title: "Rohrsalat", duration: PIPE_DURATION_MS, arcadeFamily: "pipes", seed: 877 },
+  { type: "spurmaler", title: "Spurmaler", duration: SKETCH_DURATION_MS, arcadeFamily: "sketch", seed: 499 }
 ];
 
 module.exports = {
@@ -3122,8 +3299,11 @@ module.exports = {
     BOAT_LEAD_MS, BOAT_REACH, BOAT_TORQUE_MAX, BOAT_CAPACITY, BOAT_CAPSIZE_COST, BOAT_DEPART_BONUS, BOAT_DURATION_MS, BOAT_END_MS,
     BOAT_TURN_MS, BOAT_TURN_MIN_MS, BOAT_SPLASH_MS,
     PIPE_ROUNDS, PIPE_LEAD_MS, PIPE_ANSWER_MS, PIPE_REVEAL_MS, PIPE_LEVELS, PIPE_POINTS, PIPE_SPEED_BONUS,
-    PIPE_GRACE_MS, PIPE_ALL_IN_MS, PIPE_PUBLISH_LEAD_MS, PIPE_DURATION_MS
+    PIPE_GRACE_MS, PIPE_ALL_IN_MS, PIPE_PUBLISH_LEAD_MS, PIPE_DURATION_MS,
+    SKETCH_ROUNDS, SKETCH_LEAD_MS, SKETCH_DRAW_MS, SKETCH_TRACE_MS, SKETCH_SCORE_MS, SKETCH_CYCLE_MS,
+    SKETCH_DURATION_MS, SKETCH_TOLERANCE, SKETCH_CHUNK, SKETCH_MAX_POINTS, SKETCH_GRACE_MS
   },
+  sketchPhase,
   buildPipeRound,
   pipeTrace,
   pipePhase,
