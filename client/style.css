@@ -612,6 +612,12 @@ body.has-invite .start-sheet .field:first-child {
   text-transform: uppercase;
 }
 
+.chip-tag.chip-icon {
+  padding: 0;
+  background: none;
+  font-size: 0.9rem;
+}
+
 .chip-wins {
   font-size: 0.8rem;
   font-weight: 950;
@@ -712,6 +718,67 @@ body.has-invite .start-sheet .field:first-child {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* „Mehr“: Spielauswahl und Bot-Stärke hinter einer Zeile, die sagt, was
+   gerade gilt. Zugeklappt ist die Lobby ohne Scrollen zu überblicken. */
+.more-options {
+  border-radius: 16px;
+  background: rgba(36, 48, 64, 0.05);
+}
+
+.more-options > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.more-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-options > summary::after {
+  content: "›";
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 1.2rem;
+  font-weight: 950;
+  transition: transform 160ms ease;
+}
+
+.more-options[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.more-options > summary:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+}
+
+.more-options-title {
+  flex: none;
+  font-weight: 950;
+}
+
+.more-options-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.more-options-body {
+  display: grid;
+  gap: 10px;
+  padding: 4px 12px 12px;
 }
 
 /* Bot-Stärke: ein Regler aus vier Farbfeldern, von gemütlich (grün) bis
@@ -1275,6 +1342,48 @@ body.has-invite .start-sheet .field:first-child {
 
 .result-sheet {
   gap: 12px;
+}
+
+/* Eine Liste auf einmal: Dieses Spiel oder Gesamtstand. */
+.result-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(36, 48, 64, 0.06);
+}
+
+.result-tabs[hidden] {
+  display: none;
+}
+
+.result-tabs button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 950;
+}
+
+.result-tabs button[aria-selected="true"] {
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 2px 6px rgba(36, 48, 64, 0.12);
+}
+
+.result-tabs button:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+}
+
+.result-sheet[data-pane="game"] .standings,
+.result-sheet[data-pane="total"] .result-list,
+.result-sheet[data-pane="total"] .result-ranking-note {
+  display: none;
 }
 
 #result-ready { position: sticky; bottom: 0; z-index: 3; box-shadow: 0 -10px 16px var(--paper), 0 5px 0 #c39818; }

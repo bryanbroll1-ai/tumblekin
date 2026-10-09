@@ -1314,6 +1314,14 @@
   font-size: 0.78rem;
   font-weight: 700;
   text-align: center;
+  transition: opacity 600ms ease, visibility 0s linear 0s;
+}
+
+/* Verstanden: der feste Hinweis tritt zurück, sein Platz bleibt. */
+.trace-hint.is-faded {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 600ms ease, visibility 0s linear 600ms;
 }
 
 /* --- Bergsteiger: Höhenleiter am Bildrand ------------------------------ */

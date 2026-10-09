@@ -1,4 +1,4 @@
-import { minigameMeta } from "../minigames/catalog.js?v=tumblekin212";
+import { minigameMeta } from "../minigames/catalog.js?v=tumblekin213";
 
 // Helfer rund um den Raumzustand, den der Server schickt.
 
@@ -6,22 +6,22 @@ export const MODES = {
   marathon: {
     icon: "🏃",
     name: "Marathon",
-    help: "Eine feste Zahl Minispiele hintereinander. Platz 1 bringt die meisten Punkte — wer am Ende vorn liegt, gewinnt."
+    help: "Feste Zahl Spiele — wer am Ende die meisten Punkte hat, gewinnt."
   },
   hunt: {
     icon: "🎯",
     name: "Punktejagd",
-    help: "Kein festes Ende: wer als Erster allein die Zielpunktzahl erreicht, gewinnt. Gleichstand am Ziel heisst Matchball."
+    help: "Wer zuerst allein die Zielpunkte erreicht, gewinnt."
   },
   knockout: {
     icon: "💥",
     name: "K.O.",
-    help: "Jeder hat Leben. Wer ein Spiel als Letzter beendet, verliert eins. Wer zuletzt noch Leben hat, gewinnt."
+    help: "Letzter Platz kostet ein Leben — wer übrig bleibt, gewinnt."
   },
   single: {
     icon: "🎮",
     name: "Ein Spiel",
-    help: "Ein Minispiel eurer Wahl — danach geht es zurück in die Lobby."
+    help: "Ein Spiel eurer Wahl, danach zurück in die Lobby."
   }
 };
 

@@ -1,4 +1,4 @@
-import { MINIGAME_SCENES as SCENES } from "../minigames/scenes.js?v=tumblekin212";
+import { MINIGAME_SCENES as SCENES } from "../minigames/scenes.js?v=tumblekin213";
 export const canPractice = type => Boolean(SCENES[type]);
 
 export class PracticeSession {
@@ -59,7 +59,7 @@ export class PracticeSession {
     this.onChange();
     this.closeButton.focus();
     try {
-      this.worker = new Worker('/src/practice/engine-worker.js?v=tumblekin212');
+      this.worker = new Worker('/src/practice/engine-worker.js?v=tumblekin213');
       this.worker.onerror = () => this.fail('Die Übung konnte nicht geladen werden.');
       this.bootTimer = setTimeout(() => this.fail('Die Übung konnte nicht geladen werden.'), 10000);
       this.worker.onmessage = ({ data }) => {

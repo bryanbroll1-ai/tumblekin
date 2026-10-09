@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin212";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
-import { frameLerp } from "./Quality.js?v=tumblekin212";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin212";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin213";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
+import { frameLerp } from "./Quality.js?v=tumblekin213";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin213";
 
 // Grimassen: oben hängt ein verzogenes Gesicht im Goldrahmen, davor steht die
 // eigene Blockkopf-Maske — erst neutral —, und man zieht sie an sechs Punkten

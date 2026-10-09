@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin212";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
-import { frameLerp } from "./Quality.js?v=tumblekin212";
-import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin212";
+import { flashKin } from "./VoxelKit.js?v=tumblekin213";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
+import { frameLerp } from "./Quality.js?v=tumblekin213";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin213";
 
 // Münzregen: drei Spuren vor einer Goldmine. Aus dem Stollen fliegen Münzen,
 // Edelsteine und Bomben im Bogen in die Spuren; ein Zielkreis zeigt, wo. Wischen wechselt die Spur. Eine Serie ohne Bombe hebt den

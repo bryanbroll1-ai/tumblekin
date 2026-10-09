@@ -7,7 +7,7 @@ try{
  const result=await page.evaluate(async()=>{
   const THREE=await import('/vendor/three/three.module.js');
   const { CubeBurst,disposeScene }=await import('/src/minigames/VoxelKit.js?v=tumblekin204');
-  const { blockform,blockformCacheInfo }=await import('/src/minigames/Blockform.js?v=tumblekin212');
+  const { blockform,blockformCacheInfo }=await import('/src/minigames/Blockform.js?v=tumblekin213');
   const rows=[];
   for(const drag of [0,1.5])for(const gravity of [5.4,-1.2])for(const hz of [30,60,120]){
    const world=new THREE.Scene(),burst=new CubeBurst(world),random=Math.random;

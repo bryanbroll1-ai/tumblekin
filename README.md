@@ -27,13 +27,13 @@ Schritt für Schritt inklusive des Wegs ohne Rechner (GitHub Codespaces):
 2. Auf einem Gerät eine Party starten.
 3. Den QR-Code scannen oder die WLAN-Adresse plus Raumcode verwenden.
 4. Der Host wählt einen Modus und tippt auf **Los geht's**.
-5. Vor jedem Spiel zeigt die Startkarte Ziel, Steuerung und einen Tipp. **Alle Regeln lesen** klappt die ausführliche Hilfe auf. Erst wenn alle verbundenen Menschen **Bereit!** tippen, beginnt der gemeinsame Countdown; Bots blockieren die Lesepause nicht. Wer das Handy weglegt, hält trotzdem niemanden fest: nach 60 Sekunden beginnt die Runde mit allen, die letzten 30 Sekunden zählt die Karte sichtbar herunter.
+5. Vor jedem Spiel zeigt die Startkarte Bild, Steuerung und Ziel. **Tipp & Regeln** klappt Tipp und ausführliche Hilfe auf; ab dem zweiten Spiel steht dort auch der eigene Punktestand. Erst wenn alle verbundenen Menschen **Bereit!** tippen, beginnt der gemeinsame Countdown; Bots blockieren die Lesepause nicht. Wer das Handy weglegt, hält trotzdem niemanden fest: nach 60 Sekunden beginnt die Runde mit allen, die letzten 30 Sekunden zählt die Karte sichtbar herunter.
 
 Die Spielauswahl lässt sich nach **Reaktion**, **Geschick**, **Denken** und **Miteinander** filtern und nach Namen durchsuchen. Bei einer eigenen Auswahl fügt **Sichtbare wählen** die gefilterten Spiele hinzu, ohne die übrige Auswahl zu löschen.
 
 Alle 40 Spiele zeigen ihre tatsächliche Spielansicht in der Auswahl und auf der Startkarte. In jedem der 40 Spiele lässt sich vor **Bereit!** mit **Steuerung ausprobieren** ein eigener Versuch starten. **Neu** setzt ihn zurück, **Fertig** oder Escape kehrt zur Startkarte zurück. Die Übung verwendet dieselben Regeln und Szenen wie die Partie; Punkte und Bereitstatus der Partie bleiben unverändert. Ihre Zeit läuft erst nach dem Szenenaufbau und einem kurzen Countdown.
 
-Eine Partie braucht mindestens zwei Teilnehmer. Wer allein ist, holt sich mit **+ Bot** Mitspieler dazu — die Bots spielen jedes Minispiel mit, in drei Stärken. In der Lobby stellt der Host unter **Bots** auf einem farbigen Regler ein, wie stark sie spielen: *Einfach* (grün), *Mittel* (gelb), *Schwer* (rot) oder *Zufall* (jeder Bot würfelt je Minispiel neu); darüber steht, was die Stufe bedeutet. Tippen, Ziehen und die Pfeiltasten stellen ihn um. Dass die stärkere Stufe in jedem Minispiel tatsächlich häufiger gewinnt, misst `npm run bot-sim` nach.
+Eine Partie braucht mindestens zwei Teilnehmer. Wer allein ist, holt sich mit **+ Bot** Mitspieler dazu — die Bots spielen jedes Minispiel mit, in drei Stärken. In der Lobby steht vorn nur die Einstellung, die den Modus ausmacht (Anzahl, Ziel oder Leben); Spielauswahl und Bot-Stärke liegen unter **⚙ Mehr**, mit einer Zeile, die sagt, was gerade gilt. Dort stellt der Host unter **Bots** auf einem farbigen Regler ein, wie stark sie spielen: *Einfach* (grün), *Mittel* (gelb), *Schwer* (rot) oder *Zufall* (jeder Bot würfelt je Minispiel neu); darüber steht, was die Stufe bedeutet. Tippen, Ziehen und die Pfeiltasten stellen ihn um. Dass die stärkere Stufe in jedem Minispiel tatsächlich häufiger gewinnt, misst `npm run bot-sim` nach.
 
 Bei einem kurzen WLAN-Hänger oder Reload stellt der Client die laufende Sitzung automatisch wieder her. Es gibt bewusst keine Host-Migration: Bleibt der Host offline, werden Host-Aktionen gesperrt und alle Spieler sehen eine Fehlermeldung.
 
@@ -48,7 +48,7 @@ Nach jedem Minispiel gibt es Punkte nach Platz: der Letzte bekommt 0, jeder Plat
 
 Für Marathon, Punktejagd und K.O. lässt sich der Spielvorrat einschränken (mindestens zwei Spiele). Innerhalb eines Durchgangs durch den Vorrat kommt kein Spiel doppelt, und nie dasselbe zweimal hintereinander. Punktejagd und K.O. haben Notbremsen nach 30 bzw. 40 Spielen; dass sie praktisch nie greifen, misst `npm run match-sim` nach.
 
-Zwischen den Spielen zeigt die Ergebnistafel die Plätze von hinten nach vorn, den Zwischenstand und das nächste Spiel; auf der Bühne dahinter stehen die Figuren auf dem Podest. Am Ende gibt es eine Siegerehrung mit Revanche auf Knopfdruck.
+Zwischen den Spielen zeigt die Ergebnistafel die Plätze von hinten nach vorn und wechselt danach von selbst zum Zwischenstand (beide über **Dieses Spiel** / **Gesamtstand** umschaltbar), dazu das nächste Spiel; auf der Bühne dahinter stehen die Figuren auf dem Podest. Am Ende gibt es eine Siegerehrung mit Revanche auf Knopfdruck.
 
 ## Die Figuren und die Kamera
 

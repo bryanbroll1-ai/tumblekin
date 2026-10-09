@@ -29,6 +29,8 @@ try {
   await host.waitForFunction(() => window.__tumblekin.state().players.length === 2);
 
   // Pool filtern, Suchergebnisse hinzufügen, Auswahl erhalten und speichern.
+  // Die Spielauswahl liegt hinter „Mehr“ — erst aufklappen, wie ein Mensch.
+  await host.click(".more-options summary");
   await host.click('[data-open-picker="pool"]');
   assert.equal(await host.locator("[data-pick]").count(), 40);
   await host.click("[data-picker-none]");

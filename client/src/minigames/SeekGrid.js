@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin212";
-import { frameLerp, fxScale } from "./Quality.js?v=tumblekin212";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin213";
+import { frameLerp, fxScale } from "./Quality.js?v=tumblekin213";
 
 // Spürsinn: irgendwo unter den Feldern liegt ein Schatz. Jedes angetippte
 // Feld sagt, wie viele Schritte er entfernt ist. Wer mit wenigen Tipps findet,

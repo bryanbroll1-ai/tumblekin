@@ -12,9 +12,9 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/icon-180.png">
-    <link rel="stylesheet" href="/style.css?v=tumblekin212">
-    <link rel="stylesheet" href="/minigames.css?v=tumblekin212">
-    <link rel="stylesheet" href="/press-feedback.css?v=tumblekin212">
+    <link rel="stylesheet" href="/style.css?v=tumblekin213">
+    <link rel="stylesheet" href="/minigames.css?v=tumblekin213">
+    <link rel="stylesheet" href="/press-feedback.css?v=tumblekin213">
   </head>
   <body data-screen="start">
     <main id="app">
@@ -152,9 +152,9 @@
               <strong id="intro-gesture-label">Tippen</strong>
             </div>
             <p id="intro-goal" class="intro-goal">Ziel</p>
-            <p id="intro-tip" class="intro-tip"></p>
             <details id="intro-details" class="intro-details">
-              <summary>Alle Regeln lesen</summary>
+              <summary>Tipp &amp; Regeln</summary>
+              <p id="intro-tip" class="intro-tip"></p>
               <p id="intro-rules"></p>
             </details>
             <div id="intro-extra" class="intro-extra"></div>
@@ -175,6 +175,10 @@
         </header>
         <div class="stage-spacer" data-stage-band></div>
         <div class="sheet result-sheet">
+          <div id="result-tabs" class="result-tabs" role="tablist" aria-label="Ergebnis" hidden>
+            <button type="button" role="tab" data-result-tab="game" aria-selected="true">Dieses Spiel</button>
+            <button type="button" role="tab" data-result-tab="total" aria-selected="false">Gesamtstand</button>
+          </div>
           <ol id="result-list" class="result-list"></ol>
           <p id="result-ranking-note" class="result-ranking-note" hidden></p>
           <div id="standings" class="standings"></div>
@@ -202,6 +206,6 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/src/main.js?v=tumblekin212"></script>
+    <script type="module" src="/src/main.js?v=tumblekin213"></script>
   </body>
 </html>

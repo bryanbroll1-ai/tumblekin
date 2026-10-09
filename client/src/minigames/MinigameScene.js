@@ -11,12 +11,12 @@ import {
   applyFinaleMood,
   setKinOpacity,
   disposeScene
-} from "./VoxelKit.js?v=tumblekin212";
-import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin212";
-import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin212";
-import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin212";
-import { frameChance } from "./Quality.js?v=tumblekin212";
-import { verblocke } from "./Blockform.js?v=tumblekin212";
+} from "./VoxelKit.js?v=tumblekin213";
+import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin213";
+import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin213";
+import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin213";
+import { frameChance } from "./Quality.js?v=tumblekin213";
+import { verblocke } from "./Blockform.js?v=tumblekin213";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
@@ -66,6 +66,7 @@ export class MinigameScene {
       // eine Ablehnung kommt ja vom Server zurück.
       const clock = performance.now();
       this.net.lastSentAt = clock;
+      if (input.action !== "ping") this.ownInputs = (this.ownInputs || 0) + 1;
       return sendInput(input).then(reply => {
         this.noteNetRoundTrip(performance.now() - clock);
         return reply;
@@ -213,6 +214,21 @@ export class MinigameScene {
     }
   }
 
+  // Feste Bedienhinweise unten („Tippe irgendwo, sobald …“) braucht man in
+  // den ersten Sekunden — danach stehen sie nur im Bild. Sie blenden aus,
+  // sobald man ein paar Mal etwas getan hat oder sieben Sekunden gespielt
+  // sind. Hinweise mit Zustand (data-…-hint, „Jetzt RECHTS tippen“) bleiben.
+  // Der Platz bleibt reserviert, damit die Kamera nicht springt.
+  fadeStaticHints(f) {
+    if (this.hintsFaded || !f.started) return;
+    if ((this.ownInputs || 0) < 3 && f.now - f.minigame.startedAt < 7000) return;
+    this.hintsFaded = true;
+    this.controls.querySelectorAll(".trace-hint").forEach((hint) => {
+      if ([...hint.attributes].some((attr) => attr.name.startsWith("data-"))) return;
+      hint.classList.add("is-faded");
+    });
+  }
+
   loop = () => {
     this.draw();
     this.frame = requestAnimationFrame(this.loop);
@@ -249,6 +265,7 @@ export class MinigameScene {
       this.onFinale?.(f);
     }
     this.tick(f);
+    this.fadeStaticHints(f);
     if (finale && places && this.autoFinale !== false) this.finaleMoods(f);
 
     this.animators.forEach((animator) => animator.update(now));

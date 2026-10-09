@@ -11,11 +11,11 @@ import {
   isLocalNetworkHost,
   sortByStanding,
   minigameTitle
-} from "../game/GameState.js?v=tumblekin212";
-import { playerStatus } from "../game/Player.js?v=tumblekin212";
-import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin212";
-import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin212";
-import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin212';
+} from "../game/GameState.js?v=tumblekin213";
+import { playerStatus } from "../game/Player.js?v=tumblekin213";
+import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin213";
+import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin213";
+import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin213';
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
@@ -37,6 +37,15 @@ function botLevelIndex(value) {
 
 function botLevelInfo(level) {
   return `<b>${level.label}</b> ${level.info}`;
+}
+
+// Kennzeichen am Spielerchip: Symbole statt Wörter, damit vier Chips in eine
+// Zeile passen. Dass man selbst Host ist, weiss man.
+function chipTag(status, mine) {
+  if (!status) return "";
+  if (status === "Bot") return `<span class="chip-tag chip-icon" title="Bot" aria-label="Bot">🤖</span>`;
+  if (status === "Host") return mine ? "" : `<span class="chip-tag chip-icon" title="Host" aria-label="Host">👑</span>`;
+  return `<span class="chip-tag">${escapeHtml(status)}</span>`;
 }
 
 export class UIManager {
@@ -161,6 +170,8 @@ export class UIManager {
       resultReason: $("result-reason"),
       resultTitle: $("result-title"),
       resultList: $("result-list"),
+      resultTabs: $("result-tabs"),
+      resultSheet: document.querySelector(".result-sheet"),
       resultRankingNote: $("result-ranking-note"),
       standings: $("standings"),
       resultNext: $("result-next"),
@@ -218,6 +229,13 @@ export class UIManager {
     el.enableDevMode.addEventListener("click", () => this.safeAction(() => this.handlers.enableDevMode()));
     el.rematch.addEventListener("click", () => this.safeAction(() => this.handlers.rematch()));
     el.restart.addEventListener("click", () => this.safeAction(() => this.handlers.restartGame()));
+    // Ergebnis: Dieses Spiel / Gesamtstand.
+    el.resultTabs.addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-result-tab]");
+      if (!tab) return;
+      this.resultPaneManual = true;
+      this.setResultPane(tab.dataset.resultTab);
+    });
     el.resultReady.addEventListener("click", () => {
       this.feedback?.sound("tap");
       this.safeAction(() => this.handlers.readyForNext());
@@ -259,6 +277,10 @@ export class UIManager {
       const open = event.target.closest("[data-open-picker]");
       if (open && !open.disabled) this.openPicker(open.dataset.openPicker);
     });
+    // „Mehr“ bleibt offen, wenn der Raum neu gezeichnet wird.
+    el.modeOptions.addEventListener("toggle", (event) => {
+      if (event.target.matches?.(".more-options")) this.moreOptionsOpen = event.target.open;
+    }, true);
     // Bot-Regler: ziehen …
     el.modeOptions.addEventListener("pointerdown", (event) => {
       const track = event.target.closest(".bot-level-track");
@@ -592,7 +614,7 @@ export class UIManager {
         <li class="player-chip ${mine ? "is-me" : ""} ${player.connected === false ? "is-offline" : ""}" data-player-chip="${escapeHtml(player.id)}" style="--chip-color:${player.color}">
           <span class="chip-dot"></span>
           <span class="chip-name">${escapeHtml(player.name)}${mine ? " <em>(du)</em>" : ""}</span>
-          ${status ? `<span class="chip-tag">${escapeHtml(status)}</span>` : ""}
+          ${chipTag(status, mine)}
           ${wins}
           ${remove}
         </li>`;
@@ -638,18 +660,27 @@ export class UIManager {
         <button type="button" class="chip chip-wide" data-open-picker="pool" ${disabled}>${poolText} <b>›</b></button>
       </div>`;
 
+    // Vorn steht nur die eine Einstellung, die den Modus ausmacht. Welche
+    // Spiele drankommen und wie stark die Bots sind, liegt hinter „Mehr“ —
+    // mit einer Zeile, die sagt, was gerade gilt.
     let html = "";
+    const more = [];
+    const summary = [];
+    if (mode !== "single") summary.push(pool && pool.length ? `${pool.length} Spiele` : `Alle ${MINIGAME_CATALOG.length} Spiele`);
     if (mode === "marathon") {
-      html = chips("length", MARATHON_LENGTHS, settings.length || 5, "Anzahl") + poolRow;
+      html = chips("length", MARATHON_LENGTHS, settings.length || 5, "Anzahl");
+      more.push(poolRow);
     } else if (mode === "hunt") {
       const count = this.state.players.length;
       html = `
         <div class="option-row">
           <span class="option-label">Ziel</span>
           <span class="option-value">${huntTarget(count)} Punkte <small>bei ${count} ${count === 1 ? "Spieler" : "Spielern"}</small></span>
-        </div>` + poolRow;
+        </div>`;
+      more.push(poolRow);
     } else if (mode === "knockout") {
-      html = chips("lives", KNOCKOUT_LIVES, settings.lives || 3, "Leben") + poolRow;
+      html = chips("lives", KNOCKOUT_LIVES, settings.lives || 3, "Leben");
+      more.push(poolRow);
     } else {
       const chosen = settings.single ? minigameMeta(settings.single) : null;
       const gesture = chosen ? GESTURES[chosen.gesture] : null;
@@ -667,7 +698,8 @@ export class UIManager {
     if (this.state.players.some((player) => player.isBot)) {
       const index = botLevelIndex(settings.botLevel || "mixed");
       const level = BOT_LEVELS[index];
-      html += `
+      summary.push(`Bots: ${level.label}`);
+      more.push(`
         <div class="option-row option-row-stack">
           <span class="option-label">Bots</span>
           <div class="bot-level" data-bot-slider style="--i:${index};--level:${level.color}">
@@ -677,7 +709,14 @@ export class UIManager {
               ${BOT_LEVELS.map((entry, i) => `<button type="button" role="radio" class="bot-level-seg" data-bot-level="${entry.value}" aria-checked="${i === index}" tabindex="${i === index ? 0 : -1}" ${disabled}>${entry.value === "mixed" ? '<span class="bot-level-dice" aria-hidden="true">🎲 </span>' : ""}${entry.label}</button>`).join("")}
             </div>
           </div>
-        </div>`;
+        </div>`);
+    }
+    if (more.length) {
+      html += `
+        <details class="more-options" ${this.moreOptionsOpen ? "open" : ""}>
+          <summary><span class="more-options-title">⚙ Mehr</span><span class="more-options-summary">${escapeHtml(summary.join(" · "))}</span></summary>
+          <div class="more-options-body">${more.join("")}</div>
+        </details>`;
     }
     this.el.modeOptions.innerHTML = html;
     if (this.focusBotLevel) {
@@ -927,6 +966,9 @@ export class UIManager {
       const point = match.matchPoint?.includes(me.id) ? " · Matchball!" : "";
       return `<span class="intro-pill">Du: ${me.points} / ${match.target} Punkte${point}</span>`;
     }
+    // Vor dem ersten Spiel steht noch jeder bei null — dann sagt die Zeile
+    // nichts und bleibt weg.
+    if (!state.players.some((player) => (player.points || 0) > 0)) return "";
     const table = sortByStanding(state.players, match.mode);
     const place = table.findIndex((player) => player.id === me.id) + 1;
     return `<span class="intro-pill">Du: ${me.points} ${me.points === 1 ? "Punkt" : "Punkte"} · Platz ${place}</span>`;
@@ -1002,7 +1044,17 @@ export class UIManager {
         </li>`;
     }).join("");
 
-    this.renderStandings(isNew ? ranking.length * revealStep + 0.3 : 0);
+    // Eine Liste auf einmal: zuerst dieses Spiel, nach dem Aufdecken der
+    // Gesamtstand. Vorher standen beide Listen untereinander — dieselben
+    // vier Namen zweimal, und man musste scrollen.
+    const hasTotal = Boolean(match && match.mode !== "single");
+    this.el.resultTabs.hidden = !hasTotal;
+    if (!hasTotal) delete this.el.resultSheet.dataset.pane;
+    else if (isNew || !this.el.resultSheet.dataset.pane) {
+      this.resultPaneManual = false;
+      this.setResultPane("game");
+    }
+    this.renderStandings(0);
     this.renderNext(result, match);
 
     const ready = (state.readyForNext || []).length;
@@ -1021,6 +1073,11 @@ export class UIManager {
         this.feedback?.vibrate(10);
       }, ((ranking.length - 1 - index) * revealStep + 0.15) * 1000));
       const winnerDelay = (ranking.length * revealStep) * 1000;
+      if (hasTotal) {
+        this.resultTimers.push(setTimeout(() => {
+          if (!this.resultPaneManual) this.setResultPane("total");
+        }, winnerDelay + 1900));
+      }
       this.resultTimers.push(setTimeout(() => {
         const iWon = ranking.some((entry) => entry.place === 1 && entry.playerId === this.myPlayerId);
         this.feedback?.sound(iWon ? "win" : "success");
@@ -1029,6 +1086,13 @@ export class UIManager {
       this.startResultTimer();
     }
     requestAnimationFrame(() => this.syncStageBand());
+  }
+
+  setResultPane(pane) {
+    this.el.resultSheet.dataset.pane = pane;
+    this.el.resultTabs.querySelectorAll("[data-result-tab]").forEach((tab) => {
+      tab.setAttribute("aria-selected", String(tab.dataset.resultTab === pane));
+    });
   }
 
   // Gesamtstand nach dieser Runde, mit dem Zuwachs dieser Runde.
