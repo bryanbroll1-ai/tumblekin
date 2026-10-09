@@ -84,3 +84,25 @@ Ebenso rechnen Blob-Klopfe, Zündstoff und Nervenprobe ihre Anzeigen zur Ankunft
 **Farbzeichen.** Farbenjagd zeigt jetzt dieselben vier Zeichen wie die Farbflucht (● ▲ ■ ✚) auf jeder bemalten Kachel und im Anteilbalken. Pink, Gelb und Grün sind bei Rot-Grün-Schwäche kaum zu trennen; helle Farben bekommen ein dunkleres, dunkle ein helleres Zeichen. Das Feld bleibt ein Zeichenaufruf.
 
 **Weitere Korrekturen.** Figuren sanken nach einem Rempler in Münzregen kurz in den Boden (Ende eines zeitlich begrenzten Zustands ohne Überblendung) — behoben. Gesten-Zeiger, die der Browser schon freigegeben hatte, lösten beim Festhalten einen Fehler aus und blockierten den ersten Wisch — behoben. HUD-Elemente richten sich nach der tatsächlichen Breite der Punkteanzeige statt nach festen 132 px; der Angelduell-Balken und das Schnappschuss-Polaroid überlappen auf kleinen Geräten nicht mehr. Am Ende jeder Zielgerade erschien „Das Minispiel ist vorbei.“ mit Fehlerton, auch ohne Berührung (das Finale ließ einen Sprint los, den es nicht gab) — behoben; diese Ablehnung zeigt keine Szene mehr an. Der Uhrabgleich des Geräts übernimmt den ersten Messwert sofort, statt sich von 0 aus anzunähern: Bei nachgehender Handyuhr galt sonst das erste Tippen nach „LOS!“ als zu früh.
+
+## Nachtrag 9. Oktober 2026: Feedback-Runde aus dem Spieltest
+
+Umgesetzt nach einer ausführlichen Rückmeldung zu einzelnen Spielen:
+
+| Bereich | Rückmeldung | Änderung |
+| --- | --- | --- |
+| Alle K.-o.-Spiele | Leben machen Runden zäh; Ausgeschiedene sollen weiter zuschauen. | Flaggen hoch, Bücherwurm, Bumper Pool und Honigwabe: ein Fehler ist das Aus, wer raus ist, schaut zu (Zündstoff-Duell bleibt bei zwei Leben). |
+| Tauziehen | Einfach: welches Team schneller tippt, keine Ausdauer, eine Runde. | Klicker-Duell 2 gegen 2 in einer 15-s-Runde, jeder Tipp zieht gleich stark. |
+| Honigwabe | Wer die Wabe nimmt, ist raus. | Stich = raus; gewertet wird, wer am längsten übrig bleibt. |
+| Zielgerade | Sprung und Slide schwer zu unterscheiden. | Sprung = niedrige orange Wand mit ▲, Slide = hohes blaues Banner mit ▼, offen darunter; Vorwarnstreifen. |
+| Farbenjagd | Eimer flackern am Rand, Bewegen klappt manchmal nicht, Bombe zu schwach. | Eimer hinter die Leinwand; der Stick setzt dort an, wo der Finger die Bühne berührt (auch in fünf weiteren Stick-Spielen); Bombe 3,6 statt 2,4 Felder, vor der Figur. |
+| Münzregen | Münzen sollen aus der Mine kommen, sind zu gross. | Würfe fliegen im Bogen aus dem Stollen, mit Zielkreis in der Spur; ein Drittel kleiner. Timing unverändert. |
+| Nagelbrett | Pfeile springen herum, Fächer zu flach. | Trennwände in Server- und Geräte-Physik, tiefe Taschen, gelandete Kugeln bleiben liegen; Stups-Vorschau rastet auf Fächer und wechselt erst nach 160 ms. |
+| Grimassen | Gesichter verbacken. | Blockköpfe im Stil der Figuren, jedes Teil sitzt an seinem Griff; Formzeit 10,5 s. |
+| Augenmaß | 40 Tiere in 2 s nicht machbar; Figuren sitzen im Stamm. | 4–20 Tiere, 2,8–4,0 s, jede Runde andere 3D-Tiere; Figuren sitzen auf dem Stamm. |
+| Kippboot | Kippen wirkt nicht physikalisch, Zoom ergibt keinen Sinn. | Feder-Schaukeln, Kentern als beschleunigte Rolle mit abrutschenden Passagieren; fester Bildausschnitt statt Zoom bei jedem Zug. |
+| Spurmaler | Neu: vorgezeichnete Figur nachfahren. | Riesenstift zeichnet vor, Wertung Abdeckung × Genauigkeit auf dem Server (SketchFigures.js, gemeinsam mit dem Gerät). |
+| Bots | Schwierigkeitsgrad wählbar. | Lobby-Einstellung leicht / mittel / schwer / gemischt, gilt in allen 40 Spielen. |
+| Optik | Runde Formen schöner, Podestzahlen im Polygon-Look, Schwimmringe ändern. | Runde Formen facettiert statt in Voxel-Treppen, Schwimmringe als gestreifte Polygon-Donuts, Podestzahlen als Blockziffern. |
+
+Ein zufällig fehlschlagender Test (Blob-Klopfe: Stachelblob nach Rundenende) hing an der Uhrzeit und ist behoben; die Ursache wurde über alle 9973 möglichen Würfe nachgerechnet.

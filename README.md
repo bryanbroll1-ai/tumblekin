@@ -367,9 +367,10 @@ Gemeinsame Bausteine der Minispiele:
 - `minigames/Kulisse.js` — Bausteine für Kulissen: Zäune, Wimpel, Heuballen, Bäume, Berge, Laternen, Tribünen, Himmel und Schilder. Gleiche Teile laufen als InstancedMesh in einem Zeichenaufruf, Zufall kommt aus einem Seed, damit jede Szene bei jedem Start gleich aussieht.
 - `minigames/VoxelKit.js` — Voxel-Bausteine, Partikel (`CubeBurst`) und Pop-up-Texte (`FloatingText`); reicht die Figur aus `Kin.js` weiter.
 - `minigames/SceneKit.js` — Renderer, Licht, HUD und Teardown.
-- `minigames/Blockform.js` — baut runde Formen (Kugeln, Zylinder, Kegel, Ringe, Scheiben, Tori, Drehkörper) vor dem ersten Bild in gestufte Voxelformen um — rund genug, dass man die Form erkennt, gestuft genug, dass man die Blöcke sieht; Tori (Schwimmringe, Reifen) werden zu Schläuchen mit gestuftem Querschnitt. Grosse Spielflächen bekommen feinere Stufen, damit der sichtbare Rand zur Spielkante passt. Himmelskuppeln, Schatten und absichtlich eckige Vielecke bleiben unverändert; `userData.rund` nimmt eine Form ausdrücklich aus. `ringband` baut flache Ränder aus denselben Keilen, deren Oberkante bündig mit einer Fläche liegt.
+- `minigames/Blockform.js` — baut runde Formen (Kugeln, Zylinder, Kegel, Ringe, Scheiben, Tori, Drehkörper) vor dem ersten Bild in facettierte Low-Poly-Körper um (Polygon-Look): wenige Ecken je Umfang, jede Fläche mit eigener Normale; Tori (Schwimmringe, Reifen) werden zu Schläuchen mit sechseckigem Querschnitt. Grosse Spielflächen bekommen mehr Ecken, damit der sichtbare Rand zur Spielkante passt; Teilstücke (Ballonstreifen, Schwimmringbögen) knicken an denselben Stellen und schliessen lückenlos. Himmelskuppeln, Schatten und absichtlich eckige Vielecke bleiben unverändert; `userData.rund` nimmt eine Form ausdrücklich aus. `ringband` baut flache Ränder aus denselben Keilen, deren Oberkante bündig mit einer Fläche liegt.
 - `minigames/Quality.js` — Bewegungspräferenz (`prefers-reduced-motion`) und Gerätestufe; steuert Kamera-Shake, Partikelmenge, Schattenauflösung und Pixelratio.
-- `ui/MenuStage.js` — die Bühne hinter den Menüs.
+- `minigames/SketchFigures.js` — Spurmaler: die Figuren (Welle, Herz, Stern, Haus vom Nikolaus …) und ihre Wertung (Abdeckung × Genauigkeit); dieselbe Rechnung auf Server und Gerät, wie `SprintPhysics.js` und `BumperPhysics.js`.
+- `ui/MenuStage.js` — die Bühne hinter den Menüs. Die Podest-Zahlen sind Blockziffern aus einer 3×5-Pixelschrift.
 
 Alle Namen, Figuren, Regeln und visuellen Motive sind eigenständige Entwürfe für Tumblekin.
 

@@ -742,26 +742,54 @@ export class MenuStage {
   }
 }
 
-// Die Platzzahl als flache Tafel für die Vorderseite einer Stufe.
+// Die Platzzahl als Blockziffer auf der Vorderseite einer Stufe: Würfel aus
+// einer 3×5-Pixelschrift, die ein Stück aus der Stufe ragen — im selben
+// Polygon-Look wie Figuren und Kulissen. Vorher war es eine flache, gemalte
+// Zahl, die auf den Klötzen wie ein Aufkleber wirkte. Die Gruppe ist eine
+// Einheit hoch; Grösse und Lage setzt die Stufe (data.label.scale/position).
+const PIXEL_DIGITS = {
+  0: ["111", "101", "101", "101", "111"],
+  1: ["010", "110", "010", "010", "111"],
+  2: ["111", "001", "111", "100", "111"],
+  3: ["111", "001", "011", "001", "111"],
+  4: ["101", "101", "111", "001", "001"],
+  5: ["111", "100", "111", "001", "111"],
+  6: ["111", "100", "111", "101", "111"],
+  7: ["111", "001", "010", "010", "010"],
+  8: ["111", "101", "111", "101", "111"],
+  9: ["111", "101", "111", "001", "111"]
+};
+const digitCube = new THREE.BoxGeometry(1, 1, 1);
+digitCube.userData.block = true;
+
 function makeNumberPlate(text) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext("2d");
-  ctx.font = "900 104px ui-rounded, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineWidth = 12;
-  ctx.strokeStyle = "rgba(40, 50, 60, 0.35)";
-  ctx.strokeText(text, 64, 70);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(text, 64, 66);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false })
-  );
+  const group = new THREE.Group();
+  const rows = String(text).split("").map((ch) => PIXEL_DIGITS[ch] || PIXEL_DIGITS[0]);
+  const cell = 1 / 5.4;
+  const width = rows.length * 3 + (rows.length - 1);
+  const face = new THREE.MeshLambertMaterial({ color: "#ffffff", emissive: "#3a3a3a" });
+  const back = new THREE.MeshLambertMaterial({ color: "#2c3440" });
+  rows.forEach((digit, d) => {
+    digit.forEach((line, row) => {
+      [...line].forEach((on, col) => {
+        if (on !== "1") return;
+        const x = (d * 4 + col - (width - 1) / 2) * cell;
+        const y = (2 - row) * cell;
+        const cube = new THREE.Mesh(digitCube, face);
+        cube.scale.set(cell * 0.96, cell * 0.96, 0.07);
+        cube.position.set(x, y, 0.045);
+        cube.castShadow = true;
+        group.add(cube);
+        // Ein dunkler Rand dahinter, damit die Ziffer auch auf der hellen
+        // Silberstufe klar steht.
+        const edge = new THREE.Mesh(digitCube, back);
+        edge.scale.set(cell * 1.3, cell * 1.3, 0.02);
+        edge.position.set(x, y - cell * 0.08, 0.012);
+        group.add(edge);
+      });
+    });
+  });
+  return group;
 }
 
 function shortName(name) {

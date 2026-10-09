@@ -92,13 +92,20 @@ export class BounceArena extends MinigameScene {
       const p = this.minigame.arena.players[player.id];
       const ring = new THREE.Group();
       // Visible outside radius equals the collision radius, including tube.
+      // Ein aufgeblasener Schwimmring: ein dicker Polygon-Schlauch in acht
+      // Bögen, abwechselnd Spielerfarbe und Weiss. Vorher standen sechzehn
+      // hohe Klötze im Kreis — eher ein Zaun als ein Ring.
+      const tube = .095;
       const colors = [player.color, '#fff7e6'];
-      const parts = [[], []];
-      for (let i = 0; i < 16; i++) {
-        const angle = i / 16 * Math.PI * 2;
-        parts[i % 2].push({ p: [Math.sin(angle) * (Math.sqrt(RING * RING - .0725 * .0725) - .0775), .17, Math.cos(angle) * (Math.sqrt(RING * RING - .0725 * .0725) - .0775)], r: [0, angle, 0] });
+      const swim = new THREE.Group();
+      swim.rotation.x = -Math.PI / 2; swim.position.y = .17;
+      for (let i = 0; i < 8; i++) {
+        const arc = new THREE.Mesh(new THREE.TorusGeometry(RING - tube, tube, 6, 4, Math.PI / 4), lambert(colors[i % 2]));
+        arc.rotation.z = i * Math.PI / 4;
+        arc.castShadow = true;
+        swim.add(arc);
       }
-      parts.forEach((list, i) => viele(ring, new THREE.BoxGeometry(.145, .19, .155), lambert(colors[i]), list, { schatten: true }));
+      ring.add(swim);
       ring.position.set(p.x * SCALE, DECK, p.y * SCALE); this.scene.add(ring); this.blooms.set(player.id, ring);
       const kin = this.addKin(player, index, { x: p.x * SCALE, z: p.y * SCALE, ground: DECK + .015, scale: .86 });
       const shadow = this.shadows.get(player.id); shadow.userData.manual = true;
@@ -309,7 +316,7 @@ export class BounceArena extends MinigameScene {
     this.momentum.classList.toggle("is-charged",own.swing>.5);
     f.players.forEach(p => {
       const entry = arena.players[p.id], card = this.cards.get(p.id);
-      card.lives.textContent = !entry.lives ? 'RAUS' : entry.lives > 9 ? '∞' : entry.knockouts ? `${entry.knockouts}× rein` : 'dabei';
+      card.lives.textContent = !entry.lives ? 'RAUS' : entry.lives > 9 ? '∞' : entry.knockouts ? `💥 ${entry.knockouts} ${entry.knockouts === 1 ? 'Rauswurf' : 'Rauswürfe'}` : 'dabei';
       card.card.classList.toggle('is-own', p.id === f.controlledId); card.card.classList.toggle('is-out', !entry.lives);
     });
     const cue = f.finale ? { phase: 'none' } : arenaShrinkCue(arena, f.now);
