@@ -717,29 +717,42 @@ const DARE_HIT_M = 0.0;                // ab hier ist man überrollt
 // das Risiko nicht.
 const DARE_POINTS = 300;
 const DARE_FALLOFF_M = 9;              // ab hier gibt es nichts mehr
+// Das Fass ist nicht jedes Mal gleich schwer. Mit immer derselben Fallkurve
+// lernte man den einen richtigen Augenblick auswendig und landete danach
+// jedes Mal dicht über dem Kopf. Jetzt hängt in jeder Partie ein anderes
+// Fass — man sieht es ihm an —, und es rutscht nach dem Zug verschieden weit
+// nach: wer beim schweren Eisenfass so spät zieht wie beim leichten
+// Holzfass, bekommt es ab. Bei allen dreien bleibt das Punktefenster über
+// 1,2 s breit, und 100 ms zu spät kosten höchstens gut 0,7 m.
+const DARE_WEIGHTS = {
+  leicht: { kind: "leicht", speed0: DARE_SPEED0, accel: 0.9, brake: 4.4 },
+  normal: { kind: "normal", speed0: DARE_SPEED0, accel: DARE_ACCEL, brake: DARE_BRAKE },
+  schwer: { kind: "schwer", speed0: DARE_SPEED0, accel: 1.15, brake: 2.55 }
+};
+const DARE_WEIGHT_ORDER = ["leicht", "normal", "schwer"];
 
 // Wo das Fass zum Zeitpunkt `t` steht, wenn bei `brakeAt` getippt wurde.
 // Eine reine Funktion: Server und Client rechnen dasselbe, und der Client
 // kann zwischen zwei Ticks sauber weiterzeichnen statt zu ruckeln.
-function dareBarrelAt(t, brakeAt = null) {
+function dareBarrelAt(t, brakeAt = null, w = DARE_WEIGHTS.normal) {
   const rollTime = brakeAt === null ? t : Math.min(t, brakeAt);
-  const speed = DARE_SPEED0 + DARE_ACCEL * rollTime;
-  let travelled = DARE_SPEED0 * rollTime + 0.5 * DARE_ACCEL * rollTime * rollTime;
+  const speed = w.speed0 + w.accel * rollTime;
+  let travelled = w.speed0 * rollTime + 0.5 * w.accel * rollTime * rollTime;
   let v = speed;
   if (brakeAt !== null && t > brakeAt) {
-    const braking = Math.min(t - brakeAt, speed / DARE_BRAKE);
-    travelled += speed * braking - 0.5 * DARE_BRAKE * braking * braking;
-    v = Math.max(0, speed - DARE_BRAKE * braking);
+    const braking = Math.min(t - brakeAt, speed / w.brake);
+    travelled += speed * braking - 0.5 * w.brake * braking * braking;
+    v = Math.max(0, speed - w.brake * braking);
   }
   return { distance: Math.max(DARE_HIT_M, DARE_START_M - travelled), speed: v };
 }
 
 // Der Abstand, an dem das Fass endgültig stehenbleibt, wenn bei `brakeAt`
 // getippt wird. Das ist die Zahl, die gewertet wird.
-function dareRestingDistance(brakeAt) {
-  const speed = DARE_SPEED0 + DARE_ACCEL * brakeAt;
-  const rolled = DARE_SPEED0 * brakeAt + 0.5 * DARE_ACCEL * brakeAt * brakeAt;
-  const brakePath = (speed * speed) / (2 * DARE_BRAKE);
+function dareRestingDistance(brakeAt, w = DARE_WEIGHTS.normal) {
+  const speed = w.speed0 + w.accel * brakeAt;
+  const rolled = w.speed0 * brakeAt + 0.5 * w.accel * brakeAt * brakeAt;
+  const brakePath = (speed * speed) / (2 * w.brake);
   return DARE_START_M - rolled - brakePath;
 }
 
@@ -2906,6 +2919,10 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.rollMs = DARE_ROLL_MS;
     arcade.showMs = DARE_SHOW_MS;
     arcade.startM = DARE_START_M;
+    // Welches Fass diesmal hängt — für alle dasselbe, es geht ja um Mut,
+    // nicht um Glück.
+    const weight = DARE_WEIGHT_ORDER[Math.floor(arcadeNoise(arcade.seed * 3 + (Date.now() % 6151)) * DARE_WEIGHT_ORDER.length) % DARE_WEIGHT_ORDER.length];
+    arcade.dare = { ...DARE_WEIGHTS[weight] };
     arcade.round = -1;
     arcade.settled = 0;
     players.forEach((player) => {
@@ -3941,7 +3958,7 @@ function handleArcadeInput(room, player, rawInput) {
     }
     if (arcadePlayer.brakeAt !== null || arcadePlayer.hit) return { ok: true };
     arcadePlayer.brakeAt = t;
-    arcadePlayer.brakeSpeed = DARE_SPEED0 + DARE_ACCEL * t;
+    arcadePlayer.brakeSpeed = (arcade.dare?.speed0 ?? DARE_SPEED0) + (arcade.dare?.accel ?? DARE_ACCEL) * t;
     arcadePlayer.hasMoved = true;
     arcadePlayer.flash = "good";
     arcadePlayer.lastHitAt = now;
@@ -5319,7 +5336,7 @@ function updateDaredevil(room, minigame, arcade, now) {
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
       if (!entry || entry.hit) return;
-      const stand = dareBarrelAt(t, entry.brakeAt);
+      const stand = dareBarrelAt(t, entry.brakeAt, arcade.dare);
       entry.distance = stand.distance;
       entry.barrelSpeed = stand.speed;
       // Überrollt: das Fass hat die Linie erreicht, bevor es stand.
@@ -5351,7 +5368,7 @@ function closeDaredevilRound(room, minigame, arcade, now) {
     // ODER wer so spät gebremst hat, dass der Bremsweg über die Linie reicht.
     // Der dritte Fall braucht die Rechnung: der Tick sieht ihn nur, wenn das
     // Fass die Linie innerhalb der Rollzeit auch wirklich erreicht.
-    const ruhe = entry.brakeAt === null ? -1 : dareRestingDistance(entry.brakeAt);
+    const ruhe = entry.brakeAt === null ? -1 : dareRestingDistance(entry.brakeAt, arcade.dare);
     const hit = entry.hit || entry.brakeAt === null || ruhe <= 0;
     const distance = hit ? null : ruhe;
     const points = hit ? 0 : darePoints(distance);
@@ -7176,14 +7193,19 @@ function arcadeBotStep(room, bot) {
       const streuung = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.085 : 0.13;
       const gauss = (Math.random() + Math.random() + Math.random() - 1.5) / 0.5;
       player.botHand = gauss * streuung;
+      // Und das Auge: wie weit das Fass nachrutscht, schätzt auch ein Bot nur.
+      const blick = profile.level === "hard" ? 0.05 : profile.level === "normal" ? 0.1 : 0.17;
+      player.botBrakeGuess = 1 + ((Math.random() + Math.random() + Math.random() - 1.5) / 0.5) * blick;
     }
+    const w = arcade.dare || DARE_WEIGHTS.normal;
+    const geschaetzt = { ...w, brake: w.brake * (player.botBrakeGuess || 1) };
     // Bremszeitpunkt aus dem Zielabstand: dareRestingDistance ist streng
     // fallend in brakeAt, also reicht eine kurze Suche.
     let lo = 0;
     let hi = DARE_ROLL_MS / 1000;
     for (let i = 0; i < 24; i += 1) {
       const mid = (lo + hi) / 2;
-      if (dareRestingDistance(mid) > player.botAimDist) lo = mid; else hi = mid;
+      if (dareRestingDistance(mid, geschaetzt) > player.botAimDist) lo = mid; else hi = mid;
     }
     // Sobald der Zeitpunkt durch ist, wird gebremst — und zwar auf `lo`, nicht
     // auf „jetzt". Siehe handleArcadeInput: sonst misst der Lauf die Tickrate
@@ -8320,6 +8342,7 @@ module.exports = {
     dareRestingDistance,
     darePoints,
     DARE_START_M,
+    DARE_WEIGHTS,
     DARE_ROUNDS,
     DARE_ROLL_MS,
     DARE_LEAD_IN_MS,

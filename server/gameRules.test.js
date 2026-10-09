@@ -760,6 +760,42 @@ test("fassmut: das Punktefenster ist breit genug zum Spielen", () => {
     `100 ms zu spaet kosten ${proZehntel.toFixed(2)} m — das ist nicht mehr spielbar`);
 });
 
+test("fassmut: jedes Fass ist spielbar, aber jedes rutscht anders nach", () => {
+  const { DARE_WEIGHTS } = testRules;
+  const ruhepunkte = [];
+  for (const w of Object.values(DARE_WEIGHTS)) {
+    let ersterPunkt = null;
+    let letzterSicher = null;
+    for (let t = 0; t <= DARE_ROLL_MS / 1000; t += 0.01) {
+      const ruhe = dareRestingDistance(t, w);
+      if (ruhe <= 0) break;
+      if (ersterPunkt === null && darePoints(ruhe) > 0) ersterPunkt = t;
+      letzterSicher = t;
+    }
+    assert.ok(letzterSicher - ersterPunkt > 1.2, `${w.kind}: Punktefenster zu schmal`);
+    assert.ok(letzterSicher < DARE_ROLL_MS / 1000 - 0.5, `${w.kind}: wer nichts tut, muss getroffen werden`);
+    const proZehntel = dareRestingDistance(letzterSicher - 0.1, w) - dareRestingDistance(letzterSicher, w);
+    assert.ok(proZehntel < 0.8, `${w.kind}: 100 ms kosten ${proZehntel.toFixed(2)} m`);
+    ruhepunkte.push(dareRestingDistance(2.8, w));
+  }
+  // Wer beim schweren Fass so spät zieht wie beim leichten, kommt deutlich
+  // näher an den Kopf (oder bekommt es ab): der eine auswendig gelernte
+  // Augenblick taugt nicht mehr für jedes Fass.
+  assert.ok(ruhepunkte[0] - ruhepunkte[2] > 2.5, `Gewichte zu ähnlich: ${ruhepunkte.map((r) => r.toFixed(2)).join(" / ")}`);
+});
+
+test("fassmut: in einer Partie hängt für alle dasselbe Fass, über Partien wechselt es", () => {
+  const arten = new Set();
+  for (let i = 0; i < 24; i += 1) {
+    const { arcade } = dareRoom([{ id: `fw${i}`, name: "FW", isBot: false }, { id: `fx${i}`, name: "FX", isBot: false }]);
+    assert.ok(arcade.dare && Number.isFinite(arcade.dare.brake), "das Fass steht im Zustand");
+    arten.add(arcade.dare.kind);
+    const until = Date.now() + 2;
+    while (Date.now() < until) { /* kurz */ }
+  }
+  assert.ok(arten.size >= 2, `immer dasselbe Fass: ${[...arten].join(",")}`);
+});
+
 test("fassmut: der Bremsweg waechst mit dem Quadrat des Tempos", () => {
   // Das IST das Spiel. Spaeter bremsen heisst schneller sein, und der
   // Bremsweg waechst dann ueberproportional — sonst waere immer-spaet-bremsen

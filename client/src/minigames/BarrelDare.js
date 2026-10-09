@@ -31,17 +31,26 @@ const HEAD_TOP = 0.86;                // Oberkante des Kopfes
 const BARREL_R = 0.3;
 const BARREL_H = 0.62;
 const KIN_Z = 0.3;
-const SPEED0 = 1.8;                   // wie DARE_SPEED0 auf dem Server
-const ACCEL = 1.0;                    // wie DARE_ACCEL
-const BRAKE = 3.33;                   // wie DARE_BRAKE
 const FALLOFF_M = 9;                  // ab hier gibt es keine Punkte mehr
+// Das Fass der Partie (Server: DARE_WEIGHTS). Ohne Angabe das mittlere.
+const NORMAL_FASS = { kind: "normal", speed0: 1.8, accel: 1.0, brake: 3.33 };
+const FASS_TEXT = {
+  leicht: "Leichtes Holzfass — es bremst schnell.",
+  normal: "Eichenfass — es rutscht ein Stück nach.",
+  schwer: "Schweres Eisenfass — es rutscht weit nach!"
+};
+// Der Schatten zeigt den Haltepunkt nur am Anfang des Falls, dann verblasst
+// er. Bis zum Schluss sichtbar, wurde aus der Mutprobe ein Ablesen: Tippen,
+// wenn der Schatten grün ist — und jede Partie endete dicht über dem Kopf.
+const GHOST_MS = 900;
+const GHOST_FADE_MS = 350;
 
 // Wo das Fass stehen bliebe, wenn zum Zeitpunkt `brakeAt` gezogen wird — wie
 // dareRestingDistance auf dem Server.
-function restingDistance(brakeAt, startM) {
-  const speed = SPEED0 + ACCEL * brakeAt;
-  const rolled = SPEED0 * brakeAt + 0.5 * ACCEL * brakeAt * brakeAt;
-  return startM - rolled - (speed * speed) / (2 * BRAKE);
+function restingDistance(brakeAt, startM, w = NORMAL_FASS) {
+  const speed = w.speed0 + w.accel * brakeAt;
+  const rolled = w.speed0 * brakeAt + 0.5 * w.accel * brakeAt * brakeAt;
+  return startM - rolled - (speed * speed) / (2 * w.brake);
 }
 
 // Ein Spruch zur Weite — das Spiel ist eine Mutprobe, also wird kommentiert.
@@ -52,15 +61,15 @@ function verdict(distance) {
   return { word: "ANGSTHASE!", color: "#dfe7ff" };
 }
 
-function barrelAt(t, brakeAt, startM) {
+function barrelAt(t, brakeAt, startM, w = NORMAL_FASS) {
   const rollTime = brakeAt === null || brakeAt === undefined ? t : Math.min(t, brakeAt);
-  const speed = SPEED0 + ACCEL * rollTime;
-  let travelled = SPEED0 * rollTime + 0.5 * ACCEL * rollTime * rollTime;
+  const speed = w.speed0 + w.accel * rollTime;
+  let travelled = w.speed0 * rollTime + 0.5 * w.accel * rollTime * rollTime;
   let v = speed;
   if (brakeAt !== null && brakeAt !== undefined && t > brakeAt) {
-    const braking = Math.min(t - brakeAt, speed / BRAKE);
-    travelled += speed * braking - 0.5 * BRAKE * braking * braking;
-    v = Math.max(0, speed - BRAKE * braking);
+    const braking = Math.min(t - brakeAt, speed / w.brake);
+    travelled += speed * braking - 0.5 * w.brake * braking * braking;
+    v = Math.max(0, speed - w.brake * braking);
   }
   return { distance: Math.max(0, startM - travelled), speed: v };
 }
@@ -224,7 +233,7 @@ export class BarrelDare extends MinigameScene {
     headLine.position.set(x, HEAD_TOP, 0.02);
     this.scene.add(headLine);
 
-    const barrel = buildBarrel();
+    const barrel = buildBarrel(this.minigame?.arcade?.dare?.kind || "normal");
     this.scene.add(barrel);
 
     // Der Schatten: wo das Fass stehen bliebe, wenn man jetzt zieht. Nur auf
@@ -366,6 +375,7 @@ export class BarrelDare extends MinigameScene {
     const { now, dt, arcade, minigame, players, controlledId, finale } = f;
     if (!arcade) return;
     const startM = arcade.startM || this.startM;
+    const fass = arcade.dare || NORMAL_FASS;
     // Das Fass fällt zur Ankunftszeit: Wer zieht, wenn es im Bild auf der
     // Wunschhöhe ist, bremst es beim Server genau dort — auf der verzögerten
     // Uhr griff die Bremse um die Netzlaufzeit hin und zurück zu spät.
@@ -403,7 +413,7 @@ export class BarrelDare extends MinigameScene {
         const last = entry.results[entry.results.length - 1];
         distance = last.hit ? 0 : last.distance;
       } else {
-        const stand = barrelAt(Math.min(t, rollMs / 1000), brakeAt, startM);
+        const stand = barrelAt(Math.min(t, rollMs / 1000), brakeAt, startM, fass);
         distance = entry.hit ? 0 : stand.distance;
         speed = stand.speed;
       }
@@ -417,7 +427,7 @@ export class BarrelDare extends MinigameScene {
         lane.settledAt = now;
         if (mine) {
           // Sofort sagen, wie mutig das war — nicht erst in der Auflösung.
-          const rest = Math.max(0, restingDistance(brakeAt, startM));
+          const rest = Math.max(0, restingDistance(brakeAt, startM, fass));
           const judged = verdict(rest);
           const at = lane.barrel.position.clone().add(new THREE.Vector3(0, BARREL_H + 0.25, 0.35));
           this.pop(at.clone().add(new THREE.Vector3(0, 0.42, 0)), judged.word, { color: judged.color, size: 0.5, life: 1.6, rise: 0.5 });
@@ -460,14 +470,16 @@ export class BarrelDare extends MinigameScene {
 
       // Der Schatten: Haltepunkt bei einem Zug JETZT.
       if (lane.ghost) {
-        const aiming = falling && !hit && (brakeAt === null || brakeAt === undefined);
+        const fade = 1 - Math.max(0, Math.min(1, (t * 1000 - GHOST_MS) / GHOST_FADE_MS));
+        const aiming = falling && !hit && (brakeAt === null || brakeAt === undefined) && fade > 0;
         lane.ghost.visible = aiming;
         if (aiming) {
-          const rest = restingDistance(t, startM);
+          const rest = restingDistance(t, startM, fass);
           const late = rest <= 0;
           const color = late ? "#ff3b55" : rest < 1 ? "#57d27a" : rest < 3 ? "#ffd15c" : "#ffffff";
           lane.ghost.userData.mats.forEach((mat) => mat.color.set(color));
-          lane.ghost.userData.mats[0].opacity = late ? 0.22 + Math.abs(Math.sin(now / 70)) * 0.25 : 0.32;
+          lane.ghost.userData.mats[0].opacity = (late ? 0.22 + Math.abs(Math.sin(now / 70)) * 0.25 : 0.32) * fade;
+          if (lane.ghost.userData.mats[1]) lane.ghost.userData.mats[1].opacity = 0.9 * fade;
           lane.ghost.position.set(lane.x, HEAD_TOP + Math.max(0, rest) * METER, 0);
         }
       }
@@ -623,12 +635,12 @@ export class BarrelDare extends MinigameScene {
     banner.style.whiteSpace = "pre-line";
     if (t < 0) {
       banner.hidden = false;
-      banner.textContent = "Gleich lässt es los …\nZieh, wenn der Schatten im Grünen ist!";
+      banner.textContent = `${FASS_TEXT[fass.kind] || FASS_TEXT.normal}\nGleich lässt es los — schätz den Bremsweg!`;
       banner.style.background = "#ffd15c";
       banner.style.color = "#3a2a05";
     } else if (falling && own && !braked && !own.hit && t < 1.4) {
       banner.hidden = false;
-      banner.textContent = "Es fällt! Schatten beobachten …";
+      banner.textContent = "Es fällt! Wann ziehst du?";
       banner.style.background = "#e0334f";
       banner.style.color = "#ffffff";
     } else {
@@ -638,21 +650,41 @@ export class BarrelDare extends MinigameScene {
   }
 }
 
-function buildBarrel() {
+// Man soll dem Fass ansehen, wie schwer es ist: das leichte ist helles Holz
+// mit dünnen Reifen, das schwere dunkles Eisen mit breiten Bändern und Nieten.
+const FASS_LOOK = {
+  leicht: { body: "#c99a5e", bulge: "#d8ab6c", hoop: "#8c8f96", lid: "#a87b45", hoopH: 0.04, hoops: [0.1, BARREL_H - 0.1] },
+  normal: { body: "#8a5a2c", bulge: "#9a6835", hoop: "#5a5f6b", lid: "#6e4622", hoopH: 0.06, hoops: [0.08, BARREL_H - 0.08] },
+  schwer: { body: "#3b4048", bulge: "#4a5059", hoop: "#22262c", lid: "#2c3036", hoopH: 0.09, hoops: [0.07, BARREL_H / 2, BARREL_H - 0.07] }
+};
+
+function buildBarrel(kind = "normal") {
+  const look = FASS_LOOK[kind] || FASS_LOOK.normal;
   const barrel = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R, BARREL_R * 0.94, BARREL_H, 14), new THREE.MeshLambertMaterial({ color: "#8a5a2c" }));
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R, BARREL_R * 0.94, BARREL_H, 14), new THREE.MeshLambertMaterial({ color: look.body }));
   body.position.y = BARREL_H / 2;
   body.castShadow = true;
   barrel.add(body);
-  const bulge = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R + 0.03, BARREL_R + 0.03, BARREL_H * 0.5, 14), new THREE.MeshLambertMaterial({ color: "#9a6835" }));
+  const bulge = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R + 0.03, BARREL_R + 0.03, BARREL_H * 0.5, 14), new THREE.MeshLambertMaterial({ color: look.bulge }));
   bulge.position.y = BARREL_H / 2;
   barrel.add(bulge);
-  [0.08, BARREL_H - 0.08].forEach((y) => {
-    const hoop = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R + 0.035, BARREL_R + 0.035, 0.06, 14), new THREE.MeshLambertMaterial({ color: "#5a5f6b" }));
+  look.hoops.forEach((y) => {
+    const hoop = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R + 0.04, BARREL_R + 0.04, look.hoopH, 14), new THREE.MeshLambertMaterial({ color: look.hoop }));
     hoop.position.y = y;
     barrel.add(hoop);
   });
-  const lid = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R * 0.85, BARREL_R * 0.85, 0.02, 14), new THREE.MeshLambertMaterial({ color: "#6e4622" }));
+  if (kind === "schwer") {
+    // Nieten rundum auf dem mittleren Band.
+    const niet = new THREE.SphereGeometry(0.022, 6, 4);
+    const nietMat = new THREE.MeshLambertMaterial({ color: "#9aa0a8" });
+    for (let i = 0; i < 10; i += 1) {
+      const a = (i / 10) * Math.PI * 2;
+      const n = new THREE.Mesh(niet, nietMat);
+      n.position.set(Math.cos(a) * (BARREL_R + 0.06), BARREL_H / 2, Math.sin(a) * (BARREL_R + 0.06));
+      barrel.add(n);
+    }
+  }
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(BARREL_R * 0.85, BARREL_R * 0.85, 0.02, 14), new THREE.MeshLambertMaterial({ color: look.lid }));
   lid.position.y = BARREL_H + 0.01;
   barrel.add(lid);
   const eye = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.018, 6, 10), new THREE.MeshLambertMaterial({ color: "#5a5f6b" }));

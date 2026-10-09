@@ -46,7 +46,7 @@ export const MINIGAME_GUIDES = {
   nervenprobe: guide("thinking", "Stoppe deine unsichtbare Uhr möglichst genau bei der Zielzeit.", "Nach zwei Sekunden verschwindet die Uhr. Zähl im Kopf weiter."),
   lichtwaechter: guide("reaction", "Halte zum Laufen. Erreiche das Tor vor den anderen.", "Bei Gelb loslassen: Bewegung bei Rot wirft dich zurück."),
   ballonPump: guide("reaction", "Tippe möglichst schnell. Der größte Ballon gewinnt.", "Du kannst mit zwei Fingern abwechselnd tippen."),
-  fassmut: guide("reaction", "Stoppe das fallende Fass mit einem Tipp möglichst dicht über deinem Kopf.", "Das Fass rutscht nach! Tippe, wenn sein Halteschatten im Grünen liegt."),
+  fassmut: guide("reaction", "Stoppe das fallende Fass mit einem Tipp möglichst dicht über deinem Kopf.", "Schweres Fass rutscht weiter nach! Der Schatten zeigt sich nur am Anfang."),
   fassrolle: guide("together", "Halte links oder rechts und bleib oben im grünen Streifen des Fasses.", "Lauf gegen Drehung und Wellen. Im Wildwasser ist ein Sturz endgültig."),
   zuendstoff: guide("together", "Merk dir die Zündzeit und tippe, um die Bombe rechtzeitig weiterzugeben.", "Gefangen hast du immer kurz Zeit. ÜBERZEIT heißt: sofort weiter! Wer sie beim Knall hält, ist raus."),
   muenzregen: guide("skill", "Wechsle per Wisch die Spur: fang Münzen und vermeide Bomben.", "Fänge in Folge vervielfachen Punkte. Achte am Ende auf die Schatzspur."),
