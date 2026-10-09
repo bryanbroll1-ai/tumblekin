@@ -68,7 +68,9 @@ function byLevel(entry, easy, normal, hard) {
 // lenkte vom Kern ab: am Tisch will man hämmern, nicht haushalten.
 const TUG_LEAD_MS = 1600;
 const TUG_ROUND_MS = 15000;
-const TUG_SHOW_MS = 3000;
+// Nach der Entscheidung nur noch der Ruck in den Schlamm, dann gleich das
+// Finale. Drei Sekunden Stehen danach fühlten sich an, als hinge das Spiel.
+const TUG_SHOW_MS = 1200;
 const TUG_DURATION_MS = TUG_LEAD_MS + TUG_ROUND_MS + TUG_SHOW_MS + 500;
 // Seiltempo je Zug und Dämpfung: Das Seil wandert mit dem Unterschied der
 // Teamtakte. Tippt einer im Team gar nicht (gut sechs Züge je Sekunde
