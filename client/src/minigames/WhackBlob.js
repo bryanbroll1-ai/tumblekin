@@ -26,6 +26,14 @@ const ROWS = 4;
 const HOME = 2.05;
 const HOME_Z = (ROWS / 2) * CELL + 0.1;
 const MOUND_TOP = 0.3;
+// Echte Löcher: so weit ist die Öffnung im Hügel. Ein Blob, der noch im
+// Boden steckt, ist schmal genug dafür (HOLE_FIT); erst draussen ploppt er
+// auf volle Breite. Vorher war das Loch eine aufgemalte Scheibe, und die
+// Ecken des Blobs (0,6 Radius über die Diagonale) wuchsen neben ihr aus dem
+// Gras.
+const HOLE_R = 0.48;
+const BLOB_HALF = 0.35;          // halbe Breite der untersten Körperlage
+const BLOB_BASE = 1.18;          // Grundgrösse (baseScale)
 // Nach dem Schlag bleibt die Figur so lange am Loch, dann springt sie zurück.
 const STAY_MS = 650;
 // Mit 0.85 Abstand zum Nachbarloch landete die Figur zu dicht an ihm: poppte
@@ -40,6 +48,16 @@ const HOLE_CLEAR = 0.95;       // so weit bleibt die Figur von jedem anderen Loc
 // Schlag der Hammer-Bewegung (dig schlägt nach knapp 300 ms zu).
 function leapMs(from, to) {
   return 170 + Math.hypot(to.x - from.x, to.z - from.z) * 25;
+}
+
+// Wie breit darf ein Blob sein, dessen Unterkante bei `y` liegt? Steckt er
+// noch (teilweise) im Hügel, muss er mitsamt Ecken (Diagonale) durch das Loch
+// passen; ganz draussen hat er seine volle Breite. Dazwischen weich.
+function holeFit(y, k) {
+  const tight = (HOLE_R - 0.03) / (BLOB_HALF * Math.SQRT2 * k);
+  const out = Math.max(0, Math.min(1, (y - (MOUND_TOP - 0.07)) / 0.08));
+  const e = out * out * (3 - 2 * out);
+  return Math.min(1, tight + (1 - tight) * e);
 }
 
 export class WhackBlob extends MinigameScene {
@@ -95,11 +113,26 @@ export class WhackBlob extends MinigameScene {
     // Horizont. Ohne sie stösst die Wiese als harte Kante gegen den Himmel.
     dressMeadow(this.scene, { seed: 10, keepOut: { x: 4.4, z: 5.2 }, spread: { x: 16, z: 15 }, grassColor: "#57ab52", patchColors: ["#68a05c", "#7fb171"], crownColor: "#2f7f45", crownColor2: "#4a9c58", crownShape: "blob", trees: 20, flowers: 80 });
     this.buildGarden(scene);
-    const mound = new THREE.Mesh(
-      new THREE.BoxGeometry(CELL * COLS + 0.9, 0.4, CELL * ROWS + 0.9),
-      new THREE.MeshLambertMaterial({ color: "#84b378" })
-    );
-    mound.position.y = 0.1;
+    // Der Hügel ist eine Platte mit echten runden Öffnungen — ein Blob kommt
+    // durch das Loch, nicht durch das Gras.
+    const moundW = CELL * COLS + 0.9;
+    const moundD = CELL * ROWS + 0.9;
+    const outline = new THREE.Shape();
+    outline.moveTo(-moundW / 2, -moundD / 2);
+    outline.lineTo(moundW / 2, -moundD / 2);
+    outline.lineTo(moundW / 2, moundD / 2);
+    outline.lineTo(-moundW / 2, moundD / 2);
+    outline.lineTo(-moundW / 2, -moundD / 2);
+    for (let cell = 0; cell < COLS * ROWS; cell += 1) {
+      const pos = this.cellPos(cell);
+      const hole = new THREE.Path();
+      hole.absarc(pos.x, -pos.z, HOLE_R, 0, Math.PI * 2, true);
+      outline.holes.push(hole);
+    }
+    const moundGeo = new THREE.ExtrudeGeometry(outline, { depth: 0.4, bevelEnabled: false, curveSegments: 18 });
+    moundGeo.rotateX(-Math.PI / 2);
+    const mound = new THREE.Mesh(moundGeo, new THREE.MeshLambertMaterial({ color: "#84b378" }));
+    mound.position.y = MOUND_TOP - 0.4;
     mound.receiveShadow = true;
     scene.add(mound);
     // Invisible pick plane spanning the 3x3 field for direct hole taps.
@@ -118,36 +151,26 @@ export class WhackBlob extends MinigameScene {
     // Rand, der herausschaut, eine Wand, die nach innen führt, und einen
     // Grund, der dunkel genug ist, dass man nicht hineinsieht.
     const GRAS_Y = 0.3;                  // Oberkante des Hügels
-    const schachtMat = new THREE.MeshLambertMaterial({ color: "#4a3826" });
-    const grundMat = new THREE.MeshLambertMaterial({ color: "#241a10" });
+    const schachtMat = new THREE.MeshLambertMaterial({ color: "#3a2a1a", side: THREE.BackSide });
+    const grundMat = new THREE.MeshBasicMaterial({ color: "#140e08" });
     const randMat = new THREE.MeshLambertMaterial({ color: "#8a6a45" });
     for (let cell = 0; cell < COLS * ROWS; cell += 1) {
       const pos = this.cellPos(cell);
       // Aufgeworfene Erde rundherum — der Teil, den man von oben zuerst sieht.
-      const rand = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.08, 6, 16), randMat);
+      const rand = new THREE.Mesh(new THREE.TorusGeometry(HOLE_R + 0.03, 0.08, 6, 18), randMat);
       rand.rotation.x = Math.PI / 2;
       rand.position.set(pos.x, GRAS_Y + 0.03, pos.z);
       rand.receiveShadow = true;
       scene.add(rand);
-      // Der dunkle Grund liegt ÜBER der Grasnarbe, nicht darunter.
-      //
-      // Naheliegend wäre ein echter Schacht: Wand nach unten, Boden tief drin.
-      // Nur ist der Hügel ein massiver Quader — seine Deckfläche verdeckt alles
-      // darunter, und im Bild blieben neun Ringe mit Gras darin. Ein Loch von
-      // schräg oben ist ohnehin fast nur seine Öffnung: eine dunkle Scheibe
-      // knapp über dem Gras, gefasst von aufgeworfener Erde, liest sich als
-      // Loch — und der Blob steigt weiterhin von unten durch den Hügel herauf
-      // und erscheint genau dort.
-      const grund = new THREE.Mesh(new THREE.CircleGeometry(0.42, 16), grundMat);
+      // Der Schacht: Erdwand nach innen und ein dunkler Grund. Darunter
+      // liegt die Wiese; der Blob taucht aus diesem Dunkel auf.
+      const schacht = new THREE.Mesh(new THREE.CylinderGeometry(HOLE_R - 0.012, HOLE_R - 0.012, GRAS_Y + 0.01, 18, 1, true), schachtMat);
+      schacht.position.set(pos.x, GRAS_Y / 2, pos.z);
+      scene.add(schacht);
+      const grund = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R, 18), grundMat);
       grund.rotation.x = -Math.PI / 2;
-      grund.position.set(pos.x, GRAS_Y + 0.02, pos.z);
+      grund.position.set(pos.x, 0.006, pos.z);
       scene.add(grund);
-      // Ein zweiter, kleinerer Ring gibt der Öffnung Tiefe, ohne dass ein
-      // einziges Dreieck mehr im Boden verschwindet.
-      const tiefe = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), schachtMat);
-      tiefe.rotation.x = -Math.PI / 2;
-      tiefe.position.set(pos.x, GRAS_Y + 0.025, pos.z - 0.06);
-      scene.add(tiefe);
     }
 
     // A picket fence and flowers frame the field so it doesn't float in
@@ -299,7 +322,7 @@ export class WhackBlob extends MinigameScene {
     // sich der Blob zurück und schaut zu ihr hoch.
     blob.rotation.order = "YXZ";
     blob.rotation.x = -0.42;
-    blob.userData.baseScale = 1.18;
+    blob.userData.baseScale = BLOB_BASE;
     return blob;
   }
 
@@ -549,8 +572,9 @@ export class WhackBlob extends MinigameScene {
       if (blob.userData.whacked) {
         const t = Math.min(1, (now - blob.userData.whackedAt) / 220);
         const k = blob.userData.baseScale || 1;
-        blob.scale.set(k * (1 + t * 0.35), k * Math.max(0.25, 1 - t * 0.75), k * (1 + t * 0.35));
         blob.position.y = -0.1 + (1 - t) * 0.5;
+        const fit = holeFit(blob.position.y, k);
+        blob.scale.set(k * fit * (1 + t * 0.35 * fit), k * Math.max(0.25, 1 - t * 0.75), k * fit * (1 + t * 0.35 * fit));
       } else {
         blob.position.y = -0.35 + height * 0.7;
         const wobble = Math.sin(now / 120 + pop.id) * 0.05;
@@ -559,7 +583,10 @@ export class WhackBlob extends MinigameScene {
         // einen selbst ist er ja noch zu haben.
         const bonk = (now - (blob.userData.bonkAt || -1e9)) / 200;
         const squash = bonk >= 0 && bonk <= 1 ? Math.sin(bonk * Math.PI) * 0.3 : 0;
-        blob.scale.set(k * (1 - wobble * 0.5 + squash * 0.6), k * (1 + wobble - squash), k * (1 - wobble * 0.5 + squash * 0.6));
+        // Im Loch schmal, draussen voll: durchzwängen und aufploppen.
+        const fit = holeFit(blob.position.y, k);
+        const wide = fit < 1 ? fit : 1 - wobble * 0.5 + squash * 0.6;
+        blob.scale.set(k * wide, k * (1 + wobble - squash), k * wide);
         // Stachelblobs drohen: sie zittern. Gute schauen neugierig herum.
         blob.rotation.y = pop.kind === "bad" ? Math.sin(now / 35) * 0.08 : Math.sin(now / 400 + pop.id * 2) * 0.35;
       }
