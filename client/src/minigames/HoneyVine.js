@@ -117,7 +117,9 @@ export class HoneyVine extends MinigameScene {
       kiste(biene, 0.072, 0.062, 0.025, "#2a2230", [0, 0, 0.01], { schatten: false });
       const f = kiste(biene, 0.1, 0.01, 0.05, "#ffffff", [0, 0.04, 0], { schatten: false });
       f.material = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7 });
-      biene.userData = { phase: i * 0.77, wing: f };
+      // Fliegende Bienen sind kein Boden, auf dem jemand stehen könnte — auch
+      // wenn eine im Finale dicht über den Kopf des Siegers schwirrt.
+      biene.userData = { phase: i * 0.77, wing: f, isFx: true };
       biene.visible = false;
       scene.add(biene);
       this.bees.push(biene);

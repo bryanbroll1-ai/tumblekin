@@ -11,10 +11,62 @@ const SCALE = 3.4, DECK = .25, WATER = -.12;
 const RING = P.C.BALL_RADIUS * SCALE;
 const reduced = () => prefersReducedMotion();
 
+// Weiche Schwimmringe. Die Spielphysik (BumperPhysics, auf dem Server)
+// rechnet mit festen Kreisen — wer wohin fliegt, ändert sich nicht. Die Hülle
+// darüber verformt sich wie ein aufgeblasener Ring, im Vertex-Shader und je
+// Ring einzeln:
+//   Dellen  — wo ein anderer Ring drückt, gibt der Schlauch nach innen nach
+//             und wölbt sich dafür nach oben (die Luft muss irgendwohin);
+//   Quetschen — ein Rempler staucht den ganzen Ring in Stossrichtung und
+//             weitet ihn quer, danach federt er mit Nachwackeln zurück;
+//   Platschen — beim Aufschlag aufs Wasser plattet er kurz ab.
+// Alles in Weltkoordinaten um die Ringmitte, damit die acht Bögen eines
+// Rings sich gemeinsam verformen und keine Nähte aufreissen.
+const SOFT_GLSL = `
+  vec4 worldPos = modelMatrix * vec4( transformed, 1.0 );
+  vec2 rel = worldPos.xz - uCenter.xz;
+  float dist = max(length(rel), 1e-4);
+  vec2 dir = rel / dist;
+  float wA = pow(max(dot(dir, uDentA.xy), 0.0), 4.0) * uDentA.z;
+  float wB = pow(max(dot(dir, uDentB.xy), 0.0), 4.0) * uDentB.z;
+  float w = wA + wB;
+  worldPos.xz -= dir * w;
+  worldPos.y = uCenter.y + (worldPos.y - uCenter.y) * (1.0 + w * 3.2);
+  vec2 axis = uSquash.xy;
+  vec2 off = worldPos.xz - uCenter.xz;
+  float along = dot(off, axis);
+  vec2 across = off - along * axis;
+  float sq = uSquash.z;
+  float plate = uSquash.w;
+  worldPos.xz = uCenter.xz + (along * axis * (1.0 - sq) + across * (1.0 + sq * 0.55)) * (1.0 + plate * 0.45);
+  worldPos.y = uCenter.y + (worldPos.y - uCenter.y) * (1.0 + sq * 0.4) * (1.0 - plate);
+  vec4 mvPosition = viewMatrix * worldPos;
+  gl_Position = projectionMatrix * mvPosition;
+`;
+
+function softRingMaterial(color, uniforms) {
+  const material = new THREE.MeshLambertMaterial({ color });
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = 'uniform vec3 uCenter;\nuniform vec4 uDentA;\nuniform vec4 uDentB;\nuniform vec4 uSquash;\n'
+      + shader.vertexShader.replace('#include <project_vertex>', SOFT_GLSL);
+  };
+  material.customProgramCacheKey = () => 'tumblekin-soft-ring';
+  return material;
+}
+
+// Eine gedämpfte Feder: value folgt target mit Überschwingen.
+function spring(state, key, target, stiffness, damping, dt) {
+  const velKey = key + 'Vel';
+  const step = Math.min(dt, 1 / 30);
+  state[velKey] += ((target - state[key]) * stiffness - state[velKey] * damping) * step;
+  state[key] += state[velKey] * step;
+}
+
 export class BounceArena extends MinigameScene {
   constructor(ctx) {
     super(ctx);
-    this.blooms = new Map(); this.state = new Map(); this.cards = new Map();
+    this.blooms = new Map(); this.state = new Map(); this.cards = new Map(); this.soft = new Map();
     this.ownInView = false; this.finaleFocus = false;
     this.lastEvent = 0; this.vector = { x: 0, y: 0 }; this.keys = new Set();
     this.keyTimer = null; this.freezeUntil = 0;
@@ -99,13 +151,18 @@ export class BounceArena extends MinigameScene {
       const colors = [player.color, '#fff7e6'];
       const swim = new THREE.Group();
       swim.rotation.x = -Math.PI / 2; swim.position.y = .17;
+      const uniforms = { uCenter: { value: new THREE.Vector3() }, uDentA: { value: new THREE.Vector4() },
+        uDentB: { value: new THREE.Vector4() }, uSquash: { value: new THREE.Vector4(1, 0, 0, 0) } };
+      const skins = colors.map((color) => softRingMaterial(color, uniforms));
       for (let i = 0; i < 8; i++) {
-        const arc = new THREE.Mesh(new THREE.TorusGeometry(RING - tube, tube, 6, 4, Math.PI / 4), lambert(colors[i % 2]));
+        const arc = new THREE.Mesh(new THREE.TorusGeometry(RING - tube, tube, 6, 4, Math.PI / 4), skins[i % 2]);
         arc.rotation.z = i * Math.PI / 4;
         arc.castShadow = true;
         swim.add(arc);
       }
       ring.add(swim);
+      this.soft.set(player.id, { swim, uniforms, dents: new Map(), squash: 0, squashVel: 0, axis: new THREE.Vector2(1, 0),
+        flat: 0, flatVel: 0 });
       ring.position.set(p.x * SCALE, DECK, p.y * SCALE); this.scene.add(ring); this.blooms.set(player.id, ring);
       const kin = this.addKin(player, index, { x: p.x * SCALE, z: p.y * SCALE, ground: DECK + .015, scale: .86 });
       const shadow = this.shadows.get(player.id); shadow.userData.manual = true;
@@ -195,6 +252,7 @@ export class BounceArena extends MinigameScene {
           const s = this.state.get(id); if (s) s.hit = e;
           this.animators.get(id)?.trigger('flinch');
         }
+        this.softHit(e);
         if (!strongest || e.strength > strongest.strength) strongest = e;
         const pos = new THREE.Vector3(e.x * SCALE, DECK + .13, e.y * SCALE);
         this.bursts.ring(pos, e.kind === 'shield' ? '#b9f2ff' : '#fff8d3', { radius: .45 + e.strength * .4, life: .26, opacity: .75, y: DECK + .015 });
@@ -214,6 +272,63 @@ export class BounceArena extends MinigameScene {
       if (own && strongest.strength > .35 && !reduced()) this.freezeUntil = performance.now() + 32;
     }
   }
+  // Ein Rempler: beide Ringe werden in Stossrichtung gestaucht und an der
+  // Trefferseite eingedrückt — je härter, desto mehr.
+  softHit(e) {
+    if (reduced()) return;
+    const ra = this.blooms.get(e.a), rb = this.blooms.get(e.b);
+    if (!ra || !rb) return;
+    for (const [id, self, other] of [[e.a, ra, rb], [e.b, rb, ra]]) {
+      const soft = this.soft.get(id);
+      if (!soft) continue;
+      const dx = other.position.x - self.position.x, dz = other.position.z - self.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      soft.axis.set(dx / len, dz / len);
+      soft.squashVel += 2.2 + e.strength * 5.5;
+      const dent = soft.dents.get(id === e.a ? e.b : e.a) || { x: dx / len, z: dz / len, depth: 0, depthVel: 0 };
+      dent.x = dx / len; dent.z = dz / len;
+      dent.depthVel += .7 + e.strength * 1.8;
+      soft.dents.set(id === e.a ? e.b : e.a, dent);
+    }
+  }
+
+  // Je Bild: Dellen dort, wo zwei Ringe sich berühren (auch beim Drücken
+  // ohne Stoss), alle Federn weiterrechnen, die zwei tiefsten Dellen an den
+  // Shader.
+  updateSoftRings(f) {
+    const calm = reduced();
+    const centre = new THREE.Vector3();
+    for (const [id, soft] of this.soft) {
+      const ring = this.blooms.get(id);
+      if (!ring) continue;
+      for (const [otherId, other] of this.blooms) {
+        if (otherId === id) continue;
+        const dx = other.position.x - ring.position.x, dz = other.position.z - ring.position.z;
+        const gap = Math.hypot(dx, dz);
+        const sameLevel = Math.abs(other.position.y - ring.position.y) < .2;
+        const press = sameLevel ? Math.max(0, RING * 2 + .05 - gap) : 0;
+        let dent = soft.dents.get(otherId);
+        if (!dent && press <= 0) continue;
+        if (!dent) { dent = { x: 0, z: 0, depth: 0, depthVel: 0 }; soft.dents.set(otherId, dent); }
+        if (gap > 1e-4 && press > 0) { dent.x = dx / gap; dent.z = dz / gap; }
+        spring(dent, 'depth', calm ? 0 : Math.min(.085, press * .8), 210, 13, f.dt);
+        if (dent.depth < .0005 && Math.abs(dent.depthVel) < .002 && press <= 0) soft.dents.delete(otherId);
+      }
+      spring(soft, 'squash', 0, 150, 6.5, f.dt);
+      spring(soft, 'flat', 0, 120, 7, f.dt);
+      soft.squash = Math.max(-.2, Math.min(.3, soft.squash));
+      soft.flat = Math.max(-.2, Math.min(.35, soft.flat));
+      const deepest = [...soft.dents.values()].sort((a, b) => b.depth - a.depth);
+      const [a, b] = deepest;
+      const u = soft.uniforms;
+      soft.swim.getWorldPosition(centre);
+      u.uCenter.value.copy(centre);
+      u.uDentA.value.set(a?.x || 1, a?.z || 0, Math.max(0, a?.depth || 0), 0);
+      u.uDentB.value.set(b?.x || 1, b?.z || 0, Math.max(0, b?.depth || 0), 0);
+      u.uSquash.value.set(soft.axis.x, soft.axis.y, calm ? 0 : soft.squash, calm ? 0 : soft.flat);
+    }
+  }
+
   tick(f) {
     const arena = f.minigame.arena; if (!arena?.players) return;
     this.processEvents(f);
@@ -252,6 +367,8 @@ export class BounceArena extends MinigameScene {
           ring.rotation.x = reduced() ? 0 : Math.sin(u * Math.PI) * .6;
           if (u === 1 && !s.splash) {
             s.splash = true;
+            const soft = this.soft.get(player.id);
+            if (soft) soft.flatVel += 4.5;
             this.bursts.ring(ring.position.clone(), '#e4fbff', { radius: 1.1, life: .55, opacity: .8, y: WATER + .015 });
             this.burst(ring.position.clone(), ['#dcf7ff', '#8cdcec'], { count: reduced() ? 4 : 10, speed: 1.4, up: 1.5, size: .045, life: .4 });
             this.feedback?.sound('bumperSplash', { pan: Math.max(-.6, Math.min(.6, ring.position.x / 5)), strength: player.id === f.controlledId ? 1 : .65 });
@@ -275,10 +392,6 @@ export class BounceArena extends MinigameScene {
         ring.position.lerpVectors(s.returnFrom, new THREE.Vector3(p.x * SCALE, DECK, p.y * SCALE), u);
         ring.position.y += Math.sin(u * Math.PI) * .65;
       }
-      const age = s.hit ? Math.max(0, f.now - s.hit.at) : 10000;
-      const squash = reduced() ? 0 : (s.hit?.strength || 0) * Math.exp(-age / 105) * Math.cos(age / 45);
-      if (s.hit) ring.rotation.y = Math.atan2(s.hit.nx, s.hit.ny);
-      ring.scale.set(1 + squash * .13, 1 - squash * .18, 1 - squash * .19);
       ring.rotation.x = 0;
       const speed = Math.hypot(p.vx, p.vy);
       const facing = f.finale ? 0 : speed > .08 ? Math.atan2(p.vx, p.vy) : s.facing;
@@ -290,6 +403,7 @@ export class BounceArena extends MinigameScene {
       s.shield.visible = f.now < p.invulnUntil;
       const shadow = this.shadows.get(player.id); shadow.visible = true; shadow.position.set(ring.position.x, DECK + .012, ring.position.z); shadow.material.opacity = .22;
     });
+    this.updateSoftRings(f);
     for(const {id,mesh} of this.wakes){
       const p=arena.players[id],ring=this.blooms.get(id);
       mesh.visible=Boolean(p?.inPlay && p.swing>.08);
