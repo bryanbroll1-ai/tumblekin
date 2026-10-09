@@ -24,6 +24,8 @@ const PAGE_Y = 0.02;
 const SETTLE_MS = 140;         // so schnell legt sich die aufgeschlagene Seite flach
 const LIE_Y = PAGE_Y - 0.004;  // liegt knapp unter den Sohlen, über der Buchseite darunter
 const FLY_Y = PAGE_Y + 0.02;
+const GONE_DELAY_MS = 450;     // so lange sieht man den Pfannkuchen, dann …
+const GONE_FADE_MS = 300;      // … verschwindet er unter der Seite
 const STICK_GAP_MS = 40;       // Stick höchstens so oft schicken
 const TICK_LEAD_MS = 45;       // halber Servertakt (90 ms), siehe stickAt
 
@@ -38,6 +40,7 @@ export class BookSquirm extends MinigameScene {
     this.lastPingAt = 0;
     this.view = null;               // Vorausrechnung zur Ankunftszeit (forecastBook)
     this.flat = new Map();
+    this.goneSince = new Map();     // playerId → seit wann raus (Bildzeit)
     this.seenSlam = -1;
     this.labelY = 0.78;
     this.steam = [];
@@ -532,8 +535,12 @@ export class BookSquirm extends MinigameScene {
         const face = Math.atan2(mx, mz);
         kin.rotation.y += Math.atan2(Math.sin(face - kin.rotation.y), Math.cos(face - kin.rotation.y)) * frameLerp(0.3, dt);
       }
-      // Platt gedrückt: flach wie Papier, dann ploppt man wieder auf.
-      const flat = (entry.outAt !== null && entry.outAt !== undefined) || view.at < (entry.flatUntil || 0);
+      // Platt gedrückt: flach wie Papier. Wer raus ist, verschwindet danach
+      // unter der Seite — nur wer trotzdem gewinnt (alle sind raus), ploppt
+      // zum Jubeln wieder auf.
+      const comeback = Boolean(f.finale) && f.places?.[player.id] === 1;
+      const out = entry.outAt !== null && entry.outAt !== undefined && !comeback;
+      const flat = out || view.at < (entry.flatUntil || 0);
       const was = this.flat.get(player.id) || false;
       if (flat && !was) {
         this.pop(kin.position.clone().add(new THREE.Vector3(0, 0.7, 0)), "PLATT!", { color: "#ffb3bd", size: 0.42 });
@@ -547,13 +554,22 @@ export class BookSquirm extends MinigameScene {
       this.flat.set(player.id, Boolean(flat));
       // Platt unter der Seite zu liegen ist gewollt, kein Versinken.
       kin.userData.sunk = Boolean(flat) || kin.scale.y < 0.9;
-      const squash = flat ? 0.14 : 1;
+      const squash = out ? 0.06 : flat ? 0.14 : 1;
       kin.scale.y += (squash - kin.scale.y) * frameLerp(flat ? 0.6 : 0.25, dt);
       kin.scale.x = kin.scale.z = 1 + (1 - kin.scale.y) * 0.35;
       // Der Nullpunkt der Figur liegt in der Körpermitte; flachgedrückt muss
       // sie mit ihm absinken, sonst schwebte der Pfannkuchen über der Seite.
       animator.groundY = PAGE_Y + KIN_SOLE * kin.scale.y;
-      if (entry.outAt) this.fade(player.id, 0.5);
+      if (out) {
+        if (!this.goneSince.has(player.id)) this.goneSince.set(player.id, now);
+        const left = 1 - Math.max(0, now - this.goneSince.get(player.id) - GONE_DELAY_MS) / GONE_FADE_MS;
+        this.fade(player.id, Math.max(0, left));
+        kin.visible = left > 0;
+      } else if (this.goneSince.has(player.id)) {
+        this.goneSince.delete(player.id);
+        this.fade(player.id, 1);
+        kin.visible = true;
+      }
       if (f.finale) return;
       if (flat) animator.set("dizzy");
       else if (moving) animator.set("run");
