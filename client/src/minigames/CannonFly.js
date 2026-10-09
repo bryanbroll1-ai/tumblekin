@@ -740,7 +740,7 @@ export class CannonFly extends MinigameScene {
       if (!aim.hidden) {
         if (own.launchedAt) {
           const difference = (own.distance || 0) - (arcade.target || 0);
-          aim.textContent = `${Number(own.distance || 0).toFixed(1)} m · ${Math.abs(difference) < 0.5 ? 'am Ziel' : `${Math.abs(difference).toFixed(1)} m ${difference < 0 ? 'zu kurz' : 'zu weit'}`}`;
+          aim.textContent = `${Number(own.distance || 0).toFixed(1).replace('.', ',')} m · ${Math.abs(difference) < 0.5 ? 'am Ziel' : `${Math.abs(difference).toFixed(1).replace('.', ',')} m ${difference < 0 ? 'zu kurz' : 'zu weit'}`}`;
         } else {
           const distance = shotDistance(shot.power, this.angleOf(own, arcade, at, shot.powerAt), 0, arcade.windM || 11);
           aim.textContent = `Vorschau ohne Wind: ${Math.round(distance)} m`;

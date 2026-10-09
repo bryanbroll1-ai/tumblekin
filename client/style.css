@@ -1068,8 +1068,16 @@ body.has-invite .start-sheet .field:first-child {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
+}
+
+/* Drei kleine Schalter in EINER Zeile — als grosse Pillen stand jeder in
+   einer eigenen und schob die Spiele aus dem Bild. */
+.picker-tools .chip {
+  min-height: 34px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
 }
 
 .picker-count {
@@ -1174,6 +1182,15 @@ body.has-invite .start-sheet .field:first-child {
   background: radial-gradient(circle at 50% 40%, rgba(14, 30, 42, 0.2), rgba(14, 30, 42, 0.62));
   backdrop-filter: blur(3px);
   overflow-y: auto;
+}
+
+/* Vor dem Bereit-Melden ist noch keine Szene aufgebaut — statt einer grauen
+   Fläche steht die Karte auf dem Himmel der Lobby. Im Countdown läuft die
+   Szene schon und scheint durch. */
+.minigame-intro:not(.counting) {
+  background:
+    radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, #8fd6f2 0%, #bfe8f7 55%, #9fd98a 100%);
 }
 
 /* Ab dem Startschuss läuft das Spiel — die Karte darf keine Berührung mehr schlucken. */
@@ -1451,10 +1468,19 @@ body.has-invite .start-sheet .field:first-child {
 }
 
 .result-row .metric {
+  min-width: 0;
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 850;
+  line-height: 1.15;
   text-align: right;
+}
+
+/* Der Name bekommt immer seinen Platz; eine lange Wertung bricht um, statt
+   ihn wegzudrücken — vorher stand bei „1 Rauswurf · bis zum Schluss drin“
+   auf Platz 1 gar kein Name mehr, bei Kanonenflug nur „S…“. */
+.result-row {
+  grid-template-columns: 34px minmax(76px, 1fr) minmax(0, max-content) auto;
 }
 
 .gain {

@@ -1507,6 +1507,8 @@
   place-items: center;
   min-width: 24px;
   height: 24px;
+  /* Vierstellige Fangwerte liefen ohne Rand ineinander. */
+  padding: 0 7px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--chip) 30%, #101a1f);
   color: #ffffff;
@@ -1849,7 +1851,7 @@ canvas.is-stunned {
 .bumper-control-note { margin: 0; font-size: .72rem; line-height: 1.4; color: white; text-align: center; text-shadow: 0 1px 4px #142f39; pointer-events: none; }
 .bumper-disabled .joystick-slot { pointer-events: none; opacity: .4; }
 @media (orientation: landscape) and (max-height: 520px) {
- .bumper-players { top: calc(12px + env(safe-area-inset-top)); left: 205px; right: 70px; }
+ .bumper-players { top: calc(12px + env(safe-area-inset-top)); left: 252px; right: 70px; }
  .arena-shrink, .bumper-status { top: calc(72px + env(safe-area-inset-top)); }
  .arena-shrink:not([hidden]) ~ .bumper-status { top: calc(110px + env(safe-area-inset-top)); }
  .minigame-controls .mobile-stick-controls.bumper-controls { position: relative; }

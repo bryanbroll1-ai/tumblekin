@@ -153,7 +153,7 @@ test("every game reports exactly one number in its result", () => {
   // `extra` ist der Feinwert, der NUR bei gleicher Hauptzahl entscheidet — er
   // steht klein dahinter, damit man sieht, warum zwei gleiche Zahlen auf
   // verschiedenen Plätzen landen.
-  const allowed = new Set(["kind", "label", "value", "total", "survived", "extra"]);
+  const allowed = new Set(["kind", "label", "value", "total", "survived", "extra", "text"]);
   MINIGAMES.filter((game) => game.arcadeFamily).forEach((game) => {
     const arcade = createArcadeState(game.type, players, Date.now());
     const detail = arcadeResultDetail(arcade, arcade.players.a);

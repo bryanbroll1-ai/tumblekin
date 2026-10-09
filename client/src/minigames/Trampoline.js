@@ -532,7 +532,7 @@ export class Trampoline extends MinigameScene {
     const own = arcade.players[f.controlledId];
     const phase = this.phase || 0;
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
-    this.scoreNode.textContent = (own?.height || 0).toFixed(1);
+    this.scoreNode.textContent = (own?.height || 0).toFixed(1).replace(".", ",");
     const pulse = this.hud.querySelector("[data-beat-pulse]");
     if (pulse) {
       pulse.style.transform = `scaleX(${phase.toFixed(3)})`;

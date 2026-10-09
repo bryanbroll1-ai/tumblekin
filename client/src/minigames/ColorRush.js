@@ -611,7 +611,7 @@ export class ColorRush extends MinigameScene {
           banner.style.background = "#0b1419";
           banner.style.color = "#ffffff";
         } else {
-          const secs = Math.max(0, phase.left / 1000).toFixed(1);
+          const secs = Math.max(0, phase.left / 1000).toFixed(1).replace(".", ",");
           const entscheidung = arcade.round >= (arcade.roundCount ?? 8);
           banner.textContent = phase.name === "drop"
             ? `${name}!`

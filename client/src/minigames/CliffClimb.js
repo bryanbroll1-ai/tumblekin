@@ -582,7 +582,7 @@ export class CliffClimb extends MinigameScene {
         const flag = this.flags?.get(player.id);
         if (flag) flag.raisedAt = now;
         this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.5, 0)), [player.color, "#ffd15c", "#ffffff"], { count: 22, speed: 2.6, up: 2.8, size: 0.1, life: 0.9, drag: 1.2 });
-        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), `OBEN! ${((entry.finishMs || 0) / 1000).toFixed(1)} s`, { color: "#ffe36b", size: 0.46, life: 1.4, rise: 1 });
+        this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), `OBEN! ${((entry.finishMs || 0) / 1000).toFixed(1).replace(".", ",")} s`, { color: "#ffe36b", size: 0.46, life: 1.4, rise: 1 });
         if (player.id === controlledId) this.feedback?.sound("win");
       }
 
@@ -648,7 +648,7 @@ export class CliffClimb extends MinigameScene {
       const hint = this.controls?.querySelector("[data-climb-hint]");
       if (hint) {
         hint.textContent = finale ? (own.finishedAt ? "Geschafft!" : "Zeit um!")
-          : own.finishedAt ? `Oben in ${((own.finishMs || 0) / 1000).toFixed(1)} s — warte auf die anderen`
+          : own.finishedAt ? `Oben in ${((own.finishMs || 0) / 1000).toFixed(1).replace(".", ",")} s — warte auf die anderen`
             : wantsLeft ? "◀ Jetzt LINKS tippen" : "Jetzt RECHTS tippen ▶";
       }
     }
@@ -762,7 +762,7 @@ export class CliffClimb extends MinigameScene {
     const own = arcade.players[controlledId];
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = own?.finishedAt
-      ? `🏔️ ${((own.finishMs || 0) / 1000).toFixed(1)} s`
+      ? `🏔️ ${((own.finishMs || 0) / 1000).toFixed(1).replace(".", ",")} s`
       : `${own?.rung || 0}/${this.summit || arcade.height || 70}`;
     const banner = this.hud.querySelector("[data-climb-banner]");
     if (!banner) return;
@@ -770,7 +770,7 @@ export class CliffClimb extends MinigameScene {
     if (place) {
       banner.hidden = false;
       banner.textContent = own?.finishedAt
-        ? `PLATZ ${place} · oben in ${((own.finishMs || 0) / 1000).toFixed(1)} s${place === 1 ? " 🏔️" : ""}`
+        ? `PLATZ ${place} · oben in ${((own.finishMs || 0) / 1000).toFixed(1).replace(".", ",")} s${place === 1 ? " 🏔️" : ""}`
         : `PLATZ ${place} · ${own?.rung || 0} von ${this.summit || 70} Griffen`;
       banner.style.background = place === 1 ? "#ffc400" : "#0b1419";
       banner.style.color = place === 1 ? "#5c4508" : "#ffffff";

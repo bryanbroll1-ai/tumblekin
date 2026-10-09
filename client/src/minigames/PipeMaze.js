@@ -310,7 +310,9 @@ export class PipeMaze extends MinigameScene {
     } : { top: hudBottom + 8, bottom: rect.bottom - this.buttonRow.getBoundingClientRect().top + 8, left: 0, right: 0 };
     if (!this.rig.base.insets || Object.keys(insets).some(key => insets[key] !== this.rig.base.insets[key])) this.rig.band = null;
     this.rig.base.insets = insets;
-    return { frame: { w: (cols - 1) * SPACING + 1.1, h: 5.6 } };
+    // Breit genug für die äusseren Ventile samt Buchstaben: mit +1,1 waren
+    // bei sechs Rohren A und F halb abgeschnitten.
+    return { frame: { w: (cols - 1) * SPACING + 1.9, h: 5.6 } };
   }
 
   shot() {

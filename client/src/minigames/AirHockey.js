@@ -204,7 +204,8 @@ export class AirHockey extends MinigameScene {
     kiste(scene, 0.3, 6, 16, "#241640", [8.3, 3, -1], { schatten: false });
     // Discokugel und ihre Lichtpunkte.
     const kugel = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45, 1), new THREE.MeshLambertMaterial({ color: "#dfe6f2", flatShading: true, emissive: "#555566" }));
-    kugel.position.set(0, 5.6, -1);
+    // Hoch unter der Decke: vorher hing sie mitten in der Stand-Leiste.
+    kugel.position.set(0, 7.4, -3.5);
     scene.add(kugel);
     this.discoBall = kugel;
     const punkte = [];
@@ -217,20 +218,9 @@ export class AirHockey extends MinigameScene {
     if (this.spots.instanceColor) this.spots.instanceColor.needsUpdate = true;
     this.spots.userData.isFx = true;
     this.spotSeeds = punkte.map(() => ({ a: zufall() * Math.PI * 2, r: 3 + zufall() * 6, s: 0.1 + zufall() * 0.2 }));
-    // Anzeigetafel über dem Tisch.
-    const tafel = new THREE.Group();
-    kiste(tafel, 2.6, 0.9, 0.2, "#101018", [0, 0, 0]);
-    this.boardCanvas = document.createElement("canvas");
-    this.boardCanvas.width = 256;
-    this.boardCanvas.height = 96;
-    this.boardTexture = new THREE.CanvasTexture(this.boardCanvas);
-    this.boardTexture.colorSpace = THREE.SRGBColorSpace;
-    const anzeige = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.8), new THREE.MeshBasicMaterial({ map: this.boardTexture }));
-    anzeige.position.z = 0.11;
-    tafel.add(anzeige);
-    tafel.position.set(0, 3.6, -5.2);
-    scene.add(tafel);
-    this.drawBoard([0, 0]);
+    // Eine 3D-Anzeigetafel gab es hier auch — sie stand hinter der
+    // Stand-Leiste oben und zeigte die Teams in umgekehrter Reihenfolge
+    // (3 : 1, während oben 1 : 3 stand). Der Stand steht jetzt nur noch dort.
   }
 
   buildTable(scene) {
@@ -270,22 +260,6 @@ export class AirHockey extends MinigameScene {
     });
     // Beine.
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => kiste(scene, 0.3, TABLE_Y, 0.3, "#1c1f30", [sx * (w / 2), TABLE_Y / 2 - 0.3, sz * (l / 2 - 0.4)]));
-  }
-
-  drawBoard(score) {
-    const ctx = this.boardCanvas.getContext("2d");
-    ctx.fillStyle = "#101018";
-    ctx.fillRect(0, 0, 256, 96);
-    ctx.font = "900 64px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = TEAM_COLORS[1];
-    ctx.fillText(String(score[1]), 64, 52);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(":", 128, 48);
-    ctx.fillStyle = TEAM_COLORS[0];
-    ctx.fillText(String(score[0]), 192, 52);
-    this.boardTexture.needsUpdate = true;
   }
 
   shot() {
@@ -545,7 +519,6 @@ export class AirHockey extends MinigameScene {
       const at = new THREE.Vector3(goal.x || 0, TABLE_Y + 0.4, z);
       this.burst(at, [TEAM_COLORS[goal.side], "#ffffff", "#ffe25c"], { count: 30, speed: 3, up: 3, size: 0.09, life: 1.2 });
       this.bursts.ring(at.clone().setY(TABLE_Y + 0.05), TEAM_COLORS[goal.side], { radius: 1.6, life: 0.6, opacity: 0.8 });
-      this.drawBoard(state.score);
       const shooter = goal.by ? players.find((pl) => pl.id === goal.by) : null;
       this.pop(at.clone().add(new THREE.Vector3(0, 0.8, 0)), goal.own ? "EIGENTOR!" : "TOR!", { color: "#ffe36b", size: 0.6, life: 1.4 });
       const torschuetze = shooter && this.mallets.get(shooter.id);

@@ -731,7 +731,7 @@ export class WhackBlob extends MinigameScene {
     this.stunNode.hidden = !stunned;
     if (stunned) {
       // Wie lange noch — in Zehnteln, damit man den Moment zum Weiterhauen sieht.
-      const text = `Aua! Benommen · ${((own.stunUntil - at) / 1000).toFixed(1)} s`;
+      const text = `Aua! Benommen · ${((own.stunUntil - at) / 1000).toFixed(1).replace(".", ",")} s`;
       if (this.stunNode.textContent !== text) this.stunNode.textContent = text;
     }
     this.webglCanvas?.classList.toggle("is-stunned", stunned);

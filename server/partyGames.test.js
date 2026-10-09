@@ -631,7 +631,10 @@ test("Honigwabe: bei Sonnenuntergang wird gestochen, wer noch am Baum hängt", (
 test("Honigwabe: Bots spielen mehrere Ranken, und der starke sammelt mehr als der schwache", () => {
   const sums = { easy: 0, normal: 0, hard: 0 };
   let vines = 0;
-  for (let r = 0; r < 80; r += 1) {
+  // 200 Spiele: mit 80 lag die Reihenfolge in einem von sechs Läufen knapp
+  // daneben — der Zufall der Knospen streut stark.
+  const runs = 200;
+  for (let r = 0; r < runs; r += 1) {
     const g = setup("honigwabe", 3, { bots: true });
     const levels = ["easy", "normal", "hard"];
     g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
@@ -644,7 +647,7 @@ test("Honigwabe: Bots spielen mehrere Ranken, und der starke sammelt mehr als de
     vines += g.arcade.honey.vineNumber + 1;
     g.restore();
   }
-  assert.ok(vines / 80 >= 2.5, `im Mittel ${vines / 80} Ranken je Spiel`);
+  assert.ok(vines / runs >= 2.5, `im Mittel ${vines / runs} Ranken je Spiel`);
   assert.ok(sums.hard > sums.normal && sums.normal > sums.easy, JSON.stringify(sums));
 });
 

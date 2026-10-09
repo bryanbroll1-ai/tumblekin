@@ -764,7 +764,7 @@ export class BarrelRoll extends MinigameScene {
     }
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     // Die Zahl, nach der gewertet wird: Zeit mittig auf dem Fass.
-    this.scoreNode.textContent = `${(own?.balanceWork || 0).toFixed(1)}s`;
+    this.scoreNode.textContent = `${(own?.balanceWork || 0).toFixed(1).replace(".", ",")} s`;
     const banner = this.hud.querySelector("[data-barrel-banner]");
     banner.style.whiteSpace = "pre-line";
     if (own?.outAt) {

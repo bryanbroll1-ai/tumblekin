@@ -58,13 +58,13 @@ function paintDial(canvas, targetMs) {
 }
 
 function formatSeconds(ms) {
-  return `${(ms / 1000).toFixed(2)}s`;
+  return `${(ms / 1000).toFixed(2).replace(".", ",")} s`;
 }
 
 // Abweichung mit Vorzeichen: "+0.23" zu spät, "−0.10" zu früh.
 function formatDeviation(stoppedMs, targetMs) {
   const d = (stoppedMs - targetMs) / 1000;
-  return `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(2)}`;
+  return `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(2).replace(".", ",")}`;
 }
 
 // Wie gut: golden bis 0,15 s, grün bis 0,4 s, dann gelb, ab einer Sekunde rot.
@@ -471,7 +471,7 @@ export class Nervenprobe extends MinigameScene {
         if (stoppedReally) this.markDial(player, entry.stoppedMs);
         const farbe = accentFor(stoppedReally ? deviation : null);
         this.burst(station.display.position.clone().add(new THREE.Vector3(0, 0, 0.2)), [farbe, "#ffffff"], { count: 10, speed: 1.6, up: 1.2, size: 0.06, life: 0.5, drag: 2 });
-        this.pop(new THREE.Vector3(station.x, BOARD_Y + 0.55, BOARD_Z + 0.1), stoppedReally ? `${(deviation / 1000).toFixed(2)} s` : "—", { color: farbe, size: isOwn ? 0.34 : 0.28, life: 0.9, rise: 0.4 });
+        this.pop(new THREE.Vector3(station.x, BOARD_Y + 0.55, BOARD_Z + 0.1), stoppedReally ? `${(deviation / 1000).toFixed(2).replace(".", ",")} s` : "—", { color: farbe, size: isOwn ? 0.34 : 0.28, life: 0.9, rise: 0.4 });
         this.feedback?.sound("pop", { pan: station.x * 0.2 });
         if (isOwn) this.feedback?.vibrate(12);
         animator.trigger(stoppedReally && deviation < 400 ? "hop" : "flinch", { height: 0.2 });

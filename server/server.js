@@ -2428,11 +2428,16 @@ function minigameResultDetail(minigame, playerId, _finishedAt) {
     // Zuerst, wer noch drin ist, dann die Rauswürfe — genau so wird auch gewertet.
     const lives = arenaPlayer?.lives ?? (arenaPlayer?.inPlay ? 1 : 0);
     return lives > 0
-      ? { kind: "points", value: arenaPlayer?.knockouts || 0, label: "Rauswürfe", extra: "bis zum Schluss drin" }
+      ? { kind: "text", text: "Bis zuletzt drin", value: arenaPlayer?.knockouts || 0, extra: knockoutText(arenaPlayer?.knockouts || 0) }
       : { kind: "out", survived: false, value: arenaPlayer?.knockouts || 0, label: "Rauswürfe" };
   }
   if (minigame.arcade) return arcadeResultDetail(minigame.arcade, minigame.arcade.players[playerId]);
   return null;
+}
+
+// „1 Rauswurf“, „3 Rauswürfe“ — als Zusatz hinter der Hauptwertung.
+function knockoutText(count) {
+  return count ? `${count} ${count === 1 ? "Rauswurf" : "Rauswürfe"}` : null;
 }
 
 function arcadeResultDetail(arcade, arcadePlayer) {
@@ -2480,7 +2485,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return {
       kind: "points",
       value: survived,
-      label: "Wellen",
+      label: "Sprünge",
       extra: survived ? `Timing ±${Math.round((arcadePlayer.timingMs || 0) / survived)} ms` : null
     };
   }
@@ -2495,7 +2500,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return {
       kind: "points",
       value: pumps,
-      label: "Pumps",
+      label: "Hübe",
       extra: tied && arcadePlayer.reachedMs !== null ? `erreicht nach ${formatSekunden(arcadePlayer.reachedMs)}` : null
     };
   }
@@ -2563,7 +2568,7 @@ function arcadeResultDetail(arcade, arcadePlayer) {
     return { kind: "points", value: arcadePlayer.height || 0, label: "Etagen" };
   }
   if (arcade.family === "bounce") {
-    return { kind: "points", value: Math.round((arcadePlayer.best || 0) * 10) / 10, label: "Höhe" };
+    return { kind: "points", value: Math.round((arcadePlayer.best || 0) * 10) / 10, label: "m hoch" };
   }
   if (arcade.family === "feint") {
     return { kind: "points", value: Math.max(0, Math.round(arcadePlayer.score || 0)), label: "Punkte" };

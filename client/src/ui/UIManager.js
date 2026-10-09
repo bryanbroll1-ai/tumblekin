@@ -1337,6 +1337,7 @@ function formatMainMetric(entry) {
   if (detail.kind === "survival") {
     return detail.alive ? "Bis zuletzt dabei" : `${formatMilliseconds(detail.value)} überlebt`;
   }
+  if (detail.kind === "text") return detail.text;
   if (detail.kind === "out") return `Raus · ${countNoun(detail.value, detail.label)}`;
   if (detail.kind === "lives") return `${countNoun(detail.value, "Leben")} · ${countNoun(detail.knockouts, "Rauswürfe")}`;
   if (detail.kind === "strikes") return countNoun(detail.value, "Treffer");
@@ -1366,13 +1367,21 @@ const SINGULAR_NOUNS = {
   "Sprossen": "Sprosse",
   "Griffe": "Griff",
   "Pakete": "Paket",
-  "Ring-Punkte": "Ring-Punkt"
+  "Ring-Punkte": "Ring-Punkt",
+  "Seiten": "Seite",
+  "Tore": "Tor",
+  "Äpfel": "Apfel",
+  "Hübe": "Hub",
+  "Sprünge": "Sprung",
+  "Folgen": "Folge"
 };
 
 function countNoun(value, plural) {
   const count = Number(value) || 0;
   const noun = count === 1 ? (SINGULAR_NOUNS[plural] || plural) : plural;
-  return `${count} ${noun}`;
+  // Kommazahlen mit Komma: „27,1 m hoch“, nicht „27.1“.
+  const shown = Number.isInteger(count) ? String(count) : String(Math.round(count * 10) / 10).replace(".", ",");
+  return `${shown} ${noun}`;
 }
 
 function formatMilliseconds(value) {

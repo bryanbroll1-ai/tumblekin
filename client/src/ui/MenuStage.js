@@ -496,14 +496,16 @@ export class MenuStage {
     });
     // Wer nicht aufs Podest passt, steht vorn neben den Stufen — nicht weit
     // daneben, sonst müsste die Kamera für einen einzigen Platz zurückweichen.
+    // Neben der Stufe und auf ihrer Höhe in der Tiefe: vorher stand der
+    // Vierte vor der Kante der dritten Stufe und ragte halb in sie hinein.
     floor.forEach((entry, i) => {
-      const x = i % 2 === 0 ? layout.right + 0.1 + Math.floor(i / 2) * 0.66 : layout.left - 0.1 - Math.floor(i / 2) * 0.66;
-      entry.target.set(x, 0, 0.55);
+      const x = i % 2 === 0 ? layout.right + 0.42 + Math.floor(i / 2) * 0.66 : layout.left - 0.42 - Math.floor(i / 2) * 0.66;
+      entry.target.set(x, 0, STEP_Z + 0.1);
       entry.standY = GROUND;
     });
     this.setPodium(1);
     if (final) this.confetti = 6;
-    const span = Math.max(Math.abs(layout.left), Math.abs(layout.right)) * 2 + (floor.length ? 1.0 : 0.3);
+    const span = Math.max(Math.abs(layout.left), Math.abs(layout.right)) * 2 + (floor.length ? 1.6 : 0.3);
     this.setShot({ look: [0, 0.75, 0.05], w: Math.max(3.4, span), h: 2.0, pitch: 0.18, orbit: final ? 0.16 : 0.04 });
   }
 

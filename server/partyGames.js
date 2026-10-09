@@ -1360,9 +1360,9 @@ const snow = {
   },
   detail(arcade, entry) {
     const k = entry.knockouts || 0;
-    const extra = k ? `${k}× runtergeschubst` : null;
-    if (entry.outAt === null || entry.outAt === undefined) return { kind: "points", value: 1, label: "oben geblieben", extra };
-    return { kind: "out", value: Math.floor(entry.outAt / 1000), label: "Sekunden oben", extra };
+    const extra = k ? `${k} ${k === 1 ? "Rauswurf" : "Rauswürfe"}` : null;
+    if (entry.outAt === null || entry.outAt === undefined) return { kind: "text", text: "Oben geblieben", value: 1, extra };
+    return { kind: "out", value: Math.floor(entry.outAt / 1000), label: "s oben", extra };
   },
   done(ctx) {
     const { room, arcade } = ctx;

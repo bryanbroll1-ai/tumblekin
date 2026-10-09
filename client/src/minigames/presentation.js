@@ -4,7 +4,7 @@ export const MINIGAME_METRICS = {
   nervenprobe: "Zielzeit", lichtwaechter: "Weg", ballonPump: "Hübe",
   fassmut: "Punkte", fassrolle: "Balance", zuendstoff: "Dabei",
   muenzregen: "Punkte", blobklopfe: "Punkte", seilspringen: "Sprünge",
-  kanonenflug: "Punkte", messerwurf: "Punkte", turmbau: "Blöcke",
+  kanonenflug: "Punkte", messerwurf: "Punkte", turmbau: "Etagen",
   bergsteiger: "Griffe", ballonfahrt: "Punkte", trampolin: "Höhe",
   falschsignal: "Punkte", spurmaler: "Punkte", sortierband: "Punkte",
   angelduell: "Fangwert", leuchtfolge: "Folgen", blitzreflex: "Bestzeit",

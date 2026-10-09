@@ -431,7 +431,7 @@ export class BarrelDare extends MinigameScene {
           const judged = verdict(rest);
           const at = lane.barrel.position.clone().add(new THREE.Vector3(0, BARREL_H + 0.25, 0.35));
           this.pop(at.clone().add(new THREE.Vector3(0, 0.42, 0)), judged.word, { color: judged.color, size: 0.5, life: 1.6, rise: 0.5 });
-          this.pop(at, `${rest.toFixed(2)} m`, { color: "#ffffff", size: 0.34, life: 1.6, rise: 0.5 });
+          this.pop(at, `${rest.toFixed(2).replace(".", ",")} m`, { color: "#ffffff", size: 0.34, life: 1.6, rise: 0.5 });
           this.feedback?.sound(rest < 1.2 ? "perfect" : "pop");
           // Die Faust, kein Luftsprung: das Fass hängt keine Handbreit über
           // dem Kopf, ein Hüpfer ging mitten hinein.
@@ -576,7 +576,7 @@ export class BarrelDare extends MinigameScene {
       }
       if (now < row.at) return;
       row.done = true;
-      const text = row.hit ? "BONK" : `${row.best ? "👑 " : ""}${row.distance.toFixed(2)} m`;
+      const text = row.hit ? "BONK" : `${row.best ? "👑 " : ""}${row.distance.toFixed(2).replace(".", ",")} m`;
       const style = row.hit ? ["#ff5c6e", "#ffffff"] : row.best ? ["#ffc400", "#4a3400"] : ["#fff8ea", "#3a2a1a"];
       paintPlate(lane.plate, text, style[0], style[1]);
       lane.plate.visible = true;
@@ -628,7 +628,7 @@ export class BarrelDare extends MinigameScene {
       readout.textContent = "";
       readout.className = "dare-distance";
     } else {
-      readout.textContent = `${Math.max(0, last ? last.distance : lane.shown).toFixed(2)} m`;
+      readout.textContent = `${Math.max(0, last ? last.distance : lane.shown).toFixed(2).replace(".", ",")} m`;
       readout.className = braked ? "dare-distance steht" : "dare-distance";
     }
 
