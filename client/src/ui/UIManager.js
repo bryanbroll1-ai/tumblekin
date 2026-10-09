@@ -19,8 +19,25 @@ import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin21
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
-// Stufen der Bots, wie BOT_LEVELS in server/modes.js.
-const BOT_LEVELS = [["mixed", "gemischt"], ["easy", "leicht"], ["normal", "mittel"], ["hard", "schwer"]];
+// Stufen der Bots, wie BOT_LEVELS in server/modes.js — in der Reihenfolge
+// des Reglers: von gemütlich bis knallhart, am Ende „Zufall“ (jeder Bot
+// würfelt seine Stärke). Die Farbe gehört zum Feld auf dem Regler und zum
+// Namen in der Zeile darüber.
+const BOT_LEVELS = [
+  { value: "easy", label: "Einfach", color: "#17802f", info: "Bots reagieren gemütlich und patzen öfter – gut zum Reinkommen." },
+  { value: "normal", label: "Mittel", color: "#8a6200", info: "Bots spielen wie geübte Freunde und machen ab und zu Fehler." },
+  { value: "hard", label: "Schwer", color: "#c41f3c", info: "Bots reagieren blitzschnell und patzen kaum." },
+  { value: "mixed", label: "Zufall", color: "#6a4fc4", info: "Jeder Bot würfelt seine Stärke – mal einfach, mal mittel, mal schwer." }
+];
+
+function botLevelIndex(value) {
+  const index = BOT_LEVELS.findIndex((level) => level.value === value);
+  return index < 0 ? BOT_LEVELS.length - 1 : index;
+}
+
+function botLevelInfo(level) {
+  return `<b>${level.label}</b> ${level.info}`;
+}
 
 export class UIManager {
   constructor(handlers, feedback = null, stage = null) {
@@ -225,15 +242,72 @@ export class UIManager {
     });
     // Optionen werden neu gezeichnet; die Klicks hängen am Behälter.
     el.modeOptions.addEventListener("click", (event) => {
+      const seg = event.target.closest("[data-bot-level]");
+      if (seg) {
+        // Nach dem Ziehen ist die Stufe schon gesetzt; der Klick, den der
+        // Browser hinterherschickt, zählt nicht noch einmal.
+        if (!seg.disabled && !this.botDragDone) this.setBotLevel(seg.dataset.botLevel);
+        return;
+      }
       const chip = event.target.closest("[data-setting]");
       if (chip && !chip.disabled) {
-        const value = "text" in chip.dataset ? chip.dataset.value : Number(chip.dataset.value);
+        const value = Number(chip.dataset.value);
         this.feedback?.sound("tap");
         this.safeAction(() => this.handlers.updateSettings({ [chip.dataset.setting]: value }));
         return;
       }
       const open = event.target.closest("[data-open-picker]");
       if (open && !open.disabled) this.openPicker(open.dataset.openPicker);
+    });
+    // Bot-Regler: ziehen …
+    el.modeOptions.addEventListener("pointerdown", (event) => {
+      const track = event.target.closest(".bot-level-track");
+      if (!track || track.querySelector("[data-bot-level]")?.disabled) return;
+      const index = this.botLevelAt(track, event.clientX);
+      this.botDrag = { id: event.pointerId, index, moved: false };
+      this.botDragDone = false;
+    });
+    window.addEventListener("pointermove", (event) => {
+      const drag = this.botDrag;
+      if (!drag || event.pointerId !== drag.id) return;
+      const track = el.modeOptions.querySelector(".bot-level-track");
+      if (!track) return;
+      const index = this.botLevelAt(track, event.clientX);
+      if (index === drag.index) return;
+      drag.index = index;
+      drag.moved = true;
+      this.previewBotLevel(index);
+      this.feedback?.vibrate(6);
+    });
+    const endBotDrag = (event) => {
+      const drag = this.botDrag;
+      if (!drag || event.pointerId !== drag.id) return;
+      this.botDrag = null;
+      if (!drag.moved) return;
+      if (event.type === "pointerup") {
+        this.botDragDone = true;
+        setTimeout(() => { this.botDragDone = false; }, 0);
+        this.setBotLevel(BOT_LEVELS[drag.index].value);
+      } else {
+        this.previewBotLevel(botLevelIndex(this.state?.settings?.botLevel || "mixed"));
+      }
+    };
+    window.addEventListener("pointerup", endBotDrag);
+    window.addEventListener("pointercancel", endBotDrag);
+    // … und mit den Pfeiltasten, wie jede Auswahlgruppe.
+    el.modeOptions.addEventListener("keydown", (event) => {
+      const seg = event.target.closest("[data-bot-level]");
+      if (!seg || seg.disabled) return;
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+      const at = botLevelIndex(seg.dataset.botLevel);
+      let index = null;
+      if (step) index = Math.max(0, Math.min(BOT_LEVELS.length - 1, at + step));
+      else if (event.key === "Home") index = 0;
+      else if (event.key === "End") index = BOT_LEVELS.length - 1;
+      if (index === null) return;
+      event.preventDefault();
+      el.modeOptions.querySelector(`[data-bot-level="${BOT_LEVELS[index].value}"]`)?.focus();
+      this.setBotLevel(BOT_LEVELS[index].value, { focus: true });
     });
     el.lobbyPlayers.addEventListener("click", (event) => {
       const remove = event.target.closest("[data-remove-bot]");
@@ -587,18 +661,61 @@ export class UIManager {
           </button>
         </div>`;
     }
-    // Wie stark die Bots spielen — nur, wenn welche mitspielen.
+    // Wie stark die Bots spielen — nur, wenn welche mitspielen. Ein Regler
+    // aus vier Farbfeldern; der weisse Knopf liegt auf der gewählten Stufe,
+    // darüber steht, was sie heisst.
     if (this.state.players.some((player) => player.isBot)) {
-      const level = settings.botLevel || "mixed";
+      const index = botLevelIndex(settings.botLevel || "mixed");
+      const level = BOT_LEVELS[index];
       html += `
-        <div class="option-row">
+        <div class="option-row option-row-stack">
           <span class="option-label">Bots</span>
-          <div class="chip-row">
-            ${BOT_LEVELS.map(([value, label]) => `<button type="button" class="chip ${value === level ? "is-active" : ""}" data-setting="botLevel" data-value="${value}" data-text ${disabled}>${label}</button>`).join("")}
+          <div class="bot-level" data-bot-slider style="--i:${index};--level:${level.color}">
+            <p class="bot-level-info" data-bot-info aria-live="polite">${botLevelInfo(level)}</p>
+            <div class="bot-level-track" role="radiogroup" aria-label="Stärke der Bots">
+              <span class="bot-level-thumb" aria-hidden="true"></span>
+              ${BOT_LEVELS.map((entry, i) => `<button type="button" role="radio" class="bot-level-seg" data-bot-level="${entry.value}" aria-checked="${i === index}" tabindex="${i === index ? 0 : -1}" ${disabled}>${entry.value === "mixed" ? "🎲 " : ""}${entry.label}</button>`).join("")}
+            </div>
           </div>
         </div>`;
     }
     this.el.modeOptions.innerHTML = html;
+    if (this.focusBotLevel) {
+      this.el.modeOptions.querySelector(`[data-bot-level="${this.focusBotLevel}"]`)?.focus();
+      this.focusBotLevel = null;
+    }
+  }
+
+  // Den Regler sofort auf eine Stufe stellen, noch bevor der Server sie
+  // bestätigt — beim Ziehen und beim Tippen fühlt er sich sonst zäh an.
+  previewBotLevel(index) {
+    const root = this.el.modeOptions.querySelector("[data-bot-slider]");
+    if (!root) return;
+    const level = BOT_LEVELS[index];
+    root.style.setProperty("--i", index);
+    root.style.setProperty("--level", level.color);
+    const info = root.querySelector("[data-bot-info]");
+    if (info) info.innerHTML = botLevelInfo(level);
+    root.querySelectorAll("[data-bot-level]").forEach((button, i) => {
+      button.setAttribute("aria-checked", String(i === index));
+      button.tabIndex = i === index ? 0 : -1;
+    });
+  }
+
+  setBotLevel(value, { focus = false } = {}) {
+    const current = this.state?.settings?.botLevel || "mixed";
+    this.previewBotLevel(botLevelIndex(value));
+    if (focus) this.focusBotLevel = value;
+    if (value === current) return;
+    this.feedback?.sound("tap");
+    this.safeAction(() => this.handlers.updateSettings({ botLevel: value }));
+  }
+
+  // Welche Stufe liegt unter dem Finger?
+  botLevelAt(track, clientX) {
+    const box = track.getBoundingClientRect();
+    const u = (clientX - box.left) / Math.max(1, box.width);
+    return Math.max(0, Math.min(BOT_LEVELS.length - 1, Math.floor(u * BOT_LEVELS.length)));
   }
 
   // --- Spielauswahl ---------------------------------------------------------------
