@@ -44,6 +44,15 @@ const tumblekinPaths = {
       const contents = fs.readFileSync(args.path, "utf8") + `\nglobalThis.Tumblekin${name} = module.exports;\n`;
       return { contents, loader: "js", resolveDir: path.dirname(args.path) };
     });
+    // Einen Service-Worker gibt es nur beim Server. Hier liefe die Anmeldung
+    // ins Leere — in der Android-App sogar am Abfangen der Assets vorbei
+    // gegen den echten Host.
+    build.onLoad({ filter: /client\/src\/main\.js$/ }, (args) => {
+      const source = fs.readFileSync(args.path, "utf8");
+      const sw = /if \("serviceWorker" in navigator\) \{\s*navigator\.serviceWorker\.register\("\/sw\.js"\)\.catch\(\(\) => \{\}\);\s*\}\n/;
+      if (!sw.test(source)) throw new Error("main.js: Service-Worker-Anmeldung nicht gefunden");
+      return { contents: source.replace(sw, ""), loader: "js", resolveDir: path.dirname(args.path) };
+    });
     // Worker und Vorschaubilder kamen vom Server; hier liegen die Bilder
     // neben der Seite, und die Übung läuft im Fenster.
     build.onLoad({ filter: /client\/src\/ui\/(PracticeSession|UIManager)\.js$/ }, (args) => {
@@ -98,6 +107,7 @@ body:not(.can-join) .start-sheet .join-row { display: none !important; }
 .offline-note { margin: 0; font-size: 13px; font-weight: 700; opacity: .72; text-align: center; }
 body.can-join .offline-note .solo { display: none; }
 body:not(.can-join) .offline-note .multi { display: none; }
+.in-app .offline-note .web-only, html:not(.in-app) .offline-note .app-only { display: none; }
 .party-list { display: grid; gap: 8px; order: 5; }
 .party-list[hidden] { display: none; }
 .party-list-title { margin: 4px 0 0; font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; opacity: .6; }
@@ -106,7 +116,7 @@ body:not(.can-join) .offline-note .multi { display: none; }
 .party-item strong { font-size: 15px; }
 .party-item span { font-size: 13px; font-weight: 800; letter-spacing: .06em; opacity: .7; }
 `;
-const note = `<p class="offline-note"><span class="solo">Browser-Fassung: du spielst gegen Bots. Tippe in der Lobby auf „+ Bot“.</span><span class="multi">Party starten und Freunde per Code einladen — oder unten beitreten.</span></p>`;
+const note = `<p class="offline-note"><span class="solo"><span class="web-only">Browser-Fassung</span><span class="app-only">Test-App</span>: du spielst gegen Bots. Tippe in der Lobby auf „+ Bot“.</span><span class="multi">Party starten und Freunde per Code einladen — oder unten beitreten.</span></p>`;
 const bodyWithNote = body.replace('<button id="create-room"', `${note}\n          <button id="create-room"`);
 // Der Zeichensatz muss drinstehen: ohne ihn las ein Browser die Seite als
 // Latin-1, und aus dem Menüzeichen wurde Zeichensalat.

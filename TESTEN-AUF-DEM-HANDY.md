@@ -90,6 +90,25 @@ Der schnellste Weg, wenn ein Rechner in Reichweite ist.
 Klappt es nicht, blockt fast immer die Firewall des Rechners Port 3000 — bei
 Windows in der Abfrage „privates Netzwerk" erlauben.
 
+## D) Android-Test-App (APK) — ohne Server, allein gegen Bots
+
+Für Android gibt es eine Test-App, die alles mitbringt und ohne Netz läuft.
+Mitspielen mit Freunden geht in ihr nicht, dafür einer der Wege oben.
+
+1. Die Datei `tumblekin-test.apk` aufs Handy laden (gebaut mit
+   `npm run apk`, siehe `android/README.md`).
+2. Antippen. Beim ersten Mal fragt Android, ob die App, aus der du die Datei
+   öffnest (Browser, Dateien, Chat), Apps installieren darf — erlauben.
+3. Warnt Play Protect vor einer unbekannten App: **Trotzdem installieren**.
+   Die App ist mit einem eigenen Testschlüssel signiert, nicht über den Play
+   Store.
+4. **Tumblekin** starten, Namen eingeben, **Party starten**, in der Lobby
+   **+ Bot** antippen.
+
+Eine neuere Test-App installiert sich als Update über die alte. Meldet
+Android einen Konflikt mit einem vorhandenen Paket, wurde mit einem anderen
+Schlüssel gebaut: die alte App deinstallieren, dann die neue installieren.
+
 ## Allein spielen, ohne zweites Gerät
 
 In der Lobby **+ Bot** antippen, bis genug Mitspieler da sind: die Bots

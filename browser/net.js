@@ -663,7 +663,9 @@ function inviteHint() {
     ? "Gäste können nicht verbunden werden: Eine Party leiten darf nur, wer dieses Artifact bearbeiten oder mitwirken darf."
     : status.room
       ? "Freunde öffnen dieses Tumblekin auf claude.ai — teile das Artifact mit ihnen — und tippen den Raumcode ein oder wählen deine Party aus der Liste."
-      : "Mitspielen geht nur in der claude.ai-Ansicht dieses Artifacts. Hier spielst du gegen Bots.";
+      : globalThis.__tumblekinApp
+        ? "In der Test-App spielst du gegen Bots. Mitspielen mit Freunden geht hier noch nicht."
+        : "Mitspielen geht nur in der claude.ai-Ansicht dieses Artifacts. Hier spielst du gegen Bots.";
 }
 
 roomCapability().then((lobby) => {

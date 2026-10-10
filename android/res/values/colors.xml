@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Himmelsfarbe aus client/style.css (sky-top): kein weisses Aufblitzen beim Start. -->
+    <color name="sky">#ff8fd6f2</color>
+    <color name="icon_background">#ff5fb8dc</color>
+</resources>

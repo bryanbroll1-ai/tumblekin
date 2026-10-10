@@ -1,6 +1,11 @@
 // Vorbereitungen, bevor Spielserver und Oberfläche laden.
 globalThis.process = globalThis.process || { env: {}, on() {}, exit() {} };
 
+// Die Android-Test-App (android/) meldet sich im User-Agent. Dort gibt es
+// keine claude.ai-Raumfunktion: man spielt gegen Bots, die Hinweise sagen das.
+globalThis.__tumblekinApp = /\bTumblekinApp\//.test(navigator.userAgent || "");
+if (globalThis.__tumblekinApp) document.documentElement.classList.add("in-app");
+
 // Manche Browser (private Fenster, gesperrte Websitedaten) werfen schon beim
 // Zugriff auf localStorage. Dann gilt ein Speicher im Arbeitsspeicher.
 function memoryStorage() {

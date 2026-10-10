@@ -37,7 +37,9 @@
     "all-practice-check": "node scripts/all-practice-check.mjs",
     "build:browser": "node browser/build.mjs",
     "browser-join-check": "node browser/join-check.mjs",
-    "browser-solo-check": "node browser/solo-check.mjs"
+    "browser-solo-check": "node browser/solo-check.mjs",
+    "apk": "bash android/build-apk.sh",
+    "apk-check": "node android/web-check.mjs"
   },
   "keywords": [
     "party-game",

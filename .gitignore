@@ -9,3 +9,6 @@ pnpm-debug.log*
 package-lock.json
 galerie/
 browser/dist/
+android/build/
+android/.keystore/
+*.apk
