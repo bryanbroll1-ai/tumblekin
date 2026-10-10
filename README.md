@@ -98,7 +98,7 @@ Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Ku
 - Luftpuck — Glow-Hockey-Tisch in der Neon-Spielhalle, Publikum auf Tribünen, Scheinwerfer und Discokugel
 - Bücherwurm — Riesenbuch auf dem Schreibtisch
 - Schnappschuss — Premiere auf dem roten Teppich
-- Kippboot — Südsee-Lagune mit Kranbrücke
+- Kippboot — Südsee-Lagune mit Kranbrücke; Boot und Tiere mit echter Physik (stapeln, rutschen, kippen, über Bord)
 - Rohrsalat — Heizungskeller mit Dampfkessel
 
 ## 40 Challenges
@@ -140,7 +140,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 - **Kanonenflug:** Tipp 1 stoppt die Kraft, Tipp 2 den Winkel. Drei Schuss: triff die Zielflagge — sie steht jeden Schuss woanders, und der Windsack zeigt, ob Wind dich weiter trägt oder bremst. Beim Winkel zeigt ein Ring, wo du ohne Wind landen würdest. Die Punkte aller drei zählen zusammen.
 - **Messerwurf:** Dein Stamm dreht sich — jeder Tipp wirft ein Messer hinein. Triff kein steckendes Messer, sonst bist du raus (deine Punkte bleiben)! Sind alle Messer drin, zerbricht der Stamm und der nächste kommt — jeder dreht sich anders, manche ruckartig mit Stopps und Umkehr, der fünfte ist ein Boss. Äpfel bringen Extrapunkte.
 - **Turmbau:** Tippe, um den gleitenden Block auf deinem Turm zu stapeln. Ein perfekter Treffer rastet ein; Überstände werden abgeschnitten und fallen herunter. Verfehlst du den Turm ganz, endet dein Bauversuch — die geschafften Etagen zählen weiter. Der höchste Turm gewinnt!
-- **Kippboot:** Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier. Bist du dran, tippst du, und er plumpst dorthin, wo er gerade hängt. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker: der Streifen an der Bordwand zeigt, wo er sicher landet (grün) und wo das Boot kentern würde (rot). Wer es zum Kentern bringt, verliert 30 Punkte. Gespielt wird in Runden — jeder ist einmal dran, alle mit demselben Tier, vom Küken bis zum Schwein. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu.
+- **Kippboot:** Über dem Ruderboot fährt ein Kran hin und her, am Haken hängt ein Passagier. Bist du dran, tippst du, und er fällt dorthin, wo er gerade hängt — echt: er landet auf dem Deck oder auf einem anderen Tier, rutscht, kippt um und kann über Bord gehen, dann sind seine Punkte weg. Weiter aussen gibt es mehr Punkte (bis dreifach), aber das Boot neigt sich stärker: der Streifen an der Bordwand zeigt, wo es hält (grün) und wo es kentern würde (rot). Kippt es um, verliert, wer zuletzt etwas daraufgesetzt hat, 30 Punkte. Gespielt wird in Runden — jeder ist einmal dran, alle mit demselben Tier, vom Küken bis zum Schwein. Ist das Boot voll, legt es ab, und alle, die mitgeladen haben, bekommen etwas dazu.
 
 ### 👆⏺️ Knopf gedrückt halten
 

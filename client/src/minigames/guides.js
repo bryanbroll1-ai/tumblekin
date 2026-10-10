@@ -78,6 +78,6 @@ export const MINIGAME_GUIDES = {
   luftpuck: guide("together", "Wisch irgendwo, auch unter dem Tisch: dein Schläger macht die Bewegung mit. Schieß fünf Tore mit deinem Team.", "Dein eigenes Tor hat deine Teamfarbe. Bleib in deiner leuchtenden Zone."),
   buecherwurm: guide("skill", "Stell dich mit dem Stick in ein Loch, bevor die Buchseite herunterfällt.", "Jede Seite hat andere Lochformen; der Schatten zeigt sie. Einmal platt, und du bist raus."),
   schnappschuss: guide("together", "Steh beim Blitz im Bildausschnitt. In der Mitte gibt es Extrapunkte.", "Mit SCHUBS kannst du andere aus dem Foto drängen."),
-  kippboot: guide("skill", "Tippe in deinem Zug, um den Passagier ins Boot fallen zu lassen.", "Außen gibt es mehr Punkte. Grün ist sicher; Kentern kostet 30 Punkte."),
+  kippboot: guide("skill", "Tippe in deinem Zug, um den Passagier ins Boot fallen zu lassen.", "Außen gibt es mehr Punkte. Tiere rutschen und kippen — wer über Bord geht, nimmt seine Punkte mit. Kentern kostet 30."),
   rohrsalat: guide("thinking", "Finde das Ventil, dessen Rohr zur Schatztruhe führt, und tippe es an.", "Bieg an jedem Querrohr ab. Folge dem Weg von der Truhe nach oben.")
 };

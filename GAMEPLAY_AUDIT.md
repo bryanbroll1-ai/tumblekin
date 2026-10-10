@@ -138,3 +138,16 @@ Grundlage war eine Bildreihe aller 40 Spiele (früh, Mitte, spät, Finale, Ergeb
 | Publikum | Keins. | Tribünen links (Team vorn) und rechts (Team hinten), gemischte Reihen hinter dem Tor: Köpfe folgen dem Puck, Fans springen bei Toren ihres Teams auf, die anderen lassen die Köpfe hängen. |
 
 Kosten: 145 statt 117 Zeichenaufrufe (Publikum, Funken und Konfetti je eine InstancedMesh), Bildzeit im Mittel 4,3 statt 3,3 ms — gleichauf mit Kippboot.
+
+## Nachtrag 10. Oktober 2026: Kippboot mit echter Physik
+
+| Bereich | Befund | Änderung |
+| --- | --- | --- |
+| Tiere | Wurden an ausgerechnete Plätze gestellt: zwei an derselben Stelle steckten ineinander, eins auf einem anderen schwebte, nichts kippte oder rutschte. | Jedes Tier ist ein Klotz mit Masse (Bootsphysik.js, 2D-Starrkörper nach XPBD): es fällt, landet auf dem Deck oder auf einem anderen Tier, rutscht, kippt um und kann über Bord gehen — dann sind seine Punkte weg. |
+| Boot | Neigung war eine Summe aus Gewicht × Abstand; gekentert wurde im Augenblick des Absetzens. | Das Boot ist ein drehbarer Körper mit Auftrieb und Wasserdämpfung; die Tiere drücken es über die Kontakte zur Seite, ein Aufprall schaukelt es nach. Kentern bei 26° Neigung — ein Schwein darf aufs leere Boot bis 1,37 vom Mittelpunkt fallen (vorher 1,4). |
+| Modell | Rumpf und Reling waren massive Kisten bis 16 cm über dem Deck: die Tiere standen sichtbar im Boot. | Hohler Rumpf: Planken auf Deckhöhe der Physik, Bordwände aussen, Bug und Heck als niedrige Kante (auch in der Physik). Ein Halstuch zeigt, wem ein Tier gehört. |
+| Gerät | — | Rechnet vom Serverstand mit derselben Physik bis zur Ankunftszeit des eigenen Tipps voraus: der eigene Passagier fällt sofort; ein Test hält Server und Gerät gleich (JSON-Stand → identisches Ergebnis). |
+| Ablauf | — | Ein volles Boot legt ab, sobald alles liegt; kentert ein Boot, bekommt der Wartende einen frischen Zug. Die Bedenkzeit hält Zeit für Fall, Kentern und Ablegen frei (Obergrenze 85 s, normal endet eine Partie nach gut 40 s). |
+| Bots | Mit der Physik kenterte der starke Bot öfter als der mittlere. | Der starke rechnet die besten Stellen voraus (gröbere Teilschritte, festes Schrittbudget, Median 20 ms je Zug), der mittlere schätzt. 300 Partien: Siege 129 / 108 / 66, Punkte 194 / 187 / 174. |
+
+Kosten: ein Rechenschritt (20 ms Spielzeit) braucht mit sieben Tieren 0,1 ms; eine ganze Partie mit drei Bots rechnet der Server in rund 0,3 s.

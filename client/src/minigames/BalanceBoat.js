@@ -2,49 +2,70 @@ import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
 import { frameLerp } from "./Quality.js?v=tumblekin214";
 import { kiste, lambert, viele, streuer, himmel, wolken } from "./Kulisse.js?v=tumblekin214";
+import "./Bootsphysik.js?v=tumblekin214";
+
+const Boot = globalThis.TumblekinBootsphysik;
 
 // Kippboot — eine Südsee-Lagune. Über einem Ruderboot spannt sich eine
 // Kranbrücke; an ihr fährt eine Laufkatze hin und her, und am Haken hängt der
 // nächste Passagier: ein Küken, ein Pinguin, ein Schaf oder ein Schwein. Wer
-// dran ist, tippt, und der Passagier plumpst ins Boot. Das Boot neigt sich mit
-// dem Gewicht — kippt es zu weit, gehen alle baden.
+// dran ist, tippt, und der Passagier fällt ins Boot.
+//
+// Boot und Tiere sind echte Körper (Bootsphysik.js, dieselbe Rechnung wie auf
+// dem Server): ein Tier landet auf dem Deck oder auf einem anderen, rutscht,
+// kippt um, fällt über Bord, und das Boot neigt sich unter dem Gewicht. Das
+// Gerät rechnet vom letzten Serverstand bis zu dem Augenblick voraus, in dem
+// ein jetzt geschickter Tipp ankommt — darum fällt der eigene Passagier
+// sofort, und was man sieht, ist das, was der Server rechnet. Vorher standen
+// die Tiere nur an ausgerechneten Plätzen und steckten ineinander.
 //
 // Die Figuren stehen auf dem Steg rechts und schauen zu; wer dran ist, steht
 // vorn am Hebel. Drumherum Strand mit Palmen, Strandhütten, Sonnenschirm,
 // Surfbretter und eine Vulkaninsel am Horizont.
 const WATER_Y = 0;
-const BOAT_Y = 0.12;
-const DECK_Y = 0.42;
+const BOAT_Y = Boot.PIVOT_Y;     // Drehpunkt des Boots
 const BEAM_Y = 3.5;
-const HOOK_Y = 2.35;
+const HOOK_Y = Boot.DROP_Y + 0.75;
 const PIER_X = 3.4;
-const WOBBLE = 0.06;
+const RAFT_Z = -0.9;             // das Boot liegt auf dieser Linie, die Tiere darin
 const BAND_Z = 0.74;             // Sicherheitsleiste an der vorderen Bordwand
 const CAPSIZE_ACCEL = 7;         // rad/s²: so schnell rollt ein kenterndes Boot um
+// Ein farbiges Halstuch zeigt, wem ein Tier gehört: Lage je Tierart.
+const SCARF = {
+  kueken: { y: 0.27, z: 0.16, w: 0.22 },
+  pinguin: { y: 0.49, z: 0.17, w: 0.3 },
+  schaf: { y: 0.33, z: 0.32, w: 0.22 },
+  schwein: { y: 0.27, z: 0.45, w: 0.26 }
+};
 
 function clampNum(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function angleDiff(target, current) {
+  return Math.atan2(Math.sin(target - current), Math.cos(target - current));
 }
 
 export class BalanceBoat extends MinigameScene {
   constructor(ctx) {
     super(ctx);
     this.seenEvents = 0;
+    this.splashSeen = 0;
     this.boatNumber = -1;
-    this.riders = [];               // Tiere im Boot
+    this.shown = new Map();         // Körper-ID → { holder, tier, vy, squash, body }
+    this.riders = [];               // beim Kentern oder Ablegen am Boot festgemacht
     this.falling = [];              // Tiere, die gerade ins Wasser fliegen
-    this.tilt = 0;
-    this.tiltVel = 0;               // Schaukeln als gedämpfte Feder
     this.leaving = null;
-    this.arriveAt = 0;
     this.labelY = 0.78;
     this.roundTrip = 0;
     this.lastPingAt = 0;
-    this.pendingDrop = null;        // { turn, x, at, vy } — eigener Tipp, noch ohne Antwort
+    this.pendingDrop = null;        // { turn, x, at, kind, boatNumber, clock } — eigener Tipp, noch ohne Antwort
     this.roundSeen = -1;
     this.roundBannerUntil = 0;
     this.lagSamples = [];           // { clock, sample }: sentAt − Empfangszeit je Bild
     this.lagOffset = null;
+    this.viewAngle = 0;
+    this.viewTorque = 0;
   }
 
   stage() {
@@ -69,8 +90,13 @@ export class BalanceBoat extends MinigameScene {
     himmel(scene, { oben: "#3fa9ec", unten: "#d6f6ff" });
     this.buildLagoon(scene);
     this.buildCrane(scene);
+    // Boot und Tiere liegen zusammen in einem Floss: es schaukelt sanft auf
+    // den Wellen, und alles darin schaukelt mit.
+    this.raft = new THREE.Group();
+    this.raft.position.set(0, 0, RAFT_Z);
+    scene.add(this.raft);
     this.boat = this.makeBoat();
-    scene.add(this.boat);
+    this.raft.add(this.boat);
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
       const z = 1.9 - index * 0.95;
@@ -234,32 +260,43 @@ export class BalanceBoat extends MinigameScene {
     this.hanging = null;
   }
 
+
   makeBoat() {
     const boot = new THREE.Group();
     const rumpf = new THREE.Group();
-    kiste(rumpf, 4.0, 0.5, 1.5, "#c8413b", [0, 0.1, 0]);
+    const deck = Boot.DECK_TOP;
+    // Der Rumpf ist hohl: unten der Körper bis knapp unter das Deck, darauf
+    // die Planken, ringsum Bordwände. Vorher waren Rumpf und Reling massive
+    // Kisten bis 16 cm über dem Deck — die Tiere standen sichtbar im Boot.
+    const unter = deck - 0.03;
+    kiste(rumpf, 4.0, unter + 0.2, 1.5, "#c8413b", [0, (unter - 0.2) / 2, 0]);
     [-1, 1].forEach((seite) => {
-      const spitze = kiste(rumpf, 1.06, 0.5, 1.06, "#c8413b", [seite * 2.0, 0.1, 0]);
+      const spitze = kiste(rumpf, 1.06, unter + 0.2, 1.06, "#c8413b", [seite * 2.0, (unter - 0.2) / 2, 0]);
       spitze.rotation.y = Math.PI / 4;
-      spitze.scale.set(1, 1, 1);
     });
-    kiste(rumpf, 4.1, 0.1, 1.6, "#ffffff", [0, 0.36, 0], { schatten: false });
-    kiste(rumpf, 3.8, 0.06, 1.3, "#c99b62", [0, DECK_Y - BOAT_Y - 0.08, 0]);
-    kiste(rumpf, 0.2, 0.2, 1.3, "#8a6238", [-1.1, DECK_Y - BOAT_Y, 0]);
-    kiste(rumpf, 0.2, 0.2, 1.3, "#8a6238", [1.1, DECK_Y - BOAT_Y, 0]);
+    kiste(rumpf, 3.8, 0.06, 1.3, "#c99b62", [0, deck - 0.03, 0]);
+    [-1.1, 1.1].forEach((x) => kiste(rumpf, 0.2, 0.012, 1.3, "#8a6238", [x, deck + 0.006, 0], { schatten: false }));
+    // Bordwände an den Längsseiten, oben ein weisser Rand.
+    const wand = Boot.LIP_TOP - unter;
+    [-1, 1].forEach((seite) => {
+      kiste(rumpf, 4.1, wand, 0.1, "#c8413b", [0, unter + wand / 2, seite * 0.72]);
+      kiste(rumpf, 4.12, 0.05, 0.16, "#ffffff", [0, Boot.LIP_TOP + 0.02, seite * 0.72], { schatten: false });
+    });
+    // Bug und Heck stehen als niedrige Kante über das Deck (wie in der Physik).
+    [-1, 1].forEach((seite) => kiste(rumpf, 0.15, Boot.LIP_TOP - deck, 1.44, "#ffffff", [seite * (Boot.DECK_HALF + 0.075), (Boot.LIP_TOP + deck) / 2, 0]));
     // Mittelmarke.
-    kiste(rumpf, 0.08, 0.02, 1.32, "#ffd15c", [0, DECK_Y - BOAT_Y - 0.04, 0], { schatten: false });
+    kiste(rumpf, 0.08, 0.012, 1.32, "#ffd15c", [0, deck + 0.008, 0], { schatten: false });
     // Ruder an der Seite.
-    const ruder = kiste(rumpf, 0.08, 0.08, 2.2, "#b98a55", [-0.5, 0.4, 0.95]);
-    ruder.rotation.y = 0.3;
+    const ruder = kiste(rumpf, 0.08, 0.08, 2.2, "#b98a55", [-0.5, 0.36, 1.0]);
+    ruder.rotation.y = Math.PI / 2 - 0.12;
     boot.add(rumpf);
     // Segel (nur beim Ablegen sichtbar).
-    const mast = kiste(boot, 0.08, 1.6, 0.08, "#8a5a3a", [0, DECK_Y + 0.8, -0.55]);
-    const segel = kiste(boot, 0.04, 1.1, 1.0, "#fffaf0", [0.1, DECK_Y + 1.0, -0.55], { schatten: false });
+    const mast = kiste(boot, 0.08, 1.6, 0.08, "#8a5a3a", [0, deck + 0.85, -0.55]);
+    const segel = kiste(boot, 0.04, 1.1, 1.0, "#fffaf0", [0.1, deck + 1.05, -0.55], { schatten: false });
     mast.visible = false;
     segel.visible = false;
-    // Auf der vorderen Bordwand: wo der Passagier sicher landet (grün) und wo
-    // das Boot kentern würde (rot), dazu ein Stift, wo er jetzt landen würde.
+    // Auf der vorderen Bordwand: wo der Passagier das Boot sicher hält (grün)
+    // und wo es kentern würde (rot), dazu ein Stift, wo er jetzt fallen würde.
     // Als dicke Leiste über der Kante — ein flacher Streifen oben auf der
     // Bordwand war von der Kamera aus nur ein Strich.
     const streifen = (farbe) => {
@@ -283,7 +320,7 @@ export class BalanceBoat extends MinigameScene {
     Object.values(band).forEach((m) => { m.visible = false; });
     marke.visible = false;
     boot.userData = { mast, segel, band, marke };
-    boot.position.set(0, BOAT_Y, -0.9);
+    boot.position.set(0, BOAT_Y, 0);
     return boot;
   }
 
@@ -324,30 +361,6 @@ export class BalanceBoat extends MinigameScene {
     return g;
   }
 
-  // Wo steht ein Passagier im Boot? Liegen zwei an derselben Stelle, stapelt
-  // sich der zweite obendrauf.
-  riderSpot(passengers, index) {
-    const p = passengers[index];
-    let stack = 0;
-    for (let i = 0; i < index; i += 1) if (Math.abs(passengers[i].x - p.x) < 0.42) stack += 1;
-    return { x: p.x, y: DECK_Y - BOAT_Y - 0.04 + stack * 0.42, z: ((index % 3) - 1) * 0.28 };
-  }
-
-  syncRiders(passengers) {
-    while (this.riders.length > passengers.length) this.boat.remove(this.riders.pop());
-    passengers.forEach((p, i) => {
-      if (this.riders[i]?.userData.kind === p.kind && this.riders[i].userData.x === p.x) return;
-      if (this.riders[i]) this.boat.remove(this.riders[i]);
-      const tier = this.makeAnimal(p.kind);
-      tier.userData.x = p.x;
-      const spot = this.riderSpot(passengers, i);
-      tier.position.set(spot.x, spot.y + 0.9, spot.z);
-      tier.userData.spot = spot;
-      tier.rotation.y = (i % 2 ? 0.4 : -0.4);
-      this.boat.add(tier);
-      this.riders[i] = tier;
-    });
-  }
 
   keepInView() {
     return [];
@@ -373,7 +386,7 @@ export class BalanceBoat extends MinigameScene {
   bind() {
     this.controls.innerHTML = `
       <button type="button" class="nerve-button boat-button" data-boat-drop>
-        <span class="nerve-button-face">ABSETZEN!</span>
+        <span class="nerve-button-face">LOSLASSEN!</span>
       </button>`;
     this.dropButton = this.controls.querySelector("[data-boat-drop]");
     const press = (event) => {
@@ -381,15 +394,16 @@ export class BalanceBoat extends MinigameScene {
       if (this.dropButton.disabled) return;
       this.feedback?.sound("move");
       this.feedback?.vibrate(12);
-      // Der Server setzt ab, wo der Haken hängt, wenn der Tipp ankommt — genau
-      // dort zeigt ihn das Bild (siehe arrival). Also fällt der Passagier sofort,
+      // Der Server lässt los, wo der Haken hängt, wenn der Tipp ankommt —
+      // genau dort zeigt ihn das Bild (siehe arrival). Die Vorausrechnung
+      // lässt den Passagier im selben Augenblick fallen, also fällt er sofort,
       // nicht erst eine Rundreise später.
       const minigame = this.update || this.minigame;
       const state = minigame?.arcade?.boat;
       const turn = state?.turn;
       const at = this.arrival(minigame);
       if (turn && turn.playerId === this.getControlledPlayerId() && at >= turn.from && at < turn.until && this.pendingDrop?.turn !== turn.number) {
-        this.pendingDrop = { turn: turn.number, x: swingX(turn, at, state.reach), at: performance.now(), vy: 0 };
+        this.pendingDrop = { turn: turn.number, x: Math.round(swingX(turn, at, state.reach) * 100) / 100, at, kind: turn.kind, boatNumber: state.boatNumber, clock: performance.now() };
       }
       const clock = performance.now();
       this.sendInput({ action: "drop" }).then(() => this.noteRoundTrip(performance.now() - clock)).catch(() => {});
@@ -444,6 +458,118 @@ export class BalanceBoat extends MinigameScene {
     return this.serverSeen() + this.roundTrip - minigame.startedAt;
   }
 
+  // Boot und Tiere zu der Spielzeit, zu der ein jetzt geschickter Tipp
+  // ankommt: vom Serverstand aus mit derselben Physik weitergerechnet — der
+  // eigene, schon losgelassene Passagier eingeschlossen.
+  forecastBoat(f, hookAt) {
+    const state = f.arcade.boat;
+    const world = Boot.copyWorld(state.world);
+    const queue = state.queue.map((item) => ({ ...item }));
+    const p = this.pendingDrop;
+    if (p && p.boatNumber === state.boatNumber && state.turn?.number === p.turn && !state.passengers.some((x) => x.turn === p.turn)) {
+      queue.push({ at: p.at, id: `p${p.turn}`, kind: p.kind, x: p.x, turn: p.turn });
+    }
+    const events = [];
+    const to = f.minigame.finaleAt ? world.t : Math.min(world.t + Boot.MAX_SPAN_MS, Math.max(world.t, hookAt));
+    Boot.advance(world, queue, to, events);
+    return { world, events };
+  }
+
+  ownerColor(body, state, players) {
+    if (typeof body.id === "string") return players.find((p) => p.id === this.getControlledPlayerId())?.color || "#ffffff";
+    const by = state.passengers.find((p) => p.id === body.id)?.by;
+    return players.find((p) => p.id === by)?.color || "#ffffff";
+  }
+
+  // Ein Tier in der Szene: ein Halter im Schwerpunkt (die Physik dreht um
+  // ihn), darin das Modell mit der Unterkante an der Unterseite des Klotzes,
+  // und ein Halstuch in der Farbe dessen, der es losgelassen hat.
+  makeShown(body, color) {
+    const k = Boot.kind(body.kind);
+    const holder = new THREE.Group();
+    const tier = this.makeAnimal(body.kind);
+    tier.position.y = -k.hh;
+    tier.rotation.y = ((Number(String(body.id).replace(/\D/g, "")) || 0) % 3 - 1) * 0.18;
+    const tuch = SCARF[body.kind] || SCARF.kueken;
+    kiste(tier, tuch.w, 0.06, 0.06, color, [0, tuch.y, tuch.z], { schatten: false });
+    holder.add(tier);
+    holder.position.set(body.x, body.y, 0);
+    holder.rotation.z = body.a;
+    this.raft.add(holder);
+    return { holder, tier, vy: body.vy, squash: 0, body };
+  }
+
+  // Die Körper der Vorausrechnung zeigen. Neue bekommen ein Modell, fehlende
+  // gingen über Bord (oder es war ein Irrtum der Vorausrechnung).
+  drawBodies(view, f, state) {
+    const { dt, now } = f;
+    const seen = new Set();
+    view.world.bodies.forEach((b) => {
+      const key = b.id;
+      // Der eigene Passagier bekommt vom Server seine ID: dasselbe Modell.
+      if (!this.shown.has(key) && b.turn !== null && b.turn !== undefined && this.shown.has(`p${b.turn}`)) {
+        this.shown.set(key, this.shown.get(`p${b.turn}`));
+        this.shown.delete(`p${b.turn}`);
+      }
+      let s = this.shown.get(key);
+      if (!s) {
+        s = this.makeShown(b, this.ownerColor(b, state, f.players));
+        this.shown.set(key, s);
+      } else {
+        const k = frameLerp(0.6, dt);
+        s.holder.position.x += (b.x - s.holder.position.x) * k;
+        s.holder.position.y += (b.y - s.holder.position.y) * k;
+        s.holder.rotation.z += angleDiff(b.a, s.holder.rotation.z) * k;
+      }
+      seen.add(key);
+      // Aufgeschlagen: kurz gestaucht, Staub, ein dumpfer Ton.
+      if (s.vy < -1.4 && b.vy > -0.5) this.landed(s, -s.vy);
+      s.vy = b.vy;
+      s.body = b;
+      s.squash = Math.max(0, s.squash - dt * 5);
+      const atmen = Math.sin(now / 420 + (Number(String(key).replace(/\D/g, "")) || 0)) * 0.015;
+      s.tier.scale.set(1 + s.squash * 0.12, 1 - s.squash * 0.18 + atmen, 1 + s.squash * 0.12);
+    });
+    for (const [key, s] of this.shown) {
+      if (seen.has(key)) continue;
+      this.shown.delete(key);
+      const predicted = view.events.find((e) => e.kind === "overboard" && e.body.id === key)?.body;
+      const confirmed = state.splashes?.find((e) => e.id === key);
+      const body = predicted || confirmed || null;
+      if (body) this.toWater(s, body);
+      else s.holder.removeFromParent();
+    }
+  }
+
+  landed(s, speed) {
+    const w = Boot.kind(s.body.kind).w;
+    s.squash = Math.min(1, speed / 4);
+    const foot = s.holder.getWorldPosition(new THREE.Vector3());
+    foot.y -= Boot.kind(s.body.kind).hh * 0.8;
+    this.burst(foot, ["#ffffff", "#f4e2ac", "#c99b62"], { count: 4 + w * 2, speed: 0.8 + speed * 0.15, up: 0.8, size: 0.05, life: 0.4 });
+    this.feedback?.sound("land", { strength: Math.min(1.2, 0.4 + speed * 0.12 + w * 0.1) });
+    if (speed > 3.5 && w >= 2) this.rig.shake(0.08 * w);
+  }
+
+  // Über Bord: das Modell löst sich vom Floss, fliegt mit seinem Schwung
+  // weiter, platscht und treibt.
+  toWater(s, body) {
+    if (this.falling.some((fall) => fall.tier === s.holder)) return;
+    this.scene.attach(s.holder);
+    this.falling.push({ tier: s.holder, at: performance.now(), vx: body.vx || 0, vy: body.vy || 0, vz: 0.2, spin: body.va || 0 });
+  }
+
+  // Kentern oder Ablegen: alles, was gerade an Bord ist, wird am Boot
+  // festgemacht und fährt (oder rollt) mit ihm.
+  boardAll() {
+    for (const s of this.shown.values()) {
+      this.boat.attach(s.holder);
+      s.holder.userData.spot = { x: s.holder.position.x, y: s.holder.position.y };
+      this.riders.push(s.holder);
+    }
+    this.shown.clear();
+  }
+
   tick(f) {
     const { now, dt, arcade, players, controlledId, minigame } = f;
     const state = arcade?.boat;
@@ -480,181 +606,83 @@ export class BalanceBoat extends MinigameScene {
       puff.material.opacity = 0.6 * (1 - u);
     });
 
-    // Neue Ereignisse: absetzen, kentern, ablegen.
+    // Neue Ereignisse vom Server: losgelassen, gekentert, abgelegt.
     if (this.boatNumber < 0) {
       this.boatNumber = state.boatNumber;
       this.seenEvents = state.events;
+      this.splashSeen = state.splashCount || 0;
     }
     if (state.events > this.seenEvents && state.last) {
       this.seenEvents = state.events;
-      const last = state.last;
-      const isOwn = last.playerId === controlledId;
-      // Der eigene Passagier fiel schon; jetzt übernimmt ihn das Boot.
-      if (this.pendingDrop && this.pendingDrop.turn === last.turn) {
-        this.pendingDrop = null;
-        if (this.hanging) this.hanging.visible = false;
-      }
-      const kin = this.kins.get(last.playerId);
-      if (last.kind === "place") {
-        this.syncRiders(state.passengers);
-        // Der Aufprall drückt die Seite kurz herunter: das Boot schaukelt
-        // nach, je schwerer und je weiter aussen, desto mehr.
-        this.tiltVel += -Math.sign(last.x || 0) * Math.min(1.4, 0.25 + last.w * Math.abs(last.x) * 0.3);
-        const tier = this.riders[this.riders.length - 1];
-        if (tier) this.burst(this.boat.localToWorld(tier.userData.spot ? new THREE.Vector3(tier.userData.spot.x, tier.userData.spot.y + 0.3, 0) : new THREE.Vector3()), ["#ffffff", "#bfe6ff"], { count: 6, speed: 1, up: 1, size: 0.05, life: 0.4 });
-        if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), `+${last.points}`, { color: last.points >= 6 ? "#ffe36b" : "#ffffff", size: 0.4 });
-        if (isOwn) {
-          this.feedback?.sound(last.points >= 6 ? "perfect" : "pop");
-          this.feedback?.vibrate(12);
-        }
-      } else if (last.kind === "capsize") {
-        // Das Boot rollt um, immer schneller, wie ein fallender Körper. Die
-        // Passagiere bleiben erst sitzen und rutschen ab, sobald es steil
-        // genug wird — die auf der tiefen Seite zuerst. Vorher flogen alle
-        // im selben Augenblick in Zufallsrichtungen davon.
-        this.syncRiders(last.passengers);
-        const side = last.side || 1;
-        this.riders.forEach((tier) => {
-          const outward = (tier.userData.spot?.x || 0) * side;
-          tier.userData.detachAt = clampNum(0.62 - outward * 0.12 + (tier.userData.spot?.y || 0) * 0.15, 0.35, 1.1);
-        });
-        this.leaving = { kind: "capsize", at: nowP, side, from: this.boat.rotation.z };
-        this.burst(new THREE.Vector3(last.side * 1.5, 0.3, -0.9), ["#ffffff", "#bfe6ff", "#35c3d6"], { count: 30, speed: 3, up: 3, size: 0.1, life: 1 });
-        if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "PLATSCH! −30", { color: "#bfe6ff", size: 0.4, life: 1.3 });
-        this.animators.get(last.playerId)?.trigger("facepalm");
-        this.rig.shake(0.6);
-        this.feedback?.sound(isOwn ? "fall" : "impact");
-        if (isOwn) this.feedback?.vibrate([50, 40, 70]);
-      } else if (last.kind === "depart") {
-        this.syncRiders(last.passengers);
-        this.leaving = { kind: "depart", at: nowP };
-        this.boat.userData.mast.visible = true;
-        this.boat.userData.segel.visible = true;
-        (last.loaders || []).forEach((id) => {
-          const k = this.kins.get(id);
-          if (k) this.pop(k.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "+5 ⛵", { color: "#b8ffb0", size: 0.34 });
-          this.animators.get(id)?.trigger("wave");
-        });
-        this.feedback?.sound("win");
-      }
+      this.onBoatEvent(state.last, f);
     }
-    // Ein altes Boot verschwindet, ein neues kommt von links.
-    if (this.leaving) {
-      const u = (nowP - this.leaving.at) / (this.leaving.kind === "capsize" ? 1700 : 1400);
-      if (this.leaving.kind === "capsize") {
-        // Gleichmässig beschleunigt bis kieloben (π), dann treibt es kurz und
-        // sinkt. Die Drehung kippt zur schweren Seite.
-        const s = (nowP - this.leaving.at) / 1000;
-        const dir = -this.leaving.side;
-        const roll = Math.min(Math.PI - Math.abs(this.leaving.from), 0.5 * CAPSIZE_ACCEL * s * s);
-        const spin = Math.min(CAPSIZE_ACCEL * s, 6);
-        this.boat.rotation.z = this.leaving.from + dir * roll;
-        const flipped = roll >= Math.PI - Math.abs(this.leaving.from) - 1e-3;
-        this.boat.position.y = BOAT_Y + (flipped ? -Math.min(0.9, (s - 0.95) * 0.7) : -Math.sin(roll) * 0.12);
-        this.boat.position.x = dir * -Math.sin(roll * 0.5) * 0.35;
-        // Wer zu steil sitzt, rutscht ab: mit der Bahngeschwindigkeit der
-        // Drehung (ω × r) und etwas nach aussen.
-        this.riders = this.riders.filter((tier) => {
-          if (roll < tier.userData.detachAt) {
-            tier.rotation.z = -dir * Math.min(0.5, roll * 0.4);
-            return true;
-          }
-          const world = tier.getWorldPosition(new THREE.Vector3());
-          const quat = tier.getWorldQuaternion(new THREE.Quaternion());
-          this.boat.remove(tier);
-          tier.position.copy(world);
-          tier.quaternion.copy(quat);
-          this.scene.add(tier);
-          const rx = world.x - this.boat.position.x;
-          const ry = world.y - this.boat.position.y;
-          const omega = dir * spin;
-          this.falling.push({ tier, at: nowP, vx: -omega * ry + dir * 0.6, vy: omega * rx + 0.6, vz: (Math.random() - 0.5) * 0.6, spin: dir * (3 + Math.random() * 3) });
-          return false;
-        });
-      } else {
-        // Hinaus aufs Meer, weg von der Kamera. Vorher segelte das Boot nach
-        // rechts — mitten durch den Steg, und die Passagiere fuhren durch die
-        // Figuren, die dort warten.
-        this.boat.position.z = -0.9 - u * u * 16;
-        this.boat.position.x = u * u * 1.5;
-        this.boat.rotation.y = -u * 0.35;
-        this.riders.forEach((tier, i) => { tier.rotation.y = Math.sin(nowP / 150 + i) * 0.4; });
-      }
-      if (u >= 1) {
-        this.leaving = null;
-        this.riders.forEach((tier) => this.boat.remove(tier));
-        this.riders = [];
-        this.boat.userData.mast.visible = false;
-        this.boat.userData.segel.visible = false;
-        this.boat.rotation.z = 0;
-        this.boat.rotation.y = 0;
-        this.tilt = 0;
-        this.tiltVel = 0;
-        this.boat.position.set(-9, BOAT_Y, -0.9);
-        this.arriveAt = nowP;
-      }
-    } else if (this.boat.position.x < -0.001) {
-      this.boat.position.x += (0 - this.boat.position.x) * frameLerp(0.08, dt);
-      if (this.boat.position.x > -0.01) this.boat.position.x = 0;
+    // Über Bord (vom Server bestätigt): die Punkte gehen verloren.
+    if ((state.splashCount || 0) > this.splashSeen) {
+      (state.splashes || []).filter((sp) => sp.number >= this.splashSeen).forEach((sp) => {
+        const kin = sp.by && this.kins.get(sp.by);
+        if (kin && sp.points) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), `ÜBER BORD −${sp.points}`, { color: "#bfe6ff", size: 0.34, life: 1.3 });
+        if (sp.by === controlledId) {
+          this.feedback?.sound("fall");
+          this.feedback?.vibrate(30);
+        } else this.feedback?.sound("drop");
+      });
+      this.splashSeen = state.splashCount;
     }
-    if (!this.leaving) this.syncRiders(state.passengers);
+    if (this.pendingDrop && (nowP - this.pendingDrop.clock > 2000 || this.pendingDrop.boatNumber !== state.boatNumber)) this.pendingDrop = null;
 
-    // Neigung: eine gedämpfte Feder zum Drehmoment hin — das Boot schwingt
-    // nach jedem Aufprall nach und kommt dann zur Ruhe. Nahe der Kippgrenze
-    // wird die Feder weich: dann wackelt es bedrohlich.
-    const target = this.leaving ? this.tilt : Math.max(-0.42, Math.min(0.42, -(state.torque / state.torqueMax) * 0.38));
+    // Boot und Tiere aus der Vorausrechnung.
+    const view = this.forecastBoat(f, hookAt);
+    this.viewAngle = view.world.boat.a;
+    this.viewTorque = Boot.torque(view.world);
+    this.raft.position.y = Math.sin(now / 900) * 0.03;
     if (!this.leaving) {
-      const danger = Math.min(1, Math.abs(state.torque) / state.torqueMax);
-      const stiffness = 16 - danger * 7;
-      const step = Math.min(dt, 0.05);
-      this.tiltVel += ((target - this.tilt) * stiffness - this.tiltVel * 3.2) * step;
-      this.tilt += this.tiltVel * step;
+      this.boat.rotation.z += angleDiff(view.world.boat.a, this.boat.rotation.z) * frameLerp(0.6, dt);
+      if (this.boat.position.x < -0.001) {
+        this.boat.position.x += (0 - this.boat.position.x) * frameLerp(0.12, dt);
+        if (this.boat.position.x > -0.01) this.boat.position.x = 0;
+      }
+      this.drawBodies(view, f, state);
     }
-    if (!this.leaving || this.leaving.kind !== "capsize") {
-      this.boat.rotation.z = this.tilt + Math.sin(now / 700) * WOBBLE * 0.4;
-      this.boat.position.y = BOAT_Y + Math.sin(now / 900) * 0.03 - Math.abs(this.tiltVel) * 0.02;
-    }
-    this.riders.forEach((tier, i) => {
-      const spot = tier.userData.spot;
-      if (spot) tier.position.y += (spot.y - tier.position.y) * frameLerp(0.3, dt);
-      // Die Tiere stemmen sich gegen die Schräge und wanken beim Schaukeln.
-      if (!this.leaving) tier.rotation.z = -this.tilt * 0.55 - this.tiltVel * 0.08 + Math.sin(now / 260 + i) * 0.02;
-    });
+    this.animateLeaving(nowP, dt);
 
     // Fallende Tiere: Bogen ins Wasser, platschen, treiben kurz.
     this.falling = this.falling.filter((fall) => {
       const s = (nowP - fall.at) / 1000;
-      if (s > 2.4) {
-        this.scene.remove(fall.tier);
+      if (s > 2.6) {
+        fall.tier.removeFromParent();
         return false;
       }
       fall.tier.position.x += fall.vx * dt;
       fall.tier.position.z += fall.vz * dt;
       if (!fall.wet) {
-        fall.vy -= 9 * dt;
+        fall.vy -= 9.81 * dt;
         fall.tier.position.y += fall.vy * dt;
         fall.tier.rotation.z += dt * (fall.spin ?? 5);
-        fall.tier.rotation.x += dt * 1.5;
-        if (fall.tier.position.y < 0) {
+        fall.tier.rotation.x += dt * 1.2;
+        if (fall.tier.position.y < 0.05) {
           fall.wet = true;
           fall.vx *= 0.2;
           fall.vz *= 0.2;
-          this.burst(fall.tier.position.clone().setY(0.1), ["#ffffff", "#bfe6ff"], { count: 8, speed: 1.4, up: 2, size: 0.07, life: 0.6 });
+          this.burst(fall.tier.position.clone().setY(0.1), ["#ffffff", "#bfe6ff"], { count: 10, speed: 1.4, up: 2.2, size: 0.07, life: 0.6 });
+          this.bursts.ring(fall.tier.position.clone().setY(0.03), "#ffffff", { radius: 0.9, life: 0.6, opacity: 0.6 });
+          this.feedback?.sound("bumperSplash", { strength: 0.6 });
         }
       } else {
-        fall.tier.position.y = -0.15 + Math.sin(nowP / 200) * 0.05;
-        fall.tier.rotation.x *= 0.9;
+        fall.tier.position.y = -0.12 + Math.sin(nowP / 200) * 0.05;
+        fall.tier.rotation.x *= 0.92;
+        fall.tier.rotation.z *= 0.95;
       }
       return true;
     });
 
-    // Kran: Laufkatze und Passagier am Haken.
+    // Kran: Laufkatze und Passagier am Haken. Ist der eigene losgelassen
+    // (oder fällt der eines anderen schon), hängt nichts mehr am Haken.
     const turn = state.turn;
-    const pending = this.pendingDrop;
-    if (pending && nowP - pending.at > 1500) this.pendingDrop = null;
     const active = turn && hookAt >= turn.from && !f.finale;
+    const pending = this.pendingDrop?.turn === turn?.number ? this.pendingDrop : null;
+    const falling = active && (view.world.bodies.some((b) => b.turn === turn.number) || state.passengers.some((p) => p.turn === turn.number));
     if (active) {
-      const x = pending?.turn === turn.number ? pending.x : swingX(turn, hookAt, state.reach);
+      const x = pending ? pending.x : swingX(turn, hookAt, state.reach);
       this.trolley.position.x = x;
       const rope = BEAM_Y - 0.25 - HOOK_Y;
       this.rope.scale.y = rope;
@@ -666,21 +694,13 @@ export class BalanceBoat extends MinigameScene {
         this.hanging.userData.turn = turn.number;
         this.scene.add(this.hanging);
       }
-      this.hanging.visible = true;
-      if (pending?.turn === turn.number) {
-        // Losgelassen: er fällt, bis das Boot ihn übernimmt.
-        pending.vy += 9 * dt;
-        const floor = BOAT_Y + DECK_Y - 0.04;
-        this.hanging.position.set(x, Math.max(floor, this.hanging.position.y - pending.vy * dt), -0.9);
-        this.hanging.rotation.z *= 0.8;
-      } else {
-        this.hanging.position.set(x, HOOK_Y - 0.75, -0.9);
-        this.hanging.rotation.z = Math.sin(now / 160) * 0.1;
-      }
+      this.hanging.visible = !falling;
+      this.hanging.position.set(x, HOOK_Y - 0.75, RAFT_Z);
+      this.hanging.rotation.z = pending ? 0 : Math.sin(now / 160) * 0.1;
     } else if (this.hanging) {
       this.hanging.visible = false;
     }
-    this.drawSafeBand(state, active && !this.leaving ? turn : null, hookAt);
+    this.drawSafeBand(state, active && !falling && !this.leaving ? turn : null, hookAt);
     if (!active) {
       this.rope.scale.y = 0.6;
       this.rope.position.y = -0.3;
@@ -713,17 +733,113 @@ export class BalanceBoat extends MinigameScene {
         animator.lookAt(this.hanging?.position || null);
       } else {
         animator.set("idle");
-        animator.lookAt(this.boat.position.clone().add(new THREE.Vector3(0, 0.6, 0)));
+        animator.lookAt(this.boat.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.6, 0)));
       }
     });
-    const pulled = (state.last && elapsed - state.last.at < 400) || (this.pendingDrop && nowP - this.pendingDrop.at < 400);
+    const pulled = (state.last && elapsed - state.last.at < 400) || (this.pendingDrop && nowP - this.pendingDrop.clock < 400);
     this.lever.rotation.x = pulled ? 0.6 : 0;
     this.leverKnob.position.z = -2.25 + (pulled ? 0.18 : 0);
     this.leverKnob.position.y = pulled ? 1.35 : 1.42;
   }
 
-  // Der Streifen auf der Bordwand: grün, wo der Passagier sicher landet, rot,
-  // wo das Boot kentern würde — und eine Marke, wo er JETZT landen würde.
+  onBoatEvent(last, f) {
+    const { controlledId } = f;
+    const nowP = performance.now();
+    const isOwn = last.playerId === controlledId;
+    const kin = this.kins.get(last.playerId);
+    if (last.kind === "place") {
+      if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1, 0)), `+${last.points}`, { color: last.points >= 40 ? "#ffe36b" : "#ffffff", size: 0.4 });
+      if (isOwn) {
+        this.feedback?.sound(last.points >= 40 ? "perfect" : "pop");
+        this.feedback?.vibrate(12);
+      }
+    } else if (last.kind === "capsize") {
+      // Das Boot rollt um, immer schneller, wie ein fallender Körper. Die
+      // Passagiere bleiben erst sitzen und rutschen ab, sobald es steil
+      // genug wird — die auf der tiefen Seite zuerst.
+      this.pendingDrop = null;
+      this.boardAll();
+      const side = last.side || 1;
+      this.riders.forEach((tier) => {
+        const outward = (tier.userData.spot?.x || 0) * side;
+        tier.userData.detachAt = clampNum(0.62 - outward * 0.12 + (tier.userData.spot?.y || 0) * 0.15, 0.35, 1.1);
+      });
+      this.leaving = { kind: "capsize", at: nowP, side, from: this.boat.rotation.z };
+      this.burst(new THREE.Vector3(side * 1.5, 0.3, RAFT_Z), ["#ffffff", "#bfe6ff", "#35c3d6"], { count: 30, speed: 3, up: 3, size: 0.1, life: 1 });
+      if (kin) this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.2, 0)), "PLATSCH! −30", { color: "#bfe6ff", size: 0.4, life: 1.3 });
+      this.animators.get(last.playerId)?.trigger("facepalm");
+      this.rig.shake(0.6);
+      this.feedback?.sound(isOwn ? "fall" : "impact");
+      if (isOwn) this.feedback?.vibrate([50, 40, 70]);
+    } else if (last.kind === "depart") {
+      this.boardAll();
+      this.leaving = { kind: "depart", at: nowP };
+      this.boat.userData.mast.visible = true;
+      this.boat.userData.segel.visible = true;
+      (last.loaders || []).forEach((id) => {
+        const k = this.kins.get(id);
+        if (k) this.pop(k.position.clone().add(new THREE.Vector3(0, 1.3, 0)), "+5 ⛵", { color: "#b8ffb0", size: 0.34 });
+        this.animators.get(id)?.trigger("wave");
+      });
+      this.feedback?.sound("win");
+    }
+  }
+
+  // Ein altes Boot verschwindet (kentert oder segelt davon), ein neues kommt
+  // von links.
+  animateLeaving(nowP, dt) {
+    if (!this.leaving) return;
+    const u = (nowP - this.leaving.at) / (this.leaving.kind === "capsize" ? 1700 : 1400);
+    if (this.leaving.kind === "capsize") {
+      // Gleichmässig beschleunigt bis kieloben (π), dann treibt es kurz und
+      // sinkt. Die Drehung kippt zur schweren Seite.
+      const s = (nowP - this.leaving.at) / 1000;
+      const dir = -this.leaving.side;
+      const room = Math.max(0, Math.PI - Math.abs(this.leaving.from));
+      const roll = Math.min(room, 0.5 * CAPSIZE_ACCEL * s * s);
+      const spin = Math.min(CAPSIZE_ACCEL * s, 6);
+      this.boat.rotation.z = this.leaving.from + dir * roll;
+      const flipped = roll >= room - 1e-3;
+      this.boat.position.y = BOAT_Y + (flipped ? -Math.min(0.9, (s - 0.95) * 0.7) : -Math.sin(roll) * 0.12);
+      this.boat.position.x = dir * -Math.sin(roll * 0.5) * 0.35;
+      // Wer zu steil sitzt, rutscht ab: mit der Bahngeschwindigkeit der
+      // Drehung (ω × r) und etwas nach aussen.
+      this.riders = this.riders.filter((tier) => {
+        if (roll < tier.userData.detachAt) return true;
+        const world = tier.getWorldPosition(new THREE.Vector3());
+        const boatAt = this.boat.getWorldPosition(new THREE.Vector3());
+        this.scene.attach(tier);
+        const rx = world.x - boatAt.x;
+        const ry = world.y - boatAt.y;
+        const omega = dir * spin;
+        this.falling.push({ tier, at: nowP, vx: -omega * ry + dir * 0.6, vy: omega * rx + 0.6, vz: (Math.random() - 0.5) * 0.6, spin: dir * (3 + Math.random() * 3) });
+        return false;
+      });
+    } else {
+      // Hinaus aufs Meer, weg von der Kamera. Vorher segelte das Boot nach
+      // rechts — mitten durch den Steg, und die Passagiere fuhren durch die
+      // Figuren, die dort warten.
+      this.boat.position.z = -u * u * 16;
+      this.boat.position.x = u * u * 1.5;
+      this.boat.rotation.y = -u * 0.35;
+      this.boat.rotation.z *= 0.9;
+      this.riders.forEach((tier, i) => { tier.children[0].rotation.y = Math.sin(nowP / 150 + i) * 0.4; });
+    }
+    if (u >= 1) {
+      this.leaving = null;
+      this.riders.forEach((tier) => tier.removeFromParent());
+      this.riders = [];
+      this.boat.userData.mast.visible = false;
+      this.boat.userData.segel.visible = false;
+      this.boat.rotation.set(0, 0, 0);
+      this.boat.position.set(-9, BOAT_Y, 0);
+    }
+  }
+
+  // Der Streifen auf der Bordwand: grün, wo der Passagier das Boot sicher
+  // hält, rot, wo es kentern würde — und eine Marke, wo er JETZT fallen
+  // würde. Gerechnet mit der Kippgrenze beim Absetzen; landet er auf einem
+  // anderen Tier und rutscht ab, kann es trotzdem anders kommen.
   drawSafeBand(state, turn, hookAt) {
     const { band, marke } = this.boat.userData;
     const show = Boolean(turn);
@@ -732,7 +848,7 @@ export class BalanceBoat extends MinigameScene {
     if (!show) return;
     const reach = state.reach;
     const limit = state.torqueMax;
-    const torque = state.torque;
+    const torque = this.viewTorque;
     const lo = Math.max(-reach, (-limit - torque) / turn.w);
     const hi = Math.min(reach, (limit - torque) / turn.w);
     const setSpan = (m, a, b) => {
@@ -743,7 +859,7 @@ export class BalanceBoat extends MinigameScene {
     setSpan(band.safe, Math.min(lo, hi), Math.max(lo, hi));
     setSpan(band.left, -reach, Math.min(lo, reach));
     setSpan(band.right, Math.max(hi, -reach), reach);
-    const x = this.pendingDrop?.turn === turn.number ? this.pendingDrop.x : swingX(turn, hookAt, reach);
+    const x = swingX(turn, hookAt, reach);
     marke.position.x = x;
     const safe = x >= lo && x <= hi;
     marke.userData.material.color.set(safe ? "#ffffff" : "#ff2244");
@@ -769,10 +885,10 @@ export class BalanceBoat extends MinigameScene {
         chips.innerHTML = html;
       }
     }
-    // Wasserwaage: wie schief liegt das Boot, und wo wäre es zu viel.
+    // Wasserwaage: wie schief liegt das Boot, und wo kentert es.
     const level = this.hud.querySelector("[data-boat-level]");
     if (level) {
-      const share = Math.max(-1, Math.min(1, state.torque / state.torqueMax));
+      const share = Math.max(-1, Math.min(1, -this.viewAngle / (state.capAngle || 0.45)));
       level.firstElementChild.style.left = `${50 + share * 46}%`;
       level.dataset.risk = Math.abs(share) > 0.75 ? "high" : Math.abs(share) > 0.45 ? "mid" : "low";
     }
@@ -791,23 +907,31 @@ export class BalanceBoat extends MinigameScene {
     let message = null;
     let tone = "#12aaff";
     const last = state.last;
+    const splash = state.splashes?.[state.splashes.length - 1];
     if (elapsed < state.leadMs) message = "Gleich kommt der erste Passagier …";
     else if (last && elapsed - last.at < 1400 && last.kind === "capsize") {
       const who = room.players.find((p) => p.id === last.playerId);
       message = last.playerId === controlledId ? "Gekentert! −30" : `${escapeName(who?.name)} hat's gekippt!`;
       tone = "#ff5d73";
+    } else if (splash && elapsed - splash.at < 1200 && splash.points) {
+      const who = room.players.find((p) => p.id === splash.by);
+      message = splash.by === controlledId ? `Dein ${animalName(splash.kind)} ist über Bord! −${splash.points}` : `${animalName(splash.kind)} von ${escapeName(who?.name)} über Bord!`;
+      tone = "#2f8fb0";
     } else if (turn && performance.now() < this.roundBannerUntil) {
       message = `Runde ${turn.round + 1}/${state.rounds}: ${animalName(turn.kind, true)}!`;
       tone = "#b57bff";
     } else if (last && elapsed - last.at < 1400 && last.kind === "depart") {
       message = "Boot voll — ablegen! ⛵";
       tone = "#1fbf5b";
+    } else if (state.full) {
+      message = "Boot voll — hält alles?";
+      tone = "#2f8fb0";
     } else if (ownTurn) {
-      message = `Du bist dran — ${animalName(turn.kind)} absetzen!`;
+      message = `Du bist dran — ${animalName(turn.kind)} loslassen!`;
       tone = "#1fbf5b";
     } else if (turn) {
       const who = room.players.find((p) => p.id === turn.playerId);
-      message = `${escapeName(who?.name)} setzt ab …`;
+      message = `${escapeName(who?.name)} ist dran …`;
       tone = "#2f8fb0";
     }
     if (banner) {

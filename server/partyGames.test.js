@@ -6,6 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { testRules } = require("./server.js");
 const { constants: C } = require("./partyGames.js");
+const Boot = require("../client/src/minigames/Bootsphysik.js");
 
 const {
   MINIGAMES, createArcadeState, handleArcadeInput, updateArcade, arcadeBotStep,
@@ -631,21 +632,29 @@ test("Honigwabe: bei Sonnenuntergang wird gestochen, wer noch am Baum hängt", (
 test("Honigwabe: Bots spielen mehrere Ranken, und der starke sammelt mehr als der schwache", () => {
   const sums = { easy: 0, normal: 0, hard: 0 };
   let vines = 0;
-  // 200 Spiele: mit 80 lag die Reihenfolge in einem von sechs Läufen knapp
-  // daneben — der Zufall der Knospen streut stark.
+  // Der Zufall der Knospen streut stark: auch mit 200 freien Spielen lag die
+  // Reihenfolge in zwei von zwölf Läufen knapp daneben (Mittel je 200 Spiele
+  // etwa 1580 / 1790 / 2180). Darum ein fester Zufall wie beim Kippboot.
   const runs = 200;
-  for (let r = 0; r < runs; r += 1) {
-    const g = setup("honigwabe", 3, { bots: true });
-    const levels = ["easy", "normal", "hard"];
-    g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
-    for (let t = 0; t <= g.minigame.duration; t += 50) {
-      g.at(t);
-      if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
-      g.tick();
+  const realRandom = Math.random;
+  let seed = 1;
+  Math.random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  try {
+    for (let r = 0; r < runs; r += 1) {
+      const g = setup("honigwabe", 3, { bots: true });
+      const levels = ["easy", "normal", "hard"];
+      g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
+      for (let t = 0; t <= g.minigame.duration; t += 50) {
+        g.at(t);
+        if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
+        g.tick();
+      }
+      g.players.forEach((p, i) => { sums[levels[i]] += g.arcade.players[p.id].banked; });
+      vines += g.arcade.honey.vineNumber + 1;
+      g.restore();
     }
-    g.players.forEach((p, i) => { sums[levels[i]] += g.arcade.players[p.id].banked; });
-    vines += g.arcade.honey.vineNumber + 1;
-    g.restore();
+  } finally {
+    Math.random = realRandom;
   }
   assert.ok(vines / runs >= 2.5, `im Mittel ${vines / runs} Ranken je Spiel`);
   assert.ok(sums.hard > sums.normal && sums.normal > sums.easy, JSON.stringify(sums));
@@ -1451,42 +1460,79 @@ test("Kippboot: abgesetzt wird, wo der Haken gerade hängt — aussen gibt es me
   g.restore();
 });
 
-test("Kippboot: zu viel auf einer Seite kentert — der Kipper verliert, alle gehen baden", () => {
+// Ein Tier ruht schon an Bord (für Aufbauten): knapp über dem Deck abgesetzt.
+function boatPlace(state, id, kind, x, by) {
+  Boot.spawn(state.world, { id, kind, x, y: Boot.PIVOT_Y + Boot.DECK_TOP + 0.01, turn: null });
+  state.passengers.push({ id, kind, w: Boot.kind(kind).w, x, by, points: 0, turn: -1 });
+}
+
+test("Kippboot: zu viel auf einer Seite kentert — wer zuletzt abgesetzt hat, verliert, alle gehen baden", () => {
   const g = setup("kippboot", 2);
   g.run(0, C.BOAT_LEAD_MS + 50, 30);
   const state = g.arcade.boat;
-  state.passengers = [{ kind: "schwein", w: 3, x: 1.2, by: "x", slot: 0 }];
-  state.torque = 3.6;
+  // Rechts liegt schon ein Schwein; das Boot neigt sich dorthin.
+  boatPlace(state, 900, "schwein", 1.2, "x");
+  g.run(C.BOAT_LEAD_MS + 80, C.BOAT_LEAD_MS + 1100, 30);
+  assert.ok(state.world.boat.a < -0.15, `das Boot hängt nach rechts (${state.world.boat.a.toFixed(2)})`);
   const turn = state.turn;
+  // Am Haken hängt diesmal auch ein Schwein (in Runde 1 wäre es ein Küken).
+  turn.kind = "schwein";
+  turn.w = 3;
   // Den Moment abpassen, in dem der Haken weit rechts ist.
-  let t = 0;
-  while (party.boatSwingX(turn, turn.from + t) < 1.3 && t < 4000) t += 10;
-  g.at(turn.from + t);
+  let t = C.BOAT_LEAD_MS + 1100;
+  while (party.boatSwingX(turn, t) < 1.3 && t < turn.until - 100) t += 10;
+  g.at(t);
   const current = g.players.find((p) => p.id === turn.playerId);
   g.input(current, { action: "drop" });
+  const points = state.passengers[state.passengers.length - 1].points;
+  const boatBefore = state.boatNumber;
+  // Es fällt, schlägt auf — und das Boot kippt um.
+  g.run(t + 30, t + 2500, 30);
+  assert.equal(state.boatNumber, boatBefore + 1, "ein neues Boot");
   assert.equal(state.last.kind, "capsize");
-  assert.equal(g.arcade.players[current.id].score, -C.BOAT_CAPSIZE_COST);
-  assert.equal(state.passengers.length, 0, "ein neues, leeres Boot");
+  assert.equal(state.last.playerId, current.id);
+  assert.equal(g.arcade.players[current.id].score, points - C.BOAT_CAPSIZE_COST);
+  assert.equal(state.passengers.length, 0, "das neue Boot ist leer");
+  assert.equal(state.world.bodies.length, 0);
   g.restore();
 });
 
-test("Kippboot: ein volles Boot legt ab, und alle Lader bekommen die Zugabe", () => {
+test("Kippboot: ein volles Boot legt ab, sobald alles liegt, und alle Lader bekommen die Zugabe", () => {
   const g = setup("kippboot", 2);
   g.run(0, C.BOAT_LEAD_MS + 50, 30);
   const state = g.arcade.boat;
   const [a, b] = g.players;
-  state.passengers = Array.from({ length: C.BOAT_CAPACITY - 1 }, (_, i) => ({ kind: "kueken", w: 1, x: 0, by: i % 2 ? a.id : b.id, slot: i }));
-  state.torque = 0;
+  [-1.6, -1.05, -0.5, 0.5, 1.05, 1.6].forEach((x, i) => boatPlace(state, 900 + i, "kueken", x, i % 2 ? a.id : b.id));
+  g.run(C.BOAT_LEAD_MS + 80, C.BOAT_LEAD_MS + 900, 30);
   const turn = state.turn;
-  let t = 0;
-  while (Math.abs(party.boatSwingX(turn, turn.from + t)) > 0.2 && t < 4000) t += 10;
-  g.at(turn.from + t);
+  let t = C.BOAT_LEAD_MS + 900;
+  while (Math.abs(party.boatSwingX(turn, t)) > 0.12 && t < turn.until - 100) t += 5;
+  g.at(t);
   const current = g.players.find((p) => p.id === turn.playerId);
-  const before = { a: g.arcade.players[a.id].score, b: g.arcade.players[b.id].score };
   g.input(current, { action: "drop" });
+  const before = { a: g.arcade.players[a.id].score, b: g.arcade.players[b.id].score };
+  assert.ok(state.full, "voll — es wird gewartet, bis alles liegt");
+  g.run(t + 30, t + 2500, 30);
   assert.equal(state.last.kind, "depart");
-  assert.ok(g.arcade.players[a.id].score >= before.a + C.BOAT_DEPART_BONUS);
-  assert.ok(g.arcade.players[b.id].score >= before.b + C.BOAT_DEPART_BONUS);
+  assert.equal(g.arcade.players[a.id].score, before.a + C.BOAT_DEPART_BONUS);
+  assert.equal(g.arcade.players[b.id].score, before.b + C.BOAT_DEPART_BONUS);
+  g.restore();
+});
+
+test("Kippboot: wer über Bord geht, nimmt seine Punkte mit", () => {
+  const g = setup("kippboot", 2);
+  g.run(0, C.BOAT_LEAD_MS + 50, 30);
+  const state = g.arcade.boat;
+  const [a] = g.players;
+  // Ein Schaf, das schon jenseits des Bugs schwebt, fällt ins Wasser.
+  Boot.spawn(state.world, { id: 950, kind: "schaf", x: 2.4, y: 0.5, turn: null });
+  state.passengers.push({ id: 950, kind: "schaf", w: 2, x: 2.4, by: a.id, points: 40, turn: -1 });
+  const before = g.arcade.players[a.id].score;
+  g.run(C.BOAT_LEAD_MS + 80, C.BOAT_LEAD_MS + 800, 30);
+  assert.equal(state.passengers.length, 0);
+  assert.equal(g.arcade.players[a.id].score, before - 40);
+  assert.equal(g.arcade.players[a.id].overboard, 1);
+  assert.equal(state.splashes[state.splashes.length - 1].id, 950);
   g.restore();
 });
 
@@ -1554,26 +1600,34 @@ test("Kippboot: nur Bots dürfen einen geplanten Augenblick mitschicken", () => 
 });
 
 test("Kippboot: die Bots sind gestaffelt", () => {
-  // Gezählt wird, wer gewinnt — die Punkte liegen eng beieinander (der
-  // starke trifft nur etwas genauer), darum 400 Partien; sie kosten
-  // zusammen eine Fünftelsekunde.
-  const wins = { easy: 0, normal: 0, hard: 0 };
-  for (let r = 0; r < 400; r += 1) {
-    const g = setup("kippboot", 3, { bots: true });
-    const levels = ["easy", "normal", "hard"];
-    g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
-    for (let t = 0; t <= g.minigame.duration; t += 30) {
-      g.at(t);
-      if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
-      g.tick();
-      if (g.arcade.boat.finishedAt !== null && t > g.arcade.boat.finishedAt + C.BOAT_END_MS) break;
+  // Mit der Bootsphysik kostet eine Partie eine Drittelsekunde, und Siege
+  // schwanken stark — gemessen in 300 Partien: Siege 129 / 108 / 66, Punkte
+  // 194 / 187 / 174 (stark / mittel / schwach). Hier darum ein fester Zufall
+  // und 30 Partien; verglichen werden die Punkte. Der starke rechnet die
+  // Physik voraus, der mittlere schätzt und trifft ungenauer, der schwache
+  // greift oft blind nach dem Rand.
+  const realRandom = Math.random;
+  let seed = 1;
+  Math.random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const levels = ["easy", "normal", "hard"];
+  const points = { easy: 0, normal: 0, hard: 0 };
+  try {
+    for (let r = 0; r < 30; r += 1) {
+      const g = setup("kippboot", 3, { bots: true });
+      g.players.forEach((p, i) => { g.arcade.players[p.id].botProfile = { level: levels[i] }; });
+      for (let t = 0; t <= g.minigame.duration; t += 30) {
+        g.at(t);
+        if (t % 150 === 0) g.players.forEach((p) => arcadeBotStep(g.room, p));
+        g.tick();
+        if (g.arcade.boat.finishedAt !== null && t > g.arcade.boat.finishedAt + C.BOAT_END_MS) break;
+      }
+      g.players.forEach((p, i) => { points[levels[i]] += g.arcade.players[p.id].score; });
+      g.restore();
     }
-    const scores = g.players.map((p) => arcadeRankingScore(g.arcade, g.arcade.players[p.id]));
-    const best = Math.max(...scores);
-    scores.forEach((score, i) => { if (score === best) wins[levels[i]] += 1; });
-    g.restore();
+  } finally {
+    Math.random = realRandom;
   }
-  assert.ok(wins.hard > wins.normal && wins.normal > wins.easy, JSON.stringify(wins));
+  assert.ok(points.hard > points.normal && points.normal > points.easy, JSON.stringify(points));
 });
 
 // --- Rohrsalat -------------------------------------------------------------

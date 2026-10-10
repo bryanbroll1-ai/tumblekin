@@ -39,7 +39,7 @@ const tumblekinPaths = {
     // Die gemeinsame Physik setzt im Browser eine globale Variable, unter
     // Node `module.exports`. Im Bündel ist sie ein CommonJS-Modul (der Server
     // verlangt sie), also setzt hier das Modul die Variable selbst.
-    build.onLoad({ filter: /client\/src\/minigames\/((Bumper|Sprint)Physics|SketchFigures)\.js$/ }, (args) => {
+    build.onLoad({ filter: /client\/src\/minigames\/((Bumper|Sprint)Physics|SketchFigures|Bootsphysik)\.js$/ }, (args) => {
       const name = path.basename(args.path, ".js");
       const contents = fs.readFileSync(args.path, "utf8") + `\nglobalThis.Tumblekin${name} = module.exports;\n`;
       return { contents, loader: "js", resolveDir: path.dirname(args.path) };

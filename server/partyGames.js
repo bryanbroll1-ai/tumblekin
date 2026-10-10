@@ -40,6 +40,7 @@ function clamp(value, min, max) {
 }
 
 const Sketch = require("../client/src/minigames/SketchFigures.js");
+const Boot = require("../client/src/minigames/Bootsphysik.js");
 
 // Dieselbe Rauschfunktion wie in server.js: aus einem Seed eine Zahl in [0, 1).
 function noise(seed) {
@@ -2746,16 +2747,18 @@ const photo = {
 //
 // In einer Lagune liegt ein Ruderboot. Reihum schwenkt ein Kran einen
 // Passagier über das Boot — Küken, Pinguin, Schaf, Schwein, je schwerer,
-// desto mehr Punkte. Ein Tipp setzt ihn ab, dort wo er gerade hängt. Weiter
+// desto mehr Punkte. Ein Tipp lässt ihn los, dort wo er gerade hängt. Weiter
 // aussen gibt es mehr Punkte (bis zum Dreifachen) — aber das Boot neigt sich
-// dann auch stärker. Liegt zu viel Gewicht auf einer Seite, kentert das Boot:
-// wer es gekippt hat, verliert Punkte, alle Passagiere gehen baden, ein neues
+// dann auch stärker. Kippt es zu weit, kentert es: wer zuletzt etwas
+// daraufgesetzt hat, verliert Punkte, alle Passagiere gehen baden, ein neues
 // Boot kommt. Ist das Boot voll, legt es ab, und alle, die etwas daraufgesetzt
 // haben, bekommen eine Zugabe.
 //
-// Gerechnet wird mit dem Drehmoment: Summe aus Gewicht mal Abstand zur
-// Mitte. Das Boot neigt sich sichtbar dazu, und wer hinschaut, setzt den
-// nächsten Passagier auf die Gegenseite.
+// Alles ist echte Physik (Bootsphysik.js, auf Server und Gerät dieselbe
+// Rechnung): Boot und Tiere sind Körper, die Tiere fallen, landen auf dem
+// Deck oder auf einem anderen Tier, rutschen, kippen um und können über Bord
+// gehen — dann sind ihre Punkte weg. Vorher war das Boot nur eine Summe aus
+// Gewicht mal Abstand, und die Tiere steckten ineinander oder schwebten.
 //
 // Gespielt wird in Runden: in jeder ist jeder genau einmal dran, und alle
 // bekommen dasselbe Tier, von Runde zu Runde schwerer und schneller. Vorher
@@ -2765,15 +2768,27 @@ const photo = {
 // Tiere erwischt hatte.
 const BOAT_LEAD_MS = 1500;
 // Obergrenze. Das Spiel endet nach der letzten Runde, meist nach gut 40 s.
-const BOAT_DURATION_MS = 60000;
+// Seit der Physik kentert ein Boot erst, wenn das Tier gelandet ist — darum
+// mehr Luft: selbst wenn niemand tippt und Boote kippen und ablegen, passen
+// vier Runden zu viert hinein, und die ersten Züge behalten ihre volle
+// Bedenkzeit. Angezeigt wird die Obergrenze nirgends.
+const BOAT_DURATION_MS = 85000;
 const BOAT_TURN_MS = 4200;             // so lange hängt ein Passagier höchstens am Haken
 const BOAT_TURN_MIN_MS = 1500;         // kürzer nie — so viel bleibt jedem Zug sicher
 const BOAT_GAP_MS = 800;               // nach dem Absetzen
 const BOAT_SPLASH_MS = 1800;           // nach dem Kentern
+const BOAT_FALL_MS = 1500;             // so lange nach dem Loslassen kann ein Boot noch kentern (oder auf das Ablegen warten)
 const BOAT_DEPART_MS = 1700;           // ein volles Boot legt ab
 const BOAT_END_MS = 1800;              // nach dem letzten Zug bis zum Schluss
 const BOAT_REACH = 1.75;               // so weit schwingt der Haken
-const BOAT_TORQUE_MAX = 4.2;           // darüber kentert es
+// So viel Drehmoment (Gewicht × Abstand) verträgt das Boot beim Absetzen —
+// gemessen mit der Bootsphysik: ein Schwein darf aufs leere Boot bis 1,37
+// vom Mittelpunkt fallen. Ruhig liegend hält es mehr (Boot.STATIC_LIMIT),
+// aber der Aufprall schaukelt es über die Grenze hinaus. Der grüne Streifen
+// an der Bordwand und die Bots rechnen damit.
+const BOAT_TORQUE_MAX = 4.2;
+const BOAT_SETTLE_MAX_MS = 1600;       // so lange wartet ein volles Boot höchstens, bis alles liegt
+const BOAT_CATCHUP_MS = 250;           // hängt der Server, holt die Physik höchstens so viel nach
 const BOAT_CAPACITY = 7;
 const BOAT_POINT_BASE = 10;            // je Gewicht in der Mitte; am Rand dreifach
 const BOAT_CAPSIZE_COST = 30;
@@ -2801,8 +2816,9 @@ function boatPoints(w, x) {
   return Math.round(w * (BOAT_POINT_BASE + 2 * BOAT_POINT_BASE * Math.min(1, Math.abs(x) / BOAT_REACH)));
 }
 
-function boatTorque(passengers) {
-  return passengers.reduce((sum, p) => sum + p.w * p.x, 0);
+// Drehmoment der Tiere an Bord (Gewicht × Abstand im Bootsrahmen).
+function boatTorque(world) {
+  return Boot.torque(world);
 }
 
 // Wie viele Runden? Jeder soll etwa gleich oft dran sein, egal wie viele
@@ -2859,7 +2875,11 @@ function boatNextTurn(ctx, delay) {
   // und jedes Boot kentert.
   const leftThisRound = state.roundOrder.slice(state.roundPos).filter((id) => present.includes(id)).length;
   const later = leftThisRound + (state.rounds - state.round - 1) * present.length;
-  const budget = BOAT_DURATION_MS - BOAT_END_MS - from - later * (BOAT_TURN_MIN_MS + BOAT_SPLASH_MS);
+  // Folgt der Zug direkt auf einen Abwurf, kann dieser noch kentern — dann
+  // beginnt der Zug erst mit dem neuen Boot. Auch dafür bleibt Zeit.
+  // (150 ms Luft: der letzte Abwurf wird erst im nächsten Takt verbucht.)
+  const aftermath = delay === BOAT_GAP_MS ? BOAT_FALL_MS + BOAT_SPLASH_MS - BOAT_GAP_MS : 0;
+  const budget = BOAT_DURATION_MS - BOAT_END_MS - 150 - aftermath - from - later * (BOAT_TURN_MIN_MS + BOAT_FALL_MS + BOAT_SPLASH_MS);
   const turnMs = clamp(budget, BOAT_TURN_MIN_MS, BOAT_TURN_MS);
   const n = state.turns;
   const pick = boatRoundKind(state.round, state.rounds);
@@ -2874,68 +2894,248 @@ function boatNextTurn(ctx, delay) {
 }
 
 // Absetzen, wo der Haken zur Zeit `at` hängt (für Menschen: wenn der Tipp
-// beim Server ankommt).
+// beim Server ankommt). Der Passagier wird losgelassen und fällt — was dann
+// passiert, entscheidet die Physik: er landet auf dem Deck oder auf einem
+// anderen Tier, rutscht, kippt, geht über Bord oder bringt das Boot zum
+// Kentern. Die Punkte gibt es für die Stelle, an der er losgelassen wurde.
 function boatDrop(ctx, player, entry, auto = false, at = ctx.elapsed) {
   const { arcade } = ctx;
-  const elapsed = at;
   const state = arcade.boat;
   const turn = state.turn;
-  const x = Math.round(boatSwingX(turn, elapsed) * 100) / 100;
-  const passenger = { kind: turn.kind, w: turn.w, x, by: player.id, slot: state.passengers.length };
-  state.passengers.push(passenger);
-  const torque = boatTorque(state.passengers);
-  state.torque = Math.round(torque * 100) / 100;
-  entry.drops += 1;
-  if (Math.abs(torque) > BOAT_TORQUE_MAX) {
-    // Gekentert.
-    entry.score -= BOAT_CAPSIZE_COST;
-    entry.capsizes += 1;
-    state.last = { kind: "capsize", playerId: player.id, x, w: turn.w, animal: turn.kind, at: elapsed, turn: turn.number, side: Math.sign(torque), passengers: state.passengers.slice(), auto, number: state.events };
-    state.events += 1;
-    state.passengers = [];
-    state.torque = 0;
-    state.boatNumber += 1;
-    boatNextTurn(ctx, BOAT_SPLASH_MS);
-    return;
-  }
+  const x = Math.round(boatSwingX(turn, at) * 100) / 100;
+  const id = state.world.nextId;
+  state.world.nextId += 1;
+  state.queue.push({ at, id, kind: turn.kind, x, turn: turn.number });
   const points = boatPoints(turn.w, x);
+  state.passengers.push({ id, kind: turn.kind, w: turn.w, x, by: player.id, points, turn: turn.number });
+  entry.drops += 1;
   entry.score += points;
   entry.placed += 1;
-  state.last = { kind: "place", playerId: player.id, x, w: turn.w, points, animal: turn.kind, at: elapsed, turn: turn.number, auto, number: state.events };
+  state.lastDropper = player.id;
+  state.last = { kind: "place", playerId: player.id, x, w: turn.w, points, animal: turn.kind, at, turn: turn.number, id, auto, number: state.events };
   state.events += 1;
+  state.turn = null;
   if (state.passengers.length >= BOAT_CAPACITY) {
-    // Voll: das Boot legt ab, und alle, die mitgeladen haben, bekommen etwas.
-    const loaders = new Set(state.passengers.map((p) => p.by));
-    loaders.forEach((id) => {
-      const loader = arcade.players[id];
-      if (loader) {
-        loader.score += BOAT_DEPART_BONUS;
-        loader.departs += 1;
-      }
-    });
-    state.last = { kind: "depart", playerId: player.id, x, w: turn.w, points, animal: turn.kind, at: elapsed, turn: turn.number, passengers: state.passengers.slice(), loaders: [...loaders], auto, number: state.events };
-    state.events += 1;
-    state.passengers = [];
-    state.torque = 0;
-    state.boatNumber += 1;
-    boatNextTurn(ctx, BOAT_DEPART_MS);
+    // Voll — abgelegt wird, sobald alles liegt (und keiner mehr über Bord ist).
+    state.full = { since: at };
     return;
   }
   boatNextTurn(ctx, BOAT_GAP_MS);
 }
 
+// Ein Tier ist über Bord gegangen: seine Punkte sind weg.
+function boatOverboard(ctx, event) {
+  const { arcade } = ctx;
+  const state = arcade.boat;
+  const body = event.body;
+  const index = state.passengers.findIndex((p) => p.id === body.id);
+  const passenger = index >= 0 ? state.passengers.splice(index, 1)[0] : null;
+  const owner = passenger && arcade.players[passenger.by];
+  if (owner) {
+    owner.score -= passenger.points;
+    owner.overboard = (owner.overboard || 0) + 1;
+  }
+  state.splashes.push({
+    number: state.splashCount,
+    id: body.id,
+    kind: body.kind,
+    by: passenger?.by ?? null,
+    points: passenger?.points ?? 0,
+    at: event.at,
+    x: body.x, y: body.y, a: body.a, vx: body.vx, vy: body.vy, va: body.va
+  });
+  state.splashCount += 1;
+  while (state.splashes.length > 6) state.splashes.shift();
+}
+
+// Ein neues, leeres Boot (nach dem Kentern oder Ablegen).
+function boatFresh(state) {
+  const world = Boot.createWorld(state.world.t);
+  world.nextId = state.world.nextId;
+  state.world = world;
+  state.queue = [];
+  state.passengers = [];
+  state.full = null;
+  state.torque = 0;
+  state.boatNumber += 1;
+}
+
+function boatSnapshot(world) {
+  return { a: world.boat.a, va: world.boat.va, bodies: world.bodies.map((b) => ({ ...b })) };
+}
+
+// Gekentert: wer zuletzt etwas daraufgesetzt hat, verliert, alle gehen baden.
+// Wer gerade dran ist (oder als Nächster), wartet, bis das neue Boot da ist.
+function boatCapsize(ctx, event) {
+  const { arcade } = ctx;
+  const state = arcade.boat;
+  const who = state.lastDropper;
+  const entry = who && arcade.players[who];
+  if (entry) {
+    entry.score -= BOAT_CAPSIZE_COST;
+    entry.capsizes += 1;
+  }
+  state.last = { kind: "capsize", playerId: who, at: event.at, side: event.side, boat: boatSnapshot(state.world), number: state.events };
+  state.events += 1;
+  boatFresh(state);
+  // Wer dran war, ist es nach dem neuen Boot wieder — mit frisch bemessener
+  // Bedenkzeit, damit alle übrigen Züge noch in die Zeit passen.
+  if (state.turn) {
+    if (state.roundOrder && state.roundOrder[state.roundPos - 1] === state.turn.playerId) state.roundPos -= 1;
+    state.turn = null;
+    boatNextTurn(ctx, BOAT_SPLASH_MS);
+  } else if (state.finishedAt === null && !state.full) {
+    boatNextTurn(ctx, BOAT_SPLASH_MS);
+  }
+}
+
+// Voll und alles liegt: das Boot legt ab, und alle, die mitgeladen haben,
+// bekommen etwas.
+function boatDepart(ctx) {
+  const { arcade, elapsed } = ctx;
+  const state = arcade.boat;
+  const loaders = new Set(state.passengers.map((p) => p.by));
+  loaders.forEach((id) => {
+    const loader = arcade.players[id];
+    if (loader) {
+      loader.score += BOAT_DEPART_BONUS;
+      loader.departs += 1;
+    }
+  });
+  state.last = { kind: "depart", playerId: state.lastDropper, at: elapsed, loaders: [...loaders], boat: boatSnapshot(state.world), number: state.events };
+  state.events += 1;
+  boatFresh(state);
+  boatNextTurn(ctx, BOAT_DEPART_MS);
+}
+
+// Die Physik bis zur Spielzeit `elapsed` — in festen Schritten auf der Uhr
+// der Bootswelt (world.t), genau wie das Gerät sie vorausrechnet.
+function boatPhysics(ctx) {
+  const state = ctx.arcade.boat;
+  if (ctx.elapsed - state.world.t > BOAT_CATCHUP_MS) state.world.t = ctx.elapsed - BOAT_CATCHUP_MS;
+  for (let guard = 0; guard < 4; guard += 1) {
+    const events = [];
+    Boot.advance(state.world, state.queue, ctx.elapsed, events);
+    events.forEach((event) => { if (event.kind === "overboard") boatOverboard(ctx, event); });
+    const capsize = events.find((event) => event.kind === "capsize");
+    if (!capsize) break;
+    boatCapsize(ctx, capsize);
+  }
+  state.torque = Math.round(Boot.torque(state.world) * 100) / 100;
+}
+
 // Wohin setzt man am besten? Die Stelle mit den meisten Punkten, an der das
-// Boot mit Abstand `safe` (Anteil der Kippgrenze) noch liegt.
-function boatBestAim(torque, w, safe) {
+// Boot mit Abstand `safe` (Anteil der Kippgrenze) noch liegt. `crowd`: so
+// viele Punkte ist es wert, nicht auf einem anderen Tier zu landen — wer dort
+// aufsetzt, kippt leicht herunter.
+function boatBestAim(torque, w, safe, bodies = [], kindName = null, crowd = 0) {
+  const half = kindName ? Boot.kind(kindName).hw : 0.2;
   let best = clamp(-torque / w, -BOAT_REACH * 0.95, BOAT_REACH * 0.95);
-  let bestPoints = -1;
+  let bestScore = -Infinity;
   for (let x = -BOAT_REACH * 0.95; x <= BOAT_REACH * 0.95 + 1e-9; x += 0.05) {
     if (Math.abs(torque + w * x) > BOAT_TORQUE_MAX * safe) continue;
-    const pts = boatPoints(w, x);
-    if (pts > bestPoints || (pts === bestPoints && Math.abs(torque + w * x) < Math.abs(torque + w * best))) {
-      bestPoints = pts;
+    let score = boatPoints(w, x);
+    if (crowd && bodies.some((b) => Math.abs(b.x - x) < half + Boot.kind(b.kind).hw + 0.05)) score -= crowd;
+    if (score > bestScore || (score === bestScore && Math.abs(torque + w * x) < Math.abs(torque + w * best))) {
+      bestScore = score;
       best = x;
     }
+  }
+  return best;
+}
+
+// Der starke Bot spielt wie ein guter Spieler: er setzt nur dorthin, wo das
+// Tier ganz auf dem Deck steht (ein Tier, das über die Bugkante ragt, rutscht
+// beim nächsten Schaukeln ab), lieber auf freie Planken als auf andere Tiere,
+// und er rechnet die besten Stellen in einer Kopie der Bootswelt voraus — bis
+// zu dem Augenblick, in dem der Haken dort vorbeikommt (vorher schaukelt das
+// Boot oft noch vom letzten Tier), und dann 1,2 s weiter. Kentert das Boot,
+// ist die Stelle tabu; geht das Tier über Bord, liegt es schief oder steht
+// das Boot danach nahe der Kippgrenze, zählt sie weniger. Gerechnet wird mit
+// gröberen Teilschritten und einem festen Schrittbudget — meist um 20 ms,
+// einmal je Zug.
+const BOAT_LOOKAHEAD_MS = 1600;
+const BOAT_LOOKAHEAD_SUBSTEPS = 6;     // gröber als die echte Physik — es ist ja nur eine Schätzung
+const BOAT_LOOKAHEAD_STEPS = 900;      // höchstens so viele Rechenschritte je Entscheidung
+
+// Wann kreuzt der Haken nach `from` die Stelle `aim`? (Bis `last`.)
+function boatCrossing(turn, aim, from, last) {
+  let prev = boatSwingX(turn, from) - aim;
+  for (let t = from; t <= last; t += 5) {
+    const d = boatSwingX(turn, t) - aim;
+    if (Math.sign(d) !== Math.sign(prev) || Math.abs(d) < 0.01) return t;
+    prev = d;
+  }
+  return null;
+}
+
+function boatLookaheadAim(state, turn, think, last) {
+  const half = Boot.kind(turn.kind).hw;
+  const edge = Math.min(BOAT_REACH * 0.95, Boot.DECK_HALF - half - 0.05);
+  const scored = [];
+  for (let x = -edge; x <= edge + 1e-9; x += 0.05) {
+    if (Math.abs(state.torque + turn.w * x) > BOAT_TORQUE_MAX) continue;
+    const crowded = state.world.bodies.some((b) => Math.abs(b.x - x) < half + Boot.kind(b.kind).hw + 0.05);
+    scored.push({ x: Math.round(x * 100) / 100, score: boatPoints(turn.w, x) - (crowded ? 15 : 0) });
+  }
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.score - a.score || Math.abs(state.torque + turn.w * a.x) - Math.abs(state.torque + turn.w * b.x));
+  const picks = [];
+  scored.forEach((c) => { if (picks.length < 5 && !picks.some((p) => Math.abs(p.x - c.x) < 0.12)) picks.push(c); });
+  // Bis zur Bedenkzeit einmal vorrechnen — das ist allen Proben gemeinsam.
+  const base = Boot.copyWorld(state.world);
+  const baseQueue = state.queue.map((item) => ({ ...item }));
+  Boot.advance(base, baseQueue, think, [], BOAT_LOOKAHEAD_SUBSTEPS);
+  if (base.capsized) return null;
+  let budget = BOAT_LOOKAHEAD_STEPS;
+  // Eine Probe: das Tier bei x fallen lassen, wenn der Haken dort ist, und
+  // zuschauen, bis alles liegt (höchstens 1,6 s). Liegt bis dahin alles
+  // still, springt die Rechnung gleich zum Abwurf.
+  const probe = (x, hit, score) => {
+    const world = Boot.copyWorld(base);
+    const queue = baseQueue.map((item) => ({ ...item }));
+    queue.push({ at: hit, id: -1, kind: turn.kind, x, turn: turn.number });
+    if (queue.length === 1 && Boot.settled(world)) world.t += Math.max(0, Math.floor((hit - world.t) / Boot.STEP_MS) * Boot.STEP_MS);
+    const events = [];
+    const end = Math.max(world.t, hit) + BOAT_LOOKAHEAD_MS;
+    // Fertig ist die Probe erst, wenn alles eine Viertelsekunde lang ruht —
+    // im Umkehrpunkt einer Schaukelbewegung steht das Boot auch kurz still.
+    let calm = 0;
+    while (world.t + Boot.STEP_MS <= end && !world.capsized && budget > 0) {
+      Boot.advance(world, queue, world.t + Boot.STEP_MS, events, BOAT_LOOKAHEAD_SUBSTEPS);
+      budget -= 1;
+      calm = !queue.length && world.t > hit + 500 && Boot.settled(world) ? calm + 1 : 0;
+      if (calm >= 12) break;
+    }
+    const points = boatPoints(turn.w, x);
+    let value = score;
+    if (world.capsized) value -= 1000;
+    const own = world.bodies.find((b) => b.id === -1);
+    if (!own) value -= 2 * points;
+    else if (Math.abs(Math.sin(own.a)) > 0.5) value -= points / 2;
+    if (Math.abs(world.boat.a) > Boot.CAP_ANGLE * 0.6) value -= 15;
+    value -= events.filter((e) => e.kind === "overboard" && e.body.id !== -1).length * 5;
+    return value;
+  };
+  let best = null;
+  let bestValue = -Infinity;
+  for (const c of picks) {
+    if (budget <= 0) break;
+    const hit = boatCrossing(turn, c.x, think, last);
+    if (hit === null) continue;
+    // Auch ein Tipp knapp daneben muss halten: es zählt die schlechteste
+    // Probe. Hält eine Stelle ohne Abzug, ist sie die beste (die Liste ist
+    // nach Punkten geordnet) — weiter wird nicht gerechnet.
+    let value = Infinity;
+    for (const x of [c.x, c.x - 0.1, c.x + 0.1]) {
+      value = Math.min(value, probe(x, hit, c.score));
+      if (value <= bestValue) break;
+    }
+    if (value > bestValue) {
+      bestValue = value;
+      best = { x: c.x, hit };
+    }
+    if (bestValue >= c.score) break;
   }
   return best;
 }
@@ -2952,8 +3152,14 @@ const boat = {
   create(arcade, players) {
     const count = (players || Object.keys(arcade.players)).length;
     arcade.boat = {
-      passengers: [],
+      passengers: [],                  // { id, kind, w, x, by, points, turn } — was gerade an Bord ist
+      world: Boot.createWorld(0),      // Physik: Boot und Körper (Uhr = Spielzeit)
+      queue: [],                       // losgelassen, aber noch nicht im nächsten Schritt
+      splashes: [],                    // die letzten Tiere, die über Bord gingen
+      splashCount: 0,
       torque: 0,
+      full: null,
+      lastDropper: null,
       turn: null,
       turns: 0,
       events: 0,
@@ -2967,11 +3173,12 @@ const boat = {
       finishedAt: null,
       reach: BOAT_REACH,
       torqueMax: BOAT_TORQUE_MAX,
+      capAngle: Boot.CAP_ANGLE,
       capacity: BOAT_CAPACITY,
       leadMs: BOAT_LEAD_MS
     };
     Object.values(arcade.players).forEach((entry) => {
-      Object.assign(entry, { drops: 0, placed: 0, capsizes: 0, departs: 0, score: 0 });
+      Object.assign(entry, { drops: 0, placed: 0, capsizes: 0, departs: 0, overboard: 0, score: 0 });
     });
   },
   input(ctx, player, entry, input) {
@@ -2994,6 +3201,17 @@ const boat = {
     const { arcade, room, elapsed } = ctx;
     const state = arcade.boat;
     if (!state.turn && state.turns === 0 && elapsed >= BOAT_LEAD_MS) boatNextTurn(ctx, 0);
+    boatPhysics(ctx);
+    if (state.full) {
+      // Ist beim Zurechtrutschen eins über Bord gegangen, ist das Boot nicht
+      // mehr voll: weiter mit dem Nächsten.
+      if (state.passengers.length < BOAT_CAPACITY) {
+        state.full = null;
+        boatNextTurn(ctx, 0);
+      } else if (!state.queue.length && (Boot.settled(state.world) || elapsed - state.full.since > BOAT_SETTLE_MAX_MS)) {
+        boatDepart(ctx);
+      }
+    }
     const turn = state.turn;
     if (turn && elapsed >= turn.until) {
       const player = room.players.find((p) => p.id === turn.playerId);
@@ -3009,28 +3227,27 @@ const boat = {
     if (!turn || turn.playerId !== player.id || elapsed < turn.from) return null;
     if (entry.botTurn !== turn.number) {
       entry.botTurn = turn.number;
-      // Wohin? Der starke sucht die meisten Punkte mit wenig Abstand zur
-      // Kippgrenze, der mittlere mit mehr. Der schwache greift oft nach dem
-      // Rand, ohne auf die Neigung zu achten.
-      let aim;
-      if (level(entry) === "easy" && Math.random() < 0.45) aim = (Math.random() < 0.5 ? -1 : 1) * BOAT_REACH * (0.5 + Math.random() * 0.45);
-      else aim = boatBestAim(state.torque, turn.w, byLevel(entry, 0.65, 0.8, 0.88));
+      // Wohin? Der starke rechnet die Physik voraus (boatLookaheadAim). Der
+      // mittlere schätzt nur (90 % der Kippgrenze), achtet nicht darauf, ob
+      // dort schon ein Tier liegt, und trifft ungenauer. Der schwache greift
+      // oft nach dem Rand, ohne auf die Neigung zu achten. Gemessen in 300
+      // Partien: Siege 129 / 108 / 66, Punkte 194 / 187 / 174. Mit der alten
+      // Regel (88 % der Grenze, ohne Vorausrechnung) kenterte der starke in
+      // der Physik öfter als der mittlere und verlor gegen ihn.
       // Wann kreuzt der Haken das Ziel? Nach der Bedenkzeit, beim nächsten
       // Vorbeikommen — gedrückt wird mit menschlicher Streuung.
       const think = turn.from + Math.max(250, byLevel(entry, 750, 600, 480) + boatGauss() * 90);
       const last = turn.until - 250;
+      let aim;
       let hit = null;
-      let prev = boatSwingX(turn, think) - aim;
-      for (let t = think; t <= last; t += 5) {
-        const d = boatSwingX(turn, t) - aim;
-        if (Math.sign(d) !== Math.sign(prev) || Math.abs(d) < 0.01) {
-          hit = t;
-          break;
-        }
-        prev = d;
-      }
-      if (hit === null) hit = last;
-      entry.botPressAt = clamp(hit + boatGauss() * byLevel(entry, 120, 80, 32), turn.from, last);
+      if (level(entry) === "easy" && Math.random() < 0.45) aim = (Math.random() < 0.5 ? -1 : 1) * BOAT_REACH * (0.5 + Math.random() * 0.45);
+      else if (level(entry) === "hard") {
+        const plan = boatLookaheadAim(state, turn, think, last);
+        aim = plan ? plan.x : boatBestAim(state.torque, turn.w, 0.74, state.world.bodies, turn.kind, 40);
+        hit = plan ? plan.hit : null;
+      } else aim = boatBestAim(state.torque, turn.w, level(entry) === "easy" ? 0.65 : 0.9);
+      if (hit === null) hit = boatCrossing(turn, aim, think, last) ?? last;
+      entry.botPressAt = clamp(hit + boatGauss() * byLevel(entry, 120, 130, 32), turn.from, last);
     }
     if (elapsed < entry.botPressAt) return null;
     return { action: "drop", botAt: entry.botPressAt };
@@ -3040,7 +3257,9 @@ const boat = {
   },
   detail(arcade, entry) {
     const caps = entry.capsizes || 0;
-    return { kind: "points", value: Math.round(entry.score || 0), label: "Punkte", extra: caps ? `${caps}× gekentert` : null };
+    const over = entry.overboard || 0;
+    const extra = [caps ? `${caps}× gekentert` : null, over ? `${over} über Bord` : null].filter(Boolean).join(" · ");
+    return { kind: "points", value: Math.round(entry.score || 0), label: "Punkte", extra: extra || null };
   },
   done(ctx) {
     const state = ctx.arcade.boat;
@@ -3498,6 +3717,7 @@ module.exports = {
   boatRounds,
   boatRoundKind,
   boatBestAim,
+  boatLookaheadAim,
   buildPhotoShots,
   buildBookPages,
   bookInHole,
