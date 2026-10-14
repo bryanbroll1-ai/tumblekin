@@ -597,12 +597,16 @@ export class CliffClimb extends MinigameScene {
         // Oben: über die Kante auf das Plateau, zur Kamera drehen, jubeln.
         const over = Math.min(1, (now - (this.finishSeenAt.get(player.id) ?? now)) / 650);
         kin.position.x += (kin.userData.laneX - kin.position.x) * frameLerp(0.2, dt);
-        kin.position.z += (PLATEAU_Z - kin.position.z) * frameLerp(over < 1 ? 0.14 : 0.3, dt);
         // Von der Wand über die Kante gezogen, nicht hinaufgesprungen: die
-        // Kante liegt jetzt fast eine Figur über den Füssen.
+        // Kante liegt fast eine Figur über den Füssen. Erst hoch, dann nach
+        // hinten aufs Plateau — rückte die Figur gleichzeitig nach hinten,
+        // steckte sie kurz mit den Beinen in der Wand.
         const wallY = KIN_BASE_Y + (entry.rung || this.summit || 0) * WORLD_PER_RUNG;
-        const lift = over * over * (3 - 2 * over);
-        animator.groundY = wallY + (standOn(this.summitTop + 0.1) - wallY) * lift + Math.sin(over * Math.PI) * 0.32;
+        const ease = (t) => t * t * (3 - 2 * t);
+        const rise = ease(Math.min(1, over / 0.6));
+        const walk = ease(Math.max(0, (over - 0.5) / 0.5));
+        kin.position.z = KIN_Z + (PLATEAU_Z - KIN_Z) * walk;
+        animator.groundY = wallY + (standOn(this.summitTop + 0.1) - wallY) * rise + Math.sin(Math.min(1, over / 0.75) * Math.PI) * 0.32;
         kin.rotation.y += Math.atan2(Math.sin(-kin.rotation.y), Math.cos(-kin.rotation.y)) * frameLerp(over < 1 ? 0.06 : 0.14, dt);
         animator.set(over < 1 ? "clamber" : finale && (f.places?.[player.id] || 9) !== 1 ? "wave" : "cheer");
       } else if (finale) {
