@@ -31,8 +31,18 @@ const SCHWELLE_MS = 4000;
 // Was ausser dem Punktestand als Geschehen zählt. Beim Luftpuck ändern sich
 // die Plätze nur bei Toren (Puckkontakte sind bewusst kein Stichentscheid
 // mehr), gespielt wird aber ständig — jeder Schlag auf den Puck ist Geschehen.
+//
+// Beim Tauziehen ändert sich die Wertung genau einmal: mit der Entscheidung.
+// Endet die Runde unentschieden, ändert sie sich nie — und die ganze Runde
+// galt als Stillstand, obwohl fünfzehn Sekunden lang alle am Seil reissen und
+// 1,2 s nach dem Schlusspfiff das Finale beginnt. Bei Bots, die fast gleich
+// schnell ziehen, ist das jede zehnte bis zwanzigste Runde; aus acht Runden
+// gemittelt sprang der Wert dadurch je Unentschieden um gut zwei Sekunden
+// (1,2 / 3,3 / 5,4 / 7,4 s). Das Seil ist das Geschehen: es läuft bis zur
+// Entscheidung und steht danach still.
 const GESCHEHEN = {
-  luftpuck: (arcade) => arcade.hockey?.touches ?? 0
+  luftpuck: (arcade) => arcade.hockey?.touches ?? 0,
+  tauziehen: (arcade) => arcade.tug?.pos ?? 0
 };
 
 function lauf(type) {

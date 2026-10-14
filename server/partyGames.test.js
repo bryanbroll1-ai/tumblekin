@@ -143,6 +143,44 @@ test("Tauziehen: gleich schnell bis zum Schluss ist unentschieden", () => {
   g.restore();
 });
 
+// Nach der Entscheidung bleibt kurz Zeit zum Hinschauen — der Ruck in den
+// Schlamm, das Schulterzucken beim Unentschieden —, dann folgt das Finale.
+// Gemessen ab dem Augenblick der Entscheidung, nicht ab dem letzten
+// Punktestand: beim Unentschieden ändert sich keiner.
+test("Tauziehen: nach der Entscheidung höchstens zwei Sekunden bis zum Finale", () => {
+  const faelle = {
+    linie: { takt: [120, null], decidedBy: "line", winner: 0 },
+    zeit: { takt: [140, 190], decidedBy: "time", winner: 0 },
+    remis: { takt: [null, null], decidedBy: "time", winner: null }
+  };
+  for (const [name, fall] of Object.entries(faelle)) {
+    const g = setup("tauziehen", 2);
+    try {
+      const naechst = [0, 0];
+      let finaleBei = null;
+      for (let t = 0; t <= g.minigame.duration && finaleBei === null; t += 20) {
+        g.at(t);
+        g.players.forEach((p, i) => {
+          if (fall.takt[i] === null || t < naechst[i]) return;
+          g.input(p, { action: "pull" });
+          naechst[i] = t + fall.takt[i];
+        });
+        g.tick();
+        if (g.minigame.finaleAt) finaleBei = t;
+      }
+      const state = g.arcade.tug;
+      assert.equal(state.decidedBy, fall.decidedBy, `${name}: entschieden durch`);
+      assert.equal(state.winner, fall.winner, `${name}: Sieger`);
+      if (fall.decidedBy === "line") {
+        assert.ok(state.winAt < C.TUG_LEAD_MS + C.TUG_ROUND_MS, `${name}: vor dem Schlusspfiff entschieden`);
+      }
+      assert.ok(finaleBei !== null, `${name}: das Finale beginnt`);
+      const ausklang = finaleBei - state.winAt;
+      assert.ok(ausklang >= 1000 && ausklang <= 2000, `${name}: Ausklang ${ausklang} ms`);
+    } finally { g.restore(); }
+  }
+});
+
 test("Tauziehen: Bots ziehen und niemand wirft", () => {
   const g = setup("tauziehen", 4, { bots: true });
   const next = g.players.map(() => 0);
