@@ -66,7 +66,12 @@ async function act(type){
  if(type==='ballonfahrt'){await held('canvas.kinetic-webgl','p.holding','!p.holding');await tap('[data-glide-drop]');await wait('p.bags.length===1');return;}
  if(type==='spurmaler'){await wait('s.canTrace()');await drag(190,400,60,30);await wait('(p.strokeLen||0)>1');return;}
  if(type==='sortierband'){
-  await wait('s.reachableNow');const before=await read('({sorted:p.sorted,wrong:p.wrong})');await drag(190,400,0,-65);assert.deepEqual(await read('({sorted:p.sorted,wrong:p.wrong})'),before,'upward swipe must not sort right');await wait('s.reachableNow');
+  await wait('s.reachableNow');const before=await read('({sorted:p.sorted,wrong:p.wrong})');await drag(190,400,0,-65);assert.deepEqual(await read('({sorted:p.sorted,wrong:p.wrong})'),before,'upward swipe must not sort right');
+  // Ohne Grafikkarte zeichnet der Prüfbrowser gut zehn Bilder pro Sekunde,
+  // und jeder Touch-Schritt wartet auf eines: ein Wisch dauert fast zwei
+  // Sekunden. Ein Teil, das schon weit gerollt ist, fällt in der Zeit vom
+  // Band. Also erst wischen, wenn eines gerade in Reichweite gekommen ist.
+  await wait('s.reachableNow && s.headTarget<0.45');
   const chute=await read('s.layout.indexOf(s.displayQueue[0].colour)');await drag(190,400,chute===1?0:chute===0?-70:70,chute===1?70:0);await wait('p.sorted>0');return;
  }
  if(type==='angelduell'){await held('[data-fish-reel]','p.lastReelAt>g.startedAt','p.lastReelAt===0');return;}

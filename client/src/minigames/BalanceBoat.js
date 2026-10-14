@@ -49,6 +49,10 @@ function angleDiff(target, current) {
 export class BalanceBoat extends MinigameScene {
   constructor(ctx) {
     super(ctx);
+    // Die Kamera hält die Punkte am Steg (keepInView), nicht die eigene
+    // Figur: die läuft zwischen ihnen hin und her und schob den Ausschnitt
+    // bei jedem eigenen Zug ein Stück mit.
+    this.ownInView = false;
     this.seenEvents = 0;
     this.splashSeen = 0;
     this.boatNumber = -1;
@@ -98,10 +102,22 @@ export class BalanceBoat extends MinigameScene {
     this.boat = this.makeBoat();
     this.raft.add(this.boat);
     const players = this.getState()?.players || [];
+    // Die Wartenden stehen dicht beim Hebel und zur Bildmitte hin: die Kamera
+    // steht fest auf Boot und Kran, und vorn auf dem Steg (z über 1) lag der
+    // erste Platz schon ausserhalb des Bildes.
     players.forEach((player, index) => {
-      const z = 1.9 - index * 0.95;
-      this.addKin(player, index, { x: PIER_X + 0.9, ground: 0.42, z, facing: -Math.PI / 2 + 0.35 });
-      this.kins.get(player.id).userData.home = new THREE.Vector3(PIER_X + 0.9, 0, z);
+      const z = 0.9 - index * 0.75;
+      this.addKin(player, index, { x: PIER_X + 0.7, ground: 0.42, z, facing: -Math.PI / 2 + 0.35 });
+      this.kins.get(player.id).userData.home = new THREE.Vector3(PIER_X + 0.7, 0, z);
+    });
+    // Zwei feste Punkte für die Kamera, je ein Stück jenseits des vordersten
+    // Warteplatzes und des Hebels: alles, wohin eine Figur auf dem Steg geht,
+    // liegt dazwischen — mit Luft zum Bildrand.
+    this.pierMarks = [[PIER_X + 1.2, 1.5], [PIER_X + 1.1, -2.6]].map(([x, z]) => {
+      const mark = new THREE.Object3D();
+      mark.position.set(x, 0.42, z);
+      scene.add(mark);
+      return mark;
     });
   }
 
@@ -362,8 +378,10 @@ export class BalanceBoat extends MinigameScene {
   }
 
 
+  // Nicht die Figuren selbst: bei jedem Zug geht einer zum Hebel, und die
+  // Kamera zoomte jedes Mal mit. Die beiden Punkte am Steg stehen still.
   keepInView() {
-    return [];
+    return this.pierMarks || [];
   }
 
   shot() {
@@ -371,10 +389,10 @@ export class BalanceBoat extends MinigameScene {
       // Ein fester Ausschnitt auf Boot und Kran, von schräg oben. Vorher
       // rahmte die Kamera auch alle Figuren auf dem Steg ein — und weil bei
       // jedem Zug einer zum Hebel lief, zoomte sie jedes Mal heraus und
-      // wieder herein. Wer dran ist, steht in der Anzeige oben; der Steg
-      // ragt rechts ins Bild.
-      look: [0.25, 1.05, -0.7],
-      frame: { w: 6.2, h: 3.6 },
+      // wieder herein. Wer dran ist, steht in der Anzeige oben. Rechts im
+      // Bild der Steg mit Hebel und allen Wartenden.
+      look: [0.7, 1.05, -0.7],
+      frame: { w: 7.2, h: 3.6 },
       pitch: 0.5,
       yaw: -0.12,
       fov: 38,
