@@ -58,6 +58,7 @@ export function openScanner({ title = "QR-Code scannen", hint = "", accept = () 
     let done = false;
     let timer = null;
     let lastRejected = "";
+    let frame = 0;
     const finish = (text) => {
       if (done) return;
       done = true;
@@ -77,12 +78,25 @@ export function openScanner({ title = "QR-Code scannen", hint = "", accept = () 
           native = null;
         }
       }
-      // Auf höchstens 640 Pixel verkleinert: das reicht für die Module und
-      // hält jedes Bild unter ~50 ms, auch auf älteren Handys.
-      const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
-      canvas.width = Math.round(video.videoWidth * scale);
-      canvas.height = Math.round(video.videoHeight * scale);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // Abwechselnd das ganze Bild, auf höchstens 640 Pixel verkleinert, und
+      // die Mitte im Rahmen in voller Auflösung (höchstens 720 Pixel): ein
+      // kleiner oder weiter entfernter Code hat dort genug Pixel je Modul.
+      // So bleibt jedes Bild unter ~50 ms, auch auf älteren Handys.
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      frame += 1;
+      if (frame % 2) {
+        const scale = Math.min(1, 640 / Math.max(vw, vh));
+        canvas.width = Math.round(vw * scale);
+        canvas.height = Math.round(vh * scale);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      } else {
+        const side = Math.round(Math.min(vw, vh) * 0.8);
+        const size = Math.min(side, 720);
+        canvas.width = size;
+        canvas.height = size;
+        ctx.drawImage(video, (vw - side) / 2, (vh - side) / 2, side, side, 0, 0, size, size);
+      }
       return decodeQr(ctx.getImageData(0, 0, canvas.width, canvas.height));
     };
     const tick = async () => {

@@ -124,7 +124,7 @@ function handleState(state) {
   currentState = state;
   network.syncClock(state.serverTime);
   if (state.hostConnected === false) {
-    ui.setConnectionStatus("warning", "Host-Verbindung verloren. Keine Host-Aktionen möglich.");
+    ui.setConnectionStatus("warning", "Host-Verbindung verloren. Kommt er nicht zurück, übernimmt gleich jemand anderes.");
   } else {
     ui.setConnectionStatus("online");
   }

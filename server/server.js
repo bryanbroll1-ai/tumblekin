@@ -29,6 +29,10 @@ const READY_MAX_MS = 60000;
 // scene keeps playing for this long — winners celebrate on camera — before
 // the scoreboard appears. No more abrupt cuts.
 const MINIGAME_FINALE_MS = 2600;
+// Kommt der Host nach einem Verbindungsabbruch nicht zurück, leitet nach
+// dieser Zeit ein anderer Mensch die Party. Vorher blieben alle in Lobby
+// oder Siegerehrung stehen: starten, Modus und Revanche darf nur der Host.
+const HOST_HANDOVER_MS = 20000;
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 const BOT_NAMES = ["Nova", "Pix", "Sol", "Mo", "Kiki", "Rumo", "Flint", "Bea"];
@@ -8201,10 +8205,11 @@ function leaveCurrentRoom(socket, notify, intentional = false) {
       }, room.status === "lobby" ? 30000 : 120000);
     }
   } else {
+    if (controlledPlayers.some((candidate) => candidate.id === room.hostId)) scheduleHostHandover(room);
     if (notify) {
       const hostLeft = controlledPlayers.some((candidate) => candidate.id === room.hostId);
       room.lastMessage = hostLeft
-        ? "Host-Verbindung verloren. Das Spiel bleibt sichtbar, aber Host-Aktionen sind gesperrt."
+        ? `Host-Verbindung verloren. Kommt er nicht in ${HOST_HANDOVER_MS / 1000} Sekunden zurück, übernimmt jemand anderes.`
         : `${player?.name || "Ein Spieler"} hat die Verbindung verloren.`;
       io.to(room.code).emit("roomNotice", {
         severity: hostLeft ? "error" : "warning",
@@ -8213,6 +8218,29 @@ function leaveCurrentRoom(socket, notify, intentional = false) {
       emitRoom(room);
     }
   }
+}
+
+// Eigener Zeitgeber statt setTrackedTimeout: clearRoomTimers läuft bei jedem
+// Rundenwechsel und hätte die Übergabe sonst still verworfen.
+function scheduleHostHandover(room) {
+  clearTimeout(room.hostHandoverTimer);
+  room.hostHandoverTimer = setTimeout(() => {
+    room.hostHandoverTimer = null;
+    if (rooms.get(room.code) !== room) return;
+    const host = room.players.find((candidate) => candidate.id === room.hostId);
+    if (host?.connected) return;
+    const next = room.players.find((candidate) => !candidate.isBot && candidate.connected !== false && candidate.id !== room.hostId);
+    if (next) handOverHost(room, next);
+  }, HOST_HANDOVER_MS);
+  room.hostHandoverTimer.unref?.();
+}
+
+function handOverHost(room, next) {
+  room.hostId = next.id;
+  room.players.forEach((candidate) => { candidate.isHost = candidate.id === room.hostId; });
+  room.lastMessage = `${next.name} leitet jetzt die Party.`;
+  io.to(room.code).emit("roomNotice", { severity: "warning", message: `Der Host ist nicht zurückgekommen — ${next.name} leitet jetzt die Party.` });
+  emitRoom(room);
 }
 
 function findRoomForSocket(socket, code) {
@@ -8382,6 +8410,9 @@ module.exports = {
     continueAfterResult,
     resetToLobby,
     clearRoomTimers,
+    leaveCurrentRoom,
+    rooms,
+    HOST_HANDOVER_MS,
     createPlayer,
     addBotTo,
     serializeRoom,

@@ -134,6 +134,14 @@ body:not(.qr-join) .offline-note .qr, body:not(.qr-join) .scan-qr, body:not(.qr-
 .qr-show.has-code .qr-wait { display: none; }
 .qr-wait { color: #282631; font-weight: 900; }
 .qr-overlay .btn { min-width: 220px; }
+/* Quer gehalten (Browser-Fassung): Bild und Code an die Höhe anpassen, damit
+   Titel, Hinweis und Abbrechen daneben Platz haben. */
+@media (max-height: 560px) {
+  .qr-overlay { gap: 8px; }
+  .qr-view, .qr-code-box { width: min(56vh, 84vw); }
+  .qr-hint { font-size: 13px; }
+  .qr-join .invite-card img { width: min(260px, 50vh); height: min(260px, 50vh); }
+}
 `;
 const note = `<p class="offline-note"><span class="solo"><span class="web-only">Browser-Fassung</span><span class="app-only">Test-App</span>: du spielst gegen Bots. Tippe in der Lobby auf „+ Bot“.</span><span class="multi">Party starten und Freunde per Code einladen — oder unten beitreten.</span><span class="qr">Party starten und Freunde per QR-Code einladen — oder unten den Code eines Hosts scannen.</span></p>`;
 const bodyWithNote = body.replace('<button id="create-room"', `${note}\n          <button id="create-room"`);

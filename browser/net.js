@@ -626,12 +626,16 @@ class LocalHost extends Host {
     if (parsed?.kind !== "answer") return "Das ist nicht der Antwort-Code eines Gasts.";
     const invite = this.invites.get(parsed.id);
     if (!invite) return "Dieser Code gehört zu einer älteren Einladung. Der Gast soll deinen Code noch einmal scannen.";
-    if (invite.answered) return true;
+    // Zweimal derselbe Gast ist harmlos; haben zwei Gäste denselben Code
+    // gescannt, kommt nur der erste durch.
+    if (invite.answered) return invite.answeredBy === parsed.desc[1] ? true : "Diesen Code hat schon ein anderer Gast benutzt. Dein Freund soll deinen neuen Code scannen.";
     invite.answered = true;
+    invite.answeredBy = parsed.desc[1];
     try {
       await invite.pc.setRemoteDescription({ type: "answer", sdp: expandSdp(parsed.desc) });
     } catch {
       invite.answered = false;
+      invite.answeredBy = null;
       return "Der Code liess sich nicht verwenden. Bitte noch einmal scannen.";
     }
     // Das Angebot ist vergeben: der nächste Gast bekommt ein neues.
