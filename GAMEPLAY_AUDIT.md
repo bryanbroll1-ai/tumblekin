@@ -166,3 +166,11 @@ Kosten: ein Rechenschritt (20 ms Spielzeit) braucht mit sieben Tieren 0,1 ms; ei
 | Lichtwächter | Nur der Knopf unten zählte; mit 700 → 360 ms Drehung plus 160 ms Nachfrist kam man ohne Treffer durch. | Halten zählt überall auf dem Bild. Drehung 560 → 300 ms, Nachfrist 120 ms. |
 | Messerwurf | Wer raus war, sah eine halbe Minute den eigenen stillen Stamm unter einem Banner. | Das Banner verschwindet nach 2,5 s, die Kamera rückt auf die Stämme der anderen. |
 | Kippboot (aus der Gesamtprüfung) | Der feste Ausschnitt reichte nicht bis zum Steg; erst das Nachführen der eigenen Figur holte ihn ins Bild — der vorderste Warteplatz lag trotzdem draussen, und bei jedem eigenen Gang zum Hebel rückte das Bild mit. | Grundausschnitt etwas breiter und nach rechts, Warteplätze enger beim Hebel; die Kamera hält zwei feste Punkte am Steg statt der eigenen Figur und steht damit wirklich still. |
+
+### Zweite Runde am selben Tag
+
+| Spiel | Befund | Änderung |
+| --- | --- | --- |
+| Bergsteiger | Die Figur hing eine halbe Figur unter den Griffen: die lagen über dem Kopf, der Arm ist aber nur gut 0,23 lang. | Der neueste Griff liegt knapp über der Schulter in Reichweite des schräg hochgestreckten Arms, der andere auf Schulterhöhe — beide Hände liegen auf ihren Griffen. |
+| Trampolin | Unter den Trampolinen flackerten grüne Zacken durch den Sand. | Die Grasflecken der Wiese lagen auf derselben Höhe wie die Manege (1,2 cm); die Manege liegt jetzt klar darüber. |
+| Fassmut | Wer getroffen wurde, bekam das Fass nicht auf den Kopf: es blieb auf fester Höhe (0,86) über dem Kopf stehen, der in der Duckhaltung bei 0,6 endet, und die Figur schlug darunter einen Salto. | Dicht am Kopf misst die Szene den echten Kopf jeder Figur; das Fass setzt darauf auf, drückt die Figur von der Sohle aus zusammen, bleibt dabei auf dem Kopf und kippt dann zur Seite. Blatt, Krone und Antenne werden darunter plattgedrückt. Lineal und Kopflinie messen ab 0,6. |

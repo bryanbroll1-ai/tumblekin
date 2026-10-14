@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin215";
+import { reachArm, standOn } from "./VoxelKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { eventChance, frameLerp } from "./Quality.js?v=tumblekin215";
 
@@ -27,7 +27,16 @@ const LANE_GAP = 1.4;
 // Weltmass je Meter Fallhöhe. Kleiner als früher: die Kamera muss vom Balken
 // bis zu den Füssen alles zeigen, und mit 0.3 war die Figur darunter winzig.
 const METER = 0.24;
-const HEAD_TOP = 0.86;                // Oberkante des Kopfes
+// Oberkante des Kopfes in der Duckhaltung, in der man auf das Fass wartet —
+// Lineal, Kopflinie und Schatten messen von hier. 0.86 lag über Blatt, Krone
+// und Antenne: das Fass "traf" eine Handbreit über dem Kopf in der Luft.
+// Dicht am Kopf misst die Szene ohnehin den echten Kopf jeder Figur
+// (headTopOf), und was obendrauf sitzt, drückt das Fass platt.
+const HEAD_TOP = 0.6;
+// Unterhalb dieser Höhe (in Metern) hängt das Fass am gemessenen Kopf statt
+// an HEAD_TOP — so berührt es den Kopf wirklich, wenn es trifft.
+const HEAD_NEAR_M = 1.5;
+const _headBox = new THREE.Box3();
 const BARREL_R = 0.3;
 const BARREL_H = 0.62;
 const KIN_Z = 0.3;
@@ -66,6 +75,14 @@ function verdict(distance) {
   if (distance < 1.2) return { word: "MUTIG!", color: "#7fe0a8" };
   if (distance < 3) return { word: "SOLIDE", color: "#ffe9a8" };
   return { word: "ANGSTHASE!", color: "#dfe7ff" };
+}
+
+// Oberkante des Kopfblocks in der Welt, ohne Blatt, Krone oder Antenne (die
+// hängen als eigene Teile am Kopf). Ein Bild alt — das reicht zum Aufsetzen.
+function headTopOf(kin) {
+  const block = kin?.userData?.head?.children?.[0];
+  if (!block) return NaN;
+  return _headBox.setFromObject(block).max.y;
 }
 
 function barrelAt(t, brakeAt, startM, w = NORMAL_FASS) {
@@ -301,7 +318,8 @@ export class BarrelDare extends MinigameScene {
     this.addKin(player, index, { x, ground: 0, z: KIN_Z, facing: 0 });
     this.lanes.set(player.id, {
       x, barrel, ropeTop, ropeHand, ropeTail, knots, coil, pulleyY, ghost, plate,
-      shown: this.startM, settledAt: null, squashAt: null, fell: null
+      shown: this.startM, settledAt: null, squashAt: null, fell: null,
+      headTop: HEAD_TOP, accH: 0, lastSquash: 1
     });
   }
 
@@ -463,22 +481,65 @@ export class BarrelDare extends MinigameScene {
         lane.shown += (startM * 0.62 - lane.shown) * e;
       }
 
-      const bottom = HEAD_TOP + Math.max(0, lane.shown) * METER;
+      // Der echte Kopf (ohne Blatt, Krone oder Antenne), geglättet gegen das
+      // Wippen der Haltung. Gemessen wird, solange nichts darauf liegt.
+      const accessory = kin.userData.accessory;
+      if (!hit) {
+        const measured = headTopOf(kin);
+        if (Number.isFinite(measured)) lane.headTop += (measured - lane.headTop) * frameLerp(0.3, dt);
+        // Wie hoch Blatt, Krone oder Antenne über den Kopf ragen — nur
+        // messbar, solange nichts sie plattdrückt.
+        if (accessory && accessory.scale.y > 0.99) {
+          const top = _headBox.setFromObject(accessory).max.y;
+          if (Number.isFinite(top) && Number.isFinite(measured)) lane.accH += (Math.max(0, top - measured) - lane.accH) * frameLerp(0.3, dt);
+        }
+      }
+      const nearHead = Math.max(0, Math.min(1, 1 - lane.shown / HEAD_NEAR_M));
+      const bottom = HEAD_TOP + (lane.headTop - HEAD_TOP) * nearHead + Math.max(0, lane.shown) * METER;
       const swing = t < 0 ? Math.sin(now / 520 + lane.x) * 0.05 : caught ? Math.sin(since * 9) * 0.08 * Math.exp(-since * 2) : 0;
 
       if (hit) {
-        // Voll auf den Kopf: die Figur wird gestaucht, das Fass kippt zur Seite.
-        if (lane.squashAt === null) lane.squashAt = now;
+        // Voll auf den Kopf: das Fass setzt auf dem Kopf auf und drückt die
+        // Figur von der Sohle aus zusammen — es bleibt dabei auf dem Kopf —,
+        // dann kippt es zur Seite. Vorher blieb es über dem Kopf stehen,
+        // während die Figur darunter einen Salto schlug.
+        if (lane.squashAt === null) {
+          lane.squashAt = now;
+          lane.lastSquash = 1;
+        }
         const s = (now - lane.squashAt) / 1000;
         const tip = Math.min(1, Math.max(0, (s - 0.45) / 0.5));
-        lane.barrel.position.set(lane.x + tip * 0.62, HEAD_TOP - 0.28 * Math.min(1, s / 0.12) * (1 - tip) + tip * (BARREL_R - HEAD_TOP + 0.02), 0);
-        lane.barrel.rotation.set(0, 0, -tip * Math.PI / 2);
         const squash = s < 0.12 ? 1 - (s / 0.12) * 0.55 : s < 0.8 ? 0.45 : Math.min(1, 0.45 + (s - 0.8) * 2.5);
+        // Das Fass folgt dem Kopf: beim Zusammendrücken hinunter, beim
+        // Aufrichten wieder hinauf, während es zur Seite kippt. Gemessen ist
+        // der Kopf des letzten Bildes; die Stauchung wirkt von der Sohle
+        // (y = 0) aus, also rechnet ihr Verhältnis ihn auf dieses Bild um.
+        const live = headTopOf(kin);
+        const pressed = Number.isFinite(live) ? live * (squash / (lane.lastSquash || 1)) : lane.headTop * squash;
+        lane.lastSquash = squash;
+        lane.barrel.position.set(lane.x + tip * 0.62, pressed * (1 - tip) + tip * (BARREL_R + 0.02), 0);
+        lane.barrel.rotation.set(0, 0, -tip * Math.PI / 2);
         kin.scale.set(1 + (1 - squash) * 0.5, squash, 1 + (1 - squash) * 0.5);
+        // Die Figur wird um ihren Ursprung gestaucht, der eine Sohlenhöhe über
+        // dem Boden liegt; so bleiben die Füsse am Boden.
+        animator.groundY = standOn(0) * squash;
+        // Was auf dem Kopf sitzt, liegt flach unter dem Fass und springt
+        // wieder auf, sobald es herunterkippt.
+        if (accessory) accessory.scale.y = 0.15 + 0.85 * tip;
+        // Solange das Fass auf ihr liegt, steht die Figur nicht für sich —
+        // die Bodenprüfung hielt das Fass auf dem Kopf sonst für Boden.
+        kin.userData.outOfPlay = tip < 1;
       } else {
+        kin.userData.outOfPlay = false;
         lane.barrel.position.set(lane.x, bottom, 0);
         lane.barrel.rotation.set(0, 0, swing);
         kin.scale.set(1, 1, 1);
+        // Hängt das Fass dicht über dem Kopf, drückt es Blatt, Krone oder
+        // Antenne ein Stück ein, statt durch sie hindurchzuragen.
+        if (accessory) {
+          const room = bottom - lane.headTop;
+          accessory.scale.y = lane.accH > 0.01 ? Math.max(0.15, Math.min(1, room / lane.accH)) : 1;
+        }
       }
 
       // Der Schatten: Haltepunkt bei einem Zug JETZT.
@@ -535,7 +596,8 @@ export class BarrelDare extends MinigameScene {
       // Getroffen.
       if (hit && !this.lastHitAt.get(player.id)) {
         this.lastHitAt.set(player.id, now);
-        animator.trigger("knockback");
+        // Kein Rückwärtssalto: das Fass liegt auf dem Kopf, die Figur ist
+        // plattgedrückt. Der Treffer steckt in Stauchung, Splittern und Ton.
         animator.expression("dizzy", 2600);
         const at = kin.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.9, 0));
         this.burst(at, [player.color, "#c9a26f", "#ffffff"], { count: 18, speed: 2.6, up: 2.2, size: 0.09, life: 0.8, drag: 1.3 });

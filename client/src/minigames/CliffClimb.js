@@ -37,11 +37,14 @@ const HOLDS_PER_LANE = 40;
 // liegt die Innenkante knapp ausserhalb, und die Hand reicht trotzdem hin.
 const HOLD_REACH = 0.37;              // seitlicher Abstand des Griffs zur Bahn
 const HOLD_W = 0.26;
-// Griffhöhe über der Sohle bei Sprosse 0. Die Hände greifen die zuletzt
-// gepackten Griffe; mit 0.39 lag der neueste eine Sprosse unter der Schulter,
-// und die Figur hantierte mit hängenden Armen. Gut zwei Sprossen höher hängt
-// er über dem Scheitel — beim Klettern sind die Arme oben.
-const HOLD_LIFT = 1.05;
+// Griffhöhe bei Sprosse 0, gemessen an der Schulter (kin.position.y). Die
+// Hände greifen die zuletzt gepackten Griffe, und der Arm ist nur gut 0,23
+// lang. Mit 0.39 zeigte der andere Arm schräg nach unten; mit 1.05 hingen
+// die Griffe über dem Kopf, und die Figur hing eine halbe Figur darunter,
+// ohne sie zu erreichen. Jetzt liegt der neueste Griff (eine Sprosse tiefer)
+// knapp über der Schulter in Reichweite des schräg hochgestreckten Arms, der
+// andere auf Schulterhöhe — beide Hände liegen auf ihren Griffen.
+const HOLD_LIFT = 0.48;
 // Die Gipfelkante liegt eine Handbreit über dem letzten Griff.
 const SUMMIT_ABOVE = HOLD_LIFT - 0.09;
 const HOLD_FACE_Z = -0.36;            // Vorderseite der Griffe

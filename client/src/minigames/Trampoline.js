@@ -242,16 +242,19 @@ export class Trampoline extends MinigameScene {
   buildCircus(count) {
     const scene = this.scene;
     const zufall = streuer(61);
+    // Klar über den Grasflecken der Wiese (0.008 und 0.012): auf gleicher
+    // Höhe stritten Sand und Gras in jedem Bild, wer vorn liegt, und unter
+    // den Trampolinen flackerten grüne Zacken durch die Manege.
     const manege = new THREE.Mesh(new THREE.CircleGeometry(4.4, 40), lambert("#e6c58f"));
     manege.rotation.x = -Math.PI / 2;
-    manege.position.set(0, 0.012, -0.6);
+    manege.position.set(0, 0.03, -0.6);
     manege.receiveShadow = true;
     scene.add(manege);
     const spaene = [];
     for (let i = 0; i < 70; i += 1) {
       const a = zufall() * Math.PI * 2;
       const r = Math.sqrt(zufall()) * 4.2;
-      spaene.push({ p: [Math.cos(a) * r, 0.016, -0.6 + Math.sin(a) * r], r: [-Math.PI / 2, 0, zufall() * 3], s: 0.05 + zufall() * 0.05 });
+      spaene.push({ p: [Math.cos(a) * r, 0.04, -0.6 + Math.sin(a) * r], r: [-Math.PI / 2, 0, zufall() * 3], s: 0.05 + zufall() * 0.05 });
     }
     viele(scene, new THREE.PlaneGeometry(1, 1), lambert("#cfa56a"), spaene);
     const rand = [[], []];
