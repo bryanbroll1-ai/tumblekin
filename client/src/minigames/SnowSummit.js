@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm, standOn } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin214";
-import { frameLerp, frameChance } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin214";
-import { forecastSnow, snowRules, canDash, ballRadius } from "./Schneeball.js?v=tumblekin214";
+import { reachArm, standOn } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin215";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer, berge, himmel } from "./Kulisse.js?v=tumblekin215";
+import { forecastSnow, snowRules, canDash, ballRadius } from "./Schneeball.js?v=tumblekin215";
 
 // Schneeballhang — Gipfelschubsen. Ein rundes Plateau aus Eis und Schnee auf
 // der Bergspitze, ringsum fällt der Hang steil ab. Jeder rollt eine Kugel

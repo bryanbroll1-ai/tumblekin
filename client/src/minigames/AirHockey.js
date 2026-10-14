@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp, fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin214";
-import { createNameLabel } from "./VoxelKit.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
-import { blockform } from "./Blockform.js?v=tumblekin214";
-import { forecastHockey, hockeyRules, limits } from "./Puckbahn.js?v=tumblekin214";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp, fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin215";
+import { createNameLabel } from "./VoxelKit.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
+import { blockform } from "./Blockform.js?v=tumblekin215";
+import { forecastHockey, hockeyRules, limits } from "./Puckbahn.js?v=tumblekin215";
 
 // Luftpuck — Glow-Hockey in einer Neon-Spielhalle. Jeder Spieler IST ein
 // Airhockey-Schläger: runder Fuss in der eigenen Farbe, ein Neonring in der

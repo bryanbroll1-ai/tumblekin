@@ -623,6 +623,17 @@ const COLORGRID_ANNOUNCE_MS = [3400, 3000, 2700, 2450, 2200, 2000, 1800, 1650];
 const COLORGRID_SAFE = [9, 7, 6, 5, 4, 3, 3, 2];
 const COLORGRID_ROUNDS = COLORGRID_ANNOUNCE_MS.length;
 const COLORGRID_DROP_MS = 1300;           // Felder weg, wer falsch steht, fällt
+// Ein Schritt, der beim Wegbrechen noch unterwegs war, zählt: gewertet wird
+// erst so lange nach dem Ende der Ansage. Weniger, als ein Mensch braucht, um
+// auf das Wegbrechen zu reagieren — es fängt nur Netz und Taktung auf. Vorher
+// sah man sich auf dem richtigen Feld, der letzte Schritt kam einen Hauch zu
+// spät an, und die Figur wurde ein Feld zurückgesetzt und fiel.
+const COLORGRID_STEP_GRACE_MS = 150;
+// Schritte kommen als kurze Folge (Wischen über mehrere Felder): bis zu drei
+// am Stück, danach einer je 70 ms. Eine feste Sperre von 110 ms verschluckte
+// den zweiten, wenn ihn das Netz dichter an den ersten rückte.
+const COLORGRID_STEP_BURST = 3;
+const COLORGRID_STEP_REFILL_MS = 70;
 // Entscheidung: stehen nach der achten Runde noch mehrere, geht es weiter —
 // mit EINEM sicheren Feld, gleich weit von allen. Vorher überstanden oft zwei
 // oder drei alle Runden, und den Sieg entschied eine Durchschnittszeit, die
@@ -646,10 +657,12 @@ const REDLIGHT_GOAL = 52;             // metres to the guard's gate
 const REDLIGHT_SPEED = 3.8;           // run speed while holding
 const REDLIGHT_PENALTY = 5;           // metres lost when caught moving on red
 const REDLIGHT_STUN_MS = 1200;        // so lange steht man nach dem Erwischen
-const REDLIGHT_GRACE_MS = 160;        // Netz und Finger — mehr braucht es nach der Drehphase nicht
+const REDLIGHT_GRACE_MS = 120;        // Netz und Finger — mehr braucht es nach der Drehphase nicht
 const REDLIGHT_HOLD_FRESH_MS = 450;   // ohne Loslass-Meldung gilt man so lange noch als haltend
-const REDLIGHT_TURN_FIRST_MS = 700;   // die erste Drehung ist langsam
-const REDLIGHT_TURN_LAST_MS = 360;    // gegen Ende dreht er sich schnell um
+// Die Drehung ist die Reaktionszeit. Mit 700 → 360 ms (plus 160 ms Nachfrist)
+// kam man ohne einen einzigen Treffer durch; jetzt ist es am Ende knapp.
+const REDLIGHT_TURN_FIRST_MS = 560;   // die erste Drehung ist langsam
+const REDLIGHT_TURN_LAST_MS = 300;    // gegen Ende dreht er sich schnell um
 
 // Seilspringen — spring über das Seil; wer es einmal nicht schafft, ist raus.
 //
@@ -2916,6 +2929,7 @@ function createArcadeState(type, players, startedAt, options = {}) {
     arcade.roundCount = COLORGRID_ROUNDS;
     arcade.round = -1;
     arcade.phase = "announce";
+    arcade.stepGraceMs = COLORGRID_STEP_GRACE_MS;
     arcade.targetColor = 0;
     arcade.grid = [];
     const starts = [[1, 2], [3, 2], [1, 5], [3, 5]];
@@ -3895,7 +3909,7 @@ function handleArcadeInput(room, player, rawInput) {
   // Das Finale zeigt bereits festgelegte Plätze. Auch direkte Aufrufe aus
   // Bots oder Werkzeugen dürfen diesen Stand nicht nachträglich verändern.
   if (minigameFrozen(minigame, now)) return { ok: false, error: "Das Minispiel ist vorbei." };
-  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 110, stopclock: 60, redlight: 0, wave: 200, pump: 0, barrel: 0, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, belt: 90, fish: 60, paint: 0 };
+  const cooldowns = { daredevil: 200, dive: 0, plinko: 180, curling: 180, runner: 0, colorgrid: 0, stopclock: 60, redlight: 0, wave: 200, pump: 0, barrel: 0, bomb: 150, catchfall: 110, whack: 80, cannon: 200, simon: 0, react: 200, knife: 90, stack: 90, climb: 40, seek: SEEK_COOLDOWN_MS, estimate: 0, glide: 0, bounce: 0, feint: 0, belt: 90, fish: 60, paint: 0 };
   // bounce und feint ohne Cooldown: dort IST der Tippzeitpunkt die
   // Wertung, ein Cooldown würde sie verschieben. Beide begrenzen sich selbst —
   // ein Versuch pro Schlag bzw. Sperre nach einem Fehlgriff.
@@ -4622,9 +4636,21 @@ function handleArcadeInput(room, player, rawInput) {
     updateColorGrid(room, minigame, arcade, now);
     if (minigame.finaleAt) return { ok: true };
     if (arcadePlayer.eliminated) return { ok: true };
-    // Laufen darf man während der ganzen Ansage, gesperrt ist nur der Fall.
-    const phase = colorGridPhaseAt(arcade, now - room.currentMinigame.startedAt);
-    if (phase.name !== "announce") return { ok: true };
+    // Laufen darf man während der ganzen Ansage und der kurzen Nachfrist
+    // danach, solange der Fall noch nicht gewertet ist.
+    const elapsed = now - room.currentMinigame.startedAt;
+    const phase = colorGridPhaseAt(arcade, elapsed);
+    const inGrace = phase.name === "drop" && arcade.phase === "announce" && elapsed < (phase.slot?.dropAt ?? 0) + COLORGRID_STEP_GRACE_MS;
+    if (phase.name !== "announce" && !inGrace) return { ok: true };
+    // Kurze Folgen ja, Dauerfeuer nein.
+    const tokens = Math.min(COLORGRID_STEP_BURST, (arcadePlayer.stepTokens ?? COLORGRID_STEP_BURST)
+      + (now - (arcadePlayer.stepTokensAt || now)) / COLORGRID_STEP_REFILL_MS);
+    arcadePlayer.stepTokensAt = now;
+    if (tokens < 1) {
+      arcadePlayer.stepTokens = tokens;
+      return { ok: true };
+    }
+    arcadePlayer.stepTokens = tokens - 1;
     const directions = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
     const direction = directions[input.dir];
     if (!direction) return { ok: false, error: "Unbekannte Richtung." };
@@ -5480,7 +5506,11 @@ function updateColorGrid(room, minigame, arcade, now) {
     return;
   }
 
-  if (phase.name !== "announce" && arcade.phase === "announce") {
+  // Gewertet wird nach der Nachfrist (COLORGRID_STEP_GRACE_MS): bis dahin
+  // zählt ein Schritt, der beim Wegbrechen noch unterwegs war.
+  const judgeAt = (phase.slot?.dropAt ?? 0) + COLORGRID_STEP_GRACE_MS;
+  const waiting = phase.name === "drop" && arcade.phase === "announce" && elapsed < judgeAt;
+  if (phase.name !== "announce" && arcade.phase === "announce" && !waiting) {
     // Der Boden fällt: wer auf einer falschen Farbe steht, fällt und ist raus.
     room.players.forEach((player) => {
       const entry = arcade.players[player.id];
@@ -5503,7 +5533,7 @@ function updateColorGrid(room, minigame, arcade, now) {
       syncArcadeScore(minigame, player, entry);
     });
   }
-  arcade.phase = phase.name;
+  if (!waiting) arcade.phase = phase.name;
 
   // Steht höchstens noch einer — oder ist die letzte Runde gefallen —, kurzes
   // Finale, damit man sieht, wer übrig ist.

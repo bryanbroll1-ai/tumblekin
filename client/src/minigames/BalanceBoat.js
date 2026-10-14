@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer, himmel, wolken } from "./Kulisse.js?v=tumblekin214";
-import "./Bootsphysik.js?v=tumblekin214";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer, himmel, wolken } from "./Kulisse.js?v=tumblekin215";
+import "./Bootsphysik.js?v=tumblekin215";
 
 const Boot = globalThis.TumblekinBootsphysik;
 

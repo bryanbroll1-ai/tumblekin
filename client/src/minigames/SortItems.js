@@ -33,7 +33,9 @@ const shapes = {
   ball: ([r]) => new THREE.IcosahedronGeometry(r, 0),
   cyl: ([rt, rb, h, seg = 10]) => new THREE.CylinderGeometry(rt, rb, h, seg),
   cone: ([r, h, seg = 8]) => new THREE.ConeGeometry(r, h, seg),
-  tor: ([R, r, seg = 12]) => new THREE.TorusGeometry(R, r, 6, seg)
+  tor: ([R, r, seg = 12]) => new THREE.TorusGeometry(R, r, 6, seg),
+  // Halbe Scheibe, die gerade Kante oben, aufrecht zur Kamera (Melonenstück).
+  half: ([r, depth, seg = 10]) => new THREE.CylinderGeometry(r, r, depth, seg, 1, false, Math.PI / 2, Math.PI).rotateX(Math.PI / 2)
 };
 
 function part(group, type, dims, color, pos = [0, 0, 0], rot = [0, 0, 0], extra) {
@@ -55,10 +57,15 @@ const BUILDERS = {
     part(g, "box", [0.08, 0.12, 0.1], "#6b4a20", [-0.6, 0.62, 0], [0, 0, -0.6]);
     part(g, "box", [0.07, 0.07, 0.08], "#3a2a12", [0.6, 0.62, 0], [0, 0, 0.6]);
   },
+  // Die Birne an ihrer Form: dicker Bauch, schmaler Hals, schief gesetzter
+  // Stiel mit Blatt — als grüner Klecks war sie nicht zu erkennen.
   Birne(g) {
-    part(g, "sph", [0.36, 1, 0.95, 1], "#b9d84a", [0, 0.34, 0]);
-    part(g, "sph", [0.22, 1, 1.2, 1], "#c8df5a", [0, 0.72, 0]);
-    part(g, "box", [0.05, 0.16, 0.05], "#6b4a20", [0, 1.0, 0]);
+    part(g, "sph", [0.36, 1, 0.92, 1], "#cfdc48", [0, 0.33, 0]);
+    part(g, "cyl", [0.13, 0.26, 0.32, 8], "#d6e05a", [0, 0.68, 0]);
+    part(g, "sph", [0.15, 1, 1, 1], "#d6e05a", [0, 0.86, 0]);
+    part(g, "box", [0.05, 0.2, 0.05], "#6b4a20", [0.03, 1.06, 0], [0, 0, -0.3]);
+    part(g, "box", [0.2, 0.04, 0.11], "#4fae4a", [0.13, 1.06, 0], [0, 0, -0.4]);
+    part(g, "sph", [0.16, 1, 1, 0.4], "#e6a04a", [0.18, 0.36, 0.25]);
   },
   Trauben(g) {
     const rows = [[0.62, 4, 0.2], [0.44, 3, 0.16], [0.28, 2, 0.11], [0.14, 1, 0]];
@@ -82,9 +89,15 @@ const BUILDERS = {
       part(g, "box", [0.22, 0.04, 0.08], "#3f9a3f", [Math.cos(a) * 0.12, 0.64, Math.sin(a) * 0.12], [0, -a, 0]);
     }
   },
+  // Ein Melonenstück statt einer ganzen Melone: die ganze war eine grüne
+  // Kugel wie viele andere, die Scheibe mit Kernen erkennt jeder.
   Melone(g) {
-    part(g, "sph", [0.48, 1.1, 0.85, 0.95], "#3e9a45", [0, 0.42, 0]);
-    for (let i = -2; i <= 2; i += 1) part(g, "box", [0.06, 0.66, 1.0], "#2a6e32", [i * 0.2, 0.42, 0]);
+    part(g, "half", [0.58, 0.26, 12], "#2f8a3a", [0, 0.58, -0.02]);
+    part(g, "half", [0.52, 0.28, 12], "#f2f5e8", [0, 0.58, 0]);
+    part(g, "half", [0.47, 0.3, 12], "#ff4b5c", [0, 0.58, 0.01]);
+    [[-0.22, 0.4], [0, 0.3], [0.22, 0.4], [-0.1, 0.46], [0.11, 0.47]].forEach(([x, y]) => {
+      part(g, "box", [0.05, 0.08, 0.02], "#1b2530", [x, y, 0.165]);
+    });
   },
   Ananas(g) {
     part(g, "cyl", [0.26, 0.3, 0.62, 8], "#d8a23a", [0, 0.31, 0]);
@@ -118,16 +131,26 @@ const BUILDERS = {
     part(g, "box", [0.05, 0.4, 0.05], "#ff5d73", [0.08, 0.86, 0], [0, 0, -0.2]);
     part(g, "cyl", [0.275, 0.24, 0.16, 10], "#28c7d9", [0, 0.36, 0]);
   },
+  // Aufgestellt wie am Kiosk: Schlagzeile, Bild, Spalten. Flach liegend sah
+  // man von ihr nur ein graues Rechteck.
   Zeitung(g) {
-    part(g, "box", [0.86, 0.12, 0.6], "#e6e2d6", [0, 0.06, 0], [0, 0.2, 0]);
-    part(g, "box", [0.8, 0.12, 0.56], "#d8d4c6", [0.03, 0.18, 0.02], [0, 0.3, 0.06]);
-    for (let i = 0; i < 4; i += 1) part(g, "box", [0.5, 0.01, 0.04], "#3d4a58", [0.0, 0.245, -0.18 + i * 0.12], [0, 0.3, 0.06]);
+    part(g, "box", [0.72, 0.92, 0.06], "#ece8dc", [0, 0.5, 0], [-0.12, 0, 0]);
+    part(g, "box", [0.6, 0.12, 0.02], "#1b2530", [0, 0.82, 0.05], [-0.12, 0, 0]);
+    part(g, "box", [0.26, 0.24, 0.02], "#5c8ed6", [-0.14, 0.56, 0.08], [-0.12, 0, 0]);
+    for (let i = 0; i < 4; i += 1) part(g, "box", [0.24, 0.04, 0.02], "#8a929c", [0.17, 0.66 - i * 0.08, 0.075 + i * 0.01], [-0.12, 0, 0]);
+    for (let i = 0; i < 3; i += 1) part(g, "box", [0.56, 0.04, 0.02], "#8a929c", [0, 0.36 - i * 0.09, 0.1 + i * 0.012], [-0.12, 0, 0]);
+    part(g, "box", [0.72, 0.1, 0.3], "#d8d4c6", [0, 0.05, -0.08]);
   },
+  // Liegend, mit Pluspol und fast leerer Ladeanzeige: stehend war sie eine
+  // dunkle Dose.
   "leere Batterie"(g) {
-    part(g, "cyl", [0.17, 0.17, 0.72, 10], "#2b2f36", [0, 0.36, 0], [0, 0, 0]);
-    part(g, "cyl", [0.175, 0.175, 0.22, 10], "#c48a3a", [0, 0.6, 0]);
-    part(g, "cyl", [0.07, 0.07, 0.06, 8], "#b9c2cc", [0, 0.75, 0]);
-    part(g, "box", [0.08, 0.12, 0.02], "#ff3b3b", [0, 0.3, 0.17]);
+    part(g, "cyl", [0.22, 0.22, 0.86, 10], "#2b2f36", [0, 0.22, 0], [0, 0, Math.PI / 2]);
+    part(g, "cyl", [0.225, 0.225, 0.26, 10], "#d89a3a", [0.3, 0.22, 0], [0, 0, Math.PI / 2]);
+    part(g, "cyl", [0.08, 0.08, 0.08, 8], "#c9d0d8", [0.47, 0.22, 0], [0, 0, Math.PI / 2]);
+    part(g, "box", [0.36, 0.18, 0.02], "#f4efe2", [-0.12, 0.24, 0.215]);
+    part(g, "box", [0.07, 0.12, 0.022], "#ff3b3b", [-0.25, 0.24, 0.22]);
+    part(g, "box", [0.12, 0.035, 0.02], "#f4efe2", [0.3, 0.24, 0.225]);
+    part(g, "box", [0.035, 0.12, 0.02], "#f4efe2", [0.3, 0.24, 0.225]);
   },
   Schachtel(g) {
     part(g, "cyl", [0.42, 0.3, 0.5, 4], "#ffffff", [0, 0.25, 0], [0, Math.PI / 4, 0]);
@@ -184,11 +207,14 @@ const BUILDERS = {
     dot(0.27, 0.31, 0); dot(0.27, 0.46, 0.15); dot(0.27, 0.16, -0.15);
     dot(0, 0.58, 0); dot(-0.15, 0.58, -0.15); dot(0.15, 0.58, 0.15); dot(-0.15, 0.58, 0.15); dot(0.15, 0.58, -0.15);
   },
+  // Aufrecht, mit Nasen oben und rechts und einer Bucht links — flach auf
+  // dem Band war es ein blauer Fleck.
   Puzzle(g) {
-    part(g, "box", [0.62, 0.14, 0.62], "#5c9dff", [0, 0.07, 0]);
-    part(g, "cyl", [0.13, 0.13, 0.14, 10], "#5c9dff", [0.38, 0.07, 0]);
-    part(g, "cyl", [0.13, 0.13, 0.14, 10], "#5c9dff", [0, 0.07, -0.38]);
-    part(g, "cyl", [0.12, 0.12, 0.16, 10], "#2b2f36", [-0.31, 0.08, 0]);
+    part(g, "box", [0.62, 0.62, 0.14], "#5c9dff", [0, 0.36, 0]);
+    part(g, "cyl", [0.14, 0.14, 0.14, 10], "#5c9dff", [0.38, 0.36, 0], [Math.PI / 2, 0, 0]);
+    part(g, "cyl", [0.14, 0.14, 0.14, 10], "#5c9dff", [0, 0.74, 0], [Math.PI / 2, 0, 0]);
+    part(g, "cyl", [0.13, 0.13, 0.16, 10], "#1b2530", [-0.3, 0.36, 0], [Math.PI / 2, 0, 0]);
+    part(g, "box", [0.62, 0.05, 0.3], "#3f78d8", [0, 0.025, 0]);
   },
   Ballon(g) {
     part(g, "sph", [0.34, 1, 1.15, 1], "#ff3b55", [0, 0.72, 0], [0, 0, 0], { emissive: "#ff3b55", intensity: 0.15 });

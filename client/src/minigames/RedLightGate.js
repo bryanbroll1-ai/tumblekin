@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameChance, frameLerp } from "./Quality.js?v=tumblekin214";
-import { bindHoldInput } from "./HoldInput.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
+import { createCloud, createKin, KinAnimator, KIN_SOLE } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameChance, frameLerp } from "./Quality.js?v=tumblekin215";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 
 // Lichtwächter — "Ochs am Berg": halten heisst laufen. Solange der Riese am
 // Ende der Wiese wegschaut und summt, ist Grün. Bevor er sich umdreht, sieht
@@ -373,7 +373,10 @@ export class RedLightGate extends MinigameScene {
         <span class="hold-button-face">HALTEN = LAUFEN</span>
       </button>`;
     this.holdButton = this.controls.querySelector("[data-hold-run]");
-    this.holdInput = bindHoldInput(this, [this.holdButton], (active) => this.setHolding(active));
+    // Halten zählt überall: auf dem Knopf und auf dem ganzen Spielbild. Nur
+    // der Knopf unten hiess, den Daumen dort festzuhalten, während man oben
+    // auf den Wächter schaut.
+    this.holdInput = bindHoldInput(this, [this.holdButton, this.webglCanvas], (active) => this.setHolding(active));
   }
 
   unbind() {

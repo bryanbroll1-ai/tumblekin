@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createShadowBlob } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin214";
-import { buildSortItem } from "./SortItems.js?v=tumblekin214";
+import { createShadowBlob } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin215";
+import { buildSortItem } from "./SortItems.js?v=tumblekin215";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
 // wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt
@@ -36,6 +36,13 @@ const CHUTE_X = 1.45;
 // bergauf fliegen müssen, um hineinzufallen. Stattdessen flog es durch.
 const GROUND_Y = -0.5;         // Oberkante des Bodens
 const BELT_TOP_Y = 0.32;       // Oberkante des Bandes
+// Die Teile auf dem Band, grösser als ihr Modell (etwa eine Einheit): aus der
+// steilen Kamera waren sie in Grösse 1 kaum zu erkennen. Zwischen zwei Teilen
+// liegen gut vier Einheiten Band, da passt das.
+const ITEM_SCALE = 1.5;
+// Leicht nach hinten gelehnt, damit die Kamera von schräg oben die
+// Vorderseite sieht und nicht nur die Oberseite.
+const ITEM_LEAN = -0.42;
 const CHUTE_MOUTH_Y = 0.30;    // Trichterrand, knapp UNTER der Bandkante
 // Je Kategorie eine Farbe für Rutsche und Schild (Obst, Müll, Spielzeug).
 const COLOURS = ["#ff5d73", "#8a9aab", "#ffd15c"];
@@ -672,7 +679,7 @@ export class SortBelt extends MinigameScene {
       // auftaucht.
       const progress = head - slot * (arcade.parcelGap || 0.34);
       const z = beltZ(progress);
-      const scale = 1.0 * (parcel.size || 1);
+      const scale = ITEM_SCALE * (parcel.size || 1);
       visual.group.position.set(0, BELT_TOP_Y, z);
       visual.group.scale.setScalar(scale);
       visual.shadow.position.set(0, 0.34, z);
@@ -687,8 +694,9 @@ export class SortBelt extends MinigameScene {
         visual.shownId = parcel.id;
         if (visual.model) visual.group.remove(visual.model);
         visual.model = buildSortItem(parcel.name);
-        // Leicht zur Kamera gedreht, damit man die Vorderseite sieht.
-        visual.model.rotation.y = -0.35 + (parcel.id % 3) * 0.3;
+        // Leicht zur Kamera gedreht und gelehnt, damit man die Vorderseite sieht.
+        visual.model.rotation.set(ITEM_LEAN, -0.25 + (parcel.id % 3) * 0.25, 0, "YXZ");
+        visual.model.position.y = 0.12;
         visual.group.add(visual.model);
       }
 
@@ -710,8 +718,8 @@ export class SortBelt extends MinigameScene {
   // die eigene Entscheidung geführt hat.
   spawnFlight(name, chuteIndex, good, fromZ = beltZ(0.55)) {
     const proxy = buildSortItem(name);
-    proxy.scale.setScalar(0.62);
-    proxy.userData.base = 0.62;
+    proxy.scale.setScalar(0.9);
+    proxy.userData.base = 0.9;
     proxy.position.set(0, BELT_TOP_Y + 0.2, fromZ);
     this.scene.add(proxy);
     const target = this.chutes[chuteIndex]?.group.position || new THREE.Vector3(0, 0, BELT_NEAR_Z);

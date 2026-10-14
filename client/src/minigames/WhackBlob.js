@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin214";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp, frameChance } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
+import { createCloud } from "./VoxelKit.js?v=tumblekin215";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp, frameChance } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 
 // Blob-Klopfe: aus zwölf Löchern (3 breit, 4 tief — hochkant wie das Handy)
 // kommen Blobs. Wer schnell draufhaut, bekommt mehr (3/2/1 Punkte), der
@@ -32,6 +32,9 @@ const MOUND_TOP = 0.3;
 // Ecken des Blobs (0,6 Radius über die Diagonale) wuchsen neben ihr aus dem
 // Gras.
 const HOLE_R = 0.48;
+// Löcher, Rand und Grund mit derselben, feinen Eckenzahl (die Platte nimmt die
+// Hälfte als curveSegments, weil three.js Kreisbögen doppelt teilt).
+const HOLE_SEGMENTS = 48;
 const BLOB_HALF = 0.35;          // halbe Breite der untersten Körperlage
 const BLOB_BASE = 1.18;          // Grundgrösse (baseScale)
 // Nach dem Schlag bleibt die Figur so lange am Loch, dann springt sie zurück.
@@ -129,9 +132,16 @@ export class WhackBlob extends MinigameScene {
       hole.absarc(pos.x, -pos.z, HOLE_R, 0, Math.PI * 2, true);
       outline.holes.push(hole);
     }
-    const moundGeo = new THREE.ExtrudeGeometry(outline, { depth: 0.4, bevelEnabled: false, curveSegments: 18 });
+    // Die Wände der Öffnungen sind die Seiten dieser Platte selbst, in
+    // dunkler Erde. Vorher stand in jedem Loch ein eigener, etwas engerer
+    // Schacht mit anderer Eckenzahl — zwischen ihm und der grünen Plattenwand
+    // blitzte ein Grasspalt, und der Grund war ein Achtzehneck.
+    const moundGeo = new THREE.ExtrudeGeometry(outline, { depth: 0.4, bevelEnabled: false, curveSegments: HOLE_SEGMENTS / 2 });
     moundGeo.rotateX(-Math.PI / 2);
-    const mound = new THREE.Mesh(moundGeo, new THREE.MeshLambertMaterial({ color: "#84b378" }));
+    const mound = new THREE.Mesh(moundGeo, [
+      new THREE.MeshLambertMaterial({ color: "#84b378" }),
+      new THREE.MeshLambertMaterial({ color: "#2e2015" })
+    ]);
     mound.position.y = MOUND_TOP - 0.4;
     mound.receiveShadow = true;
     scene.add(mound);
@@ -151,25 +161,21 @@ export class WhackBlob extends MinigameScene {
     // Rand, der herausschaut, eine Wand, die nach innen führt, und einen
     // Grund, der dunkel genug ist, dass man nicht hineinsieht.
     const GRAS_Y = 0.3;                  // Oberkante des Hügels
-    const schachtMat = new THREE.MeshLambertMaterial({ color: "#3a2a1a", side: THREE.BackSide });
     const grundMat = new THREE.MeshBasicMaterial({ color: "#140e08" });
     const randMat = new THREE.MeshLambertMaterial({ color: "#8a6a45" });
     for (let cell = 0; cell < COLS * ROWS; cell += 1) {
       const pos = this.cellPos(cell);
       // Aufgeworfene Erde rundherum — der Teil, den man von oben zuerst sieht.
-      const rand = new THREE.Mesh(new THREE.TorusGeometry(HOLE_R + 0.03, 0.08, 6, 18), randMat);
+      const rand = new THREE.Mesh(new THREE.TorusGeometry(HOLE_R + 0.03, 0.08, 8, HOLE_SEGMENTS), randMat);
       rand.rotation.x = Math.PI / 2;
       rand.position.set(pos.x, GRAS_Y + 0.03, pos.z);
       rand.receiveShadow = true;
       scene.add(rand);
-      // Der Schacht: Erdwand nach innen und ein dunkler Grund. Darunter
-      // liegt die Wiese; der Blob taucht aus diesem Dunkel auf.
-      const schacht = new THREE.Mesh(new THREE.CylinderGeometry(HOLE_R - 0.012, HOLE_R - 0.012, GRAS_Y + 0.01, 18, 1, true), schachtMat);
-      schacht.position.set(pos.x, GRAS_Y / 2, pos.z);
-      scene.add(schacht);
-      const grund = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R, 18), grundMat);
+      // Der dunkle Grund, etwas breiter als das Loch: der Rand verschwindet
+      // in der Platte, und es bleibt kein Eck Wiese sichtbar.
+      const grund = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R + 0.08, HOLE_SEGMENTS), grundMat);
       grund.rotation.x = -Math.PI / 2;
-      grund.position.set(pos.x, 0.006, pos.z);
+      grund.position.set(pos.x, 0.05, pos.z);
       scene.add(grund);
     }
 

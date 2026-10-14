@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { reachArm } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { eventChance, frameLerp } from "./Quality.js?v=tumblekin214";
+import { reachArm } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { eventChance, frameLerp } from "./Quality.js?v=tumblekin215";
 
 // Fassmut — über jedem hängt ein Fass am Seil, das Seil läuft über eine Rolle
 // am Galgen und hinunter in die eigenen Hände. Das Fass wird losgelassen und
@@ -31,6 +31,13 @@ const HEAD_TOP = 0.86;                // Oberkante des Kopfes
 const BARREL_R = 0.3;
 const BARREL_H = 0.62;
 const KIN_Z = 0.3;
+// Die Rolle am Balken: rechts das Fass über dem Kopf, links das Zugseil — es
+// läuft eine Rollenbreite neben dem Kopf (halbe Kopfbreite 0.22) hinunter.
+const PULLEY_R = 0.17;
+const ROPE_X = -2 * PULLEY_R;
+// Die Griffe am Zugseil, auf Brust- und Schulterhöhe vor der linken Schulter.
+const GRIP_LOW = { x: ROPE_X + 0.03, y: 0.29, z: KIN_Z + 0.2 };
+const GRIP_HIGH_Y = 0.44;
 const FALLOFF_M = 9;                  // ab hier gibt es keine Punkte mehr
 // Das Fass der Partie (Server: DARE_WEIGHTS). Ohne Angabe das mittlere.
 const NORMAL_FASS = { kind: "normal", speed0: 1.8, accel: 1.0, brake: 3.33 };
@@ -201,13 +208,19 @@ export class BarrelDare extends MinigameScene {
     const x = this.laneX(index, count);
     const pulleyY = this.beamY - 0.3;
 
-    // Rolle am Balken.
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.09, 14), new THREE.MeshLambertMaterial({ color: "#5a5f6b" }));
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, pulleyY, 0.13);
+    // Rolle am Balken, quer zur Bahn: rechts hängt das Fass genau über dem
+    // Kopf, links läuft das Zugseil neben der Figur hinunter. Lief es vorn
+    // über die Rolle, ging es senkrecht durch Kopf und Körper.
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(PULLEY_R, PULLEY_R, 0.09, 14), new THREE.MeshLambertMaterial({ color: "#7d8390" }));
+    wheel.rotation.x = Math.PI / 2;
+    wheel.position.set(x - PULLEY_R, pulleyY, 0);
     this.scene.add(wheel);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.13, 8), new THREE.MeshLambertMaterial({ color: "#c9ccd3" }));
+    hub.rotation.x = Math.PI / 2;
+    hub.position.copy(wheel.position);
+    this.scene.add(hub);
     const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.05), new THREE.MeshLambertMaterial({ color: "#3d424c" }));
-    hanger.position.set(x, pulleyY + 0.15, 0.13);
+    hanger.position.set(x - PULLEY_R, pulleyY + 0.15, 0);
     this.scene.add(hanger);
 
     // Messlatte neben der Bahn: grün dicht über dem Kopf, gelb dahinter, grau
@@ -282,7 +295,7 @@ export class BarrelDare extends MinigameScene {
     // Die Seilrolle am Boden, die kleiner wird, je mehr Seil ausläuft.
     const coil = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 6, 16), ropeMat);
     coil.rotation.x = Math.PI / 2;
-    coil.position.set(x + 0.28, 0.04, KIN_Z + 0.32);
+    coil.position.set(x - 0.52, 0.04, KIN_Z + 0.24);
     this.scene.add(coil);
 
     this.addKin(player, index, { x, ground: 0, z: KIN_Z, facing: 0 });
@@ -484,24 +497,31 @@ export class BarrelDare extends MinigameScene {
         }
       }
 
-      // Seile: oben von der Rolle zum Fass, vorn von der Rolle in die Hände,
-      // und ein Rest bis zur Rolle am Boden.
-      const top = new THREE.Vector3(lane.x, lane.pulleyY, 0.0);
+      // Seile: rechts von der Rolle zum Fass, links neben der Figur hinunter
+      // in die Hände, und ein Rest bis zur Rolle am Boden. Wer getroffen ist
+      // oder im Finale jubelt, hat losgelassen: dann liegt das Seil neben ihm.
+      const top = new THREE.Vector3(lane.x, lane.pulleyY, 0);
       const barrelTop = lane.barrel.localToWorld(new THREE.Vector3(0, BARREL_H + 0.06, 0));
       if (hit && lane.squashAt !== null && now - lane.squashAt > 450) barrelTop.set(lane.x + 0.3, HEAD_TOP, 0);
       stretch(lane.ropeTop, top, barrelTop);
-      const front = new THREE.Vector3(lane.x, lane.pulleyY, 0.26);
-      const hands = new THREE.Vector3(lane.x + Math.sin(now / 90) * (falling && !caught && !hit ? 0.01 : 0), kin.position.y + 0.1, KIN_Z + 0.16);
-      stretch(lane.ropeHand, front, hands);
+      const side = new THREE.Vector3(lane.x + ROPE_X, lane.pulleyY, 0);
+      const holding = !hit && !finale && lane.squashAt === null;
       const coilAt = lane.coil.position;
-      stretch(lane.ropeTail, hands, coilAt);
+      const low = holding
+        ? new THREE.Vector3(lane.x + GRIP_LOW.x + Math.sin(now / 90) * (falling && !caught ? 0.008 : 0), kin.position.y + GRIP_LOW.y, GRIP_LOW.z)
+        : new THREE.Vector3(lane.x + ROPE_X - 0.02, 0.03, KIN_Z + 0.12);
+      stretch(lane.ropeHand, side, low);
+      stretch(lane.ropeTail, low, coilAt);
+      // Die obere Hand greift weiter oben am selben Seil.
+      const high = low.clone().lerp(side, (kin.position.y + GRIP_HIGH_Y - low.y) / Math.max(0.01, side.y - low.y));
       const paid = (startM - Math.max(0, distance)) / startM;
       lane.coil.scale.setScalar(Math.max(0.35, 1 - paid * 0.65));
       lane.knots.forEach((knot, i) => {
         const along = ((i / lane.knots.length) + (startM - Math.max(0, distance)) * 0.12) % 1;
-        knot.position.lerpVectors(hands, front, along);
+        knot.position.lerpVectors(low, side, along);
       });
-      lane.hands = hands;
+      const hands = high;
+      lane.hands = holding ? { high, low } : null;
 
       if (entry.brakeAt !== null && entry.brakeAt !== undefined && entry.brakeAt !== this.lastBrake.get(player.id)) {
         this.lastBrake.set(player.id, entry.brakeAt);
@@ -595,15 +615,16 @@ export class BarrelDare extends MinigameScene {
     });
   }
 
-  // Die Hände ans Seil, solange niemand gestaucht am Boden liegt.
+  // Die Hände ans Seil, solange niemand gestaucht am Boden liegt: die linke
+  // oben, die rechte greift vor der Brust darunter.
   afterAnimate(f) {
     f.players.forEach((player) => {
       const lane = this.lanes.get(player.id);
       const kin = this.kins.get(player.id);
       const entry = f.arcade?.players?.[player.id];
       if (!lane?.hands || !kin || !entry || lane.squashAt !== null || f.finale) return;
-      reachArm(kin, 0, lane.hands.clone().add(new THREE.Vector3(0.05, 0.05, 0)), 1);
-      reachArm(kin, 1, lane.hands.clone().add(new THREE.Vector3(-0.05, -0.04, 0)), 1);
+      reachArm(kin, 1, lane.hands.high, 1);
+      reachArm(kin, 0, lane.hands.low, 1);
     });
   }
 

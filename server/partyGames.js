@@ -457,11 +457,16 @@ const face = {
 // es um seine Rundreise früher zeigen kann (siehe FlagCaller.js), aber kein
 // Blick auf die ganze Runde im Voraus.
 const FLAG_LEAD_MS = 1800;
-const FLAG_GAP_START = 1900;
-const FLAG_GAP_END = 950;
 const FLAG_WINDOW_START = 1500;
 const FLAG_WINDOW_END = 620;
-const FLAG_DURATION_MS = 36000;
+// Nach jedem Kommando eine Verschnaufpause: das Fenster ist zu, und wer
+// danebenlag, fliegt über Bord (FlagCaller.js) — erst dann kommt das nächste.
+// Vorher folgte Kommando auf Kommando, man sah nicht, wen es erwischt hatte.
+// Ein kleiner Zufall obendrauf, damit man den Takt nicht mitzählen kann.
+const FLAG_REST_START = 1150;
+const FLAG_REST_END = 900;
+const FLAG_REST_JITTER = 250;
+const FLAG_DURATION_MS = 42000;
 // Ein Fehler, und man sitzt an Deck — wie beim Vorbild. Mit drei Leben
 // zog sich die Runde, und die Herzen lenkten vom Käpt'n ab.
 const FLAG_LIVES = 1;
@@ -487,8 +492,8 @@ function buildFlagCommands(seed, durationMs = FLAG_DURATION_MS) {
     const window = Math.round(FLAG_WINDOW_START + (FLAG_WINDOW_END - FLAG_WINDOW_START) * progress);
     if (at + window > durationMs - 400) break;
     slots.push({ at, window });
-    const gap = FLAG_GAP_START + (FLAG_GAP_END - FLAG_GAP_START) * progress;
-    at += Math.round(Math.max(window + 250, gap + (noise(seed + slots.length * 19) - 0.5) * 260));
+    const rest = FLAG_REST_START + (FLAG_REST_END - FLAG_REST_START) * progress;
+    at += Math.round(window + FLAG_GRACE_MS + rest + noise(seed + slots.length * 19) * FLAG_REST_JITTER);
   }
   const rest = Math.max(0, slots.length - 3);
   const fakes = Math.round(rest * FLAG_FAKE_SHARE);

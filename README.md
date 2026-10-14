@@ -144,7 +144,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆⏺️ Knopf gedrückt halten
 
-- **Lichtwächter:** Halte den Knopf, um zu laufen. Wenn die Lampe gelb blinkt, dreht sich der Wächter um — lass bis dahin los. Wer bei Rot noch läuft, fliegt fünf Meter zurück und ist kurz benommen. Manchmal täuscht er nur an. Wer zuerst am Tor ist, gewinnt.
+- **Lichtwächter:** Halte den Finger irgendwo auf den Bildschirm, um zu laufen. Wenn die Lampe gelb blinkt, dreht sich der Wächter um — lass sofort los. Wer bei Rot noch läuft, fliegt fünf Meter zurück und ist kurz benommen. Manchmal täuscht er nur an. Wer zuerst am Tor ist, gewinnt.
 - **Fassrolle:** Alle stehen auf einem Riesenfass über dem Fluss. Halte ◀ oder ▶ und lauf gegen die Drehung an — aber wer läuft, dreht das Fass auch unter den anderen. Wellen kündigen sich an: lauf ihnen entgegen. Wer fällt, schwimmt zurück — doch in den letzten 12 Sekunden kommt das Wildwasser, und wer dann fällt, ist raus. Unter den Übrigen zählt die Zeit im grünen Streifen oben.
 
 ### 👆👆 Schnell tippen
@@ -208,7 +208,7 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆🚩 Rot oder Blau tippen
 
-- **Flaggen hoch:** Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn er „Käpt'n sagt:“ ruft! Ruft er bloss „ROT!“, ist es eine Falle — wer dann stillhält, hat richtig. Die Kommandos kommen immer schneller; ein Fehler, und du sitzt an Deck und schaust den anderen zu. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand.
+- **Flaggen hoch:** Der Käpt'n hebt Rot, Blau oder beide Flaggen — mach es nach, so schnell du kannst. Aber nur, wenn oben „Käpt'n sagt:“ steht! Steht bloss „ROT!“ da, hebt er nichts — eine Falle, wer stillhält, hat richtig. Nach jedem Kommando ist kurz Pause: wer danebenlag, fliegt über Bord und schaut aus dem Schwimmring zu. Die Kommandos kommen immer schneller. Es zählen die richtigen Antworten, bei Gleichstand die schnellere Hand.
 
 ### 🍎🏠 Weiter oder heim?
 

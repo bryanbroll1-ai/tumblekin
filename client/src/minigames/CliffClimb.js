@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin214";
-import { addStageLights } from "./SceneKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp } from "./Quality.js?v=tumblekin214";
+import { createCloud, reachArm, standOn } from "./VoxelKit.js?v=tumblekin215";
+import { addStageLights } from "./SceneKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp } from "./Quality.js?v=tumblekin215";
 
 // Bergsteiger — die Wand zeigt, welche Hand als Nächstes greifen muss. Der
 // richtige Griff zieht eine Sprosse hoch, der falsche rutscht eine ab. Oben
@@ -37,7 +37,13 @@ const HOLDS_PER_LANE = 40;
 // liegt die Innenkante knapp ausserhalb, und die Hand reicht trotzdem hin.
 const HOLD_REACH = 0.37;              // seitlicher Abstand des Griffs zur Bahn
 const HOLD_W = 0.26;
-const HOLD_LIFT = 0.39;               // Griffhöhe über der Schulter bei Sprosse 0
+// Griffhöhe über der Sohle bei Sprosse 0. Die Hände greifen die zuletzt
+// gepackten Griffe; mit 0.39 lag der neueste eine Sprosse unter der Schulter,
+// und die Figur hantierte mit hängenden Armen. Gut zwei Sprossen höher hängt
+// er über dem Scheitel — beim Klettern sind die Arme oben.
+const HOLD_LIFT = 1.05;
+// Die Gipfelkante liegt eine Handbreit über dem letzten Griff.
+const SUMMIT_ABOVE = HOLD_LIFT - 0.09;
 const HOLD_FACE_Z = -0.36;            // Vorderseite der Griffe
 const KIN_Z = -0.36;                  // die Figur hängt dicht an der Wand
 const PLATEAU_Z = -0.95;              // dort steht, wer oben angekommen ist
@@ -102,7 +108,7 @@ export class CliffClimb extends MinigameScene {
     );
     // Der Gipfel: die Wand endet eine Handbreit über dem letzten Griff.
     this.summit = (this.update || this.minigame)?.arcade?.height || 70;
-    this.summitTop = KIN_BASE_Y + this.summit * WORLD_PER_RUNG + 0.3;
+    this.summitTop = KIN_BASE_Y + this.summit * WORLD_PER_RUNG + SUMMIT_ABOVE;
     this.cliff.position.set(0, this.summitTop - WALL_SPAN / 2, -1.1);
     this.cliff.receiveShadow = true;
     scene.add(this.cliff);
@@ -547,6 +553,7 @@ export class CliffClimb extends MinigameScene {
       this.smoothRung.set(player.id, shown);
       const y = KIN_BASE_Y + shown * WORLD_PER_RUNG;
       animator.groundY = y;
+      (this.laneYs ||= [])[index] = y;
 
       if ((entry.rung || 0) > (this.lastRung.get(player.id) || 0)) {
         this.lastRung.set(player.id, entry.rung);
@@ -591,7 +598,11 @@ export class CliffClimb extends MinigameScene {
         const over = Math.min(1, (now - (this.finishSeenAt.get(player.id) ?? now)) / 650);
         kin.position.x += (kin.userData.laneX - kin.position.x) * frameLerp(0.2, dt);
         kin.position.z += (PLATEAU_Z - kin.position.z) * frameLerp(over < 1 ? 0.14 : 0.3, dt);
-        animator.groundY = standOn(this.summitTop + 0.1) + Math.sin(over * Math.PI) * 0.32;
+        // Von der Wand über die Kante gezogen, nicht hinaufgesprungen: die
+        // Kante liegt jetzt fast eine Figur über den Füssen.
+        const wallY = KIN_BASE_Y + (entry.rung || this.summit || 0) * WORLD_PER_RUNG;
+        const lift = over * over * (3 - 2 * over);
+        animator.groundY = wallY + (standOn(this.summitTop + 0.1) - wallY) * lift + Math.sin(over * Math.PI) * 0.32;
         kin.rotation.y += Math.atan2(Math.sin(-kin.rotation.y), Math.cos(-kin.rotation.y)) * frameLerp(over < 1 ? 0.06 : 0.14, dt);
         animator.set(over < 1 ? "clamber" : finale && (f.places?.[player.id] || 9) !== 1 ? "wave" : "cheer");
       } else if (finale) {
@@ -709,12 +720,30 @@ export class CliffClimb extends MinigameScene {
   // Welteinheiten zwischen dem Ersten und dem Letzten — alle zu zeigen hiesse,
   // die eigene Figur auf ein paar Pixel zu schrumpfen. Den Stand zeigt die
   // Höhenleiter am Rand.
+  //
+  // Wer oben ist und noch Zeit hat, schaut zu: dann zieht die Kamera auf und
+  // zeigt die Wand vom Gipfel bis zum Letzten.
   keepInView(f) {
+    if (this.watching(f)) return [...this.kins.values()];
     const own = this.kins.get(f.controlledId);
     return own ? [own] : [];
   }
 
+  watching(f) {
+    return !f.finale && Boolean(f.arcade?.players?.[f.controlledId]?.finishedAt);
+  }
+
   rigOptions(f) {
+    if (this.watching(f)) {
+      let low = this.summitTop;
+      this.kins.forEach((kin) => { low = Math.min(low, kin.position.y); });
+      const top = this.summitTop + 1.2;
+      return {
+        look: [0, (top + low) / 2, 0],
+        frame: { w: 4.8, h: Math.max(4.6, top - low + 1.4) },
+        own: null
+      };
+    }
     // Etwas über die Figur: dorthin, wo die nächsten Griffe hängen.
     const eyeY = Math.max(KIN_BASE_Y + 0.9, this.ownY + 0.75);
     return {
@@ -789,11 +818,17 @@ export class CliffClimb extends MinigameScene {
       while (object.position.y > floor + band) object.position.y -= band;
     };
     const top = this.summitTop ?? Infinity;
-    this.holds.forEach((hold) => {
-      wrap(hold);
-      // Über dem Gipfel hängen keine Griffe mehr.
-      const step = Math.round((hold.position.y - KIN_BASE_Y - HOLD_LIFT) / WORLD_PER_RUNG);
-      hold.visible = step >= 0 && step < (this.summit ?? Infinity);
+    // Die Griffe jeder Bahn folgen ihrem Kletterer, nicht der eigenen Höhe:
+    // wer oben zuschaut, sieht auch die weiter unten an ihren Griffen.
+    (this.holdsByLane || [this.holds]).forEach((holds, lane) => {
+      const laneFloor = (this.laneYs?.[lane] ?? ownY) - band * 0.3;
+      holds.forEach((hold) => {
+        while (hold.position.y < laneFloor) hold.position.y += band;
+        while (hold.position.y > laneFloor + band) hold.position.y -= band;
+        // Über dem Gipfel hängen keine Griffe mehr.
+        const step = Math.round((hold.position.y - KIN_BASE_Y - HOLD_LIFT) / WORLD_PER_RUNG);
+        hold.visible = step >= 0 && step < (this.summit ?? Infinity);
+      });
     });
     [...(this.decor || []), ...(this.marks || [])].forEach((part) => {
       wrap(part);

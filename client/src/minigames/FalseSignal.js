@@ -1,8 +1,8 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { flashKin } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer, himmel, zaun } from "./Kulisse.js?v=tumblekin214";
+import { flashKin } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer, himmel, zaun } from "./Kulisse.js?v=tumblekin215";
 
 // Falschsignal: ein Ring wächst in der Signaltafel. Schafft er die Marke,
 // muss man drücken — bleibt er vorher stehen, war es eine Finte.

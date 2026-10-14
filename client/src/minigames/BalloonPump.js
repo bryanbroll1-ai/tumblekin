@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, reachArm } from "./VoxelKit.js?v=tumblekin214";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
+import { createCloud, reachArm } from "./VoxelKit.js?v=tumblekin215";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 
 // Pump-Panik — ein reiner Klicker: jeder Tipp pumpt den eigenen Ballon
 // grösser. Wer am Ende am meisten gepumpt hat, bringt seinen zum Platzen.
@@ -174,11 +174,9 @@ export class BalloonPump extends MinigameScene {
           <span class="pump-button-face">PUMPEN</span>
           <span class="pump-tempo" aria-hidden="true"><i data-pump-tempo></i></span>
         </button>
-        <p class="pump-hint" data-pump-hint>So schnell tippen, wie du kannst!</p>
       </div>`;
     this.pumpButton = this.controls.querySelector("[data-pump]");
     this.tempoBar = this.controls.querySelector("[data-pump-tempo]");
-    this.hintNode = this.controls.querySelector("[data-pump-hint]");
     // Jeder Finger zählt — auch zwei gleichzeitig. Getippt werden darf auf den
     // Knopf, die ganze Leiste darum und das Spielbild: wer wild hämmert,
     // trifft nicht immer genau.
@@ -618,6 +616,7 @@ export class BalloonPump extends MinigameScene {
 
       this.animateKin(player, station, f, rush);
       if (finale) this.finaleStation(player, station, f);
+      this.updatePopFlash(station, now);
       this.simulateBalloon(station, f, rush);
       this.drawBalloon(station, f, rush);
     });
@@ -747,6 +746,10 @@ export class BalloonPump extends MinigameScene {
         const rise = Math.min(1, Math.max(0, since - 0.15) / 0.8);
         station.lift = WINNER_LIFT * rise * rise * (3 - 2 * rise);
         if (station.lift > 0.02) animator?.set("hang");
+        // Kurz vor dem Knall zittert und glüht der Ballon immer schneller —
+        // man sieht es kommen.
+        const tension = Math.max(0, (since - (POP_AT - 0.45)) / 0.45);
+        if (tension > 0) station.swell = Math.max(station.swell, 0.35 + 0.65 * tension * (0.5 + 0.5 * Math.sin(now / (40 - 22 * tension))));
         if (since > POP_AT) this.popBalloon(player, station, mine);
       } else if (!station.landed) {
         // Nach dem Knall einen Wimpernschlag in der Luft stehen — wie im
@@ -927,15 +930,62 @@ export class BalloonPump extends MinigameScene {
     station.balloon.visible = false;
     station.string.visible = false;
     const at = station.pos.clone();
-    this.burst(at, [player.color, "#ffffff"], { count: 34, speed: 4.4, up: 2.8, size: 0.12, life: 1.1, drag: 1.1 });
-    this.burst(at, ["#ffd15c", player.color, "#ffffff", "#71d97b", "#28c7d9"], { count: 26, speed: 2.6, up: 3.6, size: 0.09, life: 1.5, drag: 0.9, gravity: 3.2 });
-    this.bursts.ring(at, "#ffffff", { radius: 3, life: 0.55, opacity: 0.7, tilt: null });
-    this.pop(at.clone().add(new THREE.Vector3(0, 0.6, 0)), "PENG! 🎈", { color: "#ffe36b", size: 0.6, life: 1.2 });
+    // Ein kurzer, heller Blitz in Ballongrösse statt einer grossen flachen
+    // Scheibe; dazu Gummifetzen in der Ballonfarbe, die trudelnd fallen, und
+    // ein wenig Konfetti. Vorher flog ein Schwarm weisser Würfel davon, und
+    // ein weisser Ring von drei Metern lag wie eine Folie über dem Bild.
+    this.startPopFlash(station, at, player.color);
+    const dark = `#${station.baseColor.clone().multiplyScalar(0.7).getHexString()}`;
+    this.burst(at, [player.color, dark], { count: 18, speed: 3.4, up: 2.4, size: 0.16, life: 1.5, drag: 1.8, gravity: 5.5 });
+    this.burst(at, ["#ffd15c", "#ffffff", "#71d97b", "#28c7d9", "#ff8fb0"], { count: 22, speed: 2.2, up: 3.2, size: 0.07, life: 1.7, drag: 1.2, gravity: 2.6 });
+    this.bursts.ring(at, "#ffffff", { radius: station.radius * 1.9, life: 0.28, opacity: 0.45, tilt: null });
+    this.pop(at.clone().add(new THREE.Vector3(0, 0.5, 0)), "PENG!", { color: "#ffe36b", size: 0.72, life: 1.1 });
     this.animators.get(player.id)?.expression("surprised", 500);
     this.rig.shake(0.6);
     this.feedback?.sound("burst");
     this.feedback?.vibrate([40, 26, 60]);
     if (mine) this.feedback?.sound("win");
+  }
+
+  // Der Blitz beim Platzen: eine helle Kugel, die in einer Fünftelsekunde
+  // aufgeht und verlischt.
+  startPopFlash(station, at, color) {
+    const flash = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, depthWrite: false })
+    );
+    flash.position.copy(at);
+    flash.userData.isFx = true;
+    flash.renderOrder = 3;
+    this.scene.add(flash);
+    const glow = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, depthWrite: false })
+    );
+    glow.position.copy(at);
+    glow.userData.isFx = true;
+    this.scene.add(glow);
+    station.flash = { flash, glow, at: this.now(), r: station.radius };
+  }
+
+  updatePopFlash(station, now) {
+    const fx = station.flash;
+    if (!fx) return;
+    const u = (now - fx.at) / 220;
+    if (u >= 1) {
+      [fx.flash, fx.glow].forEach((mesh) => {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+      });
+      station.flash = null;
+      return;
+    }
+    const e = 1 - (1 - u) * (1 - u);
+    fx.flash.scale.setScalar(fx.r * (0.6 + 0.8 * e));
+    fx.flash.material.opacity = 0.9 * (1 - u);
+    fx.glow.scale.setScalar(fx.r * (0.9 + 1.1 * e));
+    fx.glow.material.opacity = 0.45 * (1 - u) * (1 - u);
   }
 
   // Der Sieger hängt am Ballon: dort keine Siegerpose, das Hängen IST sie.
@@ -967,18 +1017,27 @@ export class BalloonPump extends MinigameScene {
       const base = this.rig.base.frame;
       let w = base.w;
       let h = wide ? 4.1 : base.h;
-      const look = wide ? [0, 2.3, 0] : undefined;
-      // Endspurt: die Kamera rückt ein Stück näher — man spürt, dass es
-      // gleich vorbei ist.
-      const left = f.minigame.startedAt + f.minigame.duration - f.now;
-      if (f.started && left > 0 && left <= RUSH_MS && !this.reduced) {
-        const k = 1 - 0.07 * Math.min(1, (RUSH_MS - left) / 1200);
-        w *= k;
+      let lookY = wide ? 2.3 : this.rig.base.look?.[1] ?? 2.8;
+      // Werden die Ballons gross, zieht die Kamera mit auf: vorher rückte
+      // sie im Endspurt sogar näher, und die Kuppen ragten oben aus dem Bild.
+      // Die Höhe folgt weich, damit das Schaukeln nicht zoomt.
+      let top = 0;
+      this.stations.forEach((station) => {
+        if (!station.popped && !station.gone && !station.loose) top = Math.max(top, station.pos.y + station.radius * TALL + 0.3);
+      });
+      this.viewTop = this.viewTop === undefined ? top : this.viewTop + (top - this.viewTop) * frameLerp(0.04, f.dt);
+      const bottom = DECK_Y - 0.5;
+      const need = (this.viewTop - bottom) * 1.06;
+      const reach = lookY + h / 2;
+      if (this.viewTop > reach - 0.15) {
+        const k = Math.max(1, need / h);
         h *= k;
+        w *= k;
+        lookY = (this.viewTop + bottom) / 2;
       } else if (!wide) {
         return null;
       }
-      return look ? { frame: { w, h }, look } : { frame: { w, h } };
+      return { frame: { w, h }, look: [0, lookY, 0] };
     }
     const id = this.finaleWinnerId(f);
     const station = id && this.stations.get(id);
@@ -1053,18 +1112,6 @@ export class BalloonPump extends MinigameScene {
       const share = Math.min(1, rate / 12);
       this.tempoBar.style.transform = `scaleX(${share.toFixed(3)})`;
       this.tempoBar.dataset.level = rate >= max ? "max" : rate >= 8 ? "hoch" : rate >= 4 ? "mittel" : "niedrig";
-    }
-    if (this.hintNode) {
-      const hint = over
-        ? "Zeit!"
-        : !f.started
-          ? "Gleich geht's los …"
-          : left <= RUSH_MS
-            ? "Endspurt — alles geben!"
-            : rate >= max
-              ? "Volle Pulle!"
-              : "So schnell tippen, wie du kannst!";
-      if (this.hintNode.textContent !== hint) this.hintNode.textContent = hint;
     }
   }
 }

@@ -1,10 +1,10 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { eventChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin214";
-import { landingCompression } from "./FeedbackCues.js?v=tumblekin214";
-import { bindHoldInput } from "./HoldInput.js?v=tumblekin214";
-import { berge, heuballen, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
+import { createCloud } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { eventChance, frameLerp, prefersReducedMotion } from "./Quality.js?v=tumblekin215";
+import { landingCompression } from "./FeedbackCues.js?v=tumblekin215";
+import { bindHoldInput } from "./HoldInput.js?v=tumblekin215";
+import { berge, heuballen, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 
 // Ballonfahrt — Zielabwurf über einer Patchwork-Landschaft. Halten heizt den
 // Brenner (steigen), loslassen lässt sinken, der Knopf wirft einen Sandsack.

@@ -1,17 +1,26 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createKin, KinAnimator, reachArm, KIN_SOLE } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer, wolken, himmel } from "./Kulisse.js?v=tumblekin214";
+import { createKin, KinAnimator, reachArm, KIN_SOLE } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer, wolken, himmel } from "./Kulisse.js?v=tumblekin215";
 
 // Flaggen hoch — auf dem Deck eines Segelschiffs. Oben auf der Brücke steht
-// der Käpt'n mit einer roten und einer blauen Signalflagge. Ruft er „Käpt'n
-// sagt: ROT!", heben alle Rot; ruft er nur „ROT!", ist es eine Falle. Die
-// Kommandos kommen immer schneller, drei Fehler und man sitzt an Deck.
+// der Käpt'n mit einer roten und einer blauen Signalflagge. Steht oben
+// „Käpt'n sagt: ROT!", hebt er Rot und alle machen es nach; steht nur „ROT!"
+// da, ist es eine Falle. Die Kommandos kommen immer schneller, ein Fehler und
+// man geht über Bord.
 //
 // Rot ist für alle auf der LINKEN Bildseite, Blau rechts — beim Käpt'n, bei
 // den Matrosen, auf den Knöpfen und im Ton. Wer nachdenken muss, welche Hand,
 // hat schon verloren.
+//
+// Nach jedem Kommando ist kurz Pause (der Fahrplan auf dem Server lässt sie
+// frei): wer danebenlag, geht genau dann über Bord — alle Verlierer eines
+// Kommandos zusammen, oben steht, wen es erwischt hat. Sie landen vor dem
+// Bug im Wasser, das dafür im Bild liegt, und treiben im Schwimmring weiter.
+//
+// Bei einer Falle hebt der Käpt'n nichts: oben steht nur die Farbe, ohne
+// „Käpt'n sagt:". Wer auf das Wort hereinfällt, geht über Bord.
 //
 // Gewertet wird, wann ein Druck beim Server ankommt. Das Kommando erscheint
 // darum um die gemessene Rundreise früher (wie in Blitzreflex): wer es sieht
@@ -33,6 +42,14 @@ const RAISE_MS = 520;
 const RED = "#ff3b52";
 const BLUE = "#2f7bff";
 const UP = new THREE.Vector3(0, 1, 0);
+const WATER_Y = -0.4;
+const FLIGHT_MS = 800;
+const FLIGHT_PEAK = 1.7;
+const MISTAKES = new Set(["wrong", "late", "fooled"]);
+// Vor der Bugspitze (sie liegt bei z = 6.8) treibt, wer über Bord ging —
+// jeder Matrose auf seinem eigenen Platz, nebeneinander.
+const SWIM_Z = 7.3;
+const SWIM_GAP = 0.8;
 
 export class FlagCaller extends MinigameScene {
   constructor(ctx) {
@@ -40,13 +57,14 @@ export class FlagCaller extends MinigameScene {
     this.flagsOf = new Map();       // playerId → { red, blue, raise: { red, blue }, until: { red, blue } }
     this.seenRaised = new Map();
     this.seenAnswers = new Map();   // playerId → Set der schon gezeigten Kommandonummern
-    this.seenOut = new Set();
     this.shownCommand = -1;
     this.roundTrip = 0;
     this.measured = false;
     this.lastPingAt = 0;
     this.local = new Map();         // Kommandonummer → { result } — eigene Antworten, sofort beurteilt
     this.localPressed = new Map();  // Kommandonummer → { red, blue } bei BEIDE!
+    this.overboard = new Map();     // playerId → { start, from, to, side, phase, ring }
+    this.outBanner = { text: "" };
     this.labelY = 0.78;
     this.gulls = [];
     this.caps = null;
@@ -65,7 +83,8 @@ export class FlagCaller extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>0</strong></div>
       <div class="hud-chips" data-flag-lives></div>
-      <div class="flag-call" data-flag-call hidden><small>Käpt'n sagt:</small><b></b><i class="flag-timer"><span></span></i></div>`;
+      <div class="flag-call" data-flag-call hidden><small>Käpt'n sagt:</small><b></b><i class="flag-timer"><span></span></i></div>
+      <div class="flag-out" data-flag-out hidden></div>`;
   }
 
   build() {
@@ -293,7 +312,9 @@ export class FlagCaller extends MinigameScene {
 
   shot() {
     return {
-      look: [0, 1.3, -0.5],
+      // Etwas nach vorn gerückt: vor dem Bug liegt ein Streifen Wasser im
+      // Bild, dort treibt, wer über Bord gegangen ist.
+      look: [0, 0.95, 1.3],
       frame: { w: 5.7, h: 3.9 },
       pitch: 0.24,
       fov: 38,
@@ -304,6 +325,122 @@ export class FlagCaller extends MinigameScene {
 
   keepInView() {
     return [...this.kins.values(), this.captain];
+  }
+
+  // Wer im Wasser treibt, bleibt dort — auch wenn das Finale Plätze verteilt.
+  finaleOverride(player) {
+    return this.overboard.has(player.id);
+  }
+
+  // Der erste Fehler eines Matrosen — beim eigenen auch, was das Gerät schon
+  // beurteilt hat. Bei einem Leben ist es zugleich der letzte.
+  mistakeOf(entry, isOwn) {
+    const answers = { ...(entry?.answers || {}) };
+    if (isOwn) this.local.forEach((answer, index) => { if (!answers[index]) answers[index] = answer; });
+    let first = null;
+    Object.entries(answers).forEach(([key, answer]) => {
+      if (MISTAKES.has(answer.result) && (first === null || Number(key) < first)) first = Number(key);
+    });
+    return first;
+  }
+
+  // Der Platz im Wasser vor dem Bug: nach der Reihenfolge an Deck, damit
+  // sich zwei im Wasser nie überdecken.
+  waterSpot(index, count) {
+    return new THREE.Vector3((index - (count - 1) / 2) * SWIM_GAP, WATER_Y, SWIM_Z);
+  }
+
+  // Über Bord: erst wenn das Fenster zu ist, dann im Bogen ins Wasser, dann
+  // im Schwimmring treiben. Gibt true zurück, solange die Szene die Figur
+  // selbst führt.
+  driveOverboard(player, entry, kin, animator, isOwn, state, elapsed, now) {
+    let ob = this.overboard.get(player.id);
+    if (!ob) {
+      const index = this.mistakeOf(entry, isOwn);
+      const command = index === null ? null : state.commands[index];
+      const start = command ? command.at + command.window + (state.graceMs ?? 120) : elapsed;
+      const players = this.getState()?.players || [];
+      const order = Math.max(0, players.findIndex((p) => p.id === player.id));
+      const to = this.waterSpot(order, players.length);
+      const side = to.x < kin.position.x ? -1 : 1;
+      ob = { start, from: kin.position.clone(), to, side, phase: "wait", ring: null, index };
+      // Wer erst spät davon erfährt (Wiedereinstieg), treibt gleich im Wasser.
+      if (elapsed - start > FLIGHT_MS + 1500) ob.start = elapsed - FLIGHT_MS - 1;
+      this.overboard.set(player.id, ob);
+    }
+    const u = (elapsed - ob.start) / FLIGHT_MS;
+    if (u < 0) {
+      animator.set("idle");
+      animator.expression("sad", 300);
+      return true;
+    }
+    kin.userData.outOfPlay = true;
+    if (u < 1) {
+      if (ob.phase === "wait") {
+        ob.phase = "fly";
+        animator.set("panic");
+        this.captainAnimator?.expression("smug", 1100);
+        this.feedback?.sound("whoosh", { pan: ob.side * 0.6 });
+        if (isOwn) this.feedback?.vibrate([30, 40, 60]);
+      }
+      const y0 = ob.from.y;
+      const y1 = WATER_Y - 0.28 + KIN_SOLE;
+      animator.groundY = y0 + (y1 - y0) * u + 4 * FLIGHT_PEAK * u * (1 - u);
+      kin.position.x = ob.from.x + (ob.to.x - ob.from.x) * u;
+      kin.position.z = ob.from.z + (ob.to.z - ob.from.z) * u;
+      kin.rotation.z = -ob.side * u * Math.PI * 2;
+      return true;
+    }
+    if (ob.phase !== "swim") {
+      ob.phase = "swim";
+      kin.rotation.z = 0;
+      kin.position.x = ob.to.x;
+      kin.position.z = ob.to.z;
+      ob.ring = makeSwimRing();
+      this.scene.add(ob.ring);
+      if (ob.from.distanceTo(ob.to) > 0 && elapsed - ob.start < FLIGHT_MS + 400) {
+        this.burst(ob.to.clone().add(new THREE.Vector3(0, 0.05, 0)), ["#ffffff", "#bfe6ff", "#7cc8f5"], { count: 18, speed: 1.6, up: 2.4, size: 0.08, life: 0.8, gravity: 4 });
+        this.feedback?.sound("bumperSplash", { pan: ob.side * 0.6 });
+      }
+    }
+    const bob = Math.sin(now / 520 + ob.to.x) * 0.04;
+    animator.set("float");
+    animator.expression("sad", 300);
+    animator.groundY = WATER_Y - 0.28 + KIN_SOLE + bob;
+    kin.position.x = ob.to.x;
+    kin.position.z = ob.to.z;
+    ob.ring.position.set(ob.to.x, WATER_Y + 0.02 + bob, ob.to.z);
+    ob.ring.rotation.z = Math.sin(now / 700 + ob.to.z) * 0.08;
+    return true;
+  }
+
+  // Text für die Pause nach dem letzten geschlossenen Kommando: wer ist dabei
+  // über Bord gegangen? Leer, wenn alle richtig lagen oder ein Kommando läuft.
+  overboardText(state, elapsed, players, controlledId) {
+    const grace = state.graceMs ?? 120;
+    let last = null;
+    for (let i = state.commands.length - 1; i >= 0; i -= 1) {
+      const c = state.commands[i];
+      if (elapsed >= c.at + c.window + grace) {
+        last = c;
+        break;
+      }
+    }
+    if (!last) return "";
+    const next = state.commands[last.index + 1];
+    if (next ? elapsed >= next.at - 60 : elapsed > last.at + last.window + grace + 1600) return "";
+    const names = [];
+    let mine = false;
+    players.forEach((player) => {
+      const ob = this.overboard.get(player.id);
+      if (!ob || ob.index !== last.index) return;
+      if (player.id === controlledId) mine = true;
+      else names.push(String(player.name || "?").slice(0, 12));
+    });
+    if (mine && !names.length) return "Du gehst über Bord!";
+    if (mine) return `Über Bord: du und ${names.join(" und ")}`;
+    if (!names.length) return "";
+    return `Über Bord: ${names.length > 1 ? names.slice(0, -1).join(", ") + " und " + names[names.length - 1] : names[0]}`;
   }
 
   bind() {
@@ -478,16 +615,18 @@ export class FlagCaller extends MinigameScene {
       if (u < 0.5) d.userData.splashed = false;
     });
 
-    // Der Käpt'n: hebt, was er ruft — bei der Falle genauso. Kennt das Gerät
-    // die Art noch nicht (sehr langsames Netz), wartet er.
+    // Der Käpt'n hebt, was er befiehlt — bei der Falle nichts: dann steht
+    // oben nur die Farbe, ohne „Käpt'n sagt:". Kennt das Gerät die Art noch
+    // nicht (sehr langsames Netz), wartet er.
     const live = activeCommand(state.commands, elapsed);
     const command = live?.kind ? live : null;
+    const real = command && command.kind !== "fake";
     const capTarget = { red: 0, blue: 0 };
-    if (command) {
+    if (real) {
       const hold = elapsed - command.at < command.window * 0.85;
       if (hold) {
-        if (command.kind === "red" || command.kind === "both" || (command.kind === "fake" && command.side === "red")) capTarget.red = 1;
-        if (command.kind === "blue" || command.kind === "both" || (command.kind === "fake" && command.side === "blue")) capTarget.blue = 1;
+        if (command.kind === "red" || command.kind === "both") capTarget.red = 1;
+        if (command.kind === "blue" || command.kind === "both") capTarget.blue = 1;
       }
     }
     ["red", "blue"].forEach((flag) => {
@@ -501,10 +640,9 @@ export class FlagCaller extends MinigameScene {
       const color = command.kind === "fake" ? command.side : command.kind;
       this.feedback?.sound("swish", { pan: color === "red" ? -0.6 : color === "blue" ? 0.6 : 0 });
     }
-    this.captainAnimator.set(command ? "focus" : "idle");
-    // Auch das Gesicht verrät nichts: grinsen darf er erst, wenn jemand
-    // reingefallen ist (popAnswer).
-    if (command) this.captainAnimator.expression("focus", 200);
+    this.captainAnimator.set(real ? "focus" : "idle");
+    // Grinsen darf er erst, wenn jemand reingefallen ist (popAnswer).
+    if (real) this.captainAnimator.expression("focus", 200);
     this.captainAnimator.update(now);
 
     // „Zu spät!" und „Standhaft!" sagt der Server: ob kurz vor Schluss noch
@@ -551,18 +689,10 @@ export class FlagCaller extends MinigameScene {
         }
         this.popAnswer(player.id, answer.result, isOwn, state.commands[index]?.kind);
       });
-      if (out && !this.seenOut.has(player.id)) {
-        this.seenOut.add(player.id);
-        this.burst(kin.position.clone().add(new THREE.Vector3(0, 0.6, 0)), ["#9aa7b4", "#ffffff"], { count: 10, speed: 1.2, up: 1.2, size: 0.06, life: 0.7 });
-      }
+      if (out && this.driveOverboard(player, entry, kin, animator, isOwn, state, elapsed, now)) return;
       if (f.finale) return;
-      if (out) {
-        animator.set("sit");
-        animator.expression("sad", 300);
-      } else {
-        animator.set(command ? "ready" : "idle");
-        animator.lookAt(this.captain.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
-      }
+      animator.set(command ? "ready" : "idle");
+      animator.lookAt(this.captain.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
     });
   }
 
@@ -595,7 +725,8 @@ export class FlagCaller extends MinigameScene {
       const flags = this.flagsOf.get(id);
       const entry = f.arcade?.players?.[id];
       const out = Boolean(entry?.outAt) || (id === f.controlledId && entry && this.ownView(entry).lives <= 0);
-      if (flags) place(kin, flags, 1, out && !f.finale);
+      // Wer über Bord ist, hat die Flaggen verloren — auch im Finale.
+      if (flags) place(kin, flags, 1, out);
     });
   }
 
@@ -655,9 +786,39 @@ export class FlagCaller extends MinigameScene {
         this.timerNode.style.transform = `scaleX(${left.toFixed(3)})`;
       }
     }
+    // Die Pause nach einem Kommando: wen hat es erwischt?
+    const banner = this.hud.querySelector("[data-flag-out]");
+    if (banner) {
+      const text = minigame.finaleAt ? "" : this.overboardText(state, elapsed, room.players, controlledId);
+      if (text !== this.outBanner.text) {
+        this.outBanner.text = text;
+        banner.textContent = text;
+        banner.hidden = !text;
+        if (text) {
+          banner.style.animation = "none";
+          void banner.offsetWidth;
+          banner.style.animation = "";
+        }
+      }
+    }
     const out = Boolean(own?.outAt) || view.lives <= 0;
     this.controls.querySelectorAll("[data-flag]").forEach((button) => { button.disabled = out || Boolean(minigame.finaleAt); });
   }
+}
+
+// Der Schwimmring, rot und weiss in vier Stücken, flach auf dem Wasser.
+function makeSwimRing() {
+  const ring = new THREE.Group();
+  const flat = new THREE.Group();
+  flat.rotation.x = Math.PI / 2;
+  for (let i = 0; i < 4; i += 1) {
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.1, 5, 4, Math.PI / 2), lambert(i % 2 ? "#ffffff" : "#ff4d5e"));
+    arc.rotation.z = (i * Math.PI) / 2;
+    flat.add(arc);
+  }
+  ring.add(flat);
+  ring.userData.isFx = true;
+  return ring;
 }
 
 // Wie activeFlagCommand auf dem Server (partyGames.js).

@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin214";
-import { frameLerp } from "./Quality.js?v=tumblekin214";
-import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
+import { createCloud, setKinOpacity } from "./VoxelKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin215";
+import { frameLerp } from "./Quality.js?v=tumblekin215";
+import { lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 
 // Farbflucht: eine Farbe wird angesagt, alle anderen Felder fallen weg. Mit
 // Wischen hüpft man Feld für Feld. Runde und Phase kommen aus dem Zeitplan des
@@ -17,6 +17,9 @@ const TILE = 0.76;
 // Hochkant wie das Handy — dieselben Zahlen wie auf dem Server.
 const COLS = 5;
 const ROWS = 8;
+// Abstand zweier geschickter Schritte beim Weiterziehen (Server: bis zu drei am
+// Stück, dann einer je 70 ms).
+const STEP_GAP_MS = 75;
 const TILE_H = 0.3;
 const TILE_TOP_Y = TILE_H / 2;
 const WATER_Y = -3.9;
@@ -287,9 +290,14 @@ export class ColorRush extends MinigameScene {
     this.flushStep();
   }
 
+  // Geschickt wird im Takt, ohne auf jede Bestätigung zu warten: bei 125 ms
+  // Abstand UND Warten auf die Antwort lag der dritte Schritt eines schnellen
+  // Wischs oft hinter dem Ende der Ansage. Das Gerät hatte die Figur schon
+  // aufs richtige Feld gesetzt, der Schritt wurde verworfen, und sie sprang
+  // ein Feld zurück. Der Server lässt kurze Folgen zu (COLORGRID_STEP_BURST).
   flushStep() {
-    if (this.stepInFlight || this.stepTimer || !this.stepQueue?.length) return;
-    const wait = Math.max(0, (this.lastStepSentAt || 0) + 125 - performance.now());
+    if (this.stepTimer || !this.stepQueue?.length) return;
+    const wait = Math.max(0, (this.lastStepSentAt || 0) + STEP_GAP_MS - performance.now());
     if (wait > 0) {
       this.stepTimer = setTimeout(() => { this.stepTimer = null; this.flushStep(); }, wait);
       return;
@@ -298,8 +306,9 @@ export class ColorRush extends MinigameScene {
     const arcade = (this.update || this.minigame)?.arcade;
     const id = this.getControlledPlayerId();
     const own = arcade?.players?.[id];
-    // Ob der Schritt noch rechtzeitig ankommt, entscheidet die Ankunftszeit.
-    if (!this.frame || !own || own.eliminated || (this.update || this.minigame).finaleAt || this.computePhase(arcade, this.update || this.minigame, this.arrivalNow()).name !== "announce") {
+    // Ob der Schritt noch rechtzeitig ankommt, entscheidet die Ankunftszeit —
+    // samt der kurzen Nachfrist, in der der Server noch nicht gewertet hat.
+    if (!this.frame || !own || own.eliminated || (this.update || this.minigame).finaleAt || !this.stepStillCounts(arcade, this.update || this.minigame, this.arrivalNow())) {
       this.stepQueue.length = 0;
       return;
     }
@@ -322,10 +331,18 @@ export class ColorRush extends MinigameScene {
     this.feedback?.sound("move");
     this.feedback?.vibrate(8);
     this.lastStepSentAt = performance.now();
-    this.stepInFlight = true;
     const pending = { step, acked: false };
     this.stepPending.push(pending);
-    this.sendInput({ action: "step", dir }).finally(() => { pending.acked = true; this.stepInFlight = false; this.flushStep(); }).catch(() => {});
+    this.sendInput({ action: "step", dir }).finally(() => { pending.acked = true; }).catch(() => {});
+    this.flushStep();
+  }
+
+  stepStillCounts(arcade, minigame, now) {
+    const phase = this.computePhase(arcade, minigame, now);
+    if (phase.name === "announce") return true;
+    const slot = (arcade.schedule || [])[phase.round];
+    if (phase.name !== "drop" || !slot || arcade.phase !== "announce") return false;
+    return now - minigame.startedAt < slot.dropAt + (arcade.stepGraceMs || 0);
   }
 
   // Bestätigte Schritte stecken ab dem nächsten Bild im Feld des Servers.

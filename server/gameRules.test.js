@@ -467,6 +467,56 @@ test("color escape: laufen die ganze Ansage lang, gesperrt nur im Fall, die näc
   assert.equal(colorGridPhaseAt(arcade, second.start + 10).round, 1);
 });
 
+test("color escape: ein Schritt, der beim Wegbrechen noch unterwegs war, zählt noch", () => {
+  const runner = player({ id: "cl", name: "CL", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("colorEscape", [runner], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 40000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  const first = arcade.schedule[0];
+  minigame.startedAt = Date.now() - 50;
+  updateArcade(room);
+  // Ein falsches Feld, rechts daneben ein richtiges.
+  const index = arcade.grid.findIndex((color, i) => color !== arcade.targetColor && i % 5 < 4 && arcade.grid[i + 1] === arcade.targetColor);
+  assert.ok(index >= 0, "es gibt ein falsches Feld neben einem richtigen");
+  entry.gx = index % 5;
+  entry.gy = Math.floor(index / 5);
+
+  // Knapp nach dem Ende der Ansage kommt der Schritt an: er rettet noch.
+  minigame.startedAt = Date.now() - (first.dropAt + 80);
+  updateArcade(room);
+  assert.equal(entry.eliminated, false, "in der Nachfrist wird noch nicht gewertet");
+  handleArcadeInput(room, runner, { action: "step", dir: "right" });
+  assert.equal(entry.gx, index % 5 + 1, "der Schritt in der Nachfrist zählt");
+  minigame.startedAt = Date.now() - (first.dropAt + 200);
+  updateArcade(room);
+  assert.equal(entry.eliminated, false, "wer rechtzeitig angekommen ist, steht");
+  assert.equal(entry.survived, 1);
+
+  // Danach ist man festgenagelt.
+  handleArcadeInput(room, runner, { action: "step", dir: "left" });
+  assert.equal(entry.gx, index % 5 + 1, "nach der Nachfrist bewegt sich nichts mehr");
+});
+
+test("color escape: drei schnelle Schritte gehen alle durch, Dauerfeuer nicht", () => {
+  const runner = player({ id: "cb", name: "CB", color: "#fff" });
+  const startedAt = Date.now();
+  const arcade = createArcadeState("colorEscape", [runner], startedAt);
+  const minigame = { arcade, scores: {}, startedAt, duration: 40000, finishing: false };
+  const room = { currentMinigame: minigame, players: [runner] };
+  const entry = arcade.players[runner.id];
+  minigame.startedAt = Date.now() - 50;
+  updateArcade(room);
+  entry.gx = 0; entry.gy = 0;
+  // Ein Wisch über drei Felder kommt dicht hintereinander an.
+  ["right", "right", "down"].forEach((dir) => handleArcadeInput(room, runner, { action: "step", dir }));
+  assert.deepEqual([entry.gx, entry.gy], [2, 1], "kein Schritt verschluckt");
+  // Weitere im selben Augenblick werden gebremst.
+  ["down", "down", "down"].forEach((dir) => handleArcadeInput(room, runner, { action: "step", dir }));
+  assert.ok(entry.gy <= 2, `Dauerfeuer wird gebremst (gy ${entry.gy})`);
+});
+
 test("color escape: spätere Runden warnen kürzer und haben weniger sichere Felder", () => {
   const runner = player({ id: "cg", name: "CG", color: "#fff" });
   const startedAt = Date.now();

@@ -1,9 +1,9 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { createCloud } from "./VoxelKit.js?v=tumblekin214";
-import { dressMeadow } from "./SceneKit.js?v=tumblekin214";
-import { MinigameScene } from "./MinigameScene.js?v=tumblekin214";
-import { frameLerp } from "./Quality.js?v=tumblekin214";
-import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin214";
+import { createCloud } from "./VoxelKit.js?v=tumblekin215";
+import { dressMeadow } from "./SceneKit.js?v=tumblekin215";
+import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { frameLerp } from "./Quality.js?v=tumblekin215";
+import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 
 // Messerwurf — wie die bekannten Handyspiele: vor dir dreht sich DEIN Stamm,
 // jeder Tipp wirft ein Messer von unten hinein. Sind alle Messer drin,
@@ -338,8 +338,28 @@ export class KnifeThrow extends MinigameScene {
     };
   }
 
-  keepInView() {
+  // Wer raus ist, schaut den anderen zu: die Kamera rückt auf ihre Stämme
+  // auf dem Podest. Vorher blieb sie eine halbe Minute auf dem eigenen,
+  // stillen Stamm, und die anderen waren klein am oberen Rand.
+  watching(f) {
+    return !f.finale && Boolean(f.arcade?.players?.[f.controlledId]?.outAt)
+      && [...this.stations.values()].some((st) => !st.isOwn);
+  }
+
+  keepInView(f) {
+    if (f && this.watching(f)) return [...this.stations.values()].filter((st) => !st.isOwn).map((st) => st.kin);
     return [...this.kins.values()];
+  }
+
+  rigOptions(f) {
+    if (!this.watching(f)) return null;
+    const others = [...this.stations.values()].filter((st) => !st.isOwn);
+    const span = others.length > 1 ? Math.abs(others[others.length - 1].x - others[0].x) : 0;
+    return {
+      look: [0, MINI_Y - 0.25, MINI_Z],
+      frame: { w: span + 1.9, h: 2.6 },
+      own: null
+    };
   }
 
   bind() {
@@ -600,7 +620,9 @@ export class KnifeThrow extends MinigameScene {
     this.scoreNode ||= this.hud.querySelector("[data-kinetic-score]");
     this.scoreNode.textContent = String(own?.points || 0);
     const stage = this.hud.querySelector("[data-knife-stage]");
-    if (stage && own) stage.textContent = `${own.boss ? "BOSS · " : ""}Stamm ${own.stage + 1} · ${own.cleared || 0} geschafft`;
+    if (stage && own) stage.textContent = own.outAt
+      ? `Raus · ${own.cleared || 0} geschafft`
+      : `${own.boss ? "BOSS · " : ""}Stamm ${own.stage + 1} · ${own.cleared || 0} geschafft`;
     const ammo = this.hud.querySelector("[data-knife-ammo]");
     if (ammo && own) {
       const key = `${own.stage}:${own.knivesLeft}:${own.knivesTotal}`;
@@ -613,7 +635,9 @@ export class KnifeThrow extends MinigameScene {
     const banner = this.hud.querySelector("[data-knife-banner]");
     if (banner) {
       const out = Boolean(own?.outAt);
-      banner.hidden = !out;
+      // Kurz sagen, was passiert ist — dann gehört das Bild den anderen.
+      if (out && this.outSeenAt === undefined) this.outSeenAt = now;
+      banner.hidden = !out || now - this.outSeenAt > 2500;
       if (out) {
         banner.textContent = "Klirr — du bist raus! Deine Punkte bleiben.";
         banner.style.background = "#40506a";

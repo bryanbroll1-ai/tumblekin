@@ -276,12 +276,16 @@ test("Flaggen hoch: jede Runde hat Täuschungen und Doppelkommandos, nie zwei Fa
   for (const seed of [827001, 827555, 827999, 12]) {
     const commands = party.buildFlagCommands(seed);
     const kinds = commands.map((c) => c.kind);
-    assert.ok(commands.length >= 20, `${commands.length} Kommandos`);
+    // Mit der Verschnaufpause nach jedem Kommando sind es weniger als früher.
+    assert.ok(commands.length >= 16, `${commands.length} Kommandos`);
     assert.ok(kinds.filter((k) => k === "fake").length >= 3, kinds.join(","));
     assert.ok(kinds.filter((k) => k === "both").length >= 2, kinds.join(","));
     assert.ok(kinds.slice(0, 3).every((k) => k === "red" || k === "blue"), "die ersten drei sind einfach");
     kinds.forEach((k, i) => { if (i > 0) assert.ok(!(k === "fake" && kinds[i - 1] === "fake"), "zwei Fallen nacheinander"); });
     commands.forEach((c, i) => { if (i > 0) assert.ok(c.at >= commands[i - 1].at + commands[i - 1].window, "Fenster überlappen"); });
+    // Zwischen zwei Kommandos bleibt nach der Nachfrist eine Pause, in der man
+    // sieht, wen es erwischt hat.
+    commands.forEach((c, i) => { if (i > 0) assert.ok(c.at - (commands[i - 1].at + commands[i - 1].window + C.FLAG_GRACE_MS) >= 700, "keine Verschnaufpause"); });
   }
 });
 
