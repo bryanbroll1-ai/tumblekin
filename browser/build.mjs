@@ -1,6 +1,7 @@
 // Baut die Browser-Fassung: Spielserver und Oberfläche in einer Seite, ohne
 // Node-Server. Wer die Party startet, ist der Server; Gäste verbinden sich
-// über die claude.ai-Raumfunktion (net.js). Ergebnis in browser/dist:
+// über die claude.ai-Raumfunktion, ausserhalb von claude.ai (Android-App)
+// per QR-Kopplung (net.js). Ergebnis in browser/dist:
 // index.html, app.js und die Vorschaubilder — so wie es als Artifact
 // veröffentlicht wird.
 //
@@ -100,8 +101,8 @@ const body = html.slice(html.indexOf(">", html.indexOf("<body")) + 1, html.lastI
 const css = ["style.css", "minigames.css"].map((f) => fs.readFileSync(path.join(ROOT, "client", f), "utf8")).join("\n");
 const offlineCss = `
 /* Diese Fassung läuft ohne Server: wer die Party startet, ist der Server.
-   Beitreten geht nur in der claude.ai-Ansicht (Raumfunktion, siehe net.js);
-   bis die antwortet — oder ausserhalb von claude.ai — spielt man gegen Bots. */
+   Beitreten geht in der claude.ai-Ansicht (Raumfunktion) und ausserhalb per
+   QR-Kopplung (beides net.js); wo keins geht, spielt man gegen Bots. */
 body:not(.can-join) .start-sheet .divider,
 body:not(.can-join) .start-sheet .join-row { display: none !important; }
 .offline-note { margin: 0; font-size: 13px; font-weight: 700; opacity: .72; text-align: center; }
@@ -115,8 +116,26 @@ body:not(.can-join) .offline-note .multi { display: none; }
 .party-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 48px; padding: 10px 14px; border: 0; border-radius: 14px; background: #fff; box-shadow: 0 4px 0 rgba(36, 48, 64, .12); font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .party-item strong { font-size: 15px; }
 .party-item span { font-size: 13px; font-weight: 800; letter-spacing: .06em; opacity: .7; }
+/* QR-Kopplung (ausserhalb von claude.ai, net.js): scannen statt Code
+   eintippen; die Einladung zeigt das Angebot gross und „Gast scannen“. */
+.qr-join .start-sheet .join-row, .qr-join #copy-link, .qr-join .offline-note .multi { display: none !important; }
+body:not(.qr-join) .offline-note .qr, body:not(.qr-join) .scan-qr, body:not(.qr-join) .scan-guest { display: none !important; }
+.scan-qr { width: 100%; }
+.qr-join .invite-card img { width: 260px; height: 260px; }
+.qr-overlay { position: fixed; z-index: 45; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); background: rgba(14, 30, 42, .94); color: #ffffff; text-align: center; animation: fade-in 160ms ease both; }
+.qr-title { margin: 0; font-size: 1.25rem; font-weight: 1000; }
+.qr-hint { margin: 0; max-width: 340px; font-weight: 750; line-height: 1.4; opacity: .9; }
+.qr-view { position: relative; width: min(84vw, 360px); aspect-ratio: 1; border-radius: 20px; overflow: hidden; background: #000000; }
+.qr-view video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.qr-frame { position: absolute; inset: 12%; border: 3px solid rgba(255, 255, 255, .9); border-radius: 16px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .22); }
+.qr-code-box { display: grid; place-items: center; width: min(84vw, 340px); aspect-ratio: 1; box-sizing: border-box; padding: 14px; border-radius: 20px; background: #ffffff; }
+.qr-code-box img { display: none; width: 100%; height: 100%; }
+.qr-show.has-code .qr-code-box img { display: block; }
+.qr-show.has-code .qr-wait { display: none; }
+.qr-wait { color: #282631; font-weight: 900; }
+.qr-overlay .btn { min-width: 220px; }
 `;
-const note = `<p class="offline-note"><span class="solo"><span class="web-only">Browser-Fassung</span><span class="app-only">Test-App</span>: du spielst gegen Bots. Tippe in der Lobby auf „+ Bot“.</span><span class="multi">Party starten und Freunde per Code einladen — oder unten beitreten.</span></p>`;
+const note = `<p class="offline-note"><span class="solo"><span class="web-only">Browser-Fassung</span><span class="app-only">Test-App</span>: du spielst gegen Bots. Tippe in der Lobby auf „+ Bot“.</span><span class="multi">Party starten und Freunde per Code einladen — oder unten beitreten.</span><span class="qr">Party starten und Freunde per QR-Code einladen — oder unten den Code eines Hosts scannen.</span></p>`;
 const bodyWithNote = body.replace('<button id="create-room"', `${note}\n          <button id="create-room"`);
 // Der Zeichensatz muss drinstehen: ohne ihn las ein Browser die Seite als
 // Latin-1, und aus dem Menüzeichen wurde Zeichensalat.

@@ -15,9 +15,14 @@
 //   Ereignisse nur, wer mitwirken darf — so können auch Gäste mitspielen,
 //   die das Artifact nur ansehen dürfen.
 //
+// Ausserhalb von claude.ai (Android-App, eigene Webseite) gibt es die
+// Raumfunktion nicht. Dort koppeln sich die Handys über zwei QR-Codes,
+// ganz ohne Server (siehe „QR-Kopplung“ unten).
+//
 // Alles, was von anderen Geräten kommt, ist ungeprüfte Eingabe: der Server
 // des Hosts prüft jede Aktion ohnehin, und Namen werden nur als Text gesetzt.
 import QRCode from "qrcode/lib/browser.js";
+import { openScanner, showCode, toast } from "./qr-scan.js";
 
 const PROTOCOL = 1;
 const ROOM_PREFIX = "tk-";
@@ -196,6 +201,20 @@ class GuestLink {
     this.closed = true;
     try { this.dc?.close(); this.pc?.close(); } catch { /* egal */ }
     this.socket.receive("disconnect", ["transport close"]);
+  }
+  // QR-Kopplung: die Direktverbindung steht schon, einen Raum gibt es nicht.
+  // Reisst sie ab, ist der Gast weg.
+  attach(pc, dc) {
+    this.pc = pc;
+    this.dc = dc;
+    dc.onmessage = ({ data }) => { try { this.handle(JSON.parse(data)); } catch { /* ungültig */ } };
+    const gone = () => {
+      if (this.closed) return;
+      this.close();
+      this.host.dropGuest?.(this);
+    };
+    dc.onclose = gone;
+    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed" || pc.connectionState === "closed") gone(); };
   }
 }
 
@@ -477,6 +496,275 @@ class HostLink {
   }
 }
 
+// ------------------------------------------- QR-Kopplung (ohne Server) ---
+//
+// Ohne Raumfunktion koppeln sich zwei Handys über zwei QR-Codes: Der Host
+// zeigt in der Einladung ein WebRTC-Angebot, der Gast scannt es und zeigt
+// seine Antwort, der Host scannt die. Danach läuft alles direkt zwischen den
+// Geräten — verschlüsselt, ohne Server dazwischen, im selben WLAN auch ohne
+// Internet.
+//
+// Eine ganze SDP-Beschreibung (~800 Zeichen) gäbe einen QR-Code, den keine
+// Kamera mehr sauber liest. Gebraucht werden nur ICE-Kennung und -Passwort,
+// der Fingerabdruck des Zertifikats, die Rolle und die Adressen; daraus baut
+// die Gegenseite die Beschreibung wieder auf. Das sind ~200 Zeichen.
+const TOKEN = "TK1";
+const INVITE_TTL_MS = 10 * 60 * 1000;
+const PAIR_TIMEOUT_MS = 3 * 60 * 1000;
+const MAX_CANDIDATES = 4;
+
+function toBase64Url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function fromBase64Url(text) {
+  const raw = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+// Rolle|Kennung|Passwort|Fingerabdruck|Adressen — oder null.
+function compactSdp(sdp) {
+  const value = (key) => (sdp.match(new RegExp(`^a=${key}:(.+)$`, "m")) || [])[1]?.trim();
+  const ufrag = value("ice-ufrag");
+  const pwd = value("ice-pwd");
+  const setup = value("setup");
+  const [algorithm, hex] = (value("fingerprint") || "").split(" ");
+  if (!ufrag || !pwd || algorithm?.toLowerCase() !== "sha-256" || !hex) return null;
+  const fingerprint = toBase64Url(hex.split(":").map((h) => parseInt(h, 16)));
+  // IPv4 und mDNS-Namen genügen im selben WLAN; IPv6 macht den Code nur gross.
+  const found = [];
+  for (const m of sdp.matchAll(/^a=candidate:\S+ \d+ udp \d+ (\S+) (\d+) typ (host|srflx)/gim)) {
+    if (m[1].includes(":")) continue;
+    const entry = (m[3] === "host" ? "h" : "s") + m[1] + ":" + m[2];
+    if (!found.includes(entry)) found.push(entry);
+  }
+  found.sort((a, b) => (a[0] === b[0] ? 0 : a[0] === "h" ? -1 : 1));
+  const role = setup === "actpass" ? "o" : setup === "passive" ? "p" : "a";
+  return [role, ufrag, pwd, fingerprint, found.slice(0, MAX_CANDIDATES).join(",")].join("|");
+}
+
+function expandSdp([role, ufrag, pwd, fingerprint, candidates]) {
+  const hex = Array.from(fromBase64Url(fingerprint), (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
+  const setup = role === "o" ? "actpass" : role === "p" ? "passive" : "active";
+  const lines = [
+    "v=0", `o=- ${Date.now()} 2 IN IP4 127.0.0.1`, "s=-", "t=0 0", "a=group:BUNDLE 0", "a=msid-semantic: WMS",
+    "m=application 9 UDP/DTLS/SCTP webrtc-datachannel", "c=IN IP4 0.0.0.0",
+    `a=ice-ufrag:${ufrag}`, `a=ice-pwd:${pwd}`, "a=ice-options:trickle", `a=fingerprint:sha-256 ${hex}`,
+    `a=setup:${setup}`, "a=mid:0", "a=sctp-port:5000", "a=max-message-size:262144"
+  ];
+  (candidates || "").split(",").filter(Boolean).forEach((entry, i) => {
+    const host = entry[0] === "h";
+    const at = entry.lastIndexOf(":");
+    const address = entry.slice(1, at);
+    const port = entry.slice(at + 1);
+    const priority = (host ? 2122260223 : 1686052607) - i;
+    lines.push(`a=candidate:${i + 1} 1 udp ${priority} ${address} ${port} typ ${host ? "host" : "srflx"}${host ? "" : " raddr 0.0.0.0 rport 0"} generation 0`);
+  });
+  lines.push("a=end-of-candidates");
+  return lines.join("\r\n") + "\r\n";
+}
+
+// TK1|I|<Code>|<Einladung>|… (Angebot des Hosts) oder TK1|A|<Einladung>|… (Antwort).
+function parseToken(text) {
+  const parts = String(text || "").trim().split("|");
+  if (parts[0] !== TOKEN) return null;
+  if (parts[1] === "I" && parts.length === 9) {
+    const code = normalizeCode(parts[2]);
+    if (code.length < 4 || !/^[a-z0-9]{4,12}$/.test(parts[3])) return null;
+    return { kind: "invite", code, id: parts[3], desc: parts.slice(4) };
+  }
+  if (parts[1] === "A" && parts.length === 8 && /^[a-z0-9]{4,12}$/.test(parts[2])) {
+    return { kind: "answer", id: parts[2], desc: parts.slice(3) };
+  }
+  return null;
+}
+
+// Der Host: hält immer ein frisches Angebot bereit. Wer es mit seiner
+// Antwort einlöst, ist drin; dann gibt es ein neues für den nächsten Gast.
+class LocalHost extends Host {
+  constructor(code) {
+    super(code);
+    this.local = true;
+    this.invites = new Map();
+    this.current = null;
+  }
+  async start() {
+    this.onVisible = () => { if (document.visibilityState === "visible") this.keepAwake(this.guests.size > 0); };
+    document.addEventListener("visibilitychange", this.onVisible);
+    await this.prepare();
+    return Boolean(this.current);
+  }
+  async prepare() {
+    if (this.stopped || this.preparing) return;
+    this.preparing = true;
+    try {
+      const id = nonce().replace(/[^a-z0-9]/g, "").slice(0, 6) || "x" + Date.now().toString(36).slice(-5);
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      const dc = pc.createDataChannel("tk", { ordered: true });
+      const invite = { id, pc, dc, at: Date.now(), answered: false };
+      dc.onopen = () => this.accept(invite);
+      await pc.setLocalDescription(await pc.createOffer());
+      await gathered(pc);
+      const compact = compactSdp(pc.localDescription.sdp);
+      if (!compact || this.stopped) { pc.close(); return; }
+      invite.token = [TOKEN, "I", this.code, id, compact].join("|");
+      this.invites.set(id, invite);
+      this.current = invite;
+      for (const [key, old] of this.invites) {
+        if (old !== invite && !old.answered && Date.now() - old.at > INVITE_TTL_MS) { old.pc.close(); this.invites.delete(key); }
+      }
+      showInviteQr();
+    } catch {
+      status.error = "rtc";
+      changed();
+    } finally {
+      this.preparing = false;
+    }
+  }
+  // Die Antwort eines Gasts, vom Scanner. true, oder ein Satz, was nicht passt.
+  async answer(text) {
+    const parsed = parseToken(text);
+    if (parsed?.kind !== "answer") return "Das ist nicht der Antwort-Code eines Gasts.";
+    const invite = this.invites.get(parsed.id);
+    if (!invite) return "Dieser Code gehört zu einer älteren Einladung. Der Gast soll deinen Code noch einmal scannen.";
+    if (invite.answered) return true;
+    invite.answered = true;
+    try {
+      await invite.pc.setRemoteDescription({ type: "answer", sdp: expandSdp(parsed.desc) });
+    } catch {
+      invite.answered = false;
+      return "Der Code liess sich nicht verwenden. Bitte noch einmal scannen.";
+    }
+    // Das Angebot ist vergeben: der nächste Gast bekommt ein neues.
+    if (this.current === invite) this.prepare();
+    return true;
+  }
+  accept(invite) {
+    if (this.stopped) { invite.pc.close(); return; }
+    const link = new GuestLink(this, "qr-" + invite.id);
+    link.attach(invite.pc, invite.dc);
+    this.guests.set(link.peer, link);
+    this.invites.delete(invite.id);
+    this.keepAwake(true);
+    toast("Ein Gast ist verbunden.");
+    changed();
+  }
+  dropGuest(link) {
+    if (this.guests.get(link.peer) !== link) return;
+    this.guests.delete(link.peer);
+    this.keepAwake(this.guests.size > 0);
+    changed();
+  }
+  advertise() {}
+  stop() {
+    this.stopped = true;
+    this.keepAwake(false);
+    document.removeEventListener("visibilitychange", this.onVisible);
+    for (const link of this.guests.values()) link.close();
+    this.guests.clear();
+    for (const invite of this.invites.values()) { try { invite.pc.close(); } catch { /* egal */ } }
+    this.invites.clear();
+  }
+}
+
+// Der Gast: die Verbindung zum Host steht schon, wenn er beitritt.
+class LocalHostLink extends HostLink {
+  constructor(code, pc, dc) {
+    super(code);
+    this.pc = pc;
+    this.dc = dc;
+    dc.onmessage = ({ data }) => { try { this.handle(JSON.parse(data)); } catch { /* ungültig */ } };
+    dc.onclose = () => this.lost();
+    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") this.lost(); };
+  }
+  async connect(client) {
+    this.client = client;
+    if (this.dc.readyState !== "open") throw new Error("Die Verbindung zum Host ist weg. Bitte seinen Code neu scannen.");
+  }
+  send(message) {
+    if (this.dc.readyState !== "open") return;
+    try { this.dc.send(JSON.stringify(message)); } catch { /* weg */ }
+  }
+  publish() {}
+  close() {
+    this.closed = true;
+    try { this.dc.close(); this.pc.close(); } catch { /* egal */ }
+    for (const ack of this.pending.values()) ack({ ok: false, error: "Verbindung zum Host verloren." });
+    this.pending.clear();
+  }
+}
+
+let pendingLocal = null;
+const after = (ms) => new Promise((resolve) => setTimeout(() => resolve(null), ms));
+
+// Gast: Code des Hosts scannen, eigene Antwort zeigen, warten, beitreten.
+async function pairAsGuest() {
+  const text = await openScanner({
+    title: "Code des Hosts scannen",
+    hint: "Der Host tippt in der Lobby auf seinen Raumcode und zeigt dir den QR-Code.",
+    accept: (t) => (parseToken(t)?.kind === "invite" ? true : "Das ist nicht der Einladungs-Code. Der Host tippt in der Lobby auf seinen Raumcode.")
+  });
+  if (!text) return;
+  const invite = parseToken(text);
+  const view = showCode({
+    title: "Jetzt scannt der Host",
+    hint: "Der Host tippt auf „Gast scannen“ und hält sein Handy auf diesen Code.",
+    render: (t, done) => globalThis.__tumblekinQr(t, done, { large: true })
+  });
+  let pc = null;
+  try {
+    pc = new RTCPeerConnection(RTC_CONFIG);
+    const opened = new Promise((resolve, reject) => {
+      pc.ondatachannel = ({ channel }) => {
+        if (channel.readyState === "open") resolve(channel);
+        else channel.onopen = () => resolve(channel);
+      };
+      pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") reject(new Error("failed")); };
+    });
+    opened.catch(() => {});
+    await pc.setRemoteDescription({ type: "offer", sdp: expandSdp(invite.desc) });
+    await pc.setLocalDescription(await pc.createAnswer());
+    await gathered(pc);
+    const compact = compactSdp(pc.localDescription.sdp);
+    if (!compact) throw new Error("sdp");
+    view.setCode([TOKEN, "A", invite.id, compact].join("|"));
+    const channel = await Promise.race([opened, view.cancelled, after(PAIR_TIMEOUT_MS)]);
+    view.close();
+    if (!channel) { pc.close(); return; }
+    pendingLocal = new LocalHostLink(invite.code, pc, channel);
+    const input = document.getElementById("room-code");
+    input.value = invite.code;
+    input.dispatchEvent(new Event("input"));
+    document.getElementById("join-room").click();
+  } catch {
+    view.close();
+    try { pc?.close(); } catch { /* egal */ }
+    toast("Keine Verbindung zum Host. Seid ihr im selben WLAN? Scanne seinen Code noch einmal.");
+  }
+}
+
+// Host: die Antwort eines Gasts scannen.
+async function scanGuest() {
+  if (!host?.local) return;
+  const local = host;
+  const text = await openScanner({
+    title: "Code des Gasts scannen",
+    hint: "Der Gast hat deinen Code gescannt und zeigt jetzt seinen eigenen.",
+    accept: (t) => (parseToken(t)?.kind === "answer" ? true : "Das ist nicht der Code eines Gasts. Er erscheint auf seinem Handy, nachdem er deinen gescannt hat.")
+  });
+  if (!text || host !== local) return;
+  const result = await local.answer(text);
+  toast(result === true ? "Verbinde mit dem Gast …" : result);
+}
+
+// Das aktuelle Angebot ins Einladungsbild (die Oberfläche zeichnet den
+// QR-Code nur bei Zustandswechseln neu).
+function showInviteQr() {
+  const img = document.getElementById("qr-code");
+  const token = host?.local ? host.current?.token : null;
+  if (!img || !token) return;
+  globalThis.__tumblekinQr(token, (src) => { if (host?.current?.token === token) img.src = src; }, { large: true });
+}
+
 // ----------------------------------------------- Anschluss an ClientSocket ---
 
 const localCodes = new Set();
@@ -486,7 +774,7 @@ let lastState = null;
 
 function startHosting(code) {
   host?.stop();
-  host = new Host(code);
+  host = status.local ? new LocalHost(code) : new Host(code);
   status.hosting = code;
   status.error = null;
   changed();
@@ -514,11 +802,11 @@ function advertise(state) {
   });
 }
 
-async function joinRemote(client, event, args) {
+async function joinRemote(client, event, args, paired = null) {
   const payload = args[0] || {};
   const reply = typeof args[args.length - 1] === "function" ? args[args.length - 1] : null;
   const code = normalizeCode(payload.code);
-  const link = new HostLink(code);
+  const link = paired || new HostLink(code);
   try {
     await link.connect(client);
   } catch (error) {
@@ -571,7 +859,14 @@ globalThis.__tumblekinNet = {
     }
     if ((event === "joinRoom" || event === "resumeRoom") && !guest) {
       const code = normalizeCode(args[0]?.code);
-      if (!code || localCodes.has(code) || status.room === null) return false;
+      // Per QR gekoppelt: die Verbindung zum Host steht schon.
+      if (pendingLocal && pendingLocal.code === code) {
+        const paired = pendingLocal;
+        pendingLocal = null;
+        joinRemote(client, event, args, paired);
+        return true;
+      }
+      if (!code || localCodes.has(code) || !status.room) return false;
       joinRemote(client, event, args);
       return true;
     }
@@ -603,6 +898,8 @@ globalThis.__tumblekinNet = {
 // Für die Prüfskripte: wer verbunden ist und auf welchem Weg.
 globalThis.__tumblekinNetStatus = () => ({
   room: Boolean(status.room),
+  local: Boolean(status.local),
+  invite: host?.local ? host.current?.token || null : null,
   hosting: status.hosting,
   guestOf: status.guestOf,
   error: status.error,
@@ -612,9 +909,15 @@ globalThis.__tumblekinNetStatus = () => ({
 
 // ------------------------------------------------------- Oberfläche -------
 
-globalThis.__tumblekinJoinUrl = (code) => `${__ARTIFACT_URL__}?room=${encodeURIComponent(code)}`;
-globalThis.__tumblekinQr = (text, done) => {
-  QRCode.toString(text, { type: "svg", margin: 1, width: 168, color: { dark: "#282631", light: "#ffffff" } })
+// Bei der QR-Kopplung trägt der Code das Angebot des Hosts, keinen Link.
+globalThis.__tumblekinJoinUrl = (code) => {
+  if (host?.local && host.code === code) return host.current?.token || `${TOKEN}|wird vorbereitet`;
+  return `${__ARTIFACT_URL__}?room=${encodeURIComponent(code)}`;
+};
+// `large`: für Codes, die eine Handykamera vom Bildschirm lesen soll — mehr
+// Pixel je Modul und ein breiterer Rand.
+globalThis.__tumblekinQr = (text, done, { large = false } = {}) => {
+  QRCode.toString(text, { type: "svg", margin: large ? 2 : 1, width: large ? 320 : 168, errorCorrectionLevel: "M", color: { dark: "#282631", light: "#ffffff" } })
     .then((svg) => done("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)))
     .catch(() => {});
 };
@@ -661,6 +964,10 @@ function inviteHint() {
   if (!hint) return;
   hint.textContent = status.error === "not_permitted"
     ? "Gäste können nicht verbunden werden: Eine Party leiten darf nur, wer dieses Artifact bearbeiten oder mitwirken darf."
+    : status.local
+      ? status.error === "rtc"
+        ? "Dieses Gerät kann keine Direktverbindung aufbauen. Gegen Bots geht es trotzdem."
+        : "So kommt ein Freund dazu: Er tippt in Tumblekin auf „QR-Code scannen“ und scannt diesen Code. Dann tippst du auf „Gast scannen“ und scannst den Code auf seinem Handy. Am besten seid ihr im selben WLAN."
     : status.room
       ? "Freunde öffnen dieses Tumblekin auf claude.ai — teile das Artifact mit ihnen — und tippen den Raumcode ein oder wählen deine Party aus der Liste."
       : globalThis.__tumblekinApp
@@ -668,12 +975,42 @@ function inviteHint() {
         : "Mitspielen geht nur in der claude.ai-Ansicht dieses Artifacts. Hier spielst du gegen Bots.";
 }
 
+// QR-Kopplung: „QR-Code scannen“ statt des Codefelds auf dem Startbildschirm,
+// „Gast scannen“ in der Einladung.
+function qrControls() {
+  const row = document.querySelector(".start-sheet .join-row");
+  if (row && !document.getElementById("scan-qr")) {
+    const button = document.createElement("button");
+    button.id = "scan-qr";
+    button.type = "button";
+    button.className = "btn btn-secondary scan-qr";
+    button.textContent = "QR-Code scannen";
+    button.addEventListener("click", () => pairAsGuest());
+    row.after(button);
+  }
+  const copy = document.getElementById("copy-link");
+  if (copy && !document.getElementById("scan-guest")) {
+    const button = document.createElement("button");
+    button.id = "scan-guest";
+    button.type = "button";
+    button.className = "btn btn-primary scan-guest";
+    button.textContent = "Gast scannen";
+    button.addEventListener("click", () => scanGuest());
+    copy.before(button);
+  }
+}
+
 roomCapability().then((lobby) => {
   status.room = lobby;
+  // Ohne Raumfunktion und ausserhalb von claude.ai: QR-Kopplung. In der
+  // claude.ai-Ansicht gibt es dafür keine Kamera.
+  status.local = !lobby && !window.claude && typeof RTCPeerConnection !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
   changed();
-  document.body.classList.toggle("can-join", Boolean(lobby));
+  document.body.classList.toggle("can-join", Boolean(lobby) || status.local);
+  document.body.classList.toggle("qr-join", status.local);
   if (lobby) partyList(lobby);
+  if (status.local) qrControls();
 });
 document.addEventListener("click", (event) => {
-  if (event.target?.closest?.("#open-invite")) setTimeout(inviteHint, 0);
+  if (event.target?.closest?.("#open-invite")) setTimeout(() => { inviteHint(); showInviteQr(); }, 0);
 });

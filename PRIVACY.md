@@ -39,7 +39,8 @@ mit dem Beenden des Servers sind sie weg.
 
 - Keine Analyse-, Tracking- oder Werbedienste.
 - Keine Weitergabe an Dritte.
-- Keine Standortdaten, keine Kontakte, keine Kamera, kein Mikrofon.
+- Keine Standortdaten, keine Kontakte, kein Mikrofon; die Kamera nur zum
+  Scannen bei der QR-Kopplung (siehe unten), nur auf dem Gerät.
 - Keine Verbindung zu fremden Servern: das Spiel spricht ausschließlich mit dem
   Server, von dem es geladen wurde.
 - Keine Registrierung, keine E-Mail-Adresse, kein Passwort.
@@ -49,6 +50,20 @@ mit dem Beenden des Servers sind sie weg.
 Das Spiel nutzt `navigator.vibrate` für Rüttel-Feedback, sofern das Gerät es
 unterstützt. Dafür ist keine Berechtigung nötig, und es lässt sich im Menü
 abschalten. Weitere Geräteberechtigungen werden nicht angefragt.
+
+## Browser-Fassung und Test-App: QR-Kopplung
+
+Die Browser-Fassung ausserhalb von claude.ai und die Android-Test-App haben
+keinen Server. Mitspieler koppeln sich dort über zwei QR-Codes; dafür fragt
+die Seite beim Scannen nach der **Kamera**. Die Kamerabilder werden nur auf
+dem Gerät nach einem QR-Code abgesucht, nicht gespeichert und nicht
+übertragen. Die Kamera ist nur an, solange der Scanner offen ist.
+
+Danach sprechen die Geräte direkt miteinander (WebRTC, verschlüsselt). Um die
+eigene Adresse für Verbindungen über verschiedene Netze zu erfahren, fragt
+das Gerät dabei einmal einen öffentlichen STUN-Server von Google
+(`stun.l.google.com`); der sieht nur die öffentliche IP-Adresse, keine
+Spieldaten.
 
 ## Kinder
 

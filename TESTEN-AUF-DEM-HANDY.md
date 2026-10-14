@@ -90,10 +90,10 @@ Der schnellste Weg, wenn ein Rechner in Reichweite ist.
 Klappt es nicht, blockt fast immer die Firewall des Rechners Port 3000 — bei
 Windows in der Abfrage „privates Netzwerk" erlauben.
 
-## D) Android-Test-App (APK) — ohne Server, allein gegen Bots
+## D) Android-Test-App (APK) — ohne Server, gegen Bots oder per QR-Code
 
 Für Android gibt es eine Test-App, die alles mitbringt und ohne Netz läuft.
-Mitspielen mit Freunden geht in ihr nicht, dafür einer der Wege oben.
+Freunde mit derselben App kommen per QR-Code dazu (siehe unten).
 
 1. Die Datei `tumblekin-test.apk` aufs Handy laden (gebaut mit
    `npm run apk`, siehe `android/README.md`).
@@ -104,6 +104,20 @@ Mitspielen mit Freunden geht in ihr nicht, dafür einer der Wege oben.
    Store.
 4. **Tumblekin** starten, Namen eingeben, **Party starten**, in der Lobby
    **+ Bot** antippen.
+
+**Mit einem Freund spielen (QR-Kopplung):** Beide haben die App und sind
+im selben WLAN (oder ein Handy macht einen Hotspot auf, das andere geht
+hinein).
+
+1. Host: **Party starten**, in der Lobby auf **Einladen** (den Raumcode)
+   tippen — es erscheint ein QR-Code.
+2. Freund: auf der Startkarte **QR-Code scannen**, die Kamera erlauben und
+   den Code des Hosts scannen. Sein Handy zeigt dann einen eigenen Code.
+3. Host: **Gast scannen** antippen und den Code des Freunds scannen. Kurz
+   danach ist er in der Lobby. Für jeden weiteren Freund dasselbe.
+
+Kommt keine Verbindung zustande, ist es fast immer das WLAN: Gäste- und
+Hotel-WLANs lassen Geräte nicht miteinander reden. Dann den Hotspot nehmen.
 
 Eine neuere Test-App installiert sich als Update über die alte. Meldet
 Android einen Konflikt mit einem vorhandenen Paket, wurde mit einem anderen

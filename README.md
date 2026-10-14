@@ -349,6 +349,21 @@ Voraussetzungen: Gäste müssen bei claude.ai angemeldet sein, und das Artifact 
 
 `npm run browser-join-check` spielt das mit drei Seiten durch (eine Nachbildung der Raumfunktion über BroadcastChannel, `browser/mock-room.js`, mit Verzögerung und Verlust): Beitritt per Code und per Liste, ein Gast über den Raum, einer über WebRTC, ein gemeinsames Spiel, Gehen, Party beenden, Host-Fenster schliessen. `npm run browser-solo-check` prüft Startkarte, Übung und eine Runde gegen Bots.
 
+### QR-Kopplung (Android-App, eigene Webseite)
+
+Ausserhalb von claude.ai gibt es keine Raumfunktion. Dort koppeln sich zwei Handys über **zwei QR-Codes**, ganz ohne Server:
+
+1. Der Host startet die Party und tippt in der Lobby auf **Einladen** (den Raumcode). Die Karte zeigt einen QR-Code.
+2. Der Gast tippt auf der Startkarte auf **QR-Code scannen** und hält die Kamera auf diesen Code. Sein Handy zeigt daraufhin einen eigenen QR-Code.
+3. Der Host tippt auf **Gast scannen** und scannt den Code des Gasts. Ein, zwei Sekunden später sitzt der Gast in der Lobby. Für den nächsten Gast hat der Host schon einen neuen Code bereit.
+
+Danach läuft alles direkt von Gerät zu Gerät (WebRTC-Datenkanal, verschlüsselt), im selben WLAN auch ohne Internet. Die Codes tragen nur, was die Gegenseite für die Verbindung braucht — ICE-Kennung und -Passwort, Fingerabdruck des Zertifikats, Rolle und bis zu vier Adressen —, rund 110 bis 200 Zeichen; daraus baut sie die SDP-Beschreibung wieder auf. Gelesen werden die Codes mit dem `BarcodeDetector` des Browsers, wo es ihn gibt, sonst mit einem eigenen Leser (`browser/qr-decode.mjs`, nach dem Verfahren von ZXing). Die Kamerabilder bleiben auf dem Gerät.
+
+Am sichersten klappt es im selben WLAN. Netze mit Client-Isolation (Gäste-WLAN, Hotel) lassen Geräte nicht miteinander reden — dann macht ein Handy einen Hotspot auf und das andere geht hinein. Über verschiedene Netze (etwa ein Handy im Mobilfunk) geht es nur, wenn beide NATs mitspielen; einen Relay-Server (TURN) gibt es nicht.
+
+`node browser/qr-decode-check.mjs` prüft den Leser ohne Kamera (gedreht, schräg, verrauscht, Reed-Solomon-Korrektur, 120 zufällige Kamerabilder). `node browser/qr-pair-check.mjs` koppelt zwei Seiten mit vorgespielter Kamera — jede sieht das Bildschirmfoto des anderen Codes — und spielt eine Runde zusammen.
+
+
 ## Architektur
 
 - Express liefert PWA, Three.js und Clientmodule aus.

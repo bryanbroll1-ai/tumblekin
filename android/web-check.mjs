@@ -8,9 +8,9 @@
 // nicht doppelt hier, sie werden aus MainActivity.java gelesen. Dazu der
 // User-Agent einer Android-WebView mit dem Kennzeichen der App.
 //
-// Geprüft: die Seite startet ohne Fehler und ohne fehlende Dateien, sagt
-// „Test-App“ statt „Browser-Fassung“, und eine Runde gegen Bots läuft bis
-// zum Ergebnis.
+// Geprüft: die Seite startet ohne Fehler und ohne fehlende Dateien, bietet
+// die QR-Kopplung an (Freunde per QR-Code einladen, Code eines Hosts
+// scannen), und eine Runde gegen Bots läuft bis zum Ergebnis.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -78,11 +78,13 @@ await page.waitForSelector("#create-room", { timeout: 15000 });
 const look = await page.evaluate(() => ({
   inApp: document.documentElement.classList.contains("in-app"),
   note: document.querySelector(".offline-note")?.innerText.trim(),
+  scan: Boolean(document.querySelector("#scan-qr")?.offsetParent),
   secure: window.isSecureContext,
   storage: (() => { try { localStorage.setItem("__probe", "1"); return localStorage.getItem("__probe") === "1"; } catch { return false; } })()
 }));
 check(look.inApp, "Seite erkennt die App");
-check(/^Test-App: du spielst gegen Bots/.test(look.note || ""), `Hinweis: „${look.note}“`);
+check(/per QR-Code einladen/.test(look.note || ""), `Hinweis: „${look.note}“`);
+check(look.scan, "Knopf „QR-Code scannen“ auf der Startkarte");
 check(look.secure, "sicherer Ursprung (Modul-Skript, Vibration, Audio)");
 check(look.storage, "localStorage");
 await page.screenshot({ path: shot("start.png") });

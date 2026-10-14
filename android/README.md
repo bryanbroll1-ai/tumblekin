@@ -11,9 +11,13 @@ Die App ist zum Testen gedacht, nicht für den Play Store (siehe `RELEASE.md`).
 - **Geht:** alles allein gegen Bots — jede Spielart, alle Minispiele, Übung,
   Ton und Vibration. Im Vollbild, mit wachem Bildschirm und fest im
   Hochformat.
-- **Geht nicht:** mit Freunden spielen. Beitreten per Code braucht in der
-  Browser-Fassung die Raumfunktion von claude.ai, und die gibt es in der App
-  nicht. Die Startkarte sagt das.
+- **Geht:** mit Freunden spielen, per **QR-Kopplung** — ohne Server, am
+  besten im selben WLAN (oder ein Handy macht einen Hotspot auf). Der Host
+  startet die Party und tippt in der Lobby auf **Einladen**; der Freund tippt
+  auf der Startkarte auf **QR-Code scannen** und scannt den Code des Hosts;
+  dann zeigt er seinen eigenen Code, und der Host tippt auf **Gast scannen**.
+  Beim ersten Scannen fragt Android nach der Kamera. Wie das im Einzelnen
+  läuft, steht in der Haupt-README unter „QR-Kopplung“.
 - **Zurück** beendet die App erst beim zweiten Druck innerhalb von zwei
   Sekunden, damit ein Wisch vom Rand keine Partie abbricht.
 
@@ -66,8 +70,9 @@ Ohne Handy: Chromium bekommt die Seite genau so, wie die App sie ausliefert —
 dieselbe Adresse, dieselben Pfadregeln, dieselben MIME-Typen (gelesen aus
 `MainActivity.java`) und der User-Agent einer Android-WebView mit dem
 Kennzeichen der App. Geprüft wird, dass die Seite ohne Fehler startet, keine
-Datei fehlt, die Startkarte „Test-App“ sagt und eine Runde gegen Bots bis zum
-Ergebnis läuft.
+Datei fehlt, die Startkarte die QR-Kopplung anbietet und eine Runde gegen
+Bots bis zum Ergebnis läuft. Die Kopplung selbst prüft
+`node browser/qr-pair-check.mjs` (zwei Seiten, vorgespielte Kamera).
 
 Auf dem Handy hilft `chrome://inspect` am Rechner (USB-Debugging an): die
 Test-App gibt ihre Seite zum Untersuchen frei, Konsolenmeldungen landen
@@ -77,8 +82,8 @@ zusätzlich im Logcat unter `Tumblekin`.
 
 | Datei | Inhalt |
 | --- | --- |
-| `AndroidManifest.xml` | eine Activity, Berechtigungen INTERNET und VIBRATE |
-| `src/app/tumblekin/test/MainActivity.java` | WebView, Auslieferung der Assets, Vollbild, Tastatur, Zurück |
+| `AndroidManifest.xml` | eine Activity, Berechtigungen INTERNET, VIBRATE und CAMERA (Kamera nicht Pflicht) |
+| `src/app/tumblekin/test/MainActivity.java` | WebView, Auslieferung der Assets, Kamera für die Seite, Vollbild, Tastatur, Zurück |
 | `res/` | Name, Farben, Thema, Symbol (adaptiv aus `client/assets/icon-512-maskable.png`) |
 | `build-apk.sh` | Bauen: Ressourcen → Java → Dex → Paket → ausrichten → signieren |
 | `web-check.mjs` | Prüfung der ausgelieferten Seite in Chromium |

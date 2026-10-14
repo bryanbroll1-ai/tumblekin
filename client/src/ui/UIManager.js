@@ -1257,7 +1257,9 @@ export class UIManager {
   renderInviteHint() {
     const hint = document.getElementById("invite-hint");
     if (!hint) return;
-    const local = isLocalNetworkHost(new URL(this.preferredJoinUrl()).hostname);
+    // Bei der QR-Kopplung der Browser-Fassung trägt der Code keinen Link.
+    let local = false;
+    try { local = isLocalNetworkHost(new URL(this.preferredJoinUrl()).hostname); } catch (_error) { local = false; }
     hint.textContent = local
       ? "Mit der Handykamera scannen — oder Raumcode auf dem Startbildschirm eingeben. Alle müssen im selben WLAN sein."
       : "Mit der Handykamera scannen — oder Raumcode auf dem Startbildschirm eingeben. Geht von überall, auch ohne gemeinsames WLAN.";

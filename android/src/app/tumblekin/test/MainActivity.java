@@ -1,5 +1,6 @@
 package app.tumblekin.test;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -13,6 +14,7 @@ import android.view.View;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
+import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -38,18 +40,23 @@ import java.util.Map;
  * das Modul-Skript nicht, und localStorage bekäme keinen festen Ursprung.
  *
  * Spielserver und Bots laufen wie in der Browser-Fassung im Fenster selbst.
+ * Die Kamera braucht die Seite nur für die QR-Kopplung mit Freunden
+ * (browser/net.js); Android fragt danach beim ersten Scannen.
  */
 public class MainActivity extends Activity {
     static final String HOST = "appassets.androidplatform.net";
     static final String START_URL = "https://" + HOST + "/index.html";
     private static final String TAG = "Tumblekin";
     private static final long BACK_WINDOW_MS = 2000;
+    private static final int CAMERA_REQUEST = 7;
 
     private WebView web;
     private FrameLayout root;
     private long backPressedAt;
     private int lastUsableHeight = -1;
     private boolean keyboardOpen;
+    /** Kamerawunsch der Seite, der auf die Antwort von Android wartet. */
+    private PermissionRequest pendingCamera;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,6 +94,16 @@ public class MainActivity extends Activity {
                 Log.d(TAG, message.message() + " (" + message.sourceId() + ":" + message.lineNumber() + ")");
                 return true;
             }
+
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                askCamera(request);
+            }
+
+            @Override
+            public void onPermissionRequestCanceled(PermissionRequest request) {
+                if (pendingCamera == request) pendingCamera = null;
+            }
         });
 
         root = new FrameLayout(this);
@@ -101,6 +118,40 @@ public class MainActivity extends Activity {
         });
 
         web.loadUrl(START_URL);
+    }
+
+    // Die Seite will die Kamera (QR-Code scannen). Erlaubt wird nur die
+    // Kamera und nur der eigenen Seite; hat Android sie noch nicht, fragt es
+    // den Spieler — die Seite wartet so lange.
+    private void askCamera(PermissionRequest request) {
+        boolean camera = false;
+        for (String resource : request.getResources()) {
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) camera = true;
+        }
+        if (!camera || !isOwn(request.getOrigin())) {
+            request.deny();
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            request.grant(new String[] { PermissionRequest.RESOURCE_VIDEO_CAPTURE });
+            return;
+        }
+        if (pendingCamera != null) pendingCamera.deny();
+        pendingCamera = request;
+        requestPermissions(new String[] { Manifest.permission.CAMERA }, CAMERA_REQUEST);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        if (requestCode != CAMERA_REQUEST || pendingCamera == null) return;
+        PermissionRequest request = pendingCamera;
+        pendingCamera = null;
+        if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+            request.grant(new String[] { PermissionRequest.RESOURCE_VIDEO_CAPTURE });
+        } else {
+            // Die Seite zeigt dann, wo man die Kamera erlaubt (qr-scan.js).
+            request.deny();
+        }
     }
 
     private String versionName() {
