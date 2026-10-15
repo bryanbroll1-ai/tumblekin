@@ -193,3 +193,22 @@ Bilder der Layoutprüfung und der Menüs von Hand angesehen.
 | Server-Fassung | Kam der Host nach einem Abbruch nicht zurück, blieben alle in Lobby oder Siegerehrung stehen. | Nach 20 s leitet der nächste verbundene Mensch die Party (hostHandover.test.js). |
 | QR-Kopplung | Zwei Gäste mit demselben Host-Code: der zweite wartete drei Minuten ins Leere. | Der Host-Scanner sagt, dass er den neuen Code scannen soll; der Scanner liest abwechselnd Gesamtbild und Bildmitte in voller Auflösung. |
 | Prüfskripte | onboarding-check erwartete in Luftpuck noch einen Stick. | Prüft den seitlichen Stick mit Farbenjagd. bumper-check scheiterte einmal knapp an der Zeit (38 % statt 40 % Schwung in 2,2 s auf dieser langsamen Maschine) und lief danach zweimal sauber. |
+
+## Nachtrag 15. Oktober 2026: Alle Bildschirmformen
+
+`npm run device-check` geht 24 Geräteformen durch (zugeklapptes und
+aufgeklapptes Fold, Flip, Surface Duo einzeln und über beide Bildschirme
+mit Scharnier, Handys hoch und quer, Tablets, Desktop, Full HD,
+Ultrawide); `refinement-check` lief für alle 40 Spiele zusätzlich in
+280 × 653 (Fold zu), 690 × 829 (Fold auf) und 1180 × 820 (Tablet quer).
+
+| Bereich | Befund | Änderung |
+| --- | --- | --- |
+| Lobby, Fold zu | Die halbe Lobby rutschte über den rechten Rand: der Bot-Regler meldete als Mindestbreite viermal sein längstes Wort. „Punktejagd“ passte in keine Spalte, „Einladen“ war abgeschnitten. | Spalten, die nie breiter werden als die Karte; Container-Queries für Raum-Pille, Spielarten (zwei mal zwei) und Bot-Regler; weicher Trennstrich in „Punkte­jagd“. |
+| Tippflächen | Bot entfernen 24 × 24, Schliessen-Knöpfe auf 30 px gestaucht, Auswahl-Schalter 34 px hoch. | Mindestens 40 px, ohne die Pillen grösser zu machen. |
+| Querformat | Startkarte: „Stick ziehen“ und Ziel lagen unter den klebenden Knöpfen; Menüknopf über Ergebnis- und Startkarte; auf dem flachen Fold blieb der Bühne ein 120-px-Streifen. | Startkarte zweispaltig, Abstand zum Menüknopf, Karte höchstens gut die halbe Breite; Kamera-Ausschnitte (Notch) schieben Anzeigen vom Rand. |
+| Surface Duo | Lobby-Karte, Startkarte, Raum-Pille und das Spielfeld lagen im Scharnier. | Viewport-Segmente: Szene auf dem ersten, Karten und Knöpfe auf dem zweiten Bildschirm; das Kamera-Rig weitet sich nie über das Scharnier. |
+| HUD, Fold zu | Lichtwächter: Ansage über der Läufer-Leiste; Leuchtfolge: Runde über den Bestleistungen; Nagelbrett/Angelduell: Punktestände unter dem Menüknopf bzw. über dem Rand; Kippboot: Waage unter den Chips; Bumper Pool: Spieler über der Ansage; Schneeballhang/Schnappschuss: Aktionsknopf ragte hinaus; Falschsignal: Hinweis in acht Zeilen. | Leisten und Chips brechen um oder rücken unter die Punkteleiste; Stick und Knopf je halbe Breite. |
+| Grosse Bildschirme | Ultrawide und 4K hätten jeden Pixel gerechnet; die Raum-Pille lief über 1600 px. | Über Full HD darf die Renderauflösung bis 0,75 sinken; Raum-Pille höchstens 680 px. |
+| App | Tablets und aufgeklappte Foldables waren aufs Hochformat festgelegt. | Ab 600 dp kürzester Seite dreht die App frei; Zu-/Aufklappen und geteilter Bildschirm laden nichts neu. |
+| Prüfskripte | Der Testbrowser ohne Grafikkarte kompiliert auf 1180 × 820 die Shader einer neuen Szene 15–20 s lang, auf Ultrawide blockiert das den Hauptthread rund 35 s (auf echter Hardware Sekundenbruchteile). Das Scharnier kam über setDisplayFeaturesOverride nicht an, und page.screenshot nahm es wieder weg. | Abfragen im Takt statt pro Bild, Fristen nach Bildschirmfläche; Scharnier über die Gerätemetrik, Bildschirmfotos dann über CDP. |

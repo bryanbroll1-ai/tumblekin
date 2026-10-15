@@ -56,7 +56,11 @@ const out = process.env.TUMBLEKIN_SCREENSHOTS || "/tmp/tumblekin-devices";
 // Grosse Bildschirme rendert der Testbrowser ohne Grafikkarte mit wenigen
 // Bildern pro Sekunde. Darum wird der Spielstand im Takt abgefragt statt pro
 // Bild (requestAnimationFrame), und die Fristen sind grosszügig.
-const phase = (page, wanted, timeout = 45000) => page.waitForFunction(
+// Auf Ultrawide (2560 × 1080) blockiert das Kompilieren der Shader nach
+// „Bereit!“ den Hauptthread dort rund 35 Sekunden — gemessen; auf echter
+// Hardware Sekundenbruchteile. Für so grosse Flächen gelten 120 Sekunden.
+let patience = 45000;
+const phase = (page, wanted, timeout = patience) => page.waitForFunction(
   (names) => names.includes(window.__tumblekin.state()?.phase), [wanted].flat(), { timeout, polling: 250 });
 await mkdir(out, { recursive: true });
 
@@ -127,6 +131,7 @@ try {
       isMobile: device.width < 1200
     });
     const page = await context.newPage();
+    patience = device.width * device.height > 2.5e6 ? 120000 : 45000;
     let cdp = null;
     if (device.hinge) {
       // Chromium kann das Scharnier vortäuschen: dann gelten die
@@ -181,12 +186,12 @@ try {
         await request(page, "selectMode", { mode: "single" });
         await request(page, "updateSettings", { settings: { single: game } });
         await request(page, "startGame");
-        await page.waitForSelector("#screen-minigame.active", { timeout: 45000 });
+        await page.waitForSelector("#screen-minigame.active", { timeout: patience });
         await phase(page, "waitingReady");
         if (index === "06") await shot("06-startkarte", 1200);
         await page.click("#intro-ready");
         await phase(page, "playingMinigame");
-        await page.waitForSelector("#minigame-intro", { state: "hidden", timeout: 45000 });
+        await page.waitForSelector("#minigame-intro", { state: "hidden", timeout: patience });
         await shot(`${index === "06" ? "07" : "09"}-${game}`, 2500);
         if (index === "06") {
           await page.click("#game-menu-button").catch(() => {});
@@ -200,14 +205,14 @@ try {
         // Lobby zurück — bei wenigen Bildern pro Sekunde manchmal schneller,
         // als die Abfrage sie zu sehen bekommt.
         const status = (wanted) => page.waitForFunction(
-          (names) => names.includes(window.__tumblekin.state()?.status), wanted, { timeout: 45000, polling: 250 });
+          (names) => names.includes(window.__tumblekin.state()?.status), wanted, { timeout: patience, polling: 250 });
         await status(["result", "lobby"]);
         const onResult = await page.evaluate(() => window.__tumblekin.state()?.status === "result");
         if (index === "08" && onResult) await shot("10-ergebnis", 2500);
         else if (index === "08") row.shots.push({ what: "10-ergebnis (übersprungen)", scrollX: 0, outside: [], clipped: [], tiny: [] });
         if (await page.evaluate(() => window.__tumblekin.state()?.status !== "lobby")) await request(page, "restartGame");
         await status(["lobby"]);
-        await page.waitForSelector("#screen-lobby.active", { timeout: 45000 });
+        await page.waitForSelector("#screen-lobby.active", { timeout: patience });
       }
     } catch (error) {
       const where = await page.evaluate(() => {

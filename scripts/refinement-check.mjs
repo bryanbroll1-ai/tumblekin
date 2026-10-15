@@ -23,17 +23,21 @@ const server = await startServer({ log: true });
 const browser = await launchBrowser();
 const rows = [];
 
+// Im Takt statt pro Bild abfragen, mit grosszügiger Frist: Tablet-Ansichten
+// rendert der Testbrowser ohne Grafikkarte mit wenigen Bildern pro Sekunde.
+const SLOW = { polling: 100, timeout: 90000 };
+
 async function runningRound(page, game) {
   await startSingle(page, game);
-  await page.waitForSelector('#minigame-intro', { state: 'hidden' });
+  await page.waitForSelector('#minigame-intro', { state: 'hidden', timeout: 90000 });
   await page.waitForTimeout(500);
   await page.waitForFunction(() => window.__tumblekinScene?.hudScore ||
-    window.__tumblekinScene?.minigame?.type === 'nervenprobe');
+    window.__tumblekinScene?.minigame?.type === 'nervenprobe', null, SLOW);
   // Board games reveal their task after a short lead-in. Capturing just the
   // scorebar would otherwise approve a completely blank pipe board.
-  if (game === 'rohrsalat') await page.waitForFunction(() => window.__tumblekinScene.mazeGroup?.children.length);
-  if (game === 'grimassen') await page.waitForFunction(() => window.__tumblekinScene.canShape());
-  if (game === 'turmbau') await page.waitForFunction(() => window.__tumblekinScene.rig.current.frame.w < 4.1);
+  if (game === 'rohrsalat') await page.waitForFunction(() => window.__tumblekinScene.mazeGroup?.children.length, null, SLOW);
+  if (game === 'grimassen') await page.waitForFunction(() => window.__tumblekinScene.canShape(), null, SLOW);
+  if (game === 'turmbau') await page.waitForFunction(() => window.__tumblekinScene.rig.current.frame.w < 4.1, null, SLOW);
   await page.waitForTimeout(500);
 }
 
@@ -118,7 +122,7 @@ try {
           );
         });
         await page.waitForFunction(() => document.querySelector('#minigame-controls')?.inert &&
-          window.__tumblekinScene?.webglCanvas.style.pointerEvents === 'none', null, { timeout: 5000 });
+          window.__tumblekinScene?.webglCanvas.style.pointerEvents === 'none', null, { timeout: 5000, polling: 100 });
         row.finalLocked = true;
       } catch (error) {
         row.error = error.message.split('\n')[0];

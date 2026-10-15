@@ -227,6 +227,21 @@
   min-width: 0;
 }
 
+/* Zugeklapptes Fold (280 px): Stick und Aktionsknopf bekommen je die halbe
+   Breite — mit 146 + 126 px Mindestbreite ragte der Knopf rechts hinaus. */
+@media (max-width: 340px) {
+  .mobile-stick-controls,
+  .builder-mobile-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 6px;
+  }
+  .mobile-stick-controls .virtual-joystick {
+    min-width: 112px;
+    min-height: 112px;
+  }
+}
+
 .mobile-stick-controls.joystick-only {
   grid-template-columns: 1fr;
   width: 190px;
@@ -1028,6 +1043,15 @@
   top: calc(12px + env(safe-area-inset-top));
 }
 
+/* Zugeklapptes Fold (280 px): Zwischen Punkteleiste und Menüknopf bleiben
+   gut 90 px — vier Punktestände brechen dort in zwei Reihen um, statt unter
+   den Menüknopf zu laufen. */
+.peg-chips,
+.stock-chips {
+  flex-wrap: wrap;
+  max-width: calc(100% - var(--hud-beside, 132px) - 60px);
+}
+
 .peg-chip,
 .stock-chip {
   display: grid;
@@ -1100,6 +1124,15 @@
   left: var(--hud-beside, 132px);
   display: flex;
   gap: 6px;
+}
+
+/* Auf dem zugeklappten Fold bricht „Runde 1/5 · 2 Farben“ dreizeilig um;
+   die Bestleistungen rücken dann unter die Punkteleiste. */
+@media (max-width: 340px) {
+  .simon-chips {
+    top: calc(66px + env(safe-area-inset-top));
+    left: 12px;
+  }
 }
 
 .simon-chip {
@@ -1310,6 +1343,19 @@
   font-size: 0.62rem;
 }
 
+/* Zugeklapptes Fold: neben der Punkteleiste blieben 84 px — der Hinweis
+   stand in acht Zeilen. Dort steht er darunter, über die volle Breite. */
+@media (max-width: 340px) {
+  .signal-legend {
+    top: calc(66px + env(safe-area-inset-top));
+    left: 12px;
+    max-width: calc(100% - 24px);
+  }
+  .kinetic-hud .signal-legend ~ .color-banner {
+    top: calc(108px + env(safe-area-inset-top));
+  }
+}
+
 /* --- Spurmaler und Grimassen: Hinweis unten --------------------------- */
 /* Kein Knopf, sondern ein Hinweis: die ganze Fläche ist die Steuerung. */
 .trace-hint {
@@ -1506,7 +1552,10 @@
   top: calc(60px + env(safe-area-inset-top));
   left: var(--hud-beside, 132px);
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  /* Vier Fangwerte brechen auf schmalen Handys um, statt über den Rand. */
+  max-width: calc(100% - var(--hud-beside, 132px) - 12px);
 }
 
 .fish-chip {
@@ -1850,6 +1899,14 @@ canvas.is-stunned {
 .bumper-player strong { color: var(--chip); font-size: .82rem; }
 .bumper-player.is-own { outline: 2px solid white; }
 .bumper-player.is-out { opacity: .5; }
+/* Zugeklapptes Fold: vier Spieler in EINER Reihe — zweireihig lagen sie
+   unter der Ansage „Arena schrumpft“. „im Spiel“ in der Punkteleiste fällt
+   weg (die eigene Pille sagt dasselbe), sonst lief sie unter den Menüknopf. */
+@media (max-width: 340px) {
+  .bumper-players { grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 4px; }
+  .bumper-player { padding: 4px; }
+  .kinetic-scorebar [data-bumper-kos] { display: none; }
+}
 .arena-shrink, .bumper-status { position: absolute; top: calc(120px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 7px 12px; border: 2px solid white; border-radius: 20px; background: #ffd15c; color: #3f2c00; font-size: .78rem; font-weight: 900; text-align: center; pointer-events: none; }
 .arena-shrink[data-phase="active"] { background: #ff6b7f; }
 .arena-shrink:not([hidden]) ~ .bumper-status { top: calc(162px + env(safe-area-inset-top)); }
@@ -1876,6 +1933,14 @@ canvas.is-stunned {
   border-radius: 999px;
   background: linear-gradient(90deg, rgba(21, 33, 38, 0.72), rgba(21, 33, 38, 0.72) 96%, #ffc400 96%);
   pointer-events: none;
+}
+
+/* Schmale Handys: „ACHTUNG – er dreht sich!“ bricht zweizeilig um und
+   reicht bis 140 px — die Leiste rückt darunter. */
+@media (max-width: 360px) {
+  .redlight-race {
+    top: calc(150px + env(safe-area-inset-top));
+  }
 }
 
 .redlight-dot {
@@ -2131,6 +2196,14 @@ canvas.is-stunned {
 .kinetic-hud .simon-chips ~ [data-seek-banner],
 .kinetic-hud .simon-chips ~ [data-swarm-banner] {
   top: calc(86px + env(safe-area-inset-top));
+}
+
+/* Zugeklapptes Fold: die Chips stehen dort unter der Punkteleiste (bis 90 px). */
+@media (max-width: 340px) {
+  .kinetic-hud .simon-chips ~ [data-seek-banner],
+  .kinetic-hud .simon-chips ~ [data-swarm-banner] {
+    top: calc(98px + env(safe-area-inset-top));
+  }
 }
 
 .react-rounds {
@@ -2805,9 +2878,10 @@ canvas.is-stunned {
 
 /* Kippboot: Wasserwaage. Der Punkt wandert mit der Neigung; an den Enden
    wird es rot — dort kentert das Boot. */
+/* Unter der Chip-Leiste — auf dem zugeklappten Fold bricht sie zweizeilig um. */
 .boat-level {
   position: absolute;
-  top: calc(98px + env(safe-area-inset-top));
+  top: calc(var(--hud-chips-bottom, 88px) + 10px);
   left: 50%;
   width: min(62vw, 240px);
   height: 16px;
@@ -2845,7 +2919,7 @@ canvas.is-stunned {
 }
 
 .kinetic-hud .boat-level ~ .color-banner {
-  top: calc(124px + env(safe-area-inset-top));
+  top: calc(var(--hud-chips-bottom, 88px) + 36px);
 }
 
 /* Rohrsalat: ein Knopf je Ventil, in dessen Farbe. */
