@@ -211,9 +211,10 @@ export class CoinRain extends MinigameScene {
   // die Reihen im Bild übereinander liegen statt hintereinander. Vorher
   // standen alle vier in einer Spur als ein einziger Klumpen da.
   // Stehen mehrere in einer Spur, steht die eigene Figur vorn: sonst
-  // verdeckte sie eine andere, und man sah sich selbst nicht mehr.
-  slotOf(index, players) {
-    const own = players.findIndex((player) => player.id === this.getControlledPlayerId());
+  // verdeckte sie eine andere, und man sah sich selbst nicht mehr. Im Finale
+  // gehört der Platz vorn dem Sieger, auf den die Kamera fährt.
+  slotOf(index, players, front = this.getControlledPlayerId()) {
+    const own = players.findIndex((player) => player.id === front);
     if (own < 0) return index;
     if (index === own) return players.length - 1;
     return index < own ? index : index - 1;
@@ -611,7 +612,10 @@ export class CoinRain extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const lane = this.laneOf(player.id, arcade, controlledId);
-      const targetX = this.laneX(lane) + this.offset(this.slotOf(index, players), players.length);
+      const front = finale ? (players.find((p) => f.places?.[p.id] === 1)?.id ?? controlledId) : controlledId;
+      const slot = this.slotOf(index, players, front);
+      const targetX = this.laneX(lane) + this.offset(slot, players.length);
+      kin.position.z += (KIN_Z + this.depth(slot) - kin.position.z) * frameLerp(0.18, dt);
       const gap = targetX - kin.position.x;
       const moving = Math.abs(gap) > 0.06;
       kin.position.x += gap * frameLerp(0.22, dt);
