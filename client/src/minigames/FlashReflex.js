@@ -79,7 +79,6 @@ export class FlashReflex extends MinigameScene {
     return `
       <div class="kinetic-scorebar"><span data-kinetic-time>0s</span><strong data-kinetic-score>—</strong></div>
       <div class="react-rounds" data-react-rounds></div>
-      <div class="duel-flash" data-duel-flash></div>
       <div class="color-banner react-banner" data-react-banner hidden></div>`;
   }
 
@@ -387,6 +386,7 @@ export class FlashReflex extends MinigameScene {
 
   unbind() {
     this.controls.style.pointerEvents = "";
+    if (this.webglCanvas) this.webglCanvas.style.filter = "";
   }
 
   // --- Ziehen, Zucken, Dose --------------------------------------------------
@@ -788,8 +788,9 @@ export class FlashReflex extends MinigameScene {
       }
     }
 
-    this.flashNode ||= this.hud.querySelector("[data-duel-flash]");
-    if (this.flashNode) this.flashNode.style.opacity = String(Math.min(0.55, this.flash * 0.55));
+    // Das „!" blitzt einmal übers ganze Bild: die Spielfläche hellt kurz auf.
+    const glare = this.flash > 0.02 ? `brightness(${(1 + this.flash * 0.55).toFixed(2)})` : "";
+    if (this.webglCanvas && this.webglCanvas.style.filter !== glare) this.webglCanvas.style.filter = glare;
 
     const banner = this.hud.querySelector("[data-react-banner]");
     if (!banner) return;

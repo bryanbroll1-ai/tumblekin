@@ -3073,12 +3073,3 @@ body.tap-buttons-off .virtual-joystick.has-surface:not(.active):not(.floating):n
   opacity: 0;
   transition: opacity 160ms ease;
 }
-
-/* Blitzreflex: das „!" blitzt einmal übers ganze Bild. */
-.duel-flash {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 35%, #fff8d8 0%, rgba(255, 214, 120, 0.55) 40%, rgba(255, 170, 90, 0) 75%);
-  opacity: 0;
-  pointer-events: none;
-}
