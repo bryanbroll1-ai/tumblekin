@@ -73,7 +73,8 @@ export class CoinRain extends MinigameScene {
 
     const players = this.getState()?.players || [];
     players.forEach((player, index) => {
-      this.addKin(player, index, { x: this.laneX(1) + this.offset(index, players.length), ground: 0.06, z: KIN_Z + this.depth(index), facing: 0 });
+      const slot = this.slotOf(index, players);
+      this.addKin(player, index, { x: this.laneX(1) + this.offset(slot, players.length), ground: 0.06, z: KIN_Z + this.depth(slot), facing: 0 });
     });
   }
 
@@ -209,8 +210,17 @@ export class CoinRain extends MinigameScene {
   // eigene Reihe in der Tiefe, und die Kamera schaut etwas von oben, damit
   // die Reihen im Bild übereinander liegen statt hintereinander. Vorher
   // standen alle vier in einer Spur als ein einziger Klumpen da.
-  offset(index, count) {
-    return (index - (count - 1) / 2) * 0.12;
+  // Stehen mehrere in einer Spur, steht die eigene Figur vorn: sonst
+  // verdeckte sie eine andere, und man sah sich selbst nicht mehr.
+  slotOf(index, players) {
+    const own = players.findIndex((player) => player.id === this.getControlledPlayerId());
+    if (own < 0) return index;
+    if (index === own) return players.length - 1;
+    return index < own ? index : index - 1;
+  }
+
+  offset(slot, count) {
+    return (slot - (count - 1) / 2) * 0.18;
   }
 
   depth(index) {
@@ -601,7 +611,7 @@ export class CoinRain extends MinigameScene {
       const animator = this.animators.get(player.id);
       if (!entry || !kin || !animator) return;
       const lane = this.laneOf(player.id, arcade, controlledId);
-      const targetX = this.laneX(lane) + this.offset(index, players.length);
+      const targetX = this.laneX(lane) + this.offset(this.slotOf(index, players), players.length);
       const gap = targetX - kin.position.x;
       const moving = Math.abs(gap) > 0.06;
       kin.position.x += gap * frameLerp(0.22, dt);

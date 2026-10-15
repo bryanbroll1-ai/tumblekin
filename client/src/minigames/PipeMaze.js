@@ -581,7 +581,9 @@ export class PipeMaze extends MinigameScene {
     const pick = this.localPicks[round] ?? own?.results?.[round]?.valve ?? (own?.picked?.[round] ? -1 : null);
     this.buttonRow?.querySelectorAll("[data-valve]").forEach((button) => {
       const c = Number(button.dataset.valve);
-      button.disabled = phase !== "answer" || pick !== null && pick !== undefined || Boolean(minigame.finaleAt);
+      // Erst wählen, wenn das Gewirr dieser Runde auch zu sehen ist: kommt
+      // es verspätet an, stünden sonst Knöpfe vor einem leeren Brett.
+      button.disabled = phase !== "answer" || this.mazeRound !== round || pick !== null && pick !== undefined || Boolean(minigame.finaleAt);
       button.classList.toggle("is-picked", pick === c);
     });
     const banner = this.hud.querySelector("[data-pipe-banner]");

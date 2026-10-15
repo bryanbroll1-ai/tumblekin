@@ -98,7 +98,8 @@ try {
   // sich während der Startkarte. Die verbleibende Person kann weitergehen.
   await request(host, "restartGame");
   await host.waitForSelector("#screen-lobby.active");
-  await request(host, "updateSettings", { settings: { single: "luftpuck" } });
+  // Ein Stick-Spiel: Luftpuck hat seit dem Ziehen mit dem Finger keinen Stick mehr.
+  await request(host, "updateSettings", { settings: { single: "bounceArena" } });
   await request(host, "startGame");
   await host.waitForSelector("#intro-ready");
   await guest.waitForSelector("#intro-ready");
@@ -115,7 +116,7 @@ try {
   assert.ok(layout.stick.x < 40 && layout.stick.width <= 120);
   assert.ok(layout.band.left >= layout.stick.x + layout.stick.width);
   assert.ok(layout.band.bottom - layout.band.top > 250);
-  await screenshot(host, "luftpuck-landscape");
+  await screenshot(host, "bumper-landscape");
   const box = await host.locator(".virtual-joystick").boundingBox();
   await host.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await host.mouse.down();

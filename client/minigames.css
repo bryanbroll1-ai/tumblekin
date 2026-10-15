@@ -111,6 +111,8 @@
   place-items: center;
   min-width: 47px;
   height: 34px;
+  /* Längere Werte („Ziel 6,5 s“) klebten sonst an den Rändern. */
+  padding: 0 8px;
   border-radius: 8px;
   font-size: 0.92rem;
   font-weight: 1000;
@@ -1060,6 +1062,9 @@
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
   left: var(--hud-beside, 132px);
+  /* Nie unter den Menüknopf: auf schmalen Handys (320 px) lief „Stamm 1 ·
+     0 geschafft“ darunter. Zu lang bricht um. */
+  max-width: calc(100% - var(--hud-beside, 132px) - 64px);
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   background: rgba(21, 33, 38, 0.86);
@@ -2586,6 +2591,12 @@ canvas.is-stunned {
   overflow: hidden;
 }
 
+/* Auf schmalen Handys (320 px) stiess „SCHWUNG“ links und rechts an den Rand. */
+.snow-throw b {
+  font-size: clamp(0.95rem, 4.2vw, 1.25rem);
+  letter-spacing: clamp(0.01em, 0.4vw, 0.06em);
+}
+
 .snow-throw.is-ready {
   background: linear-gradient(180deg, #4fc3ff, #1a8fe0);
   box-shadow: 0 8px 0 #0b4f85, 0 0 22px rgba(79, 195, 255, 0.5);
@@ -2920,3 +2931,38 @@ canvas.is-stunned {
 }
 
 .sprint-controls.is-holding .sprint-gesture-note { color: #ffe29b; font-weight: 850; }
+
+/* Querformat mit wenig Höhe: die grossen Knöpfe werden flach, damit die Szene
+   darüber Platz hat. Vorher deckten ROT/BLAU das ganze Schiffsdeck in Flaggen
+   hoch zu, die Pfeile die untere Fasshälfte in Fassrolle und der Regler die
+   Wiese in Augenmaß. Die Kamera misst die Knöpfe (CameraRig.measureBand) und
+   rückt die Szene von selbst darüber. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .nerve-button,
+  .hold-button,
+  .jump-button,
+  .dare-button,
+  .bomb-button {
+    min-height: 60px;
+    border-radius: 18px;
+    font-size: 1.2rem;
+  }
+  .runner-lane-controls,
+  .flag-controls {
+    width: min(100%, 520px);
+    justify-self: center;
+  }
+  .runner-lane-controls button,
+  .flag-controls button {
+    min-height: 60px;
+    font-size: 1.6rem;
+  }
+  .estimate-pad {
+    width: min(100%, 520px);
+    justify-self: center;
+    gap: 0.15rem;
+    padding: 0.3rem 0.9rem 0.45rem;
+  }
+  .estimate-value strong { font-size: 1.6rem; }
+  .estimate-slider { height: 36px; }
+}
