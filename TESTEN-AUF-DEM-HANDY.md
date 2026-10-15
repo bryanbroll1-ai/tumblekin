@@ -162,3 +162,4 @@ deutlich bessere Spielerfahrung.
 - Ton kommt erst nach der ersten Berührung — Browser erlauben Audio nicht ohne
   Nutzergeste.
 - Vibration gibt es nur auf Android; iOS unterstützt `navigator.vibrate` nicht.
+- Keine SPRUNG-/WERFEN-Knöpfe zu sehen? Auf Touch-Geräten sind einzelne Aktionsknöpfe absichtlich ausgeblendet — getippt wird aufs Spielbild. Im Menü (☰) unter „Spielknöpfe“ lassen sie sich einschalten.

@@ -56,6 +56,10 @@ Die Tumblekin haben ein Gerüst — Hüfte, Rumpf, Kopf, zwei Arme, zwei Beine �
 
 Alle 40 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern eine Beschreibung — worauf geschaut wird, wie gross das Motiv ist, aus welchem Winkel — und rahmt in das Band, das Punkteleiste und Knöpfe frei lassen, im Hoch- wie im Querformat. Auf einem aufgespannten Surface Duo (oder einem anderen Gerät mit Scharnier) bleibt die Szene auf dem ersten Bildschirm; Knöpfe, Startkarte und Lobby-Karte rücken auf den zweiten. Wie scharf gerendert wird, richtet sich nach der Pixelzahl: Tablets und grosse Monitore bekommen nicht automatisch die volle Auflösung, sondern so viel, wie flüssig läuft.
 
+Auf Touch-Geräten gibt es keine überflüssigen Aktionsknöpfe: wo ein Spiel nur einen einzigen Knopf hätte (SPRUNG, WERFEN, ZIEH! …), tippt man einfach irgendwo aufs Spielbild, und ein Stick, der unter dem Finger aufsetzt, zeigt sich erst beim Berühren. Wer die Knöpfe sehen möchte, schaltet sie im Menü (☰) unter „Spielknöpfe“ ein; die Wahl bleibt gespeichert. Mit Maus bleiben sie sichtbar. Auswahlknöpfe wie Rot/Blau oder Weiter/Heim bleiben immer stehen.
+
+Sortierband ist vorerst nicht spielbar: es steht ausgegraut mit „Bald verfügbar“ in der Spielauswahl und wird nie ausgelost.
+
 Die Oberfläche passt sich jeder Bildschirmform an — vom zugeklappten Galaxy Fold (280 px breit) über Flip und normale Handys, quer gehaltene Handys, aufgeklappte Foldables und Tablets bis zu Full-HD- und Ultrawide-Monitoren. Lobby-Kopf, Spielarten und Bot-Regler werden in schmalen Karten kompakter, Startkarten stehen im flachen Querformat zweispaltig, alle Knöpfe bleiben mindestens 40 px gross, und Kamera-Ausschnitte im Querformat halten die Anzeigen frei. `npm run device-check` geht 24 Geräteformen durch (Startseite, Lobby, Spielauswahl, Einladung, Startkarte, zwei laufende Spiele, Menü, Ergebnis) und meldet waagrechtes Scrollen, Knöpfe ausserhalb des Bildes, abgeschnittene Beschriftungen und zu kleine Knöpfe. Dazu kommen einheitlich ein Anflug im Countdown, eine Sicherung, die weglaufende Figuren ins Bild zurückholt, Schütteln mit Abklingen und eine Fahrt auf den Sieger in den letzten Sekunden.
 
 ## 40 Orte
@@ -80,12 +84,12 @@ Jedes Spiel hat seinen eigenen Ort — keiner kommt zweimal vor, und in jeder Ku
 - Bergsteiger — verschneite Felswand mit Eiszapfen und Adler
 - Ballonfahrt — Bauernland mit Dörfern, Kühen und Bergkette
 - Trampolin — Zirkuswiese mit Manege und Zirkuszelt
-- Falschsignal — Weltraumbahnhof in der Dämmerung
+- Falschsignal — Hau den Lukas auf dem nächtlichen Jahrmarkt
 - Spurmaler — Maleratelier
 - Sortierband — Lagerhalle mit Hochregalen und Gabelstapler
 - Angelduell — See mit Steg und Schilf
 - Leuchtfolge — Zauberwald mit Pilzring und Glühlichtern
-- Blitzreflex — Rennstrecke an der Startampel
+- Blitzreflex — Western-Duell bei Sonnenuntergang
 - Nagelbrett — Pachinko-Stand auf einem japanischen Sommerfest
 - Eisstock — Weihnachtsmarkt mit Buden und Schneefall
 - Tiefenrausch — Tauchschacht mit Quallen
@@ -169,8 +173,8 @@ darum Zeichen für Zeichen mit dem Katalog — Gruppen, Reihenfolge und Texte.
 
 ### 👆⚡ Blitzschnell tippen
 
-- **Falschsignal:** Aus der Linse wächst ein Ring nach aussen. Nur wer die Marke am Rand erreicht, ist echt — die anderen bleiben unterwegs stehen. Je kleiner der Ring beim Tippen, desto mehr Punkte: früh tippen ist geraten, spät tippen ist sicher und billig.
-- **Blitzreflex:** Drei Versuche an der Startampel. Tippe irgendwo auf den Bildschirm, sobald sie auf Grün springt — aber nicht vorher: ein Fehlstart macht den Versuch ungültig. Gewertet wird deine BESTE Reaktion: die schnellste Einzelzeit gewinnt.
+- **Falschsignal:** Hau den Lukas: Der Kraftprotz schlägt zu, ein Puck saust den Turm hinauf. Nur ein echter Schlag läutet oben die Glocke — die anderen werden langsamer und rutschen zurück. Tippe, wenn du glaubst, dass dieser Puck läutet: je tiefer er beim Tippen ist, desto mehr Punkte (links am Turm steht, was dein Tipp gerade bringt). Früh tippen ist geraten, spät tippen sicher und billig; ein Tipp auf einen falschen Puck kostet Punkte.
+- **Blitzreflex:** Drei Duelle bei Sonnenuntergang. Tippe irgendwo auf den Bildschirm, sobald auf dem Schild das „!“ erscheint — aber nicht vorher: ein Fehlstart macht das Duell ungültig. Lass dich nicht von Steppenläufern, Krähen oder Windstössen reizen. Gewertet wird deine BESTE Reaktion: die schnellste Einzelzeit gewinnt.
 
 ### ↔️〰️ Wischen zum Lenken
 

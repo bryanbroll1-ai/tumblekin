@@ -39,6 +39,10 @@ export class RopeSkip extends MinigameScene {
     this.lastSurvived = new Map();
     this.localJumpUntil = 0;
     this.labelY = 0.74;
+    // Die Kamera steht still: sie folgt weder den Sprüngen der eigenen Figur
+    // noch den Ausgeschiedenen, die nach hinten auf die Bank rutschen. Jedes
+    // Nachführen liess das Bild im Takt des Seils atmen.
+    this.ownInView = false;
   }
 
   stage() {
@@ -405,7 +409,7 @@ export class RopeSkip extends MinigameScene {
         this.burst(kin.position.clone(), ["#e0334f", player.color, "#ffffff"], { count: 14, speed: 2.4, up: 2, size: 0.09, life: 0.8, drag: 1.4 });
         this.pop(kin.position.clone().add(new THREE.Vector3(0, 1.1 + (index % 4) * 0.3, 0)), "RAUS!", { color: "#ff6b7f", size: 0.42 });
         if (isOwn) {
-          this.rig.shake(0.9);
+          this.rig.shake(0.35);
           this.feedback?.sound("error");
           this.feedback?.vibrate([26, 20, 34]);
         }
@@ -454,25 +458,26 @@ export class RopeSkip extends MinigameScene {
     });
   }
 
-  // Im Bild gehalten wird, wo die Figuren STEHEN, nicht wie hoch sie gerade
-  // springen. Mit der Sprunghöhe schob die Sicherung die Kamera bei jedem
-  // Sprung zurück und liess sie nur langsam wieder heran — das Bild atmete
-  // im Takt des Seils, und die Figuren blieben meist klein.
+  // Im Bild gehalten werden feste Punkte: wo jede Figur springt UND wo sie
+  // nach dem Ausscheiden sitzt — von Anfang an beide. So muss die Kamera nie
+  // nachfassen: weder beim Sprung (vorher atmete das Bild im Takt des Seils)
+  // noch, wenn jemand rausfliegt und nach hinten rutscht.
   keepInView(f) {
-    this.anchors ||= new Map();
-    return f.players.map((player) => {
-      const kin = this.kins.get(player.id);
-      if (!kin) return null;
-      let anchor = this.anchors.get(player.id);
-      if (!anchor) {
-        anchor = new THREE.Object3D();
-        this.anchors.set(player.id, anchor);
-      }
-      anchor.position.set(kin.position.x, KIN_Y, kin.position.z);
-      anchor.visible = kin.visible;
-      anchor.updateMatrixWorld(true);
-      return anchor;
-    }).filter(Boolean);
+    if (!this.anchors) {
+      this.anchors = [];
+      f.players.forEach((player) => {
+        const kin = this.kins.get(player.id);
+        if (!kin) return;
+        const x = kin.userData.spotX ?? kin.position.x;
+        [0, -1.55].forEach((z) => {
+          const anchor = new THREE.Object3D();
+          anchor.position.set(x, KIN_Y, z);
+          anchor.updateMatrixWorld(true);
+          this.anchors.push(anchor);
+        });
+      });
+    }
+    return this.anchors;
   }
 
   drawHud(f) {

@@ -186,6 +186,38 @@ export class Feedback {
         tone(900, 160, 0.14, "square", 0.02),
         tone(120, 60, 0.3, "triangle", 0.035, 0.03)
       ],
+      // Blitzreflex: das „!" am Schild — hell, kurz, unverwechselbar. Kein
+      // anderer Klang der Szene klingt auch nur ähnlich.
+      showdown: [
+        { noise: true, duration: 0.05, gain: 0.02, filterStart: 4200, filterEnd: 1800 },
+        tone(1320, 1290, 0.32, "triangle", 0.034),
+        tone(1980, 1950, 0.42, "sine", 0.018, 0.01)
+      ],
+      // Eine Krähe krächzt zweimal (Ablenkung beim Duell).
+      crow: [
+        tone(760, 520, 0.15, "sawtooth", 0.01),
+        tone(720, 480, 0.17, "sawtooth", 0.009, 0.21)
+      ],
+      // Korkenpistole: kurzes Ploppen.
+      cork: [
+        { noise: true, duration: 0.04, gain: 0.03, filterStart: 2600, filterEnd: 500 },
+        tone(560, 190, 0.08, "square", 0.016)
+      ],
+      // Hau den Lukas: der Hammer schlägt auf, die Glocke oben läutet.
+      hammer: [
+        { noise: true, duration: 0.08, gain: 0.04, filterStart: 900, filterEnd: 180 },
+        tone(115, 58, 0.2, "triangle", 0.042)
+      ],
+      bell: [
+        tone(1568, 1556, 1.1, "sine", 0.032),
+        tone(2352, 2340, 0.8, "sine", 0.013, 0.01),
+        tone(784, 780, 1.2, "triangle", 0.012)
+      ],
+      // Ein falscher Puck rutscht enttäuscht zurück.
+      womp: [
+        tone(300, 150, 0.3, "triangle", 0.022),
+        tone(230, 95, 0.42, "sine", 0.02, 0.17)
+      ],
       // Luft entweicht: ein Pfeifen, das nach unten fällt.
       deflate: [
         { noise: true, duration: 0.5, gain: 0.008 },

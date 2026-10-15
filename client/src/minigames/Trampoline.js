@@ -64,6 +64,8 @@ export class Trampoline extends MinigameScene {
     this.lastBeatSeen = -1;
     this.labelY = 0.74;
     this.ownPeak = PAD_Y + 0.4;
+    this.framePeak = PAD_Y + 0.4;
+    this.ownInView = false;
   }
 
   stage() {
@@ -453,6 +455,7 @@ export class Trampoline extends MinigameScene {
       pad.cloth.position.y = PAD_Y - dip * 0.12;
       pad.cloth.scale.set(1 + dip * 0.05, 1, 1 + dip * 0.05);
       if (isOwn) this.ownPeak = peak;
+      this.framePeak = Math.max(this.framePeak || 0, peak);
 
       const tap = entry.lastTap;
       if (tap && tap.at !== this.lastTapAt.get(player.id)) {
@@ -515,14 +518,25 @@ export class Trampoline extends MinigameScene {
   }
 
   // Mit der eigenen Figur steigen.
-  keepInView(f) {
-    const own = this.kins.get(f.controlledId);
-    return own ? [own] : [...this.kins.values()];
+  // Ruhige Kamera: im Bild gehalten werden die Trampoline selbst, nicht die
+  // springende eigene Figur — sonst schob die Sicherung das Bild bei jedem
+  // Sprung zurück. Die Höhe des Rahmens folgt dem höchsten Sprung der Runde
+  // und wächst nur: sie zoomt nicht bei jedem schwächeren Sprung wieder heran.
+  keepInView() {
+    if (!this.padAnchors) {
+      this.padAnchors = [...this.kins.values()].map((kin) => {
+        const anchor = new THREE.Object3D();
+        anchor.position.set(kin.position.x, PAD_Y + 0.4, kin.position.z);
+        anchor.updateMatrixWorld(true);
+        return anchor;
+      });
+    }
+    return this.padAnchors;
   }
 
   rigOptions(f) {
     const count = Math.max(1, this.pads.size);
-    const top = this.ownPeak;
+    const top = Math.max(this.ownPeak, this.framePeak || 0);
     return {
       look: [0, Math.max(1.3, top * 0.55 + 0.6), 0],
       frame: { w: count * LANE_GAP + 0.6, h: Math.max(3.2, top + 1.4) }

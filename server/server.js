@@ -4151,7 +4151,7 @@ function handleArcadeInput(room, player, rawInput) {
   }
 
   if (arcade.family === "react") {
-    if (input.action !== "tap") return { ok: false, error: "Tippe, sobald es grün wird." };
+    if (input.action !== "tap") return { ok: false, error: "Tippe, sobald das „!“ erscheint." };
     const elapsed = now - room.currentMinigame.startedAt;
     // Welcher Versuch das ist, sagt die UHR, nicht die Zahl der bisherigen
     // Tipps. Vorher galt der n-te Tipp dem n-ten Versuch: wer einen ausliess,
