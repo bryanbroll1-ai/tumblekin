@@ -31,17 +31,23 @@ for (const game of games) {
 
     // Countdown abwarten, dann spielen, damit auch die Effektpfade feuern.
     await page.waitForTimeout(4200);
-    const canvas = await page.$("canvas.kinetic-webgl");
-    const box = await canvas.boundingBox();
-    for (let i = 0; i < 12; i += 1) {
-      await page.mouse.click(box.x + box.width * (0.35 + 0.3 * (i % 2)), box.y + box.height * 0.6);
-      await page.waitForTimeout(240);
-    }
+    // Erst prüfen, ob die Spielfläche steht — vor dem Tippen. Manche Runden
+    // enden durch das Tippen regulär früher (Nervenprobe: der Tipp aufs Bild
+    // stoppt die eigene Uhr, und sind alle gestoppt, ist Schluss); danach ist
+    // die Fläche zu Recht abgebaut.
     const alive = await page.evaluate(() => {
       const c = document.querySelector("canvas.kinetic-webgl");
       return Boolean(c && c.width > 0 && c.height > 0);
     });
     if (!alive) { status = "leer"; errors.push("Canvas hat keine Größe"); }
+    const canvas = await page.$("canvas.kinetic-webgl");
+    const box = await canvas.boundingBox();
+    for (let i = 0; i < 12; i += 1) {
+      const running = await page.evaluate(() => Boolean(window.__tumblekinScene) && window.__tumblekin.state()?.phase === "playingMinigame");
+      if (!running) break;
+      await page.mouse.click(box.x + box.width * (0.35 + 0.3 * (i % 2)), box.y + box.height * 0.6);
+      await page.waitForTimeout(240);
+    }
 
     // Bildlast messen. Auf einem Mittelklasse-Handy entscheidet die Zahl der
     // Zeichenaufrufe darüber, ob eine Szene mit 60 oder mit 25 Bildern läuft —
