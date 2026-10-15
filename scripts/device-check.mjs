@@ -66,6 +66,13 @@ await mkdir(out, { recursive: true });
 
 // Läuft in der Seite: was ragt hinaus, was ist abgeschnitten, was ist zu klein.
 function inspect() {
+  // Gemessen wird das fertige Layout: Einblend-Animationen (Pillen wachsen
+  // von 60 % auf volle Grösse) werden vorher abgeschlossen. Bei wenigen
+  // Bildern pro Sekunde erwischte die Messung sie sonst mittendrin.
+  for (const animation of document.getAnimations()) {
+    const timing = animation.effect?.getComputedTiming?.();
+    if (timing && Number.isFinite(timing.endTime)) animation.finish();
+  }
   const visible = (el) => {
     if (el.closest("[hidden]")) return false;
     // Inhalt einer zugeklappten <details> ist nicht zu sehen, nur ihr <summary>.
