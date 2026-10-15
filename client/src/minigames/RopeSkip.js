@@ -261,7 +261,8 @@ export class RopeSkip extends MinigameScene {
       // Blickpunkt sitzt etwas rechts, weil das rechte Seilende durch die
       // Schrägsicht näher an der Kamera ist — so bleiben beide Dreher im Bild.
       look: [0.35, 0.75, 0.1],
-      frame: { w: 3.9, h: 2.7 },
+      // 3.9 liess den rechten Dreher am Bildrand kleben (scene-check).
+      frame: { w: 4.05, h: 2.7 },
       yaw: 0.85,
       pitch: 0.28,
       fov: 38,
