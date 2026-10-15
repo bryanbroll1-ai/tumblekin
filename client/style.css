@@ -36,6 +36,11 @@
   --radius: 20px;
   --radius-sm: 13px;
   --touch: 58px;
+  /* Oberflächen-Massstab (siehe unten) und eine Höheneinheit, die ihn
+     herausrechnet: unter CSS-Zoom wachsen auch dvh mit, 64dvh wären dann
+     90 % des Bildschirms. */
+  --ui: 1;
+  --vh: calc(1dvh / var(--ui));
   font-family: ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", Quicksand, Comfortaa, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
@@ -47,6 +52,37 @@ html,
 body {
   height: 100%;
   margin: 0;
+}
+
+html {
+  overflow: hidden;
+}
+
+/* Grosse Bildschirme (Tablets wie das Honor MagicPad 4, Monitore): Die
+   Oberfläche ist für Handys bemessen — auf 12" waren Karten, Anzeigen und
+   Knöpfe winzig. Dort wächst die ganze Oberfläche mit; die 3D-Szene füllt
+   ihre Fläche ohnehin. Nur mit dem standardisierten CSS-Zoom (Chromium
+   128+, an currentCSSZoom erkannt): Er liefert Klick- und Messkoordinaten
+   in Bildschirmpixeln, wie Kamera und Steuerung sie erwarten. */
+@media (min-width: 700px) and (min-height: 700px) {
+  :root { --ui: 1.15; }
+}
+
+@media (min-width: 820px) and (min-height: 820px) {
+  :root { --ui: 1.3; }
+}
+
+@media (min-width: 940px) and (min-height: 940px) {
+  :root { --ui: 1.45; }
+}
+
+html:not(.css-zoom) {
+  --ui: 1;
+}
+
+html.css-zoom body {
+  zoom: var(--ui);
+  height: calc(100% / var(--ui));
 }
 
 body {
@@ -110,7 +146,7 @@ p {
 
 #app {
   position: relative;
-  height: 100dvh;
+  height: calc(100 * var(--vh));
 }
 
 .menu-stage {
@@ -137,7 +173,7 @@ p {
 
 .stage-spacer {
   flex: 1 1 auto;
-  min-height: 26vh;
+  min-height: calc(26 * var(--vh));
 }
 
 .eyebrow {
@@ -159,7 +195,7 @@ p {
   gap: 14px;
   container: sheet / inline-size;
   width: min(100%, 560px);
-  max-height: 64dvh;
+  max-height: calc(64 * var(--vh));
   margin: 0 auto;
   padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
   overflow-y: auto;
@@ -230,7 +266,7 @@ p {
     grid-column: 2;
     grid-row: 1 / span 2;
     align-self: center;
-    max-height: calc(100dvh - 40px);
+    max-height: calc(calc(100 * var(--vh)) - 40px);
     margin: 0;
     padding-bottom: 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.7);
@@ -431,7 +467,7 @@ input::placeholder {
   display: grid;
   justify-items: center;
   gap: 4px;
-  padding-top: 2vh;
+  padding-top: calc(2 * var(--vh));
   text-align: center;
   pointer-events: none;
 }
@@ -1006,7 +1042,7 @@ body.has-invite .start-sheet .field:first-child {
 
 .lobby-sheet {
   gap: 12px;
-  max-height: 60dvh;
+  max-height: calc(60 * var(--vh));
 }
 
 /* Der Startknopf bleibt sichtbar, auch wenn die Karte scrollt. */
@@ -1179,7 +1215,7 @@ body.has-invite .start-sheet .field:first-child {
 
 .picker-card {
   width: min(100%, 560px);
-  max-height: calc(100dvh - 40px);
+  max-height: calc(calc(100 * var(--vh)) - 40px);
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 
@@ -1353,7 +1389,7 @@ body.has-invite .start-sheet .field:first-child {
   box-shadow: var(--strong-shadow);
   text-align: center;
   animation: card-pop 360ms cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  max-height: calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(calc(100 * var(--vh)) - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   overflow-y: auto;
 }
 
@@ -1372,7 +1408,7 @@ body.has-invite .start-sheet .field:first-child {
 .minigame-intro.counting .intro-tip { display: none; }
 
 @media (orientation: landscape) and (max-height: 520px) {
-  .picker-card { width: min(100%, 760px); max-height: calc(100dvh - 20px); padding: 12px; gap: 8px; }
+  .picker-card { width: min(100%, 760px); max-height: calc(calc(100 * var(--vh)) - 20px); padding: 12px; gap: 8px; }
   .picker-card h3 { font-size: 1.1rem; }
   .picker-browse { grid-template-columns: minmax(160px, 0.65fr) minmax(0, 1.35fr); align-items: center; }
   .picker-tools .chip, .picker-categories .chip { min-height: 40px; font-size: 0.78rem; padding: 4px 9px; }
@@ -1380,7 +1416,7 @@ body.has-invite .start-sheet .field:first-child {
   #picker-done { min-height: 44px; padding: 8px 16px; }
   /* Seitlich 64 px: rechts oben sitzt der Menüknopf, die Karte bleibt mittig. */
   .minigame-intro { padding: 10px max(64px, env(safe-area-inset-right)) 10px max(64px, env(safe-area-inset-left)); gap: 8px; }
-  .intro-card { width: min(100%, 540px); gap: 6px; padding: 12px 18px; border-radius: 20px; max-height: calc(100dvh - 24px); }
+  .intro-card { width: min(100%, 540px); gap: 6px; padding: 12px 18px; border-radius: 20px; max-height: calc(calc(100 * var(--vh)) - 24px); }
   .intro-preview { height: 84px; }
   .intro-card h2 { font-size: 1.7rem; }
   .intro-gesture { padding: 4px 12px; font-size: 0.85rem; }

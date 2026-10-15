@@ -1,3 +1,8 @@
+import { cssZoom } from "../ui/cssZoom.js?v=tumblekin215";
+
+// Strecken werden in Bildschirmpixeln gemessen (getBoundingClientRect,
+// clientX); in translate() stehen Pixel des — auf Tablets vergrösserten —
+// Elements. Darum wird beim Schreiben durch den Zoom geteilt.
 export class VirtualJoystick {
   // surface: ein Element (meist die Bühne), auf dem ein Finger irgendwo den
   //   Stick aufsetzt — der Stick springt unter den Finger („schwebend").
@@ -77,7 +82,7 @@ export class VirtualJoystick {
       const length = Math.max(1, Math.hypot(x, y));
       this.vecX = x / length; this.vecY = y / length;
       this.direction = Math.abs(x) > Math.abs(y) ? (x < 0 ? "left" : "right") : y ? (y < 0 ? "up" : "down") : x ? (x < 0 ? "left" : "right") : null;
-      const travel = this.base.getBoundingClientRect().width * 0.31;
+      const travel = this.base.getBoundingClientRect().width * 0.31 / cssZoom(this.knob);
       this.knob.style.transform = `translate(${this.vecX * travel}px, ${this.vecY * travel}px)`;
       this.base.classList.toggle("active", Boolean(this.direction));
       this.emitDirection();
@@ -118,7 +123,8 @@ export class VirtualJoystick {
       const homeY = rect.top + rect.height / 2 - this.floatY;
       this.floatX = event.clientX - homeX;
       this.floatY = event.clientY - homeY;
-      this.base.style.transform = `translate(${this.floatX}px, ${this.floatY}px)`;
+      const zoom = cssZoom(this.base);
+      this.base.style.transform = `translate(${this.floatX / zoom}px, ${this.floatY / zoom}px)`;
       this.base.classList.add("floating");
       this.onPointerDown(event);
     };
@@ -140,7 +146,8 @@ export class VirtualJoystick {
     const scale = distance > maxDistance ? maxDistance / distance : 1;
     const x = rawX * scale;
     const y = rawY * scale;
-    this.knob.style.transform = `translate(${x}px, ${y}px)`;
+    const zoom = cssZoom(this.knob);
+    this.knob.style.transform = `translate(${x / zoom}px, ${y / zoom}px)`;
 
     // Analog vector, normalised to the knob's travel radius.
     const deadZoneVec = maxDistance * 0.28;

@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { cssZoom } from "../ui/cssZoom.js?v=tumblekin215";
 import { frameLerp, fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin215";
 import { createNameLabel } from "./VoxelKit.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
@@ -601,7 +602,8 @@ export class AirHockey extends MinigameScene {
     const side = (this.update || this.minigame)?.arcade?.players?.[this.getControlledPlayerId()]?.side ?? 0;
     node.hidden = false;
     node.style.setProperty("--touch", TEAM_COLORS[side]);
-    node.style.transform = `translate(${Math.round(event.clientX - box.left)}px, ${Math.round(event.clientY - box.top)}px)`;
+    const zoom = cssZoom(this.hud);
+    node.style.transform = `translate(${Math.round((event.clientX - box.left) / zoom)}px, ${Math.round((event.clientY - box.top) / zoom)}px)`;
   }
 
   // Ziel oder Stick: geschickt wird, was sich geändert hat, höchstens alle

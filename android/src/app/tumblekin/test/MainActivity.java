@@ -9,11 +9,13 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.PermissionRequest;
@@ -65,6 +67,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         applyOrientation(getResources().getConfiguration());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        drawIntoCutout();
+        hideSystemBars();
 
         // Testfassung: chrome://inspect am Rechner darf die Seite untersuchen.
         WebView.setWebContentsDebuggingEnabled(true);
@@ -186,12 +190,53 @@ public class MainActivity extends Activity {
 
     // Vollbild ohne Status- und Navigationsleiste. "Sticky": ein Wisch vom Rand
     // zeigt sie kurz, ohne dass das Spiel den Wisch verliert.
+    //
+    // Die beiden LAYOUT-Flags gehören dazu: Ohne sie versteckte Android die
+    // Leisten zwar, legte die Seite aber weiter so an, als wären sie da — auf
+    // Tablets (Honor MagicPad 4) blieben oben und unten leere Ränder.
+    // Ab Android 11 gilt dasselbe über den WindowInsetsController; die
+    // android.jar zum Bauen kennt ihn nicht, darum per Reflexion.
     private void hideSystemBars() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN);
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                Window window = getWindow();
+                Window.class.getMethod("setDecorFitsSystemWindows", boolean.class).invoke(window, false);
+                Object controller = Window.class.getMethod("getInsetsController").invoke(window);
+                if (controller != null) {
+                    Class<?> api = Class.forName("android.view.WindowInsetsController");
+                    int bars = (Integer) Class.forName("android.view.WindowInsets$Type")
+                            .getMethod("systemBars").invoke(null);
+                    api.getMethod("hide", int.class).invoke(controller, bars);
+                    // BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    api.getMethod("setSystemBarsBehavior", int.class).invoke(controller, 2);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Vollbild über WindowInsetsController nicht möglich", e);
+            }
+        }
+    }
+
+    // Auch neben Kamera-Aussparungen zeichnen (Android 9+), statt dort einen
+    // schwarzen Streifen zu lassen; die Seite hält ihre Knöpfe über
+    // env(safe-area-inset-*) davon frei.
+    private void drawIntoCutout() {
+        if (Build.VERSION.SDK_INT < 28) return;
+        try {
+            WindowManager.LayoutParams params = getWindow().getAttributes();
+            // SHORT_EDGES (1); ab Android 11 ALWAYS (3) — auch an den langen Seiten.
+            WindowManager.LayoutParams.class.getField("layoutInDisplayCutoutMode")
+                    .setInt(params, Build.VERSION.SDK_INT >= 30 ? 3 : 1);
+            getWindow().setAttributes(params);
+        } catch (Exception e) {
+            Log.w(TAG, "Aussparung nicht nutzbar", e);
+        }
     }
 
     // Im Vollbild verkleinert Android das Fenster für die Tastatur nicht

@@ -17,6 +17,7 @@ import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder
 import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin215";
 import { frameChance } from "./Quality.js?v=tumblekin215";
 import { verblocke } from "./Blockform.js?v=tumblekin215";
+import { cssZoom } from "../ui/cssZoom.js?v=tumblekin215";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
 
@@ -350,13 +351,16 @@ export class MinigameScene {
     const scorebar = this.hud.querySelector(".kinetic-scorebar");
     const chips = this.hud.querySelector(".hud-chips");
     if (!scorebar && !chips) return;
+    // Gemessen in Bildschirmpixeln, gesetzt in Pixeln der (auf Tablets
+    // vergrösserten) Anzeige — darum durch den Zoom geteilt.
     const refresh = () => {
       const top = this.hud.getBoundingClientRect();
+      const zoom = cssZoom(this.hud);
       if (scorebar) {
-        const right = scorebar.getBoundingClientRect().right - top.left;
+        const right = (scorebar.getBoundingClientRect().right - top.left) / zoom;
         if (right > 0) this.hud.style.setProperty("--hud-beside", `${Math.ceil(right + 8)}px`);
       }
-      if (chips) this.hud.style.setProperty("--hud-chips-bottom", `${Math.ceil(chips.getBoundingClientRect().bottom - top.top)}px`);
+      if (chips) this.hud.style.setProperty("--hud-chips-bottom", `${Math.ceil((chips.getBoundingClientRect().bottom - top.top) / zoom)}px`);
     };
     refresh();
     this.hudObserver = new ResizeObserver(refresh);

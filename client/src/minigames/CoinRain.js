@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { flashKin } from "./VoxelKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
+import { cssZoom } from "../ui/cssZoom.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin215";
 
@@ -342,10 +343,12 @@ export class CoinRain extends MinigameScene {
     const canvasBox = this.webglCanvas.getBoundingClientRect();
     const target = this.scoreNode.getBoundingClientRect();
     const ndc = world.clone().project(this.camera);
-    const x = canvasBox.left - hudBox.left + (ndc.x + 1) / 2 * canvasBox.width;
-    const y = canvasBox.top - hudBox.top + (1 - ndc.y) / 2 * canvasBox.height;
-    const tx = target.left - hudBox.left + target.width / 2;
-    const ty = target.top - hudBox.top + target.height / 2;
+    // Bildschirmpixel → Pixel der (auf Tablets vergrösserten) Anzeige.
+    const zoom = cssZoom(this.hud);
+    const x = (canvasBox.left - hudBox.left + (ndc.x + 1) / 2 * canvasBox.width) / zoom;
+    const y = (canvasBox.top - hudBox.top + (1 - ndc.y) / 2 * canvasBox.height) / zoom;
+    const tx = (target.left - hudBox.left + target.width / 2) / zoom;
+    const ty = (target.top - hudBox.top + target.height / 2) / zoom;
     for (let i = 0; i < Math.min(count, 6); i += 1) {
       if ((this.flying || 0) >= 8) return;
       this.flying = (this.flying || 0) + 1;

@@ -1,7 +1,7 @@
 // Geräte-Matrix: dieselben Bildschirme auf allen Geräteformen, die es gibt —
 // zugeklapptes und aufgeklapptes Fold, Flip, Surface Duo (einzeln und über
 // beide Bildschirme), kleine und grosse Handys, quer gehaltene Handys,
-// Tablets hoch und quer, Desktop und Ultrawide.
+// Tablets hoch und quer (auch das Honor MagicPad 4), Desktop und Ultrawide.
 //
 //   npm run device-check                    (alle Geräte)
 //   npm run device-check -- fold-zu tablet  (nur diese)
@@ -40,6 +40,9 @@ export const DEVICES = [
   { name: "tablet-gross", width: 1024, height: 1366, label: "iPad Pro 12,9" },
   { name: "tablet-gross-quer", width: 1366, height: 1024, label: "iPad Pro 12,9 quer" },
   { name: "android-tablet", width: 800, height: 1280, label: "Android-Tablet" },
+  // Honor MagicPad 4: 12,3", 3000 × 1920 bei Pixelverhältnis 2.
+  { name: "magicpad4-quer", width: 1500, height: 960, label: "Honor MagicPad 4 quer" },
+  { name: "magicpad4", width: 960, height: 1500, label: "Honor MagicPad 4 hoch" },
   { name: "desktop", width: 1280, height: 800, label: "Laptop" },
   { name: "fullhd", width: 1920, height: 1080, label: "Full HD" },
   { name: "ultrawide", width: 2560, height: 1080, label: "Ultrawide" }
