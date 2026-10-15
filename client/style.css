@@ -177,8 +177,10 @@ p {
   to { transform: none; opacity: 1; }
 }
 
-/* Auf breiten Bildschirmen steht die Karte rechts, die Bühne links daneben. */
-@media (min-width: 900px) and (min-aspect-ratio: 5/4) {
+/* Auf breiten Bildschirmen steht die Karte rechts, die Bühne links daneben —
+   auch auf einem quer gehaltenen Handy: sonst blieb von der Lobby-Karte ein
+   Streifen, in dem „Los geht's“ die Spielarten verdeckte. */
+@media (min-width: 900px) and (min-aspect-ratio: 5/4), (orientation: landscape) and (max-height: 520px) and (min-width: 600px) {
   .screen:not(.minigame-screen) {
     display: none;
     padding: calc(20px + env(safe-area-inset-top)) 24px calc(20px + env(safe-area-inset-bottom));
