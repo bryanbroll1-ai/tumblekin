@@ -174,3 +174,22 @@ Kosten: ein Rechenschritt (20 ms Spielzeit) braucht mit sieben Tieren 0,1 ms; ei
 | Bergsteiger | Die Figur hing eine halbe Figur unter den Griffen: die lagen über dem Kopf, der Arm ist aber nur gut 0,23 lang. | Der neueste Griff liegt knapp über der Schulter in Reichweite des schräg hochgestreckten Arms, der andere auf Schulterhöhe — beide Hände liegen auf ihren Griffen. |
 | Trampolin | Unter den Trampolinen flackerten grüne Zacken durch den Sand. | Die Grasflecken der Wiese lagen auf derselben Höhe wie die Manege (1,2 cm); die Manege liegt jetzt klar darüber. |
 | Fassmut | Wer getroffen wurde, bekam das Fass nicht auf den Kopf: es blieb auf fester Höhe (0,86) über dem Kopf stehen, der in der Duckhaltung bei 0,6 endet, und die Figur schlug darunter einen Salto. | Dicht am Kopf misst die Szene den echten Kopf jeder Figur; das Fass setzt darauf auf, drückt die Figur von der Sohle aus zusammen, bleibt dabei auf dem Kopf und kippt dann zur Seite. Blatt, Krone und Antenne werden darunter plattgedrückt. Lineal und Kopflinie messen ab 0,6. |
+
+## Nachtrag 15. Oktober 2026: Gesamtcheck
+
+Alle Prüfskripte nacheinander (Regeln, Partien, Bots, Animation, Effekte,
+Rauchtest, Eingaben, Gesten, Übungen, Layout in drei Ansichten, Szenen,
+Boden über ganze Runden, Browser-Fassung, QR-Kopplung, App), dazu die
+Bilder der Layoutprüfung und der Menüs von Hand angesehen.
+
+| Bereich | Befund | Änderung |
+| --- | --- | --- |
+| Rohrsalat | Kamen die Daten einer Runde verspätet an, waren die Ventilknöpfe aktiv, bevor das Rohrgewirr zu sehen war (pipe-check). | Wählbar erst, wenn das Gewirr der Runde steht. |
+| Münzregen | Teilten sich mehrere eine Spur, stand die eigene Figur hinten und war verdeckt. | Die eigene Figur steht vorn, etwas mehr Seitenabstand. |
+| Seilspringen | Ein Dreher klebte am Bildrand (scene-check, 0,029 Luft). | Bildbreite 3,9 → 4,05. |
+| Sortierband | Quer gehalten lagen die Rutschen unter der Hinweiszeile. | Die Rutschen zählen zu dem, was die Kamera im Bild hält. |
+| HUD | „Ziel 6,5 s“ (Nervenprobe) ohne Innenabstand; Status-Pillen liefen auf 320 px unter den Menüknopf; SCHWUNG stiess auf 320 px an den Rand. | Polster im Scorebar-Feld, Pillen mit Höchstbreite (brechen um), kleinere Schrift bis 360 px. |
+| Querformat | Grosse Knöpfe und Leisten deckten die Szene (Flaggen hoch: ganzes Deck, Fassrolle: halbes Fass, Augenmaß: Wiese); die Einladung war höher als der Bildschirm und liess sich nicht scrollen — „Fertig“ unerreichbar; in der Lobby verdeckte „Los geht's“ die Spielarten. | Knöpfe quer flach (60 px) und höchstens 520 px breit; Overlays scrollen, Einladung zweispaltig; Lobby und Start quer mit Karte rechts wie am Desktop. |
+| Server-Fassung | Kam der Host nach einem Abbruch nicht zurück, blieben alle in Lobby oder Siegerehrung stehen. | Nach 20 s leitet der nächste verbundene Mensch die Party (hostHandover.test.js). |
+| QR-Kopplung | Zwei Gäste mit demselben Host-Code: der zweite wartete drei Minuten ins Leere. | Der Host-Scanner sagt, dass er den neuen Code scannen soll; der Scanner liest abwechselnd Gesamtbild und Bildmitte in voller Auflösung. |
+| Prüfskripte | onboarding-check erwartete in Luftpuck noch einen Stick. | Prüft den seitlichen Stick mit Farbenjagd. bumper-check scheiterte einmal knapp an der Zeit (38 % statt 40 % Schwung in 2,2 s auf dieser langsamen Maschine) und lief danach zweimal sauber. |
