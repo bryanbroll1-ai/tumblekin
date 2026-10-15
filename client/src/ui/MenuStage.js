@@ -11,7 +11,7 @@ import {
   finalePose,
   noise
 } from "../minigames/VoxelKit.js?v=tumblekin215";
-import { qualityTier, prefersReducedMotion, frameLerp } from "../minigames/Quality.js?v=tumblekin215";
+import { qualityTier, prefersReducedMotion, frameLerp, pixelRatioFor } from "../minigames/Quality.js?v=tumblekin215";
 import { entflechteSchilder } from "../minigames/SceneKit.js?v=tumblekin215";
 import { verblocke } from "../minigames/Blockform.js?v=tumblekin215";
 
@@ -559,7 +559,11 @@ export class MenuStage {
     const width = window.innerWidth;
     const height = window.innerHeight;
     const size = this.renderer.getSize(new THREE.Vector2());
-    if (size.x !== width || size.y !== height) this.renderer.setSize(width, height, false);
+    if (size.x !== width || size.y !== height) {
+      const ratio = pixelRatioFor(width, height);
+      if (Math.abs(this.renderer.getPixelRatio() - ratio) > 0.01) this.renderer.setPixelRatio(ratio);
+      this.renderer.setSize(width, height, false);
+    }
     return { width, height };
   }
 

@@ -4,7 +4,9 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
@@ -61,6 +63,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyOrientation(getResources().getConfiguration());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         // Testfassung: chrome://inspect am Rechner darf die Seite untersuchen.
@@ -152,6 +155,24 @@ public class MainActivity extends Activity {
             // Die Seite zeigt dann, wo man die Kamera erlaubt (qr-scan.js).
             request.deny();
         }
+    }
+
+    // Handys bleiben im Hochformat: ein Dreh mitten im Spiel soll die Bedienung
+    // nicht verschieben. Tablets und aufgeklappte Foldables (kürzere Seite ab
+    // 600 dp) drehen frei — dort hält man das Gerät oft quer, und Android
+    // würde ein festes Hochformat ohnehin mit Rändern darstellen. Klappt man
+    // ein Fold zu, gilt sofort wieder das Hochformat des Handys.
+    private void applyOrientation(Configuration config) {
+        int wanted = config.smallestScreenWidthDp >= 600
+                ? ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+        if (getRequestedOrientation() != wanted) setRequestedOrientation(wanted);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        applyOrientation(config);
     }
 
     private String versionName() {

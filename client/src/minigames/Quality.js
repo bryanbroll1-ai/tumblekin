@@ -47,6 +47,19 @@ export function setQualityTier(tier) {
   cachedTier = tier === "low" || tier === "high" ? tier : null;
 }
 
+// Pixeldichte für eine Zeichenfläche dieser Grösse (CSS-Pixel). Auf dem Handy
+// bleibt es bei höchstens 2 (schwach: 1,5). Ein grosses Tablet mit 2× wären
+// aber 5,6 Millionen Pixel je Bild — so viel wie zwei Full-HD-Monitore; dort
+// begrenzt ein Budget die Fläche, ohne dass man es auf dem Bildschirm sieht.
+const PIXEL_BUDGET = { high: 3.2e6, low: 1.6e6 };
+export function pixelRatioFor(width, height) {
+  const tier = qualityTier();
+  const device = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+  const cap = tier === "low" ? 1.5 : 2;
+  const budget = Math.sqrt(PIXEL_BUDGET[tier] / Math.max(1, width * height));
+  return Math.max(1, Math.min(device, cap, budget));
+}
+
 // --- Rahmenratenunabhängige Bewegung ---------------------------------------
 // `position.lerp(ziel, 0.1)` je Bild sieht auf 60 Hz richtig aus und ist auf
 // jedem anderen Gerät falsch: bei 120 Hz zieht die Kamera doppelt so schnell

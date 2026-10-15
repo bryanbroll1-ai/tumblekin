@@ -9,8 +9,10 @@ Die App ist zum Testen gedacht, nicht für den Play Store (siehe `RELEASE.md`).
 ## Was geht, was nicht
 
 - **Geht:** alles allein gegen Bots — jede Spielart, alle Minispiele, Übung,
-  Ton und Vibration. Im Vollbild, mit wachem Bildschirm und fest im
-  Hochformat.
+  Ton und Vibration. Im Vollbild und mit wachem Bildschirm. Handys bleiben
+  im Hochformat; Tablets und aufgeklappte Foldables (Galaxy Fold, Surface
+  Duo …) drehen frei, Auf- und Zuklappen und geteilter Bildschirm laufen
+  ohne Neustart weiter.
 - **Geht:** mit Freunden spielen, per **QR-Kopplung** — ohne Server, am
   besten im selben WLAN (oder ein Handy macht einen Hotspot auf). Der Host
   startet die Party und tippt in der Lobby auf **Einladen**; der Freund tippt

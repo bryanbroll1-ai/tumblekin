@@ -5,11 +5,18 @@ import {
 } from './lib/harness.mjs';
 
 const games = pickGames(process.argv.slice(2));
-const views = [
-  { name: 'portrait', width: 390, height: 844 },
-  { name: 'landscape', width: 844, height: 390 },
-  { name: 'small', width: 320, height: 568 }
-];
+// Weitere Geräte: TUMBLEKIN_VIEWS="fold:280x653,tablet:820x1180,…"
+const views = process.env.TUMBLEKIN_VIEWS
+  ? process.env.TUMBLEKIN_VIEWS.split(',').map((entry) => {
+    const [name, size] = entry.split(':');
+    const [width, height] = size.split('x').map(Number);
+    return { name, width, height };
+  })
+  : [
+    { name: 'portrait', width: 390, height: 844 },
+    { name: 'landscape', width: 844, height: 390 },
+    { name: 'small', width: 320, height: 568 }
+  ];
 const out = process.env.TUMBLEKIN_SCREENSHOTS || '/tmp/tumblekin-refinement';
 await mkdir(out, { recursive: true });
 const server = await startServer({ log: true });
@@ -37,8 +44,10 @@ function inspectLayout() {
   // Speed lines, camera and goal flashes, the air-hockey finger ring and flying
   // reward coins intentionally cover the HUD.
   const decorative = '[data-runner-speed], [data-photo-flash], [data-hockey-flash], [data-hockey-touch], .coin-fly';
+  // Der Menüknopf gehört dazu: Status-Pillen liefen auf schmalen Handys
+  // darunter, ohne dass es hier auffiel.
   const items = [...document.querySelectorAll(
-    '.kinetic-hud > *, #minigame-controls > *, #minigame-controls button, .kinetic-hud button'
+    '.kinetic-hud > *, #minigame-controls > *, #minigame-controls button, .kinetic-hud button, .game-menu-button'
   )].filter(visible).filter(el => !el.matches(decorative)).map(el => ({
     el, r: el.getBoundingClientRect(),
     id: Object.keys(el.dataset).join(',') || el.className,
@@ -131,6 +140,6 @@ const failures = rows.filter(row => row.error || row.errors.length || !row.final
   row.views.length !== views.length || row.views.some(v => v.phase !== 'playingMinigame' ||
     v.outside.length || v.overlaps.length || v.smallButtons.length || !v.metric));
 if (server.errorOutput.length) console.error(server.errorOutput.join(''));
-console.log(`\n${rows.length - failures.length}/${games.length} Spiele: 3 Ansichten, Wertungsbeschriftung und Finale-Steuerung sauber`);
+console.log(`\n${rows.length - failures.length}/${games.length} Spiele: ${views.length} Ansichten, Wertungsbeschriftung und Finale-Steuerung sauber`);
 for (const row of failures) console.error(JSON.stringify(row));
 process.exit(failures.length || rows.length !== games.length || server.errorOutput.length ? 1 : 0);

@@ -2969,3 +2969,21 @@ canvas.is-stunned {
   .estimate-value strong { font-size: 1.6rem; }
   .estimate-slider { height: 36px; }
 }
+
+/* Geräte mit Scharnier: die Szene und ihre Anzeigen auf dem ersten
+   Bildschirm (CameraRig hält das Bild dort), die Knöpfe auf dem zweiten. */
+@media (horizontal-viewport-segments: 2) {
+  .kinetic-hud {
+    right: calc(100% - env(viewport-segment-right 0 0));
+  }
+  .minigame-controls {
+    left: calc(env(viewport-segment-left 1 0) + env(viewport-segment-width 1 0) / 2);
+    width: min(calc(env(viewport-segment-width 1 0) - 24px), 520px);
+  }
+}
+
+@media (vertical-viewport-segments: 2) {
+  .kinetic-hud {
+    bottom: calc(100% - env(viewport-segment-bottom 0 0));
+  }
+}

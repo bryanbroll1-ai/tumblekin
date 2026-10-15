@@ -1878,3 +1878,25 @@ body.has-invite .start-sheet .field:first-child {
     transition-duration: 1ms !important;
   }
 }
+
+/* --- Geräte mit Scharnier (Surface Duo, Viewport Segments) -------------------
+   Aufgespannt über zwei Bildschirme läge alles Mittige genau im Scharnier.
+   Nebeneinander: Karten, Startkarte und Menüs auf den rechten Bildschirm (die
+   Bühne bleibt links). Übereinander: Karten auf den unteren, die Lobby-Karte
+   endet am Scharnier. */
+@media (horizontal-viewport-segments: 2) {
+  .overlay,
+  .minigame-intro {
+    padding-left: calc(env(viewport-segment-left 1 0) + 16px);
+  }
+}
+
+@media (vertical-viewport-segments: 2) {
+  .overlay,
+  .minigame-intro {
+    padding-top: calc(env(viewport-segment-top 0 1) + 16px);
+  }
+  .screen:not(.minigame-screen) > .sheet {
+    max-height: calc(env(viewport-segment-height 0 1) - 12px);
+  }
+}

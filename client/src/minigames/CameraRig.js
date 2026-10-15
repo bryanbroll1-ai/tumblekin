@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { frameLerp, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin215";
+import { frameLerp, pixelRatioFor, prefersReducedMotion, qualityTier } from "./Quality.js?v=tumblekin215";
 
 // Die Kamera der Minispiele.
 //
@@ -38,6 +38,16 @@ function neededDepth(relative, tanV, tanH, margin) {
   const byX = x / (tanH * margin);
   const byY = Math.abs(y) / (tanV * margin);
   return { z, need: Math.max(byX, byY) };
+}
+
+// Die Bildschirme eines Geräts mit Scharnier (Viewport Segments API). Gibt
+// den ersten Bildschirm relativ zur Zeichenfläche zurück — oder null, wenn es
+// nur einen gibt.
+function firstSegment(rect) {
+  const segments = typeof window !== "undefined" ? window.viewport?.segments : null;
+  if (!segments || segments.length < 2) return null;
+  const first = segments[0];
+  return { right: first.right - rect.left, bottom: first.bottom - rect.top };
 }
 
 export class CameraRig {
@@ -94,6 +104,14 @@ export class CameraRig {
       if (bar && bar.offsetParent !== null) {
         top = Math.max(top, bar.getBoundingClientRect().bottom - rect.top + 6);
       }
+      // Zwei Bildschirme (Surface Duo, aufgespannt): die Szene gehört auf
+      // den ersten, nicht über das Scharnier. Knöpfe auf dem zweiten
+      // Bildschirm schränken sie dann nicht ein.
+      const seg = firstSegment(rect);
+      if (seg) {
+        right = Math.min(right, seg.right);
+        bottom = Math.min(bottom, seg.bottom);
+      }
       const controls = this.host.controls;
       if (controls && controls.children.length) {
         // Im flachen Querformat stehen Stick und Aktionsknopf seitlich.
@@ -107,6 +125,7 @@ export class CameraRig {
           const r = child.getBoundingClientRect();
           if (r.height <= 8) return;
           const center = (r.left + r.right) / 2 - rect.left;
+          if (seg && (center > seg.right || (r.top - rect.top) >= seg.bottom)) return;
           if (sideControls && center < width / 3) left = Math.max(left, r.right - rect.left + 10);
           else if (sideControls && center > width * 2 / 3) right = Math.min(right, r.left - rect.left - 10);
           else highest = Math.min(highest, r.top - rect.top);
@@ -129,9 +148,13 @@ export class CameraRig {
     const canvas = host.webglCanvas;
     if (!canvas || !host.renderer) return null;
     const rect = canvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(240, Math.floor(rect.height));
+    // Kein Mindestmass von 320 mehr: auf dem zugeklappten Galaxy Fold
+    // (280 px) wurde das Bild sonst in die schmalere Fläche gequetscht.
+    const width = Math.max(64, Math.floor(rect.width));
+    const height = Math.max(64, Math.floor(rect.height));
     if (width !== this.lastSize.w || height !== this.lastSize.h) {
+      const ratio = pixelRatioFor(width, height);
+      if (Math.abs(host.renderer.getPixelRatio() - ratio) > 0.01) host.renderer.setPixelRatio(ratio);
       host.renderer.setSize(width, height, false);
       this.lastSize = { w: width, h: height };
       this.band = null;

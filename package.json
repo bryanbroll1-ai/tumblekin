@@ -35,6 +35,7 @@
     "sprint-check": "node scripts/sprint-check.mjs",
     "bumper-check": "node scripts/bumper-check.mjs",
     "all-practice-check": "node scripts/all-practice-check.mjs",
+    "device-check": "node scripts/device-check.mjs",
     "build:browser": "node browser/build.mjs",
     "browser-join-check": "node browser/join-check.mjs",
     "browser-solo-check": "node browser/solo-check.mjs",
