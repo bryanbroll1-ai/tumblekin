@@ -932,6 +932,16 @@ body.has-invite .start-sheet .field:first-child {
   background: rgba(14, 30, 42, 0.45);
   backdrop-filter: blur(4px);
   animation: fade-in 160ms ease both;
+  /* Ist eine Karte höher als der Bildschirm (Querformat), lässt sie sich
+     scrollen — vorher waren „Fertig“ und „Link teilen“ unerreichbar. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Auto-Ränder zentrieren, solange die Karte passt; ist sie höher, beginnt
+   sie oben und bleibt ganz erreichbar (place-items: center schnitte oben ab). */
+.overlay > .overlay-card {
+  margin: auto;
 }
 
 @keyframes fade-in {
@@ -1039,6 +1049,27 @@ body.has-invite .start-sheet .field:first-child {
 
 .invite-card .btn {
   width: 100%;
+}
+
+/* Querformat mit wenig Höhe: QR-Code links, Code, Hinweis und Knöpfe rechts. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .invite-card {
+    width: min(100%, 640px);
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 20px;
+    row-gap: 8px;
+    align-items: center;
+    text-align: left;
+  }
+  .invite-card > img {
+    grid-column: 1;
+    grid-row: 1 / span 6;
+  }
+  .invite-card > :not(img) {
+    grid-column: 2;
+    justify-self: stretch;
+  }
+  .invite-card .invite-code { font-size: 2rem; }
 }
 
 .picker-card {
