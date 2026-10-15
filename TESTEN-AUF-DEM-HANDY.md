@@ -129,6 +129,25 @@ In der Lobby **+ Bot** antippen, bis genug Mitspieler da sind: die Bots
 spielen jedes Minispiel mit. Damit lässt sich eine komplette Partie —
 Marathon, Punktejagd oder K.O. — allein durchspielen.
 
+## Tablets, Foldables und Surface Duo
+
+Das Spiel passt sich jeder Bildschirmform an. Worauf beim Ausprobieren
+achten:
+
+- **Handys** (App): bleiben im Hochformat. Im Browser darf man drehen —
+  quer stehen Bühne und Lobby-Karte nebeneinander, Startkarten zweispaltig.
+- **Galaxy Fold / Pixel Fold:** Zu- und Aufklappen mitten in der Partie
+  lädt nichts neu. Zugeklappt (sehr schmal) stehen die Spielarten zwei mal
+  zwei; aufgeklappt darf die App frei drehen.
+- **Galaxy Flip:** wie ein schmales, hohes Handy.
+- **Tablets:** drehen frei; im Querformat steht die Karte rechts, die Bühne
+  links.
+- **Surface Duo über beide Bildschirme:** Das Spiel läuft auf dem ersten
+  Bildschirm, Knöpfe, Startkarte und Lobby-Karte liegen auf dem zweiten —
+  nichts sitzt im Scharnier.
+- **Geteilter Bildschirm / Fenster:** Jede Grösse funktioniert; die Ansicht
+  stellt sich beim Ziehen am Trenner sofort um.
+
 ## Zum Homescreen hinzufügen
 
 Das Spiel ist eine PWA. Über „Zum Home-Bildschirm" (iOS: Teilen-Menü, Android:

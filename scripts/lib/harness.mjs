@@ -169,12 +169,18 @@ export async function startSingle(page, type) {
 
 // Dieselbe Lesepause und derselbe Bereit-Knopf wie auf dem Handy. Räume mit
 // mehreren echten Geräten müssen jedes Gerät separat bereitmelden.
+// Abgefragt wird im Takt, nicht pro Bild: Grosse Ansichten rendert der
+// Testbrowser ohne Grafikkarte mit wenigen Bildern pro Sekunde, und eine
+// Abfrage per requestAnimationFrame sah den Start dann oft erst Sekunden später.
+// Die Frist nach „Bereit!“ ist grosszügig: Auf 1180 × 820 kompiliert der
+// Software-Renderer die Shader der neuen Szene 15 bis 20 Sekunden lang
+// (auf echter Hardware Sekundenbruchteile).
 export async function readyForMinigame(page) {
-  await page.waitForFunction(() => window.__tumblekin.state()?.status === "minigame", null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__tumblekin.state()?.status === "minigame", null, { timeout: 15000, polling: 100 });
   if (await page.evaluate(() => window.__tumblekin.state().phase === "waitingReady")) {
     await page.click("#intro-ready");
   }
-  await page.waitForFunction(() => window.__tumblekin.state()?.phase === "playingMinigame", null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__tumblekin.state()?.phase === "playingMinigame", null, { timeout: 45000, polling: 100 });
 }
 
 // Wie weit ist das laufende Minispiel? Negativ = Countdown läuft noch.

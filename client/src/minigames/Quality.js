@@ -51,13 +51,19 @@ export function setQualityTier(tier) {
 // bleibt es bei höchstens 2 (schwach: 1,5). Ein grosses Tablet mit 2× wären
 // aber 5,6 Millionen Pixel je Bild — so viel wie zwei Full-HD-Monitore; dort
 // begrenzt ein Budget die Fläche, ohne dass man es auf dem Bildschirm sieht.
+// Bis Full HD wird nie unter einem Pixel je CSS-Pixel gerechnet. Darüber —
+// Ultrawide, 4K-Fernseher an einer schwachen Box — darf es bis 0,75 sinken:
+// minimal weicher, aber flüssig statt einer Diashow.
 const PIXEL_BUDGET = { high: 3.2e6, low: 1.6e6 };
+const FULL_HD = 1920 * 1080 * 1.06;
 export function pixelRatioFor(width, height) {
   const tier = qualityTier();
   const device = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
   const cap = tier === "low" ? 1.5 : 2;
-  const budget = Math.sqrt(PIXEL_BUDGET[tier] / Math.max(1, width * height));
-  return Math.max(1, Math.min(device, cap, budget));
+  const area = Math.max(1, width * height);
+  const budget = Math.sqrt(PIXEL_BUDGET[tier] / area);
+  const floor = area > FULL_HD ? 0.75 : 1;
+  return Math.max(Math.min(floor, device), Math.min(device, cap, budget));
 }
 
 // --- Rahmenratenunabhängige Bewegung ---------------------------------------

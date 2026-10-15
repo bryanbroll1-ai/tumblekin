@@ -209,6 +209,11 @@ p {
     grid-row: 1;
   }
 
+  /* Auf Ultrawide liefe die Raum-Pille sonst über 1600 px. */
+  .lobby-top {
+    max-width: 680px;
+  }
+
   .screen:not(.minigame-screen) > .stage-spacer {
     grid-column: 1;
     grid-row: 2;
@@ -1373,7 +1378,8 @@ body.has-invite .start-sheet .field:first-child {
   .picker-tools .chip, .picker-categories .chip { min-height: 40px; font-size: 0.78rem; padding: 4px 9px; }
   .picker-count { font-size: 0.8rem; }
   #picker-done { min-height: 44px; padding: 8px 16px; }
-  .minigame-intro { padding: 10px max(16px, env(safe-area-inset-left)) 10px max(16px, env(safe-area-inset-right)); gap: 8px; }
+  /* Seitlich 64 px: rechts oben sitzt der Menüknopf, die Karte bleibt mittig. */
+  .minigame-intro { padding: 10px max(64px, env(safe-area-inset-right)) 10px max(64px, env(safe-area-inset-left)); gap: 8px; }
   .intro-card { width: min(100%, 540px); gap: 6px; padding: 12px 18px; border-radius: 20px; max-height: calc(100dvh - 24px); }
   .intro-preview { height: 84px; }
   .intro-card h2 { font-size: 1.7rem; }
