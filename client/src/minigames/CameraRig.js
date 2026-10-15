@@ -94,6 +94,10 @@ export class CameraRig {
     let left = 0;
     let right = width;
     const insets = this.base.insets;
+    // Zwei Bildschirme (Surface Duo, aufgespannt): die Szene gehört auf
+    // den ersten, nicht über das Scharnier. Knöpfe auf dem zweiten
+    // Bildschirm schränken sie dann nicht ein.
+    const seg = insets ? null : firstSegment(rect);
     if (insets) {
       top = insets.top ?? 0;
       bottom = height - (insets.bottom ?? 0);
@@ -104,10 +108,6 @@ export class CameraRig {
       if (bar && bar.offsetParent !== null) {
         top = Math.max(top, bar.getBoundingClientRect().bottom - rect.top + 6);
       }
-      // Zwei Bildschirme (Surface Duo, aufgespannt): die Szene gehört auf
-      // den ersten, nicht über das Scharnier. Knöpfe auf dem zweiten
-      // Bildschirm schränken sie dann nicht ein.
-      const seg = firstSegment(rect);
       if (seg) {
         right = Math.min(right, seg.right);
         bottom = Math.min(bottom, seg.bottom);
@@ -135,10 +135,12 @@ export class CameraRig {
     }
     // Automatic estimates retain a useful image area. Explicit reservations
     // must stay exact: enlarging them would put a puzzle behind its own HUD.
+    // Auch dann nie über das Scharnier hinaus.
     if (!insets && bottom - top < height * 0.5) {
+      const limit = seg ? Math.min(height, seg.bottom) : height;
       const mid = (top + bottom) / 2;
-      top = Math.max(0, mid - height * 0.25);
-      bottom = Math.min(height, top + height * 0.5);
+      top = Math.max(0, Math.min(mid - height * 0.25, limit - height * 0.5));
+      bottom = Math.min(limit, top + height * 0.5);
     }
     return { top, bottom, left, right };
   }

@@ -54,7 +54,9 @@ Zwischen den Spielen zeigt die Ergebnistafel die Plätze von hinten nach vorn un
 
 Die Tumblekin haben ein Gerüst — Hüfte, Rumpf, Kopf, zwei Arme, zwei Beine — und ein Gesicht mit Blick, Lidern, Brauen und sieben Mündern. Bewegung ist in Posen beschrieben, zwischen denen überblendet wird; die Arme können eine eigene Handlung spielen, während die Beine weiterlaufen. In jedem Minispiel tun die Figuren, was der Spieler tut: pumpen, kurbeln, klettern, graben, werfen, angeln, schieben — statt daneben zu hüpfen.
 
-Alle 40 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern eine Beschreibung — worauf geschaut wird, wie gross das Motiv ist, aus welchem Winkel — und rahmt in das Band, das Punkteleiste und Knöpfe frei lassen, im Hoch- wie im Querformat. Dazu kommen einheitlich ein Anflug im Countdown, eine Sicherung, die weglaufende Figuren ins Bild zurückholt, Schütteln mit Abklingen und eine Fahrt auf den Sieger in den letzten Sekunden.
+Alle 40 Spiele teilen sich ein Kamera-Rig. Es bekommt keine Koordinaten, sondern eine Beschreibung — worauf geschaut wird, wie gross das Motiv ist, aus welchem Winkel — und rahmt in das Band, das Punkteleiste und Knöpfe frei lassen, im Hoch- wie im Querformat. Auf einem aufgespannten Surface Duo (oder einem anderen Gerät mit Scharnier) bleibt die Szene auf dem ersten Bildschirm; Knöpfe, Startkarte und Lobby-Karte rücken auf den zweiten. Wie scharf gerendert wird, richtet sich nach der Pixelzahl: Tablets und grosse Monitore bekommen nicht automatisch die volle Auflösung, sondern so viel, wie flüssig läuft.
+
+Die Oberfläche passt sich jeder Bildschirmform an — vom zugeklappten Galaxy Fold (280 px breit) über Flip und normale Handys, quer gehaltene Handys, aufgeklappte Foldables und Tablets bis zu Full-HD- und Ultrawide-Monitoren. Lobby-Kopf, Spielarten und Bot-Regler werden in schmalen Karten kompakter, Startkarten stehen im flachen Querformat zweispaltig, alle Knöpfe bleiben mindestens 40 px gross, und Kamera-Ausschnitte im Querformat halten die Anzeigen frei. `npm run device-check` geht 24 Geräteformen durch (Startseite, Lobby, Spielauswahl, Einladung, Startkarte, zwei laufende Spiele, Menü, Ergebnis) und meldet waagrechtes Scrollen, Knöpfe ausserhalb des Bildes, abgeschnittene Beschriftungen und zu kleine Knöpfe. Dazu kommen einheitlich ein Anflug im Countdown, eine Sicherung, die weglaufende Figuren ins Bild zurückholt, Schütteln mit Abklingen und eine Fahrt auf den Sieger in den letzten Sekunden.
 
 ## 40 Orte
 
@@ -290,6 +292,8 @@ npm run input-check          # Mehrfinger-Eingaben, Tabwechsel und Joystick-Unte
 npm run gesture-check        # sieben Wisch-/Ziehspiele: zweiter Finger, Loslassen und Unterbrechung
 npm run effects-check        # Partikelflug bei 30/60/120 Hz, Ressourcen, Cachebudget und reduzierte Bewegung
 npm run refinement-check     # alle 40 Spiele: Hoch-/Querformat, 320px, HUD und Finale-Steuerung
+npm run device-check         # 24 Geräteformen von Fold bis Ultrawide, Surface Duo mit Scharnier
+npm run device-check -- fold-zu duo-gespannt   # nur ausgewählte
 npm run press-check          # Knopfdruck, Tastatur, assistive Aktivierung, Halten und echte Aktionsfehler
 npm run session-sim -- 12 --quick ballonPump leuchtfolge kanonenflug  # wiederholte gleiche Szenen für den Speichervergleich
 npm run animation-check      # 64 Posen bei 30/60/120 Hz, reduzierte Bewegung und Fußkontakt im Zielsprint

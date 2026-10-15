@@ -67,15 +67,17 @@
   left: 50%;
   display: grid;
   gap: 8px;
-  width: min(calc(100% - 20px), 820px);
+  width: min(calc(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right)), 820px);
   margin: 0;
   transform: translateX(-50%);
 }
 
+/* Quer gehaltene Handys mit Kamera-Ausschnitt: die Anzeigen rücken vom
+   Ausschnitt weg, das Bild selbst läuft bis zum Rand. */
 .kinetic-hud {
   position: absolute;
   z-index: 5;
-  inset: 0;
+  inset: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
   pointer-events: none;
 }
 

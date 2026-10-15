@@ -128,7 +128,7 @@ p {
   inset: 0;
   display: none;
   flex-direction: column;
-  padding: calc(12px + env(safe-area-inset-top)) 14px 0;
+  padding: calc(12px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left));
 }
 
 .screen.active {
@@ -155,7 +155,9 @@ p {
   position: relative;
   z-index: 2;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
+  container: sheet / inline-size;
   width: min(100%, 560px);
   max-height: 64dvh;
   margin: 0 auto;
@@ -172,6 +174,12 @@ p {
   animation: sheet-rise 380ms cubic-bezier(0.2, 0.9, 0.25, 1.1) both;
 }
 
+/* Nichts in der Karte darf sie breiter machen als den Bildschirm — sonst
+   rutschte auf dem zugeklappten Fold die halbe Lobby über den rechten Rand. */
+.sheet > * {
+  min-width: 0;
+}
+
 @keyframes sheet-rise {
   from { transform: translateY(40px); opacity: 0; }
   to { transform: none; opacity: 1; }
@@ -183,12 +191,15 @@ p {
 @media (min-width: 900px) and (min-aspect-ratio: 5/4), (orientation: landscape) and (max-height: 520px) and (min-width: 600px) {
   .screen:not(.minigame-screen) {
     display: none;
-    padding: calc(20px + env(safe-area-inset-top)) 24px calc(20px + env(safe-area-inset-bottom));
+    padding: calc(20px + env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
   }
 
   .screen.active:not(.minigame-screen) {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(380px, 460px);
+    /* Die Karte nimmt höchstens gut die Hälfte: auf einem schmalen
+       Querformat (zugeklapptes Fold quer) blieb sonst für Bühne und
+       Raum-Pille ein Streifen von 120 px. */
+    grid-template-columns: minmax(0, 1fr) minmax(340px, min(460px, 52%));
     grid-template-rows: auto minmax(0, 1fr);
     column-gap: 24px;
   }
@@ -202,6 +213,12 @@ p {
     grid-column: 1;
     grid-row: 2;
     min-height: 0;
+  }
+
+  /* Rechts oben sitzt im Spiel der Menüknopf — die Karte bleibt daneben frei. */
+  #screen-result.active,
+  #screen-end.active {
+    padding-right: calc(70px + env(safe-area-inset-right));
   }
 
   .screen:not(.minigame-screen) > .sheet {
@@ -284,6 +301,7 @@ p {
 
 .icon-btn {
   display: grid;
+  flex: none;
   place-items: center;
   width: 48px;
   height: 48px;
@@ -499,6 +517,7 @@ body.has-invite .start-sheet .field:first-child {
   display: flex;
   align-items: center;
   gap: 10px;
+  container-type: inline-size;
 }
 
 .room-pill {
@@ -537,6 +556,26 @@ body.has-invite .start-sheet .field:first-child {
   color: #ffffff;
   font-size: 0.82rem;
   font-weight: 950;
+}
+
+/* Schmaler Kopf: ohne „Raum“-Etikett, Code etwas kleiner — „Einladen“
+   bleibt immer ganz sichtbar. */
+@container (max-width: 330px) {
+  .room-pill {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    padding-left: 12px;
+  }
+  .room-pill-label {
+    display: none;
+  }
+  .room-pill strong {
+    font-size: 1.2rem;
+    letter-spacing: 0.08em;
+  }
+  .room-pill-action {
+    padding: 9px 10px;
+  }
 }
 
 .lobby-players {
@@ -625,13 +664,16 @@ body.has-invite .start-sheet .field:first-child {
   font-weight: 950;
 }
 
+/* Sichtbar ein kleiner Kreis, die Tippfläche ist trotzdem 40 × 40 — sie
+   ragt über den Rand der Pille, ohne sie höher zu machen. */
 .chip-remove {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 40px;
+  height: 40px;
+  margin: -4px -7px -4px -6px;
   border-radius: 50%;
-  background: rgba(36, 48, 64, 0.08);
+  background: radial-gradient(circle, rgba(36, 48, 64, 0.08) 0 12px, transparent 12.5px);
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 950;
@@ -665,6 +707,14 @@ body.has-invite .start-sheet .field:first-child {
   line-height: 1.1;
 }
 
+/* „Punkte­jagd“ trägt einen weichen Trennstrich: passt das Wort nicht in
+   sein Feld, bricht es dort statt über den Rand zu laufen. */
+.mode-tabs button span {
+  max-width: 100%;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
 .mode-tabs button.is-active {
   background: #ffffff;
   color: var(--ink);
@@ -679,6 +729,50 @@ body.has-invite .start-sheet .field:first-child {
   transform: scale(0.96);
 }
 
+/* Übliche Handys (360 px): etwas kleinere Schrift, damit „Marathon“ und
+   „Ein Spiel“ in ihre Felder passen. */
+@container sheet (max-width: 380px) {
+  .mode-tabs {
+    gap: 4px;
+    padding: 4px;
+  }
+  .mode-tabs button {
+    padding: 6px 2px;
+    font-size: 0.72rem;
+  }
+}
+
+@container sheet (max-width: 300px) {
+  .mode-tabs button {
+    font-size: 0.66rem;
+  }
+}
+
+/* Zugeklapptes Fold: vier Spalten wären 50 px breit, „Punktejagd“ passte
+   nicht hinein. Dann zwei mal zwei, Symbol neben dem Wort. */
+@container sheet (max-width: 270px) {
+  .mode-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mode-tabs button {
+    grid-auto-flow: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    font-size: 0.72rem;
+  }
+  .mode-tabs button b {
+    font-size: 1.05rem;
+  }
+  .sheet .more-options-body {
+    padding-inline: 6px;
+  }
+  .sheet .bot-level-seg {
+    font-size: 0.6rem;
+  }
+}
+
 .mode-description {
   color: var(--ink-soft);
   font-size: 0.86rem;
@@ -686,8 +780,11 @@ body.has-invite .start-sheet .field:first-child {
   line-height: 1.35;
 }
 
+/* minmax(0, 1fr): der Bot-Regler meldet als Mindestbreite viermal sein
+   längstes Wort — in einer „auto“-Spalte schob das die Karte über den Rand. */
 .mode-options {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -779,6 +876,7 @@ body.has-invite .start-sheet .field:first-child {
 
 .more-options-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 4px 12px 12px;
 }
@@ -831,7 +929,7 @@ body.has-invite .start-sheet .field:first-child {
 .bot-level-track {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   min-height: 48px;
   border-radius: 999px;
   background:
@@ -888,8 +986,8 @@ body.has-invite .start-sheet .field:first-child {
   cursor: default;
 }
 
-/* Auf sehr schmalen Handys reicht das Feld nur für das Wort. */
-@media (max-width: 359px) {
+/* In einer schmalen Karte reicht das Feld nur für das Wort. */
+@container sheet (max-width: 320px) {
   .bot-level-dice {
     display: none;
   }
@@ -930,7 +1028,7 @@ body.has-invite .start-sheet .field:first-child {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  padding: calc(16px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   background: rgba(14, 30, 42, 0.45);
   backdrop-filter: blur(4px);
   animation: fade-in 160ms ease both;
@@ -1012,7 +1110,7 @@ body.has-invite .start-sheet .field:first-child {
   position: fixed;
   z-index: 30;
   top: calc(10px + env(safe-area-inset-top));
-  right: 10px;
+  right: calc(10px + env(safe-area-inset-right));
   display: grid;
   place-items: center;
   width: 44px;
@@ -1108,7 +1206,7 @@ body.has-invite .start-sheet .field:first-child {
 /* Drei kleine Schalter in EINER Zeile — als grosse Pillen stand jeder in
    einer eigenen und schob die Spiele aus dem Bild. */
 .picker-tools .chip {
-  min-height: 34px;
+  min-height: 40px;
   padding: 5px 12px;
   font-size: 0.82rem;
 }
@@ -1185,8 +1283,11 @@ body.has-invite .start-sheet .field:first-child {
 .pick-preview .pick-icon { position: absolute; right: 4px; bottom: 4px; padding: 2px 5px; border-radius: 7px; background: #fffdf0ec; font-size: 1rem; }
 
 .pick-card strong {
+  max-width: 100%;
   font-size: 0.95rem;
   font-weight: 950;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .pick-card small {
@@ -1269,7 +1370,7 @@ body.has-invite .start-sheet .field:first-child {
   .picker-card { width: min(100%, 760px); max-height: calc(100dvh - 20px); padding: 12px; gap: 8px; }
   .picker-card h3 { font-size: 1.1rem; }
   .picker-browse { grid-template-columns: minmax(160px, 0.65fr) minmax(0, 1.35fr); align-items: center; }
-  .picker-tools .chip, .picker-categories .chip { min-height: 36px; font-size: 0.78rem; padding: 4px 9px; }
+  .picker-tools .chip, .picker-categories .chip { min-height: 40px; font-size: 0.78rem; padding: 4px 9px; }
   .picker-count { font-size: 0.8rem; }
   #picker-done { min-height: 44px; padding: 8px 16px; }
   .minigame-intro { padding: 10px max(16px, env(safe-area-inset-left)) 10px max(16px, env(safe-area-inset-right)); gap: 8px; }
@@ -1282,6 +1383,28 @@ body.has-invite .start-sheet .field:first-child {
   .intro-tip { padding: 6px 10px; font-size: 0.8rem; }
   .minigame-intro.counting { grid-template-columns: minmax(0, 540px) 110px; justify-content: center; }
   .minigame-intro.counting .intro-count { font-size: 4.5rem; min-height: 76px; }
+  /* Links, was gespielt wird, rechts die Knöpfe — untereinander lagen
+     „Stick ziehen“ und das Ziel unter den klebenden Knöpfen versteckt. */
+  .minigame-intro:not(.counting) .intro-card {
+    width: min(100%, 720px);
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 0.6fr);
+    column-gap: 18px;
+    align-items: center;
+  }
+  .minigame-intro:not(.counting) .intro-card > * { grid-column: 1; }
+  .minigame-intro:not(.counting) .intro-card > .intro-actions {
+    grid-column: 2;
+    grid-row: 1 / span 7;
+    position: static;
+    padding-top: 0;
+    background: none;
+    box-shadow: none;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 360px) {
+  .intro-preview { height: 56px; }
+  .intro-card h2 { font-size: 1.4rem; }
 }
 
 .intro-round {
@@ -1377,6 +1500,20 @@ body.has-invite .start-sheet .field:first-child {
   text-align: center;
 }
 
+/* Rechts oben sitzt der Menüknopf: auf schmalen Handys lief „Flaggen hoch“
+   darunter durch. */
+@media (max-width: 480px) {
+  .result-top {
+    padding-inline: 50px;
+  }
+}
+
+@media (max-width: 340px) {
+  .result-top h2 {
+    font-size: 1.6rem;
+  }
+}
+
 .result-top .eyebrow {
   padding: 5px 12px;
   border-radius: 999px;
@@ -1384,8 +1521,11 @@ body.has-invite .start-sheet .field:first-child {
 }
 
 .result-top h2 {
+  max-width: 100%;
   color: #ffffff;
   font-size: clamp(1.9rem, 8vw, 2.6rem);
+  overflow-wrap: anywhere;
+  hyphens: auto;
   font-weight: 1000;
   text-shadow: 0 4px 0 rgba(31, 90, 110, 0.35), 0 10px 24px rgba(31, 90, 110, 0.3);
 }
@@ -1889,6 +2029,12 @@ body.has-invite .start-sheet .field:first-child {
   .minigame-intro {
     padding-left: calc(env(viewport-segment-left 1 0) + 16px);
   }
+  /* Breite Ansicht: die linke Spalte endet vor dem Scharnier, die rechte
+     beginnt dahinter (je 24 px Rand). */
+  .screen.active:not(.minigame-screen) {
+    grid-template-columns: minmax(0, calc(env(viewport-segment-right 0 0) - 48px)) minmax(0, 1fr);
+    column-gap: calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0) + 48px);
+  }
 }
 
 @media (vertical-viewport-segments: 2) {
@@ -1898,5 +2044,8 @@ body.has-invite .start-sheet .field:first-child {
   }
   .screen:not(.minigame-screen) > .sheet {
     max-height: calc(env(viewport-segment-height 0 1) - 12px);
+  }
+  .intro-card {
+    max-height: calc(env(viewport-segment-height 0 1) - 32px);
   }
 }

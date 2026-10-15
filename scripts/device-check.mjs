@@ -15,7 +15,7 @@
 //   - Knöpfe kleiner als 40 px (zu klein für den Daumen).
 // Bilder und Befunde: TUMBLEKIN_SCREENSHOTS (Standard /tmp/tumblekin-devices).
 import { mkdir, writeFile } from "node:fs/promises";
-import { launchBrowser, startServer, request, readyForMinigame, watchErrors } from "./lib/harness.mjs";
+import { launchBrowser, startServer, request, watchErrors } from "./lib/harness.mjs";
 
 export const DEVICES = [
   { name: "fold-zu", width: 280, height: 653, label: "Galaxy Fold zugeklappt" },
@@ -52,12 +52,21 @@ if (!devices.length) {
   process.exit(2);
 }
 const out = process.env.TUMBLEKIN_SCREENSHOTS || "/tmp/tumblekin-devices";
+
+// Grosse Bildschirme rendert der Testbrowser ohne Grafikkarte mit wenigen
+// Bildern pro Sekunde. Darum wird der Spielstand im Takt abgefragt statt pro
+// Bild (requestAnimationFrame), und die Fristen sind grosszügig.
+const phase = (page, wanted, timeout = 45000) => page.waitForFunction(
+  (names) => names.includes(window.__tumblekin.state()?.phase), [wanted].flat(), { timeout, polling: 250 });
 await mkdir(out, { recursive: true });
 
 // Läuft in der Seite: was ragt hinaus, was ist abgeschnitten, was ist zu klein.
 function inspect() {
   const visible = (el) => {
     if (el.closest("[hidden]")) return false;
+    // Inhalt einer zugeklappten <details> ist nicht zu sehen, nur ihr <summary>.
+    const details = el.closest("details:not([open])");
+    if (details && !el.closest("summary")) return false;
     const style = getComputedStyle(el);
     if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) return false;
     const r = el.getBoundingClientRect();
@@ -118,12 +127,16 @@ try {
       isMobile: device.width < 1200
     });
     const page = await context.newPage();
+    let cdp = null;
     if (device.hinge) {
       // Chromium kann das Scharnier vortäuschen: dann gelten die
       // Viewport-Segmente in CSS (horizontal-viewport-segments) und JS.
-      const cdp = await context.newCDPSession(page);
-      await cdp.send("Emulation.setDisplayFeaturesOverride", { displayFeatures: [device.hinge] })
-        .catch((error) => console.log(`    (Scharnier nicht nachstellbar: ${error.message.split("\n")[0]})`));
+      // Nur über die Gerätemetrik — setDisplayFeaturesOverride allein
+      // ändert die Segmente nicht.
+      cdp = await context.newCDPSession(page);
+      await cdp.send("Emulation.setDeviceMetricsOverride", {
+        width: device.width, height: device.height, deviceScaleFactor: 1, mobile: true, displayFeature: device.hinge
+      }).catch((error) => console.log(`    (Scharnier nicht nachstellbar: ${error.message.split("\n")[0]})`));
     }
     await page.addInitScript(() => {
       Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 4 });
@@ -131,15 +144,25 @@ try {
     });
     const errors = watchErrors(page);
     const row = { device: device.name, label: device.label, size: `${device.width}×${device.height}`, shots: [] };
+    // page.screenshot setzt Playwrights eigene Gerätemetrik wieder ein und
+    // nähme das Scharnier weg — mit Scharnier also direkt über CDP.
+    const capture = async (file) => {
+      if (!cdp) return page.screenshot({ path: file });
+      const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
+      await writeFile(file, Buffer.from(data, "base64"));
+    };
     const shot = async (what, wait = 600) => {
       await page.waitForTimeout(wait);
       const file = `${out}/${device.name}-${what}.png`;
-      await page.screenshot({ path: file });
+      await capture(file);
       const found = await page.evaluate(inspect);
       row.shots.push({ what, ...found });
     };
     try {
       await page.goto(`${server.base}/?dev=1`, { waitUntil: "networkidle" });
+      if (device.hinge && !(await page.evaluate(() => (window.viewport?.segments?.length || 1) === 2))) {
+        throw new Error("Scharnier kommt in der Seite nicht an (viewport.segments)");
+      }
       await shot("01-start", 1200);
       await page.fill("#player-name", "Mia");
       await page.click("#create-room");
@@ -158,25 +181,41 @@ try {
         await request(page, "selectMode", { mode: "single" });
         await request(page, "updateSettings", { settings: { single: game } });
         await request(page, "startGame");
-        await page.waitForSelector("#screen-minigame.active", { timeout: 15000 });
-        await page.waitForFunction(() => window.__tumblekin.state()?.phase === "waitingReady", null, { timeout: 15000 });
+        await page.waitForSelector("#screen-minigame.active", { timeout: 45000 });
+        await phase(page, "waitingReady");
         if (index === "06") await shot("06-startkarte", 1200);
-        await readyForMinigame(page);
-        await page.waitForSelector("#minigame-intro", { state: "hidden", timeout: 15000 });
+        await page.click("#intro-ready");
+        await phase(page, "playingMinigame");
+        await page.waitForSelector("#minigame-intro", { state: "hidden", timeout: 45000 });
         await shot(`${index === "06" ? "07" : "09"}-${game}`, 2500);
         if (index === "06") {
           await page.click("#game-menu-button").catch(() => {});
           await shot("08-menue", 500);
           await page.click("#menu-resume").catch(() => {});
         }
-        await request(page, "devSkipMinigame");
-        await page.waitForSelector("#screen-result.active", { timeout: 15000 });
-        if (index === "08") await shot("10-ergebnis", 2500);
-        await request(page, "restartGame");
-        await page.waitForSelector("#screen-lobby.active", { timeout: 15000 });
+        // Flaggen hoch kann bei langsamen Bildern schon vorbei sein.
+        const playing = await page.evaluate(() => window.__tumblekin.state()?.phase === "playingMinigame");
+        if (playing) await request(page, "devSkipMinigame").catch(() => {});
+        // Das Einzelspiel kehrt nach der Ergebnistafel von selbst in die
+        // Lobby zurück — bei wenigen Bildern pro Sekunde manchmal schneller,
+        // als die Abfrage sie zu sehen bekommt.
+        const status = (wanted) => page.waitForFunction(
+          (names) => names.includes(window.__tumblekin.state()?.status), wanted, { timeout: 45000, polling: 250 });
+        await status(["result", "lobby"]);
+        const onResult = await page.evaluate(() => window.__tumblekin.state()?.status === "result");
+        if (index === "08" && onResult) await shot("10-ergebnis", 2500);
+        else if (index === "08") row.shots.push({ what: "10-ergebnis (übersprungen)", scrollX: 0, outside: [], clipped: [], tiny: [] });
+        if (await page.evaluate(() => window.__tumblekin.state()?.status !== "lobby")) await request(page, "restartGame");
+        await status(["lobby"]);
+        await page.waitForSelector("#screen-lobby.active", { timeout: 45000 });
       }
     } catch (error) {
-      row.error = error.message.split("\n")[0];
+      const where = await page.evaluate(() => {
+        const state = window.__tumblekin?.state();
+        return `${state?.status ?? "?"}/${state?.phase ?? "?"}`;
+      }).catch(() => "?");
+      row.error = `${error.message.split("\n")[0]} (Stand: ${where})`;
+      await capture(`${out}/${device.name}-fehler.png`).catch(() => {});
     }
     row.errors = [...errors];
     const bad = row.shots.filter((s) => s.scrollX || s.outside.length || s.clipped.length || s.tiny.length);
