@@ -864,8 +864,10 @@ export class SortBelt extends MinigameScene {
     }
   }
 
+  // Die Rutschen mit ihren Schildern gehören ins Bild: quer gehalten lagen
+  // sie sonst unter der Hinweiszeile, und man sah nicht, wohin man wirft.
   keepInView() {
-    return [...this.kins.values()];
+    return [...this.kins.values(), ...this.chutes.map((chute) => chute.group)];
   }
 
   drawHud(f) {

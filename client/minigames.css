@@ -2591,10 +2591,13 @@ canvas.is-stunned {
   overflow: hidden;
 }
 
-/* Auf schmalen Handys (320 px) stiess „SCHWUNG“ links und rechts an den Rand. */
-.snow-throw b {
-  font-size: clamp(0.95rem, 4.2vw, 1.25rem);
-  letter-spacing: clamp(0.01em, 0.4vw, 0.06em);
+/* Auf schmalen Handys (320 px) stiess „SCHWUNG“ links und rechts an den Rand.
+   Nur dort: quer setzt die Stick-Leiste ihre eigene, kleinere Schrift. */
+@media (max-width: 360px) {
+  .snow-throw b {
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+  }
 }
 
 .snow-throw.is-ready {
