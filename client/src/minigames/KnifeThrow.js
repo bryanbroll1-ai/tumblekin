@@ -8,13 +8,13 @@ import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 // Messerwurf — wie die bekannten Handyspiele: vor dir dreht sich DEIN Stamm,
 // jeder Tipp wirft ein Messer von unten hinein. Sind alle Messer drin,
 // zerbricht er, und der nächste kommt — mit schon steckenden Messern, Äpfeln
-// und einem anderen Drehmuster, mal ruckartig mit Stopps und Umkehr; der
+// und etwas schneller; jeder dreht gleichmässig in dieselbe Richtung, der
 // fünfte ist ein Boss-Stamm. Triffst du ein Messer, klirrt es, und wie im
 // Vorbild bist du raus: deine Punkte bleiben, du schaust den anderen zu.
 // Die Stämme der anderen drehen sich klein oben auf dem Podest mit.
 //
 // Die Drehung rechnet der Client mit derselben Formel wie der Server
-// (knifeLogAngle dort) aus Muster und Startzeit der Stufe — der Stamm dreht
+// (knifeLogAngle dort) aus Tempo und Startzeit der Stufe — der Stamm dreht
 // sich damit flüssig und genau so, wie der Server es wertet.
 const LOG_R = 0.92;
 const LOG_Y = 2.55;
@@ -25,38 +25,10 @@ const MINI_Z = -2.2;
 const PODIUM_Y = 3.65;
 const FLIGHT_MS = 110;
 
+// Wie knifeLogAngle auf dem Server: gleichmässig, immer in dieselbe Richtung.
 function logAngleDeg(spin, ms) {
   if (!spin) return 0;
-  const t = ms / 1000;
-  let rad;
-  if (spin.kind === "wobble") {
-    rad = spin.speed * t - (spin.amp / spin.rate) * (Math.cos(spin.rate * t) - 1) * Math.sign(spin.speed || 1);
-  } else if (spin.kind === "swing") {
-    rad = (spin.speed / spin.rate) * Math.sin(spin.rate * t);
-  } else if (spin.kind === "steps") {
-    rad = stepsAngle(spin.steps || [], t);
-  } else {
-    rad = spin.speed * t;
-  }
-  return (rad * 180) / Math.PI;
-}
-
-// Wie knifeStepsAngle auf dem Server: ganze Perioden plus der Rest.
-function stepsAngle(steps, t) {
-  let period = 0;
-  let perPeriod = 0;
-  steps.forEach(([v, ms]) => { period += ms / 1000; perPeriod += v * (ms / 1000); });
-  if (period <= 0) return 0;
-  const cycles = Math.floor(t / period);
-  let rest = t - cycles * period;
-  let rad = cycles * perPeriod;
-  for (const [v, ms] of steps) {
-    const d = ms / 1000;
-    if (rest <= d) return rad + v * rest;
-    rad += v * d;
-    rest -= d;
-  }
-  return rad;
+  return ((spin.speed || 0) * (ms / 1000) * 180) / Math.PI;
 }
 
 // Farben eines Stamms: normal, Boss (dunkel mit roten Jahresringen) und
@@ -364,7 +336,7 @@ export class KnifeThrow extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-knife-throw>
+      <button type="button" class="nerve-button" data-knife-throw data-tap-button>
         <span class="nerve-button-face">WERFEN</span>
       </button>`;
     this.throwButton = this.controls.querySelector("[data-knife-throw]");
@@ -494,7 +466,7 @@ export class KnifeThrow extends MinigameScene {
       st.log.scale.setScalar(scale);
       st.log.visible = scale > 0.02;
 
-      // Drehen nach dem Muster der Stufe — der eigene Stamm um die Rundreise
+      // Drehen im Tempo der Stufe — der eigene Stamm um die Rundreise
       // voraus (siehe noteRoundTrip).
       const lead = mine ? (this.roundTrip || 0) : 0;
       const deg = logAngleDeg(entry.spin, now + lead - (entry.stageStartedAt || now));

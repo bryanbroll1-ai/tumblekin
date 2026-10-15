@@ -134,7 +134,9 @@ function poolFor(settings, allTypes) {
 
 // Neue Partie: Spielerwerte zurück, Spielliste ziehen. `last` ist das zuletzt
 // gespielte Spiel — "Zufall" soll es nicht gleich noch einmal ziehen.
-function createMatch(mode, settings, players, allTypes, random = Math.random, last = null) {
+// `previewTypes` sind Spiele, die (noch) nie ausgelost werden, sich aber
+// gezielt als Einzelspiel starten lassen.
+function createMatch(mode, settings, players, allTypes, random = Math.random, last = null, previewTypes = []) {
   players.forEach((player) => {
     player.points = 0;
     player.wins = 0;
@@ -149,7 +151,8 @@ function createMatch(mode, settings, players, allTypes, random = Math.random, la
     // "Zufall" zieht aus derselben Spielauswahl wie die anderen Modi. Vorher
     // ging es immer über alle Spiele — abgewählte kamen trotzdem dran — und
     // dasselbe Spiel konnte zweimal hintereinander laufen.
-    playlist = [settings.single && allTypes.includes(settings.single) ? settings.single : drawGames(pool, 1, random, last)[0]];
+    const chosen = settings.single && (allTypes.includes(settings.single) || previewTypes.includes(settings.single));
+    playlist = [chosen ? settings.single : drawGames(pool, 1, random, last)[0]];
   } else if (mode === "marathon") {
     playlist = drawGames(pool, settings.length, random);
   } else {

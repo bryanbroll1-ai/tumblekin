@@ -352,7 +352,7 @@ export class FalseSignal extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-signal-react>
+      <button type="button" class="nerve-button" data-signal-react data-tap-button>
         <span class="nerve-button-face">JETZT!</span>
       </button>`;
     this.button = this.controls.querySelector("[data-signal-react]");

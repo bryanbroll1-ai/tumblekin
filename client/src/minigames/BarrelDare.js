@@ -365,7 +365,7 @@ export class BarrelDare extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="dare-button" data-dare-brake>
+      <button type="button" class="dare-button" data-dare-brake data-tap-button>
         <span class="dare-button-face">SEIL ZIEHEN</span>
       </button>`;
     this.brakeButton = this.controls.querySelector("[data-dare-brake]");

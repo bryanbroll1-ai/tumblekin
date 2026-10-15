@@ -403,7 +403,7 @@ export class BalanceBoat extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button boat-button" data-boat-drop>
+      <button type="button" class="nerve-button boat-button" data-boat-drop data-tap-button>
         <span class="nerve-button-face">LOSLASSEN!</span>
       </button>`;
     this.dropButton = this.controls.querySelector("[data-boat-drop]");

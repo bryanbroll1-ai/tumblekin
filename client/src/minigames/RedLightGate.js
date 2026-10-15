@@ -369,7 +369,7 @@ export class RedLightGate extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="hold-button" data-hold-run>
+      <button type="button" class="hold-button" data-hold-run data-tap-button>
         <span class="hold-button-face">HALTEN = LAUFEN</span>
       </button>`;
     this.holdButton = this.controls.querySelector("[data-hold-run]");

@@ -13,9 +13,10 @@ import {
   minigameTitle
 } from "../game/GameState.js?v=tumblekin215";
 import { playerStatus } from "../game/Player.js?v=tumblekin215";
-import { MINIGAME_CATALOG, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin215";
+import { MINIGAME_CATALOG, PLAYABLE_CATALOG, COMING_SOON, GESTURES, gestureMeta, minigameMeta } from "../minigames/catalog.js?v=tumblekin215";
 import { GAME_CATEGORIES, MINIGAME_GUIDES, MINIGAME_TIEBREAKERS } from "../minigames/guides.js?v=tumblekin215";
 import { PracticeSession, canPractice } from './PracticeSession.js?v=tumblekin215';
+import { setTapButtonsVisible, tapButtonsVisible } from "./tapButtons.js?v=tumblekin215";
 
 // Die Oberfläche über der Bühne: Start, Lobby, Minispiel-Karte, Ergebnis, Ende.
 // Sie zeichnet, was der Server schickt, und sagt der Bühne, was sie zeigen soll.
@@ -187,6 +188,7 @@ export class UIManager {
       gameMenu: $("game-menu"),
       menuToggleSound: $("menu-toggle-sound"),
       menuToggleVibration: $("menu-toggle-vibration"),
+      menuToggleTapButtons: $("menu-toggle-tap-buttons"),
       menuResume: $("menu-resume"),
       menuLeave: $("menu-leave"),
       menuLeaveCancel: $("menu-leave-cancel"),
@@ -359,12 +361,12 @@ export class UIManager {
     el.pickerDone.addEventListener("click", () => this.commitPicker());
     el.pickerTools.querySelector("[data-picker-all]").addEventListener("click", () => {
       if (!this.picker) return;
-      this.picker.selected = new Set(MINIGAME_CATALOG.map((game) => game.type));
+      this.picker.selected = new Set(PLAYABLE_CATALOG.map((game) => game.type));
       this.renderPicker();
     });
     el.pickerTools.querySelector("[data-picker-visible]").addEventListener("click", () => {
       if (!this.picker) return;
-      this.visiblePickerGames().forEach((game) => this.picker.selected.add(game.type));
+      this.visiblePickerGames().filter((game) => !COMING_SOON.has(game.type)).forEach((game) => this.picker.selected.add(game.type));
       this.renderPicker();
     });
     el.pickerTools.querySelector("[data-picker-none]").addEventListener("click", () => {
@@ -387,7 +389,7 @@ export class UIManager {
     });
     el.pickerGrid.addEventListener("click", (event) => {
       const card = event.target.closest("[data-pick]");
-      if (!card || !this.picker) return;
+      if (!card || !this.picker || COMING_SOON.has(card.dataset.pick)) return;
       this.feedback?.sound("tap");
       const type = card.dataset.pick;
       if (this.picker.kind === "single") {
@@ -415,6 +417,11 @@ export class UIManager {
     el.menuToggleVibration.addEventListener("click", () => {
       this.feedback?.setVibrationEnabled?.(!(this.feedback?.vibrationEnabled !== false));
       this.feedback?.vibrate(14);
+      this.syncMenuToggles();
+    });
+    el.menuToggleTapButtons?.addEventListener("click", () => {
+      setTapButtonsVisible(!tapButtonsVisible());
+      this.feedback?.sound("tap");
       this.syncMenuToggles();
     });
     el.menuLeave.addEventListener("click", () => this.setMenuView("confirm"));
@@ -528,7 +535,8 @@ export class UIManager {
   syncMenuToggles() {
     const sound = this.feedback?.enabled !== false;
     const vibration = this.feedback?.vibrationEnabled !== false;
-    [[this.el.menuToggleSound, sound], [this.el.menuToggleVibration, vibration]].forEach(([button, on]) => {
+    const rows = [[this.el.menuToggleSound, sound], [this.el.menuToggleVibration, vibration], [this.el.menuToggleTapButtons, tapButtonsVisible()]];
+    rows.filter(([button]) => button).forEach(([button, on]) => {
       button.textContent = on ? "An" : "Aus";
       button.classList.toggle("is-off", !on);
       button.setAttribute("aria-pressed", String(on));
@@ -661,7 +669,7 @@ export class UIManager {
         </div>
       </div>`;
     const pool = settings.pool;
-    const poolText = pool && pool.length ? `${pool.length} ausgewählt` : `Alle ${MINIGAME_CATALOG.length}`;
+    const poolText = pool && pool.length ? `${pool.length} ausgewählt` : `Alle ${PLAYABLE_CATALOG.length}`;
     const poolRow = `
       <div class="option-row">
         <span class="option-label">Spiele</span>
@@ -674,7 +682,7 @@ export class UIManager {
     let html = "";
     const more = [];
     const summary = [];
-    if (mode !== "single") summary.push(pool && pool.length ? `${pool.length} Spiele` : `Alle ${MINIGAME_CATALOG.length} Spiele`);
+    if (mode !== "single") summary.push(pool && pool.length ? `${pool.length} Spiele` : `Alle ${PLAYABLE_CATALOG.length} Spiele`);
     if (mode === "marathon") {
       html = chips("length", MARATHON_LENGTHS, settings.length || 5, "Anzahl");
       more.push(poolRow);
@@ -771,7 +779,7 @@ export class UIManager {
     const settings = this.state?.settings || {};
     const selected = kind === "single"
       ? new Set(settings.single ? [settings.single] : [])
-      : new Set(settings.pool && settings.pool.length ? settings.pool : MINIGAME_CATALOG.map((game) => game.type));
+      : new Set(settings.pool && settings.pool.length ? settings.pool : PLAYABLE_CATALOG.map((game) => game.type));
     this.picker = { kind, selected, category: "all", query: "" };
     this.el.pickerSearch.value = "";
     this.el.pickerCategories.innerHTML = [{ id: "all", title: "Alle", icon: "" }, ...GAME_CATEGORIES]
@@ -795,6 +803,14 @@ export class UIManager {
       : "";
     const card = (game) => {
       const gesture = GESTURES[game.gesture] || GESTURES.tap;
+      if (COMING_SOON.has(game.type)) {
+        return `
+        <button type="button" class="pick-card is-soon" data-pick="${game.type}" disabled aria-disabled="true">
+          <span class="pick-preview"><img src="/assets/games/${game.type}.jpg" loading="lazy" decoding="async" alt=""><span class="pick-soon">Bald</span></span>
+          <strong>${escapeHtml(game.title)}</strong>
+          <small>Bald verfügbar</small>
+        </button>`;
+      }
       const picked = picker.selected.has(game.type);
       return `
         <button type="button" class="pick-card ${picked ? "is-picked" : ""}" data-pick="${game.type}" aria-pressed="${picked}">
@@ -815,7 +831,7 @@ export class UIManager {
       button.setAttribute("aria-pressed", String(active));
     });
     const count = picker.selected.size;
-    this.el.pickerCount.textContent = picker.kind === "single" ? "" : `${count} / ${MINIGAME_CATALOG.length} gewählt`;
+    this.el.pickerCount.textContent = picker.kind === "single" ? "" : `${count} / ${PLAYABLE_CATALOG.length} gewählt`;
     this.el.pickerDone.disabled = picker.kind !== "single" && count < 2;
     this.el.pickerDone.textContent = count < 2 && picker.kind !== "single" ? "Mindestens zwei wählen" : "Übernehmen";
   }
@@ -838,7 +854,7 @@ export class UIManager {
       this.safeAction(() => this.handlers.updateSettings({ single: values[0] || null }));
       return;
     }
-    const all = values.length >= MINIGAME_CATALOG.length;
+    const all = PLAYABLE_CATALOG.every((game) => picker.selected.has(game.type));
     this.safeAction(() => this.handlers.updateSettings({ pool: all ? null : values }));
   }
 

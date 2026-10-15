@@ -3063,3 +3063,13 @@ canvas.is-stunned {
     bottom: calc(100% - env(viewport-segment-bottom 0 0));
   }
 }
+
+/* Spielknöpfe aus (Standard auf Touch-Geräten): Einzelne Aktionsknöpfe
+   verschwinden, weil das ganze Spielbild denselben Tipp annimmt. Ein Stick,
+   der unter dem Finger aufsetzt, zeigt sich erst beim Berühren. Einschalten
+   lässt sich beides im Menü unter „Spielknöpfe". */
+body.tap-buttons-off [data-tap-button] { display: none !important; }
+body.tap-buttons-off .virtual-joystick.has-surface:not(.active):not(.floating):not(:focus-visible) {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}

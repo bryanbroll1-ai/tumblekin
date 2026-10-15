@@ -34,6 +34,7 @@ export class VirtualJoystick {
     `;
     this.base = this.root.querySelector(".virtual-joystick");
     this.knob = this.root.querySelector(".joystick-knob");
+    if (surface) this.base.classList.add("has-surface");
     this.bind();
   }
 

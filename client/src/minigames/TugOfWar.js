@@ -273,7 +273,7 @@ export class TugOfWar extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="tug-button" data-tug-pull>
+      <button type="button" class="tug-button" data-tug-pull data-tap-button>
         <span class="tug-label">ZIEH!</span>
       </button>`;
     this.pullButton = this.controls.querySelector("[data-tug-pull]");

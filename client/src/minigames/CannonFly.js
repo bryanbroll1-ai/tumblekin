@@ -387,14 +387,18 @@ export class CannonFly extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-cannon-launch>
+      <button type="button" class="nerve-button" data-cannon-launch data-tap-button>
         <span class="nerve-button-face">FEUER!</span>
       </button>`;
     this.launchButton = this.controls.querySelector("[data-cannon-launch]");
-    this.on(this.launchButton, "pointerdown", (event) => {
+    const press = (event) => {
       event.preventDefault();
       this.pressLaunch();
-    });
+    };
+    this.on(this.launchButton, "pointerdown", press);
+    // Ein Tipp aufs Spielbild stoppt genauso: Kraft und Winkel stehen oben in
+    // der Anzeige, dorthin schaut man beim Stoppen.
+    this.on(this.webglCanvas, "pointerdown", press);
   }
 
   pressLaunch() {

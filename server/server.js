@@ -159,6 +159,20 @@ PARTY_GAMES.forEach((game) => {
   ARCADE_CONFIGS[game.type] = { family: game.arcadeFamily, seed: game.seed };
 });
 
+// Noch nicht spielbar („Bald verfügbar"): Diese Spiele stehen im Katalog,
+// werden aber nie ausgelost und lassen sich in der Spielauswahl nicht wählen.
+// Nur mit eingeschalteten Entwicklerwerkzeugen lässt sich eines gezielt als
+// Einzelspiel starten — für die Prüfskripte, nie aus der Oberfläche.
+const COMING_SOON = new Set(["sortierband"]);
+
+function playableTypes() {
+  return MINIGAMES.map((game) => game.type).filter((type) => !COMING_SOON.has(type));
+}
+
+function selectableTypes() {
+  return DEV_TOOLS_ENABLED ? MINIGAMES.map((game) => game.type) : playableTypes();
+}
+
 function partyContext(room, minigame, now) {
   return { room, minigame, arcade: minigame.arcade, now, elapsed: Math.max(0, now - minigame.startedAt) };
 }
@@ -871,16 +885,14 @@ function catchMultiplier(streak) {
 // Messerwurf — wie die bekannten Handyspiele: jeder hat SEINEN Stamm, alle
 // werfen gleichzeitig. Ein Stamm ist eine Stufe mit einer festen Zahl Messer;
 // sind alle drin, zerbricht er und der nächste kommt. Manche Stämme tragen
-// schon Messer, auf manchen sitzt ein Apfel, und jeder dreht sich anders —
-// gleichmässig, pendelnd, ruckartig mit Stopps und Umkehr. Der fünfte ist ein
-// Boss-Stamm. Die Stämme sind für alle dieselben. Und wie im Vorbild gilt:
-// wer ein steckendes Messer trifft, ist raus — die bis dahin gesammelten
-// Punkte bleiben stehen, danach schaut man zu. Vorher verlor man nur den
-// Stamm und warf nach einer Pause weiter; ein Klirren kostete wenig, und das
-// Werfen auf gut Glück lohnte sich.
+// schon Messer, auf manchen sitzt ein Apfel. Der fünfte ist ein Boss-Stamm.
+// Die Stämme sind für alle dieselben. Und wie im Vorbild gilt: wer ein
+// steckendes Messer trifft, ist raus — die bis dahin gesammelten Punkte
+// bleiben stehen, danach schaut man zu.
 //
-// Vorher warf man reihum auf EINEN gemeinsamen Stamm, je ein Messer, und die
-// meiste Zeit sah man anderen beim Werfen zu.
+// Jeder Stamm dreht durchgehend gleichmässig in dieselbe Richtung, nur von
+// Stamm zu Stamm schneller. Früher pendelten manche, stoppten ruckartig oder
+// drehten zurück — das las sich wie Zufall statt Timing.
 const KNIFE_MIN_GAP_DEG = 13;         // so dicht darf kein Messer an ein anderes
 const KNIFE_APPLE_GAP_DEG = 12;       // so nah muss man an einen Apfel
 const KNIFE_FLIGHT_MS = 110;          // Flugzeit bis in den Stamm
@@ -889,58 +901,23 @@ const KNIFE_CLASH_MS = 1300;          // Pause nach einem Treffer auf ein Messer
 const KNIFE_BREAK_MS = 650;           // der volle Stamm zerbricht, dann der nächste
 const KNIFE_STAGE_BONUS = 5;          // für einen geschafften Stamm
 const KNIFE_APPLE_POINTS = 3;
-// Die Stämme: Messer zu werfen, schon steckende Messer, Äpfel, Drehmuster.
+// Die Stämme: Messer zu werfen, schon steckende Messer, Äpfel, Tempo (rad/s).
 // Ab dem letzten wiederholt sich der letzte mit steigendem Tempo.
-// „steps“ ist das ruckartige Muster der Vorbilder: eine feste Folge aus
-// Tempo und Dauer (rad/s, ms), die sich wiederholt — anziehen, abrupt
-// stehenbleiben, zurückdrehen, lossprinten.
 const KNIFE_STAGES = [
   { knives: 5, preset: 0, apples: 1, spin: { kind: "steady", speed: 1.6 } },
-  { knives: 6, preset: 1, apples: 1, spin: { kind: "steady", speed: -2.3 } },
-  { knives: 7, preset: 2, apples: 1, spin: { kind: "wobble", speed: 2.2, amp: 1.6, rate: 1.6 } },
-  { knives: 7, preset: 2, apples: 2, spin: { kind: "steps", steps: [[2.6, 900], [0, 380], [-2.2, 700], [4.2, 420]] } },
-  { knives: 9, preset: 3, apples: 1, boss: true, spin: { kind: "steps", steps: [[3.4, 650], [-1.2, 300], [0, 260], [-3.6, 600], [5.2, 360], [0.6, 520]] } },
-  { knives: 8, preset: 3, apples: 2, spin: { kind: "swing", speed: 3.4, rate: 1.5 } },
-  { knives: 9, preset: 3, apples: 2, spin: { kind: "steps", steps: [[-3.8, 560], [0, 240], [4.4, 480], [1.4, 420], [-5, 300]] } }
+  { knives: 6, preset: 1, apples: 1, spin: { kind: "steady", speed: 1.9 } },
+  { knives: 7, preset: 2, apples: 1, spin: { kind: "steady", speed: 2.2 } },
+  { knives: 7, preset: 2, apples: 2, spin: { kind: "steady", speed: 2.5 } },
+  { knives: 9, preset: 3, apples: 1, boss: true, spin: { kind: "steady", speed: 2.9 } },
+  { knives: 8, preset: 3, apples: 2, spin: { kind: "steady", speed: 3.1 } },
+  { knives: 9, preset: 3, apples: 2, spin: { kind: "steady", speed: 3.4 } }
 ];
 
-// Winkel (rad) eines Schrittmusters nach `t` Sekunden: ganze Runden plus
-// der angebrochene Rest, geschlossen ausgerechnet.
-function knifeStepsAngle(steps, t) {
-  let period = 0;
-  let perPeriod = 0;
-  steps.forEach(([v, ms]) => { period += ms / 1000; perPeriod += v * (ms / 1000); });
-  if (period <= 0) return 0;
-  const cycles = Math.floor(t / period);
-  let rest = t - cycles * period;
-  let rad = cycles * perPeriod;
-  for (const [v, ms] of steps) {
-    const d = ms / 1000;
-    if (rest <= d) return rad + v * rest;
-    rad += v * d;
-    rest -= d;
-  }
-  return rad;
-}
-
 // Winkel des Stamms (Grad) nach `ms` seit Beginn der Stufe. Geschlossen
-// integriert, damit Server, Bots und Client ohne Aufsummieren dasselbe
+// ausgerechnet, damit Server, Bots und Client ohne Aufsummieren dasselbe
 // ausrechnen.
-//   steady  gleichmässig
-//   wobble  Grundtempo plus Schwankung — stockt, zieht an, kehrt kurz um
-//   swing   pendelt hin und her, wechselt also dauernd die Richtung
 function knifeLogAngle(spin, ms) {
-  const t = ms / 1000;
-  let rad;
-  if (spin.kind === "wobble") {
-    rad = spin.speed * t - (spin.amp / spin.rate) * (Math.cos(spin.rate * t) - 1) * Math.sign(spin.speed || 1);
-  } else if (spin.kind === "swing") {
-    rad = (spin.speed / spin.rate) * Math.sin(spin.rate * t);
-  } else if (spin.kind === "steps") {
-    rad = knifeStepsAngle(spin.steps || [], t);
-  } else {
-    rad = spin.speed * t;
-  }
+  const rad = (spin?.speed || 0) * (ms / 1000);
   const deg = (rad * 180) / Math.PI;
   return ((deg % 360) + 360) % 360;
 }
@@ -954,9 +931,7 @@ function knifeStageConfig(index) {
   return {
     ...base,
     knives: base.knives + Math.min(3, extra),
-    spin: base.spin.kind === "steps"
-      ? { ...base.spin, steps: base.spin.steps.map(([v, ms]) => [v * faster, ms]) }
-      : { ...base.spin, speed: base.spin.speed * faster }
+    spin: { ...base.spin, speed: base.spin.speed * faster }
   };
 }
 
@@ -1708,7 +1683,7 @@ io.on("connection", (socket) => {
     if (!room) return replyError(reply, "Kein Raum gefunden.");
     if (!isHost(socket, room)) return replyError(reply, "Nur der Host ändert die Einstellungen.");
     if (room.status !== "lobby") return replyError(reply, "Einstellungen gehen nur in der Lobby.");
-    room.settings = modes.mergeSettings(room.settings, payload?.settings, MINIGAMES.map((game) => game.type));
+    room.settings = modes.mergeSettings(room.settings, payload?.settings, selectableTypes());
     replyOk(reply, room, socket.data.playerId);
     emitRoom(room);
   });
@@ -1884,7 +1859,8 @@ function startGame(room) {
     player.minigameScore = 0;
   });
   const lastPlayed = room.match?.playlist?.[Math.max(0, (room.match.round || 1) - 1)] ?? null;
-  room.match = modes.createMatch(room.mode, room.settings, room.players, MINIGAMES.map((game) => game.type), Math.random, lastPlayed);
+  const previews = DEV_TOOLS_ENABLED ? [...COMING_SOON] : [];
+  room.match = modes.createMatch(room.mode, room.settings, room.players, playableTypes(), Math.random, lastPlayed, previews);
   startNextRound(room);
 }
 
@@ -1985,8 +1961,9 @@ function maybeStartPreparedMinigame(room) {
 function startMinigame(room, reason, forcedType = null) {
   clearRoomTimers(room);
 
+  const playable = MINIGAMES.filter((minigame) => !COMING_SOON.has(minigame.type));
   const template = MINIGAMES.find((minigame) => minigame.type === forcedType)
-    || MINIGAMES[room.minigameCounter % MINIGAMES.length];
+    || playable[room.minigameCounter % playable.length];
   room.minigameCounter += 1;
   room.status = "minigame";
   room.phase = "playingMinigame";
@@ -8058,6 +8035,7 @@ function serializeRoom(room) {
     } : null,
     standings: match ? modes.standings(match.mode, room.players) : [],
     minigameTitles: MINIGAMES.map((game) => ({ type: game.type, title: game.title })),
+    comingSoon: [...COMING_SOON],
     devMode: room.devMode,
     hostConnected: room.players.some((player) => player.id === room.hostId && player.connected),
     players: room.players.map((player) => ({
@@ -8423,6 +8401,8 @@ module.exports = {
     PLINKO_BALL_R,
     PLINKO_MAX_PLINKS,
     MINIGAMES,
+    COMING_SOON,
+    playableTypes,
     SEEK_SIZE,
     publicArcade,
     botProfileFor,
@@ -8496,8 +8476,8 @@ module.exports = {
     BOMB_DUEL_LIVES,
     KNIFE_MIN_GAP_DEG,
     knifeLogAngle,
+    knifeStageConfig,
     knifeImpactAngle,
-    knifeStepsAngle,
     setupKnifeStage,
     KNIFE_STAGES,
     KNIFE_CLASH_MS,

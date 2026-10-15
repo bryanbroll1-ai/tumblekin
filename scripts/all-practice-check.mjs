@@ -1,5 +1,5 @@
-// Every scene in its real isolated practice Worker, driven through its visible
-// controls. The waiting party must remain unchanged throughout.
+// Every scene in its real isolated practice Worker, driven the way a touch
+// player drives it (taps on the stage where single buttons are hidden). The waiting party must remain unchanged throughout.
 import assert from 'node:assert/strict';
 import {launchBrowser,startServer,openRoom,request,backToLobby,watchErrors,pickGames} from './lib/harness.mjs';
 const games=pickGames(process.argv.slice(2));
@@ -22,6 +22,7 @@ async function touch(type,x,y) {await cdp.send('Input.dispatchTouchEvent',{type,
 async function drag(x,y,dx,dy){await touch('touchStart',x,y);for(let n=1;n<=5;n++){await touch('touchMove',x+dx*n/5,y+dy*n/5);await page.waitForTimeout(20);}await touch('touchEnd');}
 async function center(selector){const box=await page.locator('.practice-layer '+selector).boundingBox();return {x:box.x+box.width/2,y:box.y+box.height/2};}
 async function canvasTap(){const c=await center('canvas.kinetic-webgl');await touch('touchStart',c.x,c.y);await touch('touchEnd');}
+async function hiddenButton(selector){assert.equal(await page.locator('.practice-layer '+selector).count(),1,selector+' fehlt');assert.ok(await page.locator('.practice-layer '+selector).isHidden(),selector+' muss auf Touch-Geräten ausgeblendet sein');}
 async function held(selector,condition,release){const c=await center(selector);await touch('touchStart',c.x,c.y);await wait(condition);await touch('touchEnd');if(release)await wait(release);}
 async function stick(){const c=await center('.virtual-joystick');await touch('touchStart',c.x,c.y);await touch('touchMove',c.x+30,c.y);await wait('(p?.dirX||p?.inX||g.arena?.players.practice.thrustX||0)>0');await page.waitForTimeout(250);await touch('touchEnd');await wait('s.joystick.vecX===0 && s.joystick.timer===null && !(p?.dirX||p?.inX||g.arena?.players.practice.thrustX)');}
 async function projected(kind){return page.evaluate(async kind=>{
@@ -38,7 +39,12 @@ async function act(type){
   if(type==='tauziehen')await wait('a.tug.phase==="pull"');
   if(type==='honigwabe')await wait('a.honey.step && !a.honey.step.closed && p.at==="tree" && Date.now()-g.startedAt>=a.honey.step.from+150');
   if(type==='kippboot')await wait('a.boat.turn?.playerId==="practice" && Date.now()-g.startedAt>=a.boat.turn.from');
-  await tap(button[type][0]);await wait(button[type][1]);return;
+  // Auf Touch-Geräten sind einzelne Aktionsknöpfe ausgeblendet — der Tipp
+  // geht aufs Spielbild. Nur echte Auswahlknöpfe (Rot/Blau, Weiter/Heim)
+  // bleiben stehen.
+  if(['flaggenhoch','honigwabe'].includes(type)){await tap(button[type][0]);}
+  else{await hiddenButton(button[type][0]);await canvasTap();}
+  await wait(button[type][1]);return;
  }
  if(type==='luftpuck'){await touch('touchStart',195,560);await touch('touchMove',230,520);await wait('p.aimX!==null&&p.aimX!==undefined');await touch('touchEnd');return;}
  if(['bounceArena','tiefenrausch','farbenjagd','schneeball','buecherwurm','schnappschuss'].includes(type)){await stick();return;}
@@ -56,12 +62,12 @@ async function act(type){
   await wait('p.jumps>0');return;
  }
  if(type==='colorEscape'){const dir=await read('(()=>{const dirs=[[1,0],[-1,0],[0,1],[0,-1]];return dirs.find(([x,y])=>p.gx+x>=0&&p.gx+x<5&&p.gy+y>=0&&p.gy+y<8&&!Object.values(a.players).some(q=>q!==p&&!q.eliminated&&q.gx===p.gx+x&&q.gy===p.gy+y));})()');assert.ok(dir);await drag(190,400,dir[0]*60,dir[1]*60);await wait('p.lastStepAt>g.startedAt');assert.equal(await read('s.tiles.filter(t=>t.userData.symbol.visible).length'),40);return;}
- if(type==='lichtwaechter'){await held('[data-hold-run]','p.holding','!p.holding');return;}
+ if(type==='lichtwaechter'){await hiddenButton('[data-hold-run]');await held('canvas.kinetic-webgl','p.holding','!p.holding');return;}
  if(type==='fassrolle'){await held('[data-barrel-run="-1"]','p.lastRunAt>g.startedAt','p.lastRunAt===0');return;}
- if(type==='zuendstoff'){await wait('a.holderId==="practice" && Date.now()>=a.canPassAt');await tap('[data-bomb-pass]');await wait('p.passes>0');return;}
+ if(type==='zuendstoff'){await wait('a.holderId==="practice" && Date.now()>=a.canPassAt');await hiddenButton('[data-bomb-pass]');await canvasTap();await wait('p.passes>0');return;}
  if(type==='muenzregen'){const before=await read('p.lane');await drag(190,400,before===2?-55:55,0);await wait('p.lane!=='+before);const edge=await read('p.lane');await drag(190,400,edge===2?-110:110,0);await wait('p.lane==='+ (edge===2?0:2)+' && !s.laneInFlight && !s.laneQueue.length');return;}
  if(type==='blobklopfe'){await wait('[...s.blobs.values()].some(b=>b.userData.up&&!b.userData.whacked)');const c=await projected('blob');await touch('touchStart',c.x,c.y);await touch('touchEnd');await wait('p.lastWhack!=null');return;}
- if(type==='seilspringen'){await tap('[data-rope-jump]');await wait('p.jumpUntil>Date.now()');return;}
+ if(type==='seilspringen'){await hiddenButton('[data-rope-jump]');await canvasTap();await wait('p.jumpUntil>Date.now()');return;}
  if(type==='bergsteiger'){const side=await read('p.nextSide');await touch('touchStart',side<0?80:310,400);await touch('touchEnd');await wait('p.rung>0');return;}
  if(type==='ballonfahrt'){await held('canvas.kinetic-webgl','p.holding','!p.holding');await tap('[data-glide-drop]');await wait('p.bags.length===1');return;}
  if(type==='spurmaler'){await wait('s.canTrace()');await drag(190,400,60,30);await wait('(p.strokeLen||0)>1');return;}
@@ -74,7 +80,7 @@ async function act(type){
   await wait('s.reachableNow && s.headTarget<0.45');
   const chute=await read('s.layout.indexOf(s.displayQueue[0].colour)');await drag(190,400,chute===1?0:chute===0?-70:70,chute===1?70:0);await wait('p.sorted>0');return;
  }
- if(type==='angelduell'){await held('[data-fish-reel]','p.lastReelAt>g.startedAt','p.lastReelAt===0');return;}
+ if(type==='angelduell'){await hiddenButton('[data-fish-reel]');await held('canvas.kinetic-webgl','p.lastReelAt>g.startedAt','p.lastReelAt===0');return;}
  if(type==='leuchtfolge'){await wait('!s.controls.querySelector("button").disabled');const index=await read('a.rounds.find(r=>Date.now()-g.startedAt>=r.inputFrom && Date.now()-g.startedAt<r.until)?.sequence[0] ?? a.rounds[0].sequence[0]');await tap('[data-memory-pad="'+index+'"]');await wait('p.roundProgress>0');return;}
  if(type==='blitzreflex'){await canvasTap();await wait('p.times.length>0');return;}
  if(type==='nagelbrett'){await canvasTap();await wait('p.ballsLeft===4');return;}
@@ -87,12 +93,25 @@ async function act(type){
 }
 try{
  await openRoom(page,server.base,{name:'Alle Spiele'});
+ let menuChecked=false;
  for(const type of games){
   console.log('Prüfe '+type);
   await request(page,'selectMode',{mode:'single'});await request(page,'updateSettings',{settings:{single:type}});await request(page,'startGame');
   // Erst vergleichen, wenn die Startkarte beim Gerät angekommen ist — direkt
   // nach startGame stand hier gelegentlich noch die Lobby.
   await page.waitForFunction(()=>window.__tumblekin.state()?.phase==='waitingReady',null,{timeout:15000});
+  if(!menuChecked){
+   // Standard auf Touch: Spielknöpfe aus. Der Schalter im Menü blendet sie
+   // ein und wieder aus, und die Wahl bleibt gespeichert.
+   assert.ok(await page.evaluate(()=>document.body.classList.contains('tap-buttons-off')));
+   await page.click('#game-menu-button');assert.equal(await page.textContent('#menu-toggle-tap-buttons'),'Aus');
+   await page.click('#menu-toggle-tap-buttons');assert.equal(await page.textContent('#menu-toggle-tap-buttons'),'An');
+   assert.ok(await page.evaluate(()=>document.body.classList.contains('tap-buttons-on')&&localStorage.getItem('tumblekin-tap-buttons')==='on'));
+   await page.click('#menu-toggle-tap-buttons');assert.equal(await page.textContent('#menu-toggle-tap-buttons'),'Aus');
+   assert.ok(await page.evaluate(()=>document.body.classList.contains('tap-buttons-off')));
+   await page.click('#menu-resume');menuChecked=true;
+   console.log('✓ Spielknöpfe: auf Touch aus, im Menü ein- und ausschaltbar');
+  }
   const original=await party();await page.click('#intro-practice');await wait('s.webglCanvas && !document.querySelector("[data-practice-retry]").disabled && Date.now()>=g.startedAt');
   await act(type);assert.equal(await party(),original,type+': practice must not change the party');
   if(['lichtwaechter','turmbau','farbenjagd','honigwabe','grimassen','rohrsalat'].includes(type)){

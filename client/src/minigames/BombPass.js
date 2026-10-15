@@ -346,7 +346,7 @@ export class BombPass extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="bomb-button" data-bomb-pass>
+      <button type="button" class="bomb-button" data-bomb-pass data-tap-button>
         <span class="bomb-button-arm" data-bomb-arm></span>
         <span class="bomb-button-face">WEITERGEBEN</span>
       </button>`;

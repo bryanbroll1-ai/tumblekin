@@ -239,7 +239,7 @@ export class FishDuel extends MinigameScene {
     // Die Spannung steht auch IM Knopf: dort liegt der Daumen, und der Blick
     // ist beim Fisch — der Balken oben am Rand war dafür zu weit weg.
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button fish-reel-button" data-fish-reel>
+      <button type="button" class="nerve-button fish-reel-button" data-fish-reel data-tap-button>
         <span class="nerve-button-face">EINHOLEN</span>
         <span class="fish-reel-meter"><i data-fish-reel-meter></i></span>
       </button>`;

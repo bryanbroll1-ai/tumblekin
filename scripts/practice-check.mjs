@@ -52,12 +52,12 @@ try{
     assert.equal(await host.locator('#intro-ready').isDisabled(),true);
     assert.equal(await host.evaluate(()=>document.querySelector('#minigame-intro').inert),true);
     if(type==='kanonenflug'){
-      await host.click('.practice-layer [data-cannon-launch]');
+      await host.locator('.practice-layer canvas.kinetic-webgl').tap();
       await host.waitForFunction(()=>Boolean(window.__tumblekin.ui.practice.state.currentMinigame.arcade.players.practice.powerAt));
       await host.waitForSelector('.practice-layer [data-cannon-aim]:not([hidden])');
       assert.match(await host.locator('.practice-layer [data-cannon-aim]').innerText(),/ohne Wind/);
       await host.waitForTimeout(250);
-      await host.click('.practice-layer [data-cannon-launch]');
+      await host.locator('.practice-layer canvas.kinetic-webgl').tap();
       await host.waitForFunction(()=>Boolean(window.__tumblekin.ui.practice.state.currentMinigame.arcade.players.practice.launchedAt));
       assert.ok(Number.isFinite((await local()).distance));
       console.log('✓ Kanonenflug: Kraft, Winkel, Vorschau und echter Flug');
@@ -79,7 +79,8 @@ try{
       console.log('✓ Ballonfahrt: Brenner halten, mit zweitem Finger Sandsack abwerfen, loslassen');
     }else{
       await host.waitForFunction(()=>{const p=window.__tumblekin.ui.practice,s=p.state?.currentMinigame;return s && Date.now()>=s.startedAt+s.arcade.leadIn && !document.querySelector('.practice-layer [data-dare-brake]').disabled;});
-      await host.click('.practice-layer [data-dare-brake]');
+      assert.ok(await host.locator('.practice-layer [data-dare-brake]').isHidden(),'Touch: Seil-Knopf ausgeblendet');
+      await host.locator('.practice-layer canvas.kinetic-webgl').tap();
       await host.waitForFunction(()=>window.__tumblekin.ui.practice.state.currentMinigame.arcade.players.practice.brakeAt!==null);
       assert.ok(Number.isFinite((await local()).brakeAt));
       console.log('✓ Fassmut: Seilziehen stoppt den echten Physiklauf');

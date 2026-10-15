@@ -169,7 +169,7 @@ export class BalloonPump extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <div class="pump-single">
+      <div class="pump-single" data-tap-button>
         <button type="button" class="pump-button" data-pump>
           <span class="pump-button-face">PUMPEN</span>
           <span class="pump-tempo" aria-hidden="true"><i data-pump-tempo></i></span>

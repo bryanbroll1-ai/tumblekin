@@ -362,7 +362,7 @@ export class Trampoline extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-bounce-jump>
+      <button type="button" class="nerve-button" data-bounce-jump data-tap-button>
         <span class="nerve-button-face">HÜPFEN!</span>
       </button>`;
     this.button = this.controls.querySelector("[data-bounce-jump]");

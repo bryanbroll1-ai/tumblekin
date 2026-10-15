@@ -1843,17 +1843,23 @@ test("messerwurf: jeder hat seinen eigenen Stamm, freie Würfe stecken", () => {
   assert.equal(entry.throws, 2, "raus wird nicht mehr geworfen");
 });
 
-test("messerwurf: ruckartige Stämme stoppen und drehen um, der fünfte ist ein Boss", () => {
-  const steps = testRules.KNIFE_STAGES.find((stage) => stage.spin.kind === "steps").spin;
-  // Die Folge: [2.6 rad/s, 900 ms], [0, 380 ms], [-2.2, 700 ms], ...
-  const at = (ms) => testRules.knifeStepsAngle(steps.steps, ms / 1000);
-  assert.ok(at(800) - at(700) > 0, "erst vorwärts");
-  assert.ok(Math.abs(at(1200) - at(1100)) < 1e-9, "dann ein abrupter Stopp");
-  assert.ok(at(1600) - at(1500) < 0, "dann zurück");
-  // Geschlossen gerechnet: nach einer ganzen Periode geht es genauso weiter.
-  const period = steps.steps.reduce((sum, [, ms]) => sum + ms, 0);
-  const shift = at(period + 300) - at(300);
-  assert.ok(Math.abs(shift - (at(period) - at(0))) < 1e-9, "periodisch");
+test("messerwurf: jeder Stamm dreht durchgehend in dieselbe Richtung, nie Stopp oder Umkehr", () => {
+  const stages = Array.from({ length: testRules.KNIFE_STAGES.length + 3 }, (_, index) => testRules.knifeStageConfig(index));
+  let previous = 0;
+  stages.forEach((stage, index) => {
+    assert.equal(stage.spin.kind, "steady", `Stamm ${index + 1}: gleichmässig`);
+    assert.ok(stage.spin.speed > 0, `Stamm ${index + 1}: immer dieselbe Richtung`);
+    assert.ok(stage.spin.speed > previous, `Stamm ${index + 1}: schneller als der vorige`);
+    previous = stage.spin.speed;
+    // Über drei Sekunden in kleinen Schritten: jeder Schritt dreht gleich weit
+    // vorwärts — kein Stehenbleiben, kein Zurückdrehen.
+    const step = (ms) => ((testRules.knifeLogAngle(stage.spin, ms + 50) - testRules.knifeLogAngle(stage.spin, ms)) + 360) % 360;
+    const first = step(0);
+    for (let ms = 0; ms < 3000; ms += 50) {
+      assert.ok(step(ms) > 0.5, `Stamm ${index + 1}: dreht bei ${ms} ms weiter`);
+      assert.ok(Math.abs(step(ms) - first) < 1e-6, `Stamm ${index + 1}: gleichmässig bei ${ms} ms`);
+    }
+  });
   const boss = testRules.KNIFE_STAGES.findIndex((stage) => stage.boss);
   assert.equal(boss, 4, "der fünfte Stamm ist der Boss");
 });
@@ -1905,18 +1911,12 @@ test("messerwurf: ein Apfel bringt Punkte", () => {
   assert.ok(entry.points >= 4, "Messer plus Apfel");
 });
 
-test("messerwurf: die Stämme sind für alle gleich und drehen verschieden", () => {
+test("messerwurf: die Stämme sind für alle gleich", () => {
   const a = createArcadeState("messerwurf", [player({ id: "x", name: "X" }), player({ id: "y", name: "Y" })], Date.now());
   const [ex, ey] = [a.players.x, a.players.y];
   assert.deepEqual(ex.stuckAngles, ey.stuckAngles);
   assert.deepEqual(ex.apples, ey.apples);
-  const kinds = new Set(testRules.KNIFE_STAGES.map((stage) => stage.spin.kind));
-  assert.ok(kinds.size >= 3, "mehrere Drehmuster");
-  // Pendeln wechselt die Richtung: der Winkel läuft hin und wieder zurück.
-  const swing = testRules.KNIFE_STAGES.find((stage) => stage.spin.kind === "swing").spin;
-  const d1 = testRules.knifeLogAngle(swing, 400) - testRules.knifeLogAngle(swing, 300);
-  const d2 = testRules.knifeLogAngle(swing, 2900) - testRules.knifeLogAngle(swing, 2800);
-  assert.ok(Math.sign(d1) !== Math.sign(d2), "die Drehrichtung wechselt");
+  assert.deepEqual(ex.spin, ey.spin, "alle drehen im selben Tempo");
 });
 
 test("turmbau: an aligned drop stacks, a miss topples the tower", () => {

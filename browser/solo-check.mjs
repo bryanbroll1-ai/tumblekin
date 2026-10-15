@@ -36,7 +36,11 @@ await page.click("#intro-practice");
 await page.waitForFunction(() => { const p = window.__tumblekin.ui.practice; return p.scene?.webglCanvas && p.state?.currentMinigame && Date.now() >= p.state.currentMinigame.startedAt; }, null, { timeout: 30000 });
 const before = await page.evaluate(() => JSON.stringify(window.__tumblekin.ui.practice.state.currentMinigame.arcade.players.practice));
 const button = { kanonenflug: "[data-cannon-launch]", nervenprobe: "[data-nerve-stop]", ballonPump: "[data-pump]", messerwurf: "[data-knife-throw]" }[type];
-if (button) await page.locator(".practice-layer " + button).tap();
+// Auf Touch-Geräten ist der Aktionsknopf ausgeblendet; getippt wird aufs Spielbild.
+if (button) {
+  console.log("Knopf ausgeblendet:", await page.locator(".practice-layer " + button).isHidden());
+  await page.locator(".practice-layer canvas.kinetic-webgl").tap();
+}
 await page.waitForTimeout(2500);
 const after = await page.evaluate(() => JSON.stringify(window.__tumblekin.ui.practice.state.currentMinigame.arcade.players.practice));
 console.log("Übung reagiert:", before !== after);

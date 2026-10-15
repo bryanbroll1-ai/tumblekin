@@ -548,3 +548,33 @@ test("Bots: die eingestellte Stufe gilt für alle Bots, gemischt würfelt", () =
   for (let i = 0; i < 60; i += 1) seen.add(testRules.botProfileFor("mixed").level);
   assert.deepEqual([...seen].sort(), ["easy", "hard", "normal"]);
 });
+
+// --- Bald verfügbar ----------------------------------------------------------
+
+test("Bald verfügbar: Sortierband wird nie ausgelost und ist nicht wählbar", () => {
+  const playable = testRules.playableTypes();
+  assert.ok(testRules.COMING_SOON.has("sortierband"));
+  assert.ok(!playable.includes("sortierband"));
+  assert.equal(playable.length, ALL.length - testRules.COMING_SOON.size);
+  // Ohne Entwicklerwerkzeuge kennt die Einstellung nur spielbare Spiele.
+  const settings = modes.mergeSettings(null, { single: "sortierband", pool: ["sortierband", "nervenprobe", "turmbau"] }, playable);
+  assert.equal(settings.single, null);
+  assert.deepEqual(settings.pool, ["nervenprobe", "turmbau"]);
+  const random = seeded(7);
+  for (const mode of ["single", "marathon", "hunt", "knockout"]) {
+    for (let n = 0; n < 40; n += 1) {
+      const match = modes.createMatch(mode, { length: 15, lives: 3, pool: null, single: null }, players(4), playable, random);
+      assert.ok(!match.playlist.includes("sortierband"), `${mode}: Sortierband ausgelost`);
+      assert.ok(!match.pool.includes("sortierband"));
+    }
+  }
+  // Gezielt als Vorschau (nur mit Entwicklerwerkzeugen) startet es weiterhin.
+  const preview = modes.createMatch("single", { single: "sortierband", pool: null }, players(2), playable, random, null, ["sortierband"]);
+  assert.deepEqual(preview.playlist, ["sortierband"]);
+});
+
+test("Bald verfügbar: Spielauswahl und Server nennen dieselben Spiele", async () => {
+  const { COMING_SOON, PLAYABLE_CATALOG } = await import("../client/src/minigames/catalog.js");
+  assert.deepEqual([...COMING_SOON].sort(), [...testRules.COMING_SOON].sort());
+  assert.deepEqual(PLAYABLE_CATALOG.map((game) => game.type).sort(), testRules.playableTypes().sort());
+});

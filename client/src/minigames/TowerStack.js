@@ -285,7 +285,7 @@ export class TowerStack extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-stack-drop>
+      <button type="button" class="nerve-button" data-stack-drop data-tap-button>
         <span class="nerve-button-face">SETZEN!</span>
       </button>`;
     this.dropButton = this.controls.querySelector("[data-stack-drop]");

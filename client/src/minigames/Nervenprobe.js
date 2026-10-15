@@ -348,14 +348,16 @@ export class Nervenprobe extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="nerve-button" data-nerve-stop>
+      <button type="button" class="nerve-button" data-nerve-stop data-tap-button>
         <span class="nerve-button-face">STOPP</span>
       </button>`;
     this.stopButton = this.controls.querySelector("[data-nerve-stop]");
-    this.on(this.stopButton, "pointerdown", (event) => {
+    const press = (event) => {
       event.preventDefault();
       this.pressStop();
-    });
+    };
+    this.on(this.stopButton, "pointerdown", press);
+    this.on(this.webglCanvas, "pointerdown", press);
   }
 
   pressStop() {

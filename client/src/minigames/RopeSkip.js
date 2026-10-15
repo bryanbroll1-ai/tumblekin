@@ -272,7 +272,7 @@ export class RopeSkip extends MinigameScene {
 
   bind() {
     this.controls.innerHTML = `
-      <button type="button" class="jump-button" data-rope-jump>
+      <button type="button" class="jump-button" data-rope-jump data-tap-button>
         <span class="jump-button-face">SPRUNG</span>
       </button>`;
     this.jumpButton = this.controls.querySelector("[data-rope-jump]");
