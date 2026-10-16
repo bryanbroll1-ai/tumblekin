@@ -50,6 +50,37 @@ function firstSegment(rect) {
   return { right: first.right - rect.left, bottom: first.bottom - rect.top };
 }
 
+// Was ein Bedienelement tatsächlich zeigt, als Rechteck (oder null).
+// Ein Stick, der erst unter dem Finger erscheint (Spielknöpfe aus, Standard
+// auf Touch-Geräten), ist durchsichtig — seine 250 px Fläche hielten der
+// Szene trotzdem das untere Viertel frei: auf dem Tablet quer stand das
+// Spielfeld von Farbenjagd dadurch klein im oberen Teil. Gezählt wird nur,
+// was man sieht: Knöpfe, Felder, Text, Flächen mit Farbe oder Rand.
+const PAINTS = /^(button|input|select|textarea|canvas|svg|img)$/i;
+function paintedRect(el, surfaceStickHidden) {
+  if (!el || el.offsetParent === null) return null;
+  if (surfaceStickHidden && el.matches?.(".virtual-joystick.has-surface")) return null;
+  const style = getComputedStyle(el);
+  if (Number(style.opacity) < 0.05 || style.visibility === "hidden") return null;
+  const own = el.getBoundingClientRect();
+  const clear = (color) => color === "transparent" || /rgba\([^)]*,\s*0\)$/.test(color);
+  const paints = PAINTS.test(el.tagName)
+    || !clear(style.backgroundColor)
+    || style.backgroundImage !== "none"
+    || (parseFloat(style.borderTopWidth) > 0 && !clear(style.borderTopColor))
+    || [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim());
+  if (paints && own.height > 8) return own;
+  let box = null;
+  for (const child of el.children) {
+    const r = paintedRect(child, surfaceStickHidden);
+    if (!r) continue;
+    box = box
+      ? { top: Math.min(box.top, r.top), bottom: Math.max(box.bottom, r.bottom), left: Math.min(box.left, r.left), right: Math.max(box.right, r.right) }
+      : { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  }
+  return box;
+}
+
 export class CameraRig {
   constructor(host, shot = {}) {
     this.host = host;
@@ -119,11 +150,11 @@ export class CameraRig {
         const sideControls = width > height && height <= 520
           ? controls.querySelector(".mobile-stick-controls") : null;
         const children = sideControls ? [...sideControls.children] : [...controls.children];
+        const surfaceStickHidden = typeof document !== "undefined" && document.body?.classList.contains("tap-buttons-off");
         let highest = Infinity;
         children.forEach((child) => {
-          if (child.offsetParent === null) return;
-          const r = child.getBoundingClientRect();
-          if (r.height <= 8) return;
+          const r = paintedRect(child, surfaceStickHidden);
+          if (!r || r.bottom - r.top <= 8) return;
           const center = (r.left + r.right) / 2 - rect.left;
           if (seg && (center > seg.right || (r.top - rect.top) >= seg.bottom)) return;
           if (sideControls && center < width / 3) left = Math.max(left, r.right - rect.left + 10);
