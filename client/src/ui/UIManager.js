@@ -393,6 +393,18 @@ export class UIManager {
       el.pickerGrid.scrollTop = 0;
     });
     el.pickerGrid.addEventListener("click", (event) => {
+      const section = event.target.closest("[data-section-toggle]");
+      if (section && this.picker) {
+        this.feedback?.sound("tap");
+        // Nur, was in diesem Abschnitt gerade zu sehen ist (Suche zählt mit).
+        const games = this.visiblePickerGames().filter((game) =>
+          MINIGAME_GUIDES[game.type]?.category === section.dataset.sectionToggle && !COMING_SOON.has(game.type));
+        const allOn = games.every((game) => this.picker.selected.has(game.type));
+        games.forEach((game) => (allOn ? this.picker.selected.delete(game.type) : this.picker.selected.add(game.type)));
+        this.renderPicker();
+        el.pickerGrid.querySelector(`[data-section-toggle="${section.dataset.sectionToggle}"]`)?.focus({ preventScroll: true });
+        return;
+      }
       const card = event.target.closest("[data-pick]");
       if (!card || !this.picker || COMING_SOON.has(card.dataset.pick)) return;
       this.feedback?.sound("tap");
@@ -677,10 +689,13 @@ export class UIManager {
       </div>`;
     const pool = settings.pool;
     const poolText = pool && pool.length ? `${pool.length} ausgewählt` : `Alle ${PLAYABLE_CATALOG.length}`;
+    // Ein paar Vorschaubilder der gewählten Spiele: man sieht, was drankommt.
+    const poolTypes = pool && pool.length ? pool : PLAYABLE_CATALOG.map((game) => game.type);
+    const thumbs = `<span class="pool-thumbs" aria-hidden="true">${poolTypes.slice(0, 3).map((type) => `<img src="/assets/games/${type}.jpg" alt="" loading="lazy" decoding="async">`).join("")}</span>`;
     const poolRow = `
       <div class="option-row">
         <span class="option-label">Spiele</span>
-        <button type="button" class="chip chip-wide" data-open-picker="pool" ${disabled}>${poolText} <b>›</b></button>
+        <button type="button" class="chip chip-wide chip-pool" data-open-picker="pool" ${disabled}>${thumbs}<span class="chip-pool-text">${poolText}</span> <b>›</b></button>
       </div>`;
 
     // Vorn steht nur die eine Einstellung, die den Modus ausmacht. Welche
@@ -710,8 +725,10 @@ export class UIManager {
       html = `
         <div class="option-row">
           <span class="option-label">Spiel</span>
-          <button type="button" class="chip chip-wide" data-open-picker="single" ${disabled}>
-            ${chosen ? `${gesture?.icon || ""} ${escapeHtml(chosen.title)}` : "🎲 Zufall"} <b>›</b>
+          <button type="button" class="chip chip-wide chip-pool" data-open-picker="single" ${disabled}>
+            ${chosen
+              ? `<span class="pool-thumbs" aria-hidden="true"><img src="/assets/games/${chosen.type}.jpg" alt=""></span><span class="chip-pool-text">${escapeHtml(chosen.title)} <small>${gesture?.icon || ""}</small></span>`
+              : '<span class="pool-thumbs pool-dice" aria-hidden="true">🎲</span><span class="chip-pool-text">Zufall</span>'} <b>›</b>
           </button>
         </div>`;
     }
@@ -789,30 +806,42 @@ export class UIManager {
       : new Set(settings.pool && settings.pool.length ? settings.pool : PLAYABLE_CATALOG.map((game) => game.type));
     this.picker = { kind, selected, category: "all", query: "" };
     this.el.pickerSearch.value = "";
-    this.el.pickerCategories.innerHTML = [{ id: "all", title: "Alle", icon: "" }, ...GAME_CATEGORIES]
-      .map((category) => `<button type="button" class="chip" data-category="${category.id}">${category.icon} ${category.title}</button>`).join("");
-    this.el.pickerEyebrow.textContent = kind === "single" ? "Ein Spiel" : "Spielauswahl";
-    this.el.pickerTitle.textContent = kind === "single" ? "Welches Spiel?" : "Welche Spiele kommen dran?";
+    // Reiter in den Farben der Kategorien; „Alle“ neutral.
+    this.el.pickerCategories.innerHTML = [{ id: "all", title: "Alle", icon: "⭐", color: "#243040" }, ...GAME_CATEGORIES]
+      .map((category) => `<button type="button" class="picker-cat" data-category="${category.id}" style="--cat:${category.color}" title="${category.title}"><span class="picker-cat-icon" aria-hidden="true">${category.icon}</span><span class="picker-cat-label">${category.title}</span></button>`).join("");
+    this.el.pickerEyebrow.textContent = kind === "single" ? "Einzelspiel" : "Partie";
+    this.el.pickerTitle.textContent = kind === "single" ? "Welches Spiel?" : "Spiele wählen";
     this.el.pickerTools.hidden = kind === "single";
     this.el.pickerDone.hidden = kind === "single";
+    this.el.picker.classList.toggle("is-single", kind === "single");
     this.renderPicker();
     this.openOverlay("picker");
+    this.el.pickerGrid.scrollTop = 0;
     this.feedback?.sound("tap");
   }
 
+  // Die Spielauswahl: Bildkarten in den Farben ihrer Kategorie. Gewählte
+  // Spiele tragen ein Häkchen und einen farbigen Rahmen; abgewählte sind
+  // ausgegraut — so liest man die Partie auf einen Blick, statt Rahmen zu
+  // zählen. Jeder Abschnitt lässt sich mit einem Tipp ganz an- oder abwählen.
   renderPicker() {
     const picker = this.picker;
     if (!picker) return;
-    const random = picker.kind === "single" && picker.category === "all" && !picker.query.trim()
-      ? `<button type="button" class="pick-card ${picker.selected.size === 0 ? "is-picked" : ""}" data-pick="__random" aria-pressed="${picker.selected.size === 0}">
-          <span class="pick-icon">🎲</span><strong>Zufall</strong><small>Lasst euch überraschen</small>
+    const multi = picker.kind !== "single";
+    const filtered = picker.category !== "all" || Boolean(picker.query.trim());
+    const random = !multi && !filtered
+      ? `<button type="button" class="pick-card pick-random ${picker.selected.size === 0 ? "is-picked" : ""}" data-pick="__random" aria-pressed="${picker.selected.size === 0}" style="--cat:#ffb21e">
+          <span class="pick-preview"><span class="pick-dice" aria-hidden="true">🎲</span><span class="pick-check" aria-hidden="true"></span></span>
+          <span class="pick-random-text"><strong>Zufall</strong><small>Ein Spiel aus allen — lasst euch überraschen</small></span>
         </button>`
       : "";
+    const colorOf = (type) => GAME_CATEGORIES.find((category) => category.id === MINIGAME_GUIDES[type]?.category)?.color || "#243040";
     const card = (game) => {
       const gesture = GESTURES[game.gesture] || GESTURES.tap;
+      const color = colorOf(game.type);
       if (COMING_SOON.has(game.type)) {
         return `
-        <button type="button" class="pick-card is-soon" data-pick="${game.type}" disabled aria-disabled="true">
+        <button type="button" class="pick-card is-soon" data-pick="${game.type}" disabled aria-disabled="true" style="--cat:${color}">
           <span class="pick-preview"><img src="/assets/games/${game.type}.jpg" loading="lazy" decoding="async" alt=""><span class="pick-soon">Bald</span></span>
           <strong>${escapeHtml(game.title)}</strong>
           <small>Bald verfügbar</small>
@@ -820,8 +849,8 @@ export class UIManager {
       }
       const picked = picker.selected.has(game.type);
       return `
-        <button type="button" class="pick-card ${picked ? "is-picked" : ""}" data-pick="${game.type}" aria-pressed="${picked}">
-          <span class="pick-preview"><img src="/assets/games/${game.type}.jpg" loading="lazy" decoding="async" alt=""><span class="pick-icon">${gesture.icon}</span></span>
+        <button type="button" class="pick-card ${picked ? "is-picked" : ""}" data-pick="${game.type}" aria-pressed="${picked}" style="--cat:${color}">
+          <span class="pick-preview"><img src="/assets/games/${game.type}.jpg" loading="lazy" decoding="async" alt=""><span class="pick-check" aria-hidden="true"></span><span class="pick-icon" aria-hidden="true">${gesture.icon}</span></span>
           <strong>${escapeHtml(game.title)}</strong>
           <small>${escapeHtml(gesture.label)}</small>
         </button>`;
@@ -829,18 +858,33 @@ export class UIManager {
     const visible = this.visiblePickerGames();
     const sections = GAME_CATEGORIES.map((category) => {
       const games = visible.filter((game) => MINIGAME_GUIDES[game.type]?.category === category.id);
-      return games.length ? `<h4 class="pick-section">${category.icon} ${category.title} <span>${games.length}</span></h4>${games.map(card).join("")}` : "";
+      if (!games.length) return "";
+      const playable = games.filter((game) => !COMING_SOON.has(game.type));
+      const allOn = playable.length > 0 && playable.every((game) => picker.selected.has(game.type));
+      const toggle = multi && playable.length
+        ? `<button type="button" class="pick-section-toggle ${allOn ? "is-on" : ""}" data-section-toggle="${category.id}" aria-pressed="${allOn}">${allOn ? "Alle ab" : "Alle an"}</button>`
+        : "";
+      const chosen = playable.filter((game) => picker.selected.has(game.type)).length;
+      const count = multi ? `${chosen}/${playable.length}` : `${games.length}`;
+      return `<h4 class="pick-section" style="--cat:${category.color}"><span class="pick-section-icon" aria-hidden="true">${category.icon}</span><span class="pick-section-title">${category.title}</span><span class="pick-section-count">${count}</span>${toggle}</h4>${games.map(card).join("")}`;
     }).join("");
+    this.el.pickerGrid.classList.toggle("is-multi", multi);
     this.el.pickerGrid.innerHTML = random + (sections || '<p class="pick-empty" role="status">Kein Spiel gefunden. Versuch einen anderen Namen oder eine andere Kategorie.</p>');
     this.el.pickerCategories.querySelectorAll("[data-category]").forEach((button) => {
       const active = button.dataset.category === picker.category;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    const tools = this.el.pickerTools;
+    tools.querySelector("[data-picker-visible]").hidden = !filtered;
     const count = picker.selected.size;
-    this.el.pickerCount.textContent = picker.kind === "single" ? "" : `${count} / ${PLAYABLE_CATALOG.length} gewählt`;
-    this.el.pickerDone.disabled = picker.kind !== "single" && count < 2;
-    this.el.pickerDone.textContent = count < 2 && picker.kind !== "single" ? "Mindestens zwei wählen" : "Übernehmen";
+    this.el.pickerCount.hidden = !multi;
+    this.el.pickerCount.innerHTML = multi ? `<b>${count}</b><span>von ${PLAYABLE_CATALOG.length}</span>` : "";
+    this.el.pickerCount.classList.toggle("is-low", multi && count < 2);
+    this.el.pickerDone.disabled = multi && count < 2;
+    this.el.pickerDone.textContent = multi && count < 2
+      ? "Mindestens zwei wählen"
+      : (multi ? `${count} ${count === 1 ? "Spiel" : "Spiele"} übernehmen` : "Übernehmen");
   }
 
   visiblePickerGames() {
@@ -929,6 +973,14 @@ export class UIManager {
     const guide = MINIGAME_GUIDES[minigame.type];
     const gesture = gestureMeta(minigame.type);
     this.el.introReason.textContent = minigame.reason || "";
+    // Die Karte trägt die Farbe der Kategorie — wie in der Spielauswahl.
+    const category = GAME_CATEGORIES.find((entry) => entry.id === guide?.category);
+    this.el.intro.style.setProperty("--cat", category?.color || "#ffb21e");
+    const categoryTag = document.getElementById("intro-category");
+    if (categoryTag) {
+      categoryTag.textContent = category ? `${category.icon} ${category.title}` : "";
+      categoryTag.hidden = !category;
+    }
     this.el.introTitle.textContent = minigame.title;
     this.el.introPreview.src = `/assets/games/${minigame.type}.jpg`;
     this.el.introGoal.textContent = guide?.goal || "Sammle die meisten Punkte.";

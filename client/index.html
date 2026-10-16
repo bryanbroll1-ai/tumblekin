@@ -67,21 +67,26 @@
       <div id="picker" class="overlay picker-overlay" hidden>
         <div class="overlay-card picker-card">
           <div class="picker-head">
-            <div>
+            <div class="picker-heading">
               <p class="eyebrow" id="picker-eyebrow">Spiele</p>
               <h3 id="picker-title">Welche Spiele?</h3>
             </div>
+            <span id="picker-count" class="picker-count" aria-live="polite"></span>
             <button id="picker-close" class="icon-btn" type="button" aria-label="Schliessen">✕</button>
           </div>
-          <div class="picker-tools" id="picker-tools">
-            <button type="button" class="chip" data-picker-all>Alle</button>
-            <button type="button" class="chip" data-picker-visible>Nur gefilterte</button>
-            <button type="button" class="chip" data-picker-none>Keine</button>
-            <span id="picker-count" class="picker-count"></span>
-          </div>
+          <div class="picker-bar">
           <div class="picker-browse">
-            <input id="picker-search" type="search" placeholder="Spiel suchen …" aria-label="Spiel suchen" autocomplete="off">
+            <label class="picker-search">
+              <span aria-hidden="true">🔍</span>
+              <input id="picker-search" type="search" placeholder="Spiel suchen …" aria-label="Spiel suchen" autocomplete="off">
+            </label>
             <div id="picker-categories" class="picker-categories" aria-label="Spiele nach Kategorie filtern"></div>
+          </div>
+          <div class="picker-tools" id="picker-tools">
+            <button type="button" class="picker-tool" data-picker-all>✓ Alle</button>
+            <button type="button" class="picker-tool" data-picker-none>Keine</button>
+            <button type="button" class="picker-tool picker-tool-add" data-picker-visible hidden>＋ Diese dazu</button>
+          </div>
           </div>
           <div id="picker-grid" class="picker-grid" tabindex="-1"></div>
           <button id="picker-done" class="btn btn-primary" type="button">Übernehmen</button>
@@ -149,7 +154,10 @@
         <div id="minigame-controls" class="minigame-controls"></div>
         <div id="minigame-intro" class="minigame-intro" hidden>
           <div class="intro-card">
-            <p class="intro-round" id="intro-reason">Spiel 1</p>
+            <div class="intro-tags">
+              <p class="intro-round" id="intro-reason">Spiel 1</p>
+              <span id="intro-category" class="intro-category"></span>
+            </div>
             <h2 id="intro-title">Minispiel</h2>
             <img id="intro-preview" class="intro-preview" alt="">
             <div class="intro-gesture">

@@ -753,32 +753,46 @@ body.has-invite .start-sheet .field:first-child {
   font-weight: 950;
 }
 
+/* Spielarten als farbige Kacheln: jede Art hat ihre Farbe, die gewählte ist
+   gefüllt. Vorher waren es graue Reiter, die wie ein Formular wirkten. */
 .mode-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  padding: 5px;
-  border-radius: 18px;
-  background: rgba(36, 48, 64, 0.06);
+  gap: 8px;
 }
 
+.mode-tabs [data-mode="marathon"] { --mode: #22b8cc; }
+.mode-tabs [data-mode="hunt"] { --mode: #ff5d73; }
+.mode-tabs [data-mode="knockout"] { --mode: #ff9a3c; }
+.mode-tabs [data-mode="single"] { --mode: #9b7bf0; }
+
 .mode-tabs button {
+  --mode: var(--ink);
   display: grid;
   justify-items: center;
-  gap: 1px;
-  min-height: 56px;
-  padding: 6px 4px;
-  border-radius: 14px;
-  background: transparent;
+  align-content: center;
+  gap: 3px;
+  min-height: 70px;
+  padding: 8px 4px 7px;
+  border: 2px solid color-mix(in srgb, var(--mode) 28%, white);
+  border-radius: 16px;
+  background: #ffffff;
   color: var(--ink-soft);
   font-size: 0.78rem;
   font-weight: 950;
-  transition: background-color 140ms ease, transform 90ms ease;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--mode) 25%, white);
+  transition: background-color 140ms ease, transform 90ms ease, box-shadow 140ms ease;
 }
 
 .mode-tabs button b {
-  font-size: 1.4rem;
-  line-height: 1.1;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mode) 16%, white);
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 /* „Punkte­jagd“ trägt einen weichen Trennstrich: passt das Wort nicht in
@@ -790,29 +804,38 @@ body.has-invite .start-sheet .field:first-child {
 }
 
 .mode-tabs button.is-active {
-  background: #ffffff;
-  color: var(--ink);
-  box-shadow: 0 4px 12px rgba(4, 22, 34, 0.12);
+  border-color: var(--mode);
+  background: var(--mode);
+  color: #ffffff;
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--mode) 62%, black), 0 8px 18px color-mix(in srgb, var(--mode) 30%, transparent);
 }
+
+.mode-tabs button.is-active b { background: rgba(255, 255, 255, 0.28); }
 
 .mode-tabs button:disabled:not(.is-active) {
   opacity: 0.4;
 }
 
 .mode-tabs button:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: translateY(2px);
+  box-shadow: none;
 }
 
 /* Übliche Handys (360 px): etwas kleinere Schrift, damit „Marathon“ und
    „Ein Spiel“ in ihre Felder passen. */
 @container sheet (max-width: 380px) {
   .mode-tabs {
-    gap: 4px;
-    padding: 4px;
+    gap: 6px;
   }
   .mode-tabs button {
+    min-height: 64px;
     padding: 6px 2px;
     font-size: 0.72rem;
+  }
+  .mode-tabs button b {
+    width: 32px;
+    height: 32px;
+    font-size: 1.1rem;
   }
 }
 
@@ -847,11 +870,63 @@ body.has-invite .start-sheet .field:first-child {
   }
 }
 
+.lobby-sheet:has([data-mode="marathon"].is-active) { --mode: #22b8cc; }
+.lobby-sheet:has([data-mode="hunt"].is-active) { --mode: #ff5d73; }
+.lobby-sheet:has([data-mode="knockout"].is-active) { --mode: #ff9a3c; }
+.lobby-sheet:has([data-mode="single"].is-active) { --mode: #9b7bf0; }
+
 .mode-description {
+  padding: 9px 12px;
+  border-left: 4px solid var(--mode, var(--ink));
+  border-radius: 4px 12px 12px 4px;
+  background: color-mix(in srgb, var(--mode, var(--ink)) 9%, white);
   color: var(--ink-soft);
   font-size: 0.86rem;
   font-weight: 750;
   line-height: 1.35;
+}
+
+/* Gewählte Spiele als kleine Bilderreihe im Knopf. */
+.chip-pool {
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 12px 0 6px;
+}
+
+.chip-pool-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-thumbs {
+  display: flex;
+  flex: none;
+}
+
+.pool-thumbs img {
+  width: 36px;
+  height: 26px;
+  object-fit: cover;
+  border: 2px solid #ffffff;
+  border-radius: 8px;
+  background: #d4e9dc;
+  box-shadow: 0 2px 4px rgba(4, 22, 34, 0.18);
+}
+
+.pool-thumbs img + img { margin-left: -14px; }
+
+.pool-dice {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffd24a, #ff9a3c 55%, #ff5d73);
+  font-size: 1.1rem;
 }
 
 /* minmax(0, 1fr): der Bot-Regler meldet als Mindestbreite viermal sein
@@ -1162,18 +1237,44 @@ body.has-invite .start-sheet .field:first-child {
 .toggle-row > span { display: grid; gap: 1px; text-align: left; }
 .toggle-row small { font-size: 0.72rem; font-weight: 700; opacity: 0.7; }
 
+/* Schalter: Pille mit weissem Knopf, der zur Seite rutscht; „An“/„Aus“
+   steht daneben in der Pille. */
 .toggle {
-  min-width: 72px;
-  min-height: 40px;
+  position: relative;
+  min-width: 84px;
+  min-height: 42px;
+  padding: 0 40px 0 14px;
   border-radius: 999px;
-  background: var(--green);
-  color: var(--ink);
+  background: #3bc46a;
+  color: #ffffff;
   font-weight: 950;
+  text-align: left;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.14);
+  transition: background-color 160ms ease, padding 160ms ease;
+}
+
+/* An: Knopf rechts, wie man es von Schaltern kennt. */
+.toggle::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: calc(100% - 37px);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: left 160ms cubic-bezier(0.3, 1.4, 0.5, 1);
 }
 
 .toggle.is-off {
-  background: #e3e5e1;
+  padding: 0 14px 0 40px;
+  background: #d9dcd6;
   color: var(--muted);
+}
+
+.toggle.is-off::before {
+  left: 5px;
 }
 
 .menu-version {
@@ -1249,138 +1350,439 @@ body.has-invite .start-sheet .field:first-child {
   .invite-card .invite-code { font-size: 2rem; }
 }
 
+/* --- Spielauswahl -------------------------------------------------------------
+   Bildkarten in den Farben ihrer Kategorie: gewählt mit Häkchen und farbigem
+   Rahmen, abgewählt ausgegraut. Die Karte hat eine feste Höhe, damit sie beim
+   Filtern nicht springt; nur das Raster scrollt. */
+
 .picker-card {
-  width: min(100%, 560px);
-  max-height: calc(calc(100 * var(--vh)) - 40px);
+  width: min(100%, 1080px);
+  height: min(calc(100 * var(--vh)) - 32px, 940px);
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border-radius: 26px;
 }
 
-.picker-card:has(#picker-tools[hidden]) {
+.picker-overlay.is-single .picker-card {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.picker-browse { display: grid; gap: 8px; }
-.picker-browse input { width: 100%; min-height: 44px; }
-.picker-categories { display: flex; flex-wrap: wrap; gap: 6px; }
-.picker-categories .chip { min-height: 40px; padding: 6px 10px; font-size: 0.8rem; }
-.pick-empty { grid-column: 1 / -1; padding: 20px 8px; }
-
 .picker-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
   gap: 10px;
 }
+
+.picker-heading h3 {
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.picker-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #ffffff;
+  font-weight: 950;
+  white-space: nowrap;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.18);
+  transition: background-color 160ms ease;
+}
+
+.picker-count b { font-size: 1.15rem; line-height: 1; }
+.picker-count span { font-size: 0.74rem; opacity: 0.8; }
+.picker-count.is-low { background: var(--pink); }
+
+/* Suche, Reiter und „Alle/Keine“: hochkant zwei Zeilen im Raster der Karte,
+   im flachen Querformat eine Flex-Zeile (siehe unten). */
+.picker-bar {
+  display: contents;
+}
+
+.picker-browse {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.picker-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.picker-search > span {
+  position: absolute;
+  left: 14px;
+  font-size: 0.95rem;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.picker-search input {
+  min-height: 46px;
+  padding-left: 42px;
+  border-radius: 14px;
+  font-size: 1rem;
+}
+
+/* Kategorien als Reiter; auf schmalen Handys in zwei Zeilen — eine seitlich
+   scrollende Reihe versteckte „Miteinander“ hinter dem Rand. */
+.picker-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 3px;
+}
+
+.picker-cat {
+  --cat: var(--ink);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 14px 0 7px;
+  border: 2px solid color-mix(in srgb, var(--cat) 30%, white);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 950;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--cat) 28%, white);
+  transition: transform 90ms ease, background-color 140ms ease;
+}
+
+.picker-cat-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cat) 16%, white);
+  font-size: 0.92rem;
+}
+
+.picker-cat.is-active {
+  border-color: var(--cat);
+  background: var(--cat);
+  color: #ffffff;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--cat) 65%, black);
+}
+
+.picker-cat.is-active .picker-cat-icon { background: rgba(255, 255, 255, 0.28); }
+.picker-cat:active { transform: translateY(2px); box-shadow: none; }
 
 .picker-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  min-width: 0;
 }
 
-/* Drei kleine Schalter in EINER Zeile — als grosse Pillen stand jeder in
-   einer eigenen und schob die Spiele aus dem Bild. */
-.picker-tools .chip {
+.picker-tool {
   min-height: 40px;
-  padding: 5px 12px;
+  padding: 0 13px;
+  border-radius: 11px;
+  background: rgba(36, 48, 64, 0.07);
+  color: var(--ink-soft);
   font-size: 0.82rem;
+  font-weight: 950;
 }
 
-.picker-count {
-  margin-left: auto;
-  color: var(--muted);
-  font-weight: 900;
-}
+.picker-tool:active { transform: scale(0.96); }
+.picker-tool-add { background: color-mix(in srgb, var(--blue) 20%, white); color: #0b6875; }
 
 .picker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
   grid-auto-rows: max-content;
   align-content: start;
-  gap: 8px;
+  gap: 12px;
+  margin: 0 -6px;
+  padding: 2px 6px 14px;
   overflow-y: auto;
-  padding: 2px;
   overscroll-behavior: contain;
 }
 
-/* Spielarten helfen bei der Auswahl einer abwechslungsreichen Partie. */
+/* Abschnitt je Kategorie, mit Zähler und „Alle an/ab“. */
 .pick-section {
+  --cat: var(--ink);
   grid-column: 1 / -1;
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 6px 2px 0;
-  font-size: 0.82rem;
-  font-weight: 950;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 0 -2px;
+  padding: 6px 6px 6px 7px;
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--cat) 13%, white);
+  font-size: 1rem;
+  font-weight: 1000;
 }
 
-.pick-section span {
-  padding: 1px 7px;
+.pick-section:first-child { margin-top: 0; }
+
+.pick-section-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--cat);
+  font-size: 1rem;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.16);
+}
+
+.pick-section-title { color: color-mix(in srgb, var(--cat) 50%, var(--ink)); }
+
+.pick-section-count {
+  padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(36, 48, 64, 0.1);
-  font-size: 0.72rem;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  font-weight: 950;
 }
 
-.pick-section small {
+.pick-section-toggle {
   margin-left: auto;
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 800;
-  text-transform: none;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 950;
+  box-shadow: 0 2px 0 rgba(36, 48, 64, 0.12);
 }
+
+.pick-section-toggle.is-on {
+  background: var(--cat);
+  color: #ffffff;
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--cat) 65%, black);
+}
+
+.pick-section-toggle:active { transform: translateY(2px); box-shadow: none; }
 
 .pick-card {
+  --cat: var(--ink);
+  position: relative;
   display: grid;
   justify-items: start;
   align-content: start;
   gap: 2px;
-  min-height: 86px;
-  padding: 10px;
-  border: 2px solid rgba(36, 48, 64, 0.1);
-  border-radius: 16px;
+  padding: 6px 6px 10px;
+  border: 3px solid transparent;
+  border-radius: 18px;
   background: #ffffff;
   text-align: left;
-  transition: transform 90ms ease, border-color 120ms ease, background-color 120ms ease;
+  box-shadow: 0 4px 0 rgba(36, 48, 64, 0.1), 0 8px 18px rgba(4, 22, 34, 0.06);
+  container-type: inline-size;
+  transition: transform 110ms ease, box-shadow 140ms ease, border-color 140ms ease, background-color 140ms ease;
 }
 
-.pick-card:active {
-  transform: scale(0.96);
+.pick-card:active:not(:disabled) {
+  transform: translateY(3px) scale(0.98);
+  box-shadow: 0 1px 0 rgba(36, 48, 64, 0.1);
 }
 
-.pick-icon {
-  font-size: 1.3rem;
+.pick-preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin-bottom: 6px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cat) 22%, white);
 }
 
-.pick-preview { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; margin-bottom: 6px; overflow: hidden; border-radius: 9px; background: #d4e9dc; }
-.pick-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.pick-preview .pick-icon { position: absolute; right: 4px; bottom: 4px; padding: 2px 5px; border-radius: 7px; background: #fffdf0ec; font-size: 1rem; }
-/* Noch nicht spielbar: sichtbar, aber gedämpft und nicht wählbar. */
-.pick-card.is-soon { cursor: default; opacity: 0.62; }
-.pick-card.is-soon img { filter: grayscale(0.85); }
-.pick-soon { position: absolute; inset: auto 6px 6px auto; padding: 2px 8px; border-radius: 999px; background: #2f3b44; color: #ffe08b; font-size: 0.72rem; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
+.pick-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: filter 160ms ease, opacity 160ms ease, transform 220ms ease;
+}
 
+@media (hover: hover) {
+  .pick-card:hover:not(:disabled) .pick-preview img { transform: scale(1.05); }
+}
+
+/* Namen umbrechen nur zwischen Wörtern („Lichtwächt-er“ war hässlich);
+   lange Namen werden in schmalen Karten etwas kleiner gesetzt. */
 .pick-card strong {
   max-width: 100%;
-  font-size: 0.95rem;
-  font-weight: 950;
-  overflow-wrap: anywhere;
-  hyphens: auto;
+  padding: 0 4px;
+  font-size: min(1rem, 11.5cqi);
+  font-weight: 1000;
+  line-height: 1.15;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: manual;
+  text-wrap: balance;
 }
 
 .pick-card small {
+  padding: 0 4px;
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 850;
+}
+
+.pick-icon {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(255, 253, 240, 0.93);
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.pick-check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 26px;
+  height: 26px;
+  border: 2.5px solid #ffffff;
+  border-radius: 50%;
+  background: rgba(20, 30, 40, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
 .pick-card.is-picked {
-  border-color: var(--ink);
-  background: #fff5d1;
-  box-shadow: inset 0 0 0 1px var(--ink);
+  border-color: var(--cat);
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--cat) 65%, black), 0 10px 22px color-mix(in srgb, var(--cat) 28%, transparent);
+}
+
+.pick-card.is-picked .pick-check { background: var(--cat); animation: check-pop 260ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+
+.pick-card.is-picked .pick-check::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 1000;
+}
+
+@keyframes check-pop {
+  from { transform: scale(0.4); }
+  to { transform: none; }
+}
+
+/* Mehrfachauswahl: Abgewähltes tritt zurück. */
+.picker-grid.is-multi .pick-card:not(.is-picked):not(.is-soon) {
+  background: #f2f2ee;
+  box-shadow: 0 3px 0 rgba(36, 48, 64, 0.07);
+}
+
+.picker-grid.is-multi .pick-card:not(.is-picked):not(.is-soon) img {
+  filter: grayscale(0.85) brightness(1.06);
+  opacity: 0.6;
+}
+
+.picker-grid.is-multi .pick-card:not(.is-picked):not(.is-soon) strong { color: var(--muted); }
+
+/* Ein Spiel wählen: der leere Kreis wäre nur Rauschen. */
+.picker-overlay.is-single .pick-card:not(.is-picked) .pick-check { display: none; }
+
+/* Zufall: ein breites Band über allen Spielen, nicht eine einsame Karte. */
+.pick-random {
+  grid-column: 1 / -1;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  padding: 6px 14px 6px 6px;
+}
+
+.pick-random .pick-preview {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  background: linear-gradient(135deg, #ffd24a, #ff9a3c 55%, #ff5d73);
+}
+
+.pick-random-text { display: grid; gap: 2px; }
+.pick-random strong { font-size: 1.15rem; }
+.pick-random small { font-size: 0.8rem; }
+
+.pick-dice {
+  font-size: 2.6rem;
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.15));
+}
+
+/* Noch nicht spielbar: sichtbar, aber gedämpft und nicht wählbar. */
+.pick-card.is-soon { cursor: default; opacity: 0.6; background: #f2f2ee; box-shadow: none; }
+.pick-card.is-soon img { filter: grayscale(0.85); }
+.pick-soon { position: absolute; inset: auto 6px 6px auto; padding: 2px 8px; border-radius: 999px; background: #2f3b44; color: #ffe08b; font-size: 0.72rem; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
+
+.pick-empty {
+  grid-column: 1 / -1;
+  padding: 28px 8px;
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
+}
+
+#picker-done { min-height: 58px; }
+
+/* Handys: Reiter nur als Symbol, der gewählte mit Namen — so passen alle fünf
+   in eine Zeile, und das Raster behält seine Höhe. In zwei, drei Zeilen
+   umbrechend liessen sie auf dem Handy quer nur 40 px für die Spiele. */
+@media (max-width: 480px) {
+  .picker-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+}
+
+@media (max-width: 480px), (orientation: landscape) and (max-height: 520px) {
+  .picker-categories { flex-wrap: nowrap; gap: 6px; }
+  .picker-cat { justify-content: center; min-width: 44px; min-height: 44px; padding: 0 7px; gap: 6px; }
+  .picker-cat:not(.is-active) .picker-cat-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .picker-cat.is-active { padding: 0 13px 0 7px; }
+}
+
+/* Schmales Querformat (Handy SE quer, Fold zu quer): auch der gewählte Reiter
+   nur als Symbol — sonst schob sich die Reihe über „Alle/Keine“. */
+@media (orientation: landscape) and (max-height: 520px) and (max-width: 760px) {
+  .picker-cat.is-active { padding: 0 7px; }
+  .picker-cat.is-active .picker-cat-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+
+/* Sehr schmal (zugeklapptes Fold, 280 px): Reiter nur als Symbol in einer
+   Zeile, kleinerer Kopf, Abschnitte ohne Zähler. */
+@media (max-width: 340px) {
+  .picker-card { padding: 12px 12px 10px; gap: 10px; }
+  .picker-heading .eyebrow { display: none; }
+  .picker-heading h3 { font-size: 1.1rem; }
+  .picker-count { padding: 4px 9px; }
+  .picker-count b { font-size: 0.95rem; }
+  .picker-count span { display: none; }
+  .picker-categories { flex-wrap: nowrap; justify-content: space-between; gap: 4px; }
+  .picker-cat, .picker-cat.is-active { justify-content: center; width: 44px; min-height: 44px; padding: 0; }
+  .picker-cat .picker-cat-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .pick-section { gap: 6px; font-size: 0.86rem; }
+  .pick-section-icon { width: 26px; height: 26px; font-size: 0.85rem; }
+  .pick-section-count { display: none; }
+  .pick-section-toggle { padding: 0 9px; white-space: nowrap; }
+}
+
+/* Breite Bildschirme: Suche und Reiter nebeneinander, grössere Karten. */
+@media (min-width: 720px) {
+  .picker-card { padding: 20px 22px 18px; gap: 14px; }
+  .picker-browse { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); align-items: center; }
+  .picker-grid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
+  .picker-heading h3 { font-size: 1.5rem; }
 }
 
 /* --- Minispiel: Einführungskarte und Countdown ---------------------------------- */
@@ -1424,8 +1826,10 @@ body.has-invite .start-sheet .field:first-child {
   gap: 10px;
   width: min(100%, 380px);
   padding: 22px 20px 20px;
+  border-top: 8px solid var(--cat, var(--yellow));
   border-radius: 28px;
-  background: var(--paper);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cat, var(--yellow)) 16%, var(--paper)) 0, var(--paper) 150px);
   box-shadow: var(--strong-shadow);
   text-align: center;
   animation: card-pop 360ms cubic-bezier(0.2, 1.3, 0.4, 1) both;
@@ -1441,23 +1845,59 @@ body.has-invite .start-sheet .field:first-child {
 .intro-actions { position: sticky; bottom: 0; z-index: 2; display: grid; gap: 10px; width: 100%; padding-top: 8px; background: var(--paper); box-shadow: 0 -10px 14px var(--paper); }
 .minigame-intro.counting .intro-actions { display: none; }
 #intro-practice { width: 100%; min-height: 44px; }
-.intro-preview { width: 100%; height: 112px; object-fit: cover; border-radius: 14px; background: #d4e9dc; }
+.intro-preview { width: 100%; height: auto; aspect-ratio: 16 / 9; max-height: 190px; object-fit: cover; border: 3px solid #ffffff; border-radius: 16px; background: #d4e9dc; box-shadow: 0 6px 16px rgba(4, 22, 34, 0.16); }
+.intro-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.intro-category { padding: 5px 12px; border-radius: 999px; background: var(--cat, var(--yellow)); color: #ffffff; font-size: 0.74rem; font-weight: 950; text-transform: uppercase; box-shadow: 0 2px 0 color-mix(in srgb, var(--cat, var(--yellow)) 65%, black); }
+.minigame-intro.counting .intro-tags { display: none; }
 .minigame-intro.counting .intro-preview { display: none; }
 .minigame-intro.counting #intro-practice { display: none; }
 .intro-ready-status { color: var(--ink-soft); font-size: 0.78rem; line-height: 1.4; }
 .minigame-intro.counting .intro-tip { display: none; }
 
 @media (orientation: landscape) and (max-height: 520px) {
-  .picker-card { width: min(100%, 760px); max-height: calc(calc(100 * var(--vh)) - 20px); padding: 12px; gap: 8px; }
-  .picker-card h3 { font-size: 1.1rem; }
-  .picker-browse { grid-template-columns: minmax(160px, 0.65fr) minmax(0, 1.35fr); align-items: center; }
-  .picker-tools .chip, .picker-categories .chip { min-height: 40px; font-size: 0.78rem; padding: 4px 9px; }
-  .picker-count { font-size: 0.8rem; }
-  #picker-done { min-height: 44px; padding: 8px 16px; }
+  /* Spielauswahl im flachen Querformat: alles kompakt, das Raster bekommt
+     die Höhe. */
+  /* Kopf, Übernehmen und Schliessen in einer Zeile, darunter Suche, Reiter
+     und „Alle/Keine“ — so bleibt die Höhe fürs Raster (Fold quer: 280 px). */
+  .picker-card {
+    height: calc(calc(100 * var(--vh)) - 16px);
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "title count done close" "bar bar bar bar" "grid grid grid grid";
+    align-items: center;
+    padding: 10px 14px;
+    gap: 8px;
+    border-radius: 20px;
+  }
+  .picker-overlay.is-single .picker-card {
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "title count done close" "bar bar bar bar" "grid grid grid grid";
+  }
+  .picker-head { display: contents; }
+  .picker-heading { grid-area: title; }
+  .picker-count { grid-area: count; }
+  #picker-close { grid-area: close; }
+  .picker-bar { grid-area: bar; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .picker-browse { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; min-width: 0; }
+  .picker-search { flex: 1 1 90px; min-width: 90px; }
+  .picker-categories { flex: none; }
+  .picker-tools { flex: none; flex-wrap: nowrap; }
+  .picker-grid { grid-area: grid; align-self: stretch; }
+  #picker-done { grid-area: done; min-height: 44px; padding: 0 18px; font-size: 0.92rem; }
+  .picker-heading .eyebrow { display: none; }
+  .picker-heading h3 { font-size: 1.05rem; }
+  .picker-count { padding: 4px 10px; }
+  .picker-count b { font-size: 1rem; }
+  .picker-categories { flex-wrap: nowrap; }
+  .picker-search input { min-height: 40px; }
+  .picker-cat { min-height: 40px; font-size: 0.78rem; }
+  .picker-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+  .pick-section { margin-top: 6px; padding: 4px 4px 4px 5px; font-size: 0.88rem; }
+  .pick-section-icon { width: 26px; height: 26px; }
   /* Seitlich 64 px: rechts oben sitzt der Menüknopf, die Karte bleibt mittig. */
   .minigame-intro { padding: 10px max(64px, env(safe-area-inset-right)) 10px max(64px, env(safe-area-inset-left)); gap: 8px; }
   .intro-card { width: min(100%, 540px); gap: 6px; padding: 12px 18px; border-radius: 20px; max-height: calc(calc(100 * var(--vh)) - 24px); }
-  .intro-preview { height: 84px; }
+  .intro-preview { height: 84px; aspect-ratio: auto; }
   .intro-card h2 { font-size: 1.7rem; }
   .intro-gesture { padding: 4px 12px; font-size: 0.85rem; }
   .intro-gesture-icon { font-size: 1.3rem; }
@@ -1485,7 +1925,7 @@ body.has-invite .start-sheet .field:first-child {
 }
 
 @media (orientation: landscape) and (max-height: 360px) {
-  .intro-preview { height: 56px; }
+  .intro-preview { height: 56px; aspect-ratio: auto; }
   .intro-card h2 { font-size: 1.4rem; }
 }
 

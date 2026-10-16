@@ -109,14 +109,32 @@ try {
   await host.waitForFunction(() => window.__tumblekin.state().phase === "playingMinigame");
   await host.waitForSelector("#minigame-intro", { state: "hidden", timeout: 10000 });
   await host.waitForTimeout(1000);
-  const layout = await host.evaluate(() => {
-    const stick = document.querySelector(".virtual-joystick").getBoundingClientRect();
+  const stickLayout = () => host.evaluate(() => {
+    const node = document.querySelector(".virtual-joystick");
+    const stick = node.getBoundingClientRect();
     const scene = window.__tumblekinScene;
-    return { stick: { x: stick.x, width: stick.width }, band: scene.rig.band };
+    return { stick: { x: stick.x, width: stick.width }, hidden: getComputedStyle(node).opacity === "0", band: scene.rig.band };
   });
+  const layout = await stickLayout();
   assert.ok(layout.stick.x < 40 && layout.stick.width <= 120);
-  assert.ok(layout.band.left >= layout.stick.x + layout.stick.width);
+  // Spielknöpfe aus (Standard auf Touch): Der Stick erscheint erst unter dem
+  // Finger und ist sonst unsichtbar — die Szene nutzt dann auch seine Fläche.
+  assert.ok(layout.hidden, "Ohne Spielknöpfe ist der Stick unsichtbar, bis man tippt");
+  assert.ok(layout.band.left < layout.stick.x + layout.stick.width, "Ein unsichtbarer Stick nimmt der Szene keinen Platz");
   assert.ok(layout.band.bottom - layout.band.top > 250);
+  // Spielknöpfe an: Der Stick steht sichtbar links, die Szene weicht ihm aus.
+  await host.click("#game-menu-button");
+  await host.click("#menu-toggle-tap-buttons");
+  await host.click("#menu-resume");
+  await host.waitForTimeout(900);
+  const shown = await stickLayout();
+  assert.ok(!shown.hidden, "Mit Spielknöpfen ist der Stick sichtbar");
+  assert.ok(shown.band.left >= shown.stick.x + shown.stick.width, "Ein sichtbarer Stick bekommt seinen Platz");
+  assert.ok(shown.band.bottom - shown.band.top > 250);
+  await host.click("#game-menu-button");
+  await host.click("#menu-toggle-tap-buttons");
+  await host.click("#menu-resume");
+  await host.waitForTimeout(900);
   await screenshot(host, "farbenjagd-landscape");
   const box = await host.locator(".virtual-joystick").boundingBox();
   await host.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -144,7 +162,9 @@ try {
     return { stickRight: stick.right, actionLeft: action.left, actionRight: action.right, band: window.__tumblekinScene.rig.band };
   });
   assert.ok(sides.actionLeft > 500 && sides.actionRight <= 667);
-  assert.ok(sides.band.left >= sides.stickRight && sides.band.right <= sides.actionLeft);
+  // Der Aktionsknopf ist sichtbar und bekommt seinen Platz; der Stick links
+  // erscheint erst unter dem Finger (Spielknöpfe aus) und braucht keinen.
+  assert.ok(sides.band.right <= sides.actionLeft);
   assert.ok(sides.band.right - sides.band.left >= 350);
   await screenshot(host, "schnappschuss-landscape");
   console.log("✓ Querformat mit Stick und Aktionsknopf auf einem kleineren Handy");

@@ -1,9 +1,11 @@
 // Kurze Startkarten; die ausführlichen Regeln stehen weiterhin im Katalog.
+// Jede Kategorie hat eine Farbe: Reiter, Abschnitte und Spielkarten der
+// Spielauswahl tragen sie, damit man eine bunte Partie auf einen Blick sieht.
 export const GAME_CATEGORIES = [
-  { id: "reaction", title: "Reaktion", icon: "⚡" },
-  { id: "skill", title: "Geschick", icon: "🎯" },
-  { id: "thinking", title: "Denken", icon: "🧠" },
-  { id: "together", title: "Miteinander", icon: "🤝" }
+  { id: "reaction", title: "Reaktion", icon: "⚡", color: "#ff9a3c" },
+  { id: "skill", title: "Geschick", icon: "🎯", color: "#ff5d73" },
+  { id: "thinking", title: "Denken", icon: "🧠", color: "#9b7bf0" },
+  { id: "together", title: "Miteinander", icon: "🤝", color: "#22b8cc" }
 ];
 
 const guide = (category, goal, tip) => ({ category, goal, tip });
