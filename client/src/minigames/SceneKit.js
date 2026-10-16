@@ -147,13 +147,23 @@ export function addStageLights(scene, {
 // In den Bahnspielen — Zielgerade, Münzregen — stehen zu Rundenbeginn drei von
 // vier Figuren fast auf demselben Punkt. Ihre Schilder liegen dann exakt
 // übereinander und ergeben Buchstabensalat: man sieht vier Namen und kann
-// keinen lesen. Wer waagerecht dicht beim Vordermann steht, bekommt sein
-// Schild eine Stufe höher.
+// keinen lesen. Wessen Schild sich waagerecht mit dem des Vordermanns
+// überdeckt, bekommt es eine Stufe höher.
+//
+// Ob zwei Schilder sich überdecken, misst die echte Bildbreite der Schilder
+// (Sprite-Breite projiziert). Ein fester Mindestabstand hob auch Schilder an,
+// die nebeneinander Platz hatten — in Nervenprobe rutschten sie so in die
+// Zeittafeln über den Köpfen.
 //
 // Die Höhe wird jedes Bild neu von `grundY` aus gesetzt, damit sich das
 // Anheben nicht über die Runde aufsummiert.
 const _schildOrt = new THREE.Vector3();
-export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.3, naehe = 0.15 } = {}) {
+const _schildRand = new THREE.Vector3();
+const _schildMass = new THREE.Vector3();
+const _schildRechts = new THREE.Vector3();
+// Anteil der Leinwandbreite, den die Schildfläche wirklich füllt (VoxelKit).
+const SCHILD_FLAECHE = 0.94;
+export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.3 } = {}) {
   if (!camera || !schilder || schilder.length < 2) return;
   const liste = [];
   schilder.forEach((sprite) => {
@@ -164,13 +174,18 @@ export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.
   });
   if (liste.length < 2) return;
   camera.updateMatrixWorld();
-  const punkte = liste.map((sprite) => ({
-    sprite,
-    x: sprite.getWorldPosition(_schildOrt).project(camera).x
-  })).sort((a, b) => a.x - b.x);
+  _schildRechts.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+  const punkte = liste.map((sprite) => {
+    sprite.getWorldPosition(_schildOrt);
+    sprite.getWorldScale(_schildMass);
+    _schildRand.copy(_schildOrt).addScaledVector(_schildRechts, Math.abs(_schildMass.x) * SCHILD_FLAECHE / 2);
+    const x = _schildOrt.project(camera).x;
+    return { sprite, x, halb: Math.abs(_schildRand.project(camera).x - x) };
+  }).sort((a, b) => a.x - b.x);
   let stapel = 0;
   for (let i = 1; i < punkte.length; i += 1) {
-    stapel = Math.abs(punkte[i].x - punkte[i - 1].x) < naehe ? stapel + 1 : 0;
+    const luecke = punkte[i].x - punkte[i - 1].x;
+    stapel = luecke < punkte[i].halb + punkte[i - 1].halb ? stapel + 1 : 0;
     punkte[i].sprite.position.y = grundY + stapel * stufe;
   }
 }

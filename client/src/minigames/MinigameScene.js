@@ -313,7 +313,7 @@ export class MinigameScene {
       this.ownLabelFor = f.controlledId;
       this.labels.forEach((sprite, id) => setNameLabelOwn(sprite, id === f.controlledId));
     }
-    if (this.labels.size > 1) entflechteSchilder([...this.labels.values()], this.camera, { grundY: this.labelY ?? 0.74, stufe: 0.26, naehe: 0.14 });
+    if (this.labels.size > 1) entflechteSchilder([...this.labels.values()], this.camera, { grundY: this.labelY ?? 0.74, stufe: 0.26 });
     // Runde Formen als Blöcke (siehe Blockform.js) — auch solche, die ein
     // Spiel erst während der Runde anlegt.
     verblocke(this.scene);

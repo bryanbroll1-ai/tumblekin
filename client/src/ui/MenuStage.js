@@ -675,7 +675,7 @@ export class MenuStage {
     // gestaffelt, sonst liest man zwei Namen übereinander.
     const labels = [];
     this.members.forEach((entry) => { if (entry.label.visible && entry.kin.visible) labels.push(entry.label); });
-    entflechteSchilder(labels, this.camera, { grundY: 0.74, stufe: 0.26, naehe: 0.16 });
+    entflechteSchilder(labels, this.camera, { grundY: 0.74, stufe: 0.26 });
     verblocke(this.scene);
     this.renderer.render(this.scene, this.camera);
   }
