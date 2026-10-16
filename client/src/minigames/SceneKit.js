@@ -147,13 +147,14 @@ export function addStageLights(scene, {
 // In den Bahnspielen — Zielgerade, Münzregen — stehen zu Rundenbeginn drei von
 // vier Figuren fast auf demselben Punkt. Ihre Schilder liegen dann exakt
 // übereinander und ergeben Buchstabensalat: man sieht vier Namen und kann
-// keinen lesen. Wessen Schild sich waagerecht mit dem des Vordermanns
-// überdeckt, bekommt es eine Stufe höher.
+// keinen lesen.
 //
-// Ob zwei Schilder sich überdecken, misst die echte Bildbreite der Schilder
-// (Sprite-Breite projiziert). Ein fester Mindestabstand hob auch Schilder an,
-// die nebeneinander Platz hatten — in Nervenprobe rutschten sie so in die
-// Zeittafeln über den Köpfen.
+// Gemessen wird das echte Rechteck jedes Schildes im Bild (Sprite-Größe
+// projiziert). Das vorderste Schild bleibt unten; jedes weiter hinten rückt
+// so viele Stufen hoch, bis es keins der schon gesetzten mehr überdeckt.
+// Früher zählte nur ein fester waagerechter Mindestabstand: Das hob Schilder
+// an, die nebeneinander Platz hatten (Nervenprobe: hinein in die Zeittafeln),
+// und stapelte hintereinander stehende Figuren zu einem Knäuel (Münzregen).
 //
 // Die Höhe wird jedes Bild neu von `grundY` aus gesetzt, damit sich das
 // Anheben nicht über die Runde aufsummiert.
@@ -161,9 +162,34 @@ const _schildOrt = new THREE.Vector3();
 const _schildRand = new THREE.Vector3();
 const _schildMass = new THREE.Vector3();
 const _schildRechts = new THREE.Vector3();
-// Anteil der Leinwandbreite, den die Schildfläche wirklich füllt (VoxelKit).
-const SCHILD_FLAECHE = 0.94;
-export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.3 } = {}) {
+const _schildOben = new THREE.Vector3();
+const _kameraOrt = new THREE.Vector3();
+// Anteil der Leinwand, den die Schildfläche wirklich füllt (VoxelKit).
+const SCHILD_BREITE = 0.94;
+const SCHILD_HOEHE = 0.74;
+
+function schildRahmen(sprite, camera) {
+  sprite.getWorldPosition(_schildOrt);
+  sprite.getWorldScale(_schildMass);
+  _schildRand.copy(_schildOrt)
+    .addScaledVector(_schildRechts, Math.abs(_schildMass.x) * SCHILD_BREITE / 2)
+    .addScaledVector(_schildOben, Math.abs(_schildMass.y) * SCHILD_HOEHE / 2);
+  _schildOrt.project(camera);
+  if (_schildOrt.z > 1) return null; // hinter der Kamera
+  _schildRand.project(camera);
+  return {
+    x: _schildOrt.x,
+    y: _schildOrt.y,
+    breit: Math.abs(_schildRand.x - _schildOrt.x),
+    hoch: Math.abs(_schildRand.y - _schildOrt.y)
+  };
+}
+
+function ueberdeckt(a, b) {
+  return Math.abs(a.x - b.x) < a.breit + b.breit && Math.abs(a.y - b.y) < a.hoch + b.hoch;
+}
+
+export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.3, stufen = 6 } = {}) {
   if (!camera || !schilder || schilder.length < 2) return;
   const liste = [];
   schilder.forEach((sprite) => {
@@ -174,20 +200,21 @@ export function entflechteSchilder(schilder, camera, { grundY = 0.62, stufe = 0.
   });
   if (liste.length < 2) return;
   camera.updateMatrixWorld();
+  camera.getWorldPosition(_kameraOrt);
   _schildRechts.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
-  const punkte = liste.map((sprite) => {
-    sprite.getWorldPosition(_schildOrt);
-    sprite.getWorldScale(_schildMass);
-    _schildRand.copy(_schildOrt).addScaledVector(_schildRechts, Math.abs(_schildMass.x) * SCHILD_FLAECHE / 2);
-    const x = _schildOrt.project(camera).x;
-    return { sprite, x, halb: Math.abs(_schildRand.project(camera).x - x) };
-  }).sort((a, b) => a.x - b.x);
-  let stapel = 0;
-  for (let i = 1; i < punkte.length; i += 1) {
-    const luecke = punkte[i].x - punkte[i - 1].x;
-    stapel = luecke < punkte[i].halb + punkte[i - 1].halb ? stapel + 1 : 0;
-    punkte[i].sprite.position.y = grundY + stapel * stufe;
-  }
+  _schildOben.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+  const reihe = liste
+    .map((sprite) => ({ sprite, abstand: sprite.getWorldPosition(_schildOrt).distanceToSquared(_kameraOrt) }))
+    .sort((a, b) => a.abstand - b.abstand);
+  const gesetzt = [];
+  reihe.forEach(({ sprite }) => {
+    let rahmen = schildRahmen(sprite, camera);
+    for (let stapel = 1; rahmen && stapel <= stufen && gesetzt.some((anderer) => ueberdeckt(anderer, rahmen)); stapel += 1) {
+      sprite.position.y = grundY + stapel * stufe;
+      rahmen = schildRahmen(sprite, camera);
+    }
+    if (rahmen) gesetzt.push(rahmen);
+  });
 }
 
 // Frees GPU resources and removes the DOM the stage owns. Safe to call twice.
