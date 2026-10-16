@@ -394,7 +394,7 @@ Gemeinsame Bausteine der Minispiele:
 - `minigames/Blockform.js` — baut runde Formen (Kugeln, Zylinder, Kegel, Ringe, Scheiben, Tori, Drehkörper) vor dem ersten Bild in facettierte Low-Poly-Körper um (Polygon-Look): wenige Ecken je Umfang, jede Fläche mit eigener Normale; Tori (Schwimmringe, Reifen) werden zu Schläuchen mit sechseckigem Querschnitt. Grosse Spielflächen bekommen mehr Ecken, damit der sichtbare Rand zur Spielkante passt; Teilstücke (Ballonstreifen, Schwimmringbögen) knicken an denselben Stellen und schliessen lückenlos. Himmelskuppeln, Schatten und absichtlich eckige Vielecke bleiben unverändert; `userData.rund` nimmt eine Form ausdrücklich aus. `ringband` baut flache Ränder aus denselben Keilen, deren Oberkante bündig mit einer Fläche liegt.
 - `minigames/Quality.js` — Bewegungspräferenz (`prefers-reduced-motion`) und Gerätestufe; steuert Kamera-Shake, Partikelmenge, Schattenauflösung und Pixelratio.
 - `minigames/SketchFigures.js` — Spurmaler: die Figuren (Welle, Herz, Stern, Haus vom Nikolaus …) und ihre Wertung (Abdeckung × Genauigkeit); dieselbe Rechnung auf Server und Gerät, wie `SprintPhysics.js` und `BumperPhysics.js`.
-- `ui/MenuStage.js` — die Bühne hinter den Menüs. Die Podest-Zahlen sind Blockziffern aus einer 3×5-Pixelschrift.
+- `ui/MenuStage.js` — die Bühne hinter den Menüs. Die Podest-Zahlen sind Blockziffern aus einer 3×5-Pixelschrift. Die Kamera rahmt die Insel in die freie Fläche, die jeder Bildschirm mit `data-stage-band` markiert (auf breiten Geräten die linke Spalte neben der Karte); ein Band unter einem Viertel der Bildhöhe gilt als Messfehler und wächst um seine Mitte.
 
 Alle Namen, Figuren, Regeln und visuellen Motive sind eigenständige Entwürfe für Tumblekin.
 
