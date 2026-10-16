@@ -2,7 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { flashKin, createShadowBlob, noise } from "./VoxelKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin215";
-import { createKin, KinAnimator, standOn } from "./Kin.js?v=tumblekin215";
+import { createKin, KinAnimator, KIN_SOLE } from "./Kin.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, himmel, laternen } from "./Kulisse.js?v=tumblekin215";
 import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
@@ -35,6 +35,8 @@ const PLATE = [-1.25, TOWER_Z + 1.05];   // Schlagplatte (x, z) vor dem Kraftpro
 const KIN_Z = 2.1;
 const FALL_G = 14;
 const PAYOUTS = [500, 400, 300, 200, 100, 80];
+const STRONGMAN_SCALE = 1.4;
+const STRONGMAN_SOLE = KIN_SOLE * STRONGMAN_SCALE;
 // Wie auf dem Server (FEINT_MIN_POINTS / FEINT_MAX_POINTS, feintPoints).
 const MIN_POINTS = 80;
 const MAX_POINTS = 500;
@@ -295,10 +297,12 @@ export class FalseSignal extends MinigameScene {
   // Der Kraftprotz: eine grosse Figur mit Vorschlaghammer links vom Turm.
   buildStrongman(scene) {
     const man = createKin("#efe6d2", 3);
-    man.scale.setScalar(1.4);
+    man.scale.setScalar(STRONGMAN_SCALE);
     // Halb zur Kamera gedreht: so sieht man den Hammer in seiner rechten Hand
     // und den Schlag auf die Platte vor ihm.
-    man.position.set(-1.55, standOn(0), TOWER_Z + 0.1);
+    // Die Sohle liegt KIN_SOLE unter der Körpermitte — bei 1,4-facher Grösse
+    // entsprechend tiefer. Mit standOn(0) allein steckten die Füsse im Boden.
+    man.position.set(-1.55, STRONGMAN_SOLE + 0.02, TOWER_Z + 0.1);
     man.rotation.y = 0.5;
     scene.add(man);
     // Der Stiel zeigt am hängenden Arm nach vorn (wie der Holzhammer bei der
@@ -312,7 +316,7 @@ export class FalseSignal extends MinigameScene {
     shadow.position.set(man.position.x, 0.012, man.position.z);
     scene.add(shadow);
     this.strongman = new KinAnimator(man);
-    this.strongman.groundY = standOn(0);
+    this.strongman.groundY = STRONGMAN_SOLE + 0.02;
     this.animators.set("__lukas", this.strongman);
   }
 
