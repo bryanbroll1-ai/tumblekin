@@ -1356,6 +1356,7 @@ body.has-invite .start-sheet .field:first-child {
    Filtern nicht springt; nur das Raster scrollt. */
 
 .picker-card {
+  container: picker / inline-size;
   width: min(100%, 1080px);
   height: min(calc(100 * var(--vh)) - 32px, 940px);
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
@@ -1777,12 +1778,18 @@ body.has-invite .start-sheet .field:first-child {
   .pick-section-toggle { padding: 0 9px; white-space: nowrap; }
 }
 
-/* Breite Bildschirme: Suche und Reiter nebeneinander, grössere Karten. */
-@media (min-width: 720px) {
-  .picker-card { padding: 20px 22px 18px; gap: 14px; }
+/* Breite Auswahl: Suche und Reiter nebeneinander, grössere Karten. Gemessen
+   an der Karte selbst, nicht am Bildschirm — auf dem aufgespannten Duo und
+   dem iPad mini hochkant ist der Bildschirm breit, die Karte aber schmal;
+   die Reiter stapelten sich dort senkrecht. */
+@container picker (min-width: 760px) {
   .picker-browse { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); align-items: center; }
   .picker-grid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
   .picker-heading h3 { font-size: 1.5rem; }
+}
+
+@media (min-width: 720px) {
+  .picker-card { padding: 20px 22px 18px; gap: 14px; }
 }
 
 /* --- Minispiel: Einführungskarte und Countdown ---------------------------------- */

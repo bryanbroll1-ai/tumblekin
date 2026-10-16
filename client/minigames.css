@@ -2808,6 +2808,13 @@ canvas.is-stunned {
 
 .photo-polaroid[hidden] { display: none; }
 
+/* Flaches Querformat: bei 42 % der Höhe reichte das Sofortbild bis in die
+   Bedienleiste unten (refinement-check: 131 × 22 px über „Schubs!“). */
+@media (orientation: landscape) and (max-height: 520px) {
+  .photo-polaroid { width: min(56vw, 214px, calc(34 * var(--vh))); padding: 6px 6px 4px; }
+  .photo-polaroid p { margin-top: 3px; font-size: 0.78rem; }
+}
+
 .photo-picture {
   overflow: hidden;
   border-radius: 3px;

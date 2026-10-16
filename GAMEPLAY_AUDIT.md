@@ -253,3 +253,5 @@ Rückmeldung: Spielauswahl und Oberfläche sollen ansprechender werden. Angesehe
 | Lobby | Spielarten als graue Reiter, Spiele-Knopf nur mit Text. | Farbige Spielarten-Kacheln, Beschreibung in der Farbe der Art, Vorschaubilder der gewählten Spiele im Knopf. |
 | Startkarte | Kategorie nicht zu sehen; auf dem Tablet quer schob das Bild „Tipp & Regeln“ hinter die Knöpfe. | Kategoriefarbe als Kopfband und Etikett, grösseres Bild; auf breiten Bildschirmen zweispaltig. |
 | Menü | „An/Aus“ als einfache Pillen. | Echte Schalter mit Knopf. |
+| Spielauswahl, Duo aufgespannt / iPad mini hochkant | Breiter Bildschirm, aber schmale Karte: Die Breitbild-Regel setzte Suche und Reiter nebeneinander, die Reiter stapelten sich senkrecht. | Die Breitbild-Anordnung richtet sich nach der Breite der Karte (Container-Query), nicht nach dem Bildschirm. |
+| Schnappschuss, Handy quer | Das Sofortbild reichte 22 px in die Bedienleiste („Schubs!“). | Im flachen Querformat kleineres Sofortbild (höchstens 34 % der Höhe). |
