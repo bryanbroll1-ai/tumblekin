@@ -263,6 +263,32 @@ p {
     min-height: 0;
   }
 
+  /* Start: Die Karte steht rechts, die Insel gehört in die linke Spalte unter
+     den Schriftzug. Ohne diese Fläche maß die Bühne nur den Streifen zwischen
+     Schriftzug und Karten-Oberkante — auf dem Tablet quer keine 100 px hoch,
+     die Insel wurde winzig und verzerrt. (Spezifischer als die Regel weiter
+     unten, die sie im Hochformat ausblendet.) */
+  #screen-start.active > .stage-spacer {
+    display: block;
+  }
+
+  /* Der Schriftzug richtet sich nach seiner Spalte, nicht nach dem ganzen
+     Bildschirm: auf einem quer gehaltenen Handy lief „Tumblekin“ sonst unter
+     die Karte. Ältere Browser ohne Container-Einheiten behalten die
+     Bildschirmregel. (Mit der Kennung, weil die Grundregeln weiter unten
+     stehen und sonst gewännen.) */
+  #screen-start .start-brand {
+    container-type: inline-size;
+  }
+
+  #screen-start .start-brand h1 {
+    font-size: min(5.4rem, 11.5cqw);
+  }
+
+  #screen-start .tagline {
+    font-size: min(0.98rem, 4.6cqw);
+  }
+
   /* Rechts oben sitzt im Spiel der Menüknopf — die Karte bleibt daneben frei. */
   #screen-result.active,
   #screen-end.active {

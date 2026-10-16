@@ -686,9 +686,22 @@ export class MenuStage {
   updateCamera(dt, t, width, height) {
     const camera = this.camera;
     const band = this.focus;
-    const bandH = Math.max(80, band.bottom - band.top);
+    // Sicherheitsnetz: Ein Band unter einem Viertel der Bildhöhe ist ein
+    // Messfehler (Karte noch unterwegs, Layout gewechselt) und keine Bühne.
+    // Bei 95 px Band auf 960 px Bildhöhe rechnete die Kamera vorher mit gut
+    // 150 Grad Sichtfeld — die Insel wurde winzig und an den Rändern verzerrt.
+    // Zu schmale Bänder wachsen darum um ihre Mitte, innerhalb des Bildes.
+    const minBand = Math.min(height, Math.max(140, height * 0.25));
+    let top = band.top;
+    let bottom = band.bottom;
+    if (bottom - top < minBand) {
+      const mid = Math.min(height - minBand / 2, Math.max(minBand / 2, (top + bottom) / 2));
+      top = mid - minBand / 2;
+      bottom = mid + minBand / 2;
+    }
+    const bandH = Math.max(80, bottom - top);
     const bandW = Math.max(80, Math.min(width, band.right ?? width) - (band.left ?? 0));
-    const centerY = (band.top + band.bottom) / 2;
+    const centerY = (top + bottom) / 2;
     const centerX = ((band.left ?? 0) + Math.min(width, band.right ?? width)) / 2;
     const fullH = 2 * Math.max(centerY, height - centerY);
     const offsetY = fullH / 2 - centerY;

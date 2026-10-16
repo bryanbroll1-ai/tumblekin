@@ -79,6 +79,11 @@ export class UIManager {
     this.showScreen("start");
     this.stage?.showStart();
     window.addEventListener("resize", () => this.syncStageBand());
+    // Karten schweben beim Wechsel 40 px von unten ein; gemessen wurde im
+    // ersten Bild danach, also mitten in der Bewegung. Am Ende neu messen.
+    document.addEventListener("animationend", (event) => {
+      if (event.target?.classList?.contains("sheet")) this.syncStageBand();
+    });
   }
 
   render(state, myPlayerId) {
@@ -462,9 +467,11 @@ export class UIManager {
   syncStageBand() {
     if (!this.stage) return;
     const screen = document.getElementById(`screen-${this.screen}`);
+    // Eine ausgeblendete Fläche (Start im Hochformat) misst 0 × 0 — dann gilt
+    // das Band zwischen Schriftzug und Karte.
     const band = screen?.querySelector("[data-stage-band]");
-    if (band) {
-      const rect = band.getBoundingClientRect();
+    const rect = band?.getBoundingClientRect();
+    if (rect && rect.width > 40 && rect.height > 40) {
       this.stage.setFocus(rect.top, rect.bottom, rect.left, rect.right);
       return;
     }
