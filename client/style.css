@@ -76,6 +76,13 @@ html {
   :root { --ui: 1.45; }
 }
 
+/* Zwei Bildschirme (Surface Duo aufgespannt): jede Hälfte ist handygross,
+   und die Teile auf dem zweiten Bildschirm stehen über env(viewport-segment-…)
+   — Werte in Bildschirmpixeln, die ein Zoom noch einmal vergrössern würde. */
+@media (horizontal-viewport-segments: 2), (vertical-viewport-segments: 2) {
+  :root { --ui: 1; }
+}
+
 html:not(.css-zoom) {
   --ui: 1;
 }
