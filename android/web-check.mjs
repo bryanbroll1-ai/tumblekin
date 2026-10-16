@@ -106,6 +106,13 @@ await page.evaluate(async (type) => {
   await window.__tumblekin.request("startGame");
 }, type);
 await page.waitForFunction(() => window.__tumblekin.state()?.phase === "waitingReady", null, { timeout: 15000 });
+// Das Bild lädt, während die Startkarte erscheint: erst warten, bis es fertig
+// ist (höchstens 5 s), dann messen. Vorher las die Prüfung die Breite im
+// selben Augenblick und meldete gelegentlich 0, obwohl das Bild da war.
+await page.waitForFunction(() => {
+  const img = document.querySelector("#intro-preview") || document.querySelector(".intro-preview img");
+  return img?.complete && img.naturalWidth > 0;
+}, null, { timeout: 5000 }).catch(() => {});
 const preview = await page.evaluate(() => {
   const img = document.querySelector("#intro-preview") || document.querySelector(".intro-preview img");
   return img ? img.naturalWidth : 0;
