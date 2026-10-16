@@ -386,9 +386,10 @@ Gemeinsame Bausteine der Minispiele:
 - `minigames/catalog.js` — maßgebliche Liste aller Challenges samt Geste und Hilfetext.
 - `minigames/Kin.js` — Figur, Posen, Gesicht und `KinAnimator`.
 - `minigames/MinigameScene.js` — Grundgerüst jedes Spiels: Bühne, HUD, Figuren samt Schild und Schatten, eigener Pfeil, Partikel, Kamera, Finale, Abbau. Ein Spiel baut nur noch seine Welt und seine Handlung.
-- `minigames/CameraRig.js` — die Kamera aller Spiele (siehe oben).
+- `minigames/CameraRig.js` — die Kamera aller Spiele (siehe oben). Gegen Ende einer Runde (ab gut drei Sekunden vor Schluss und im Finale) fährt sie heraus, bis alle noch spielenden Figuren im Bild sind — statt auf den Sieger heranzufahren.
 - `minigames/Kulisse.js` — Bausteine für Kulissen: Zäune, Wimpel, Heuballen, Bäume, Berge, Laternen, Tribünen, Himmel und Schilder. Gleiche Teile laufen als InstancedMesh in einem Zeichenaufruf, Zufall kommt aus einem Seed, damit jede Szene bei jedem Start gleich aussieht.
 - `minigames/VoxelKit.js` — Voxel-Bausteine, Partikel (`CubeBurst`) und Pop-up-Texte (`FloatingText`); reicht die Figur aus `Kin.js` weiter.
+- `minigames/BlockFont.js` — Blockschrift: Buchstaben aus Würfeln einer 5×7-Pixelschrift mit Tiefe und dunklem Rand, wie die Platzzahlen am Podest. Alle Texte in der Spielwelt (Pop-Texte, Namensschilder, gemalte Schilder und Tafeln) stehen darin; Emoji werden dazwischengesetzt.
 - `minigames/SceneKit.js` — Renderer, Licht, HUD und Teardown.
 - `minigames/Blockform.js` — baut runde Formen (Kugeln, Zylinder, Kegel, Ringe, Scheiben, Tori, Drehkörper) vor dem ersten Bild in facettierte Low-Poly-Körper um (Polygon-Look): wenige Ecken je Umfang, jede Fläche mit eigener Normale; Tori (Schwimmringe, Reifen) werden zu Schläuchen mit sechseckigem Querschnitt. Grosse Spielflächen bekommen mehr Ecken, damit der sichtbare Rand zur Spielkante passt; Teilstücke (Ballonstreifen, Schwimmringbögen) knicken an denselben Stellen und schliessen lückenlos. Himmelskuppeln, Schatten und absichtlich eckige Vielecke bleiben unverändert; `userData.rund` nimmt eine Form ausdrücklich aus. `ringband` baut flache Ränder aus denselben Keilen, deren Oberkante bündig mit einer Fläche liegt.
 - `minigames/Quality.js` — Bewegungspräferenz (`prefers-reduced-motion`) und Gerätestufe; steuert Kamera-Shake, Partikelmenge, Schattenauflösung und Pixelratio.

@@ -4,6 +4,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { eventChance, frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 import { ringband } from "./Blockform.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Zündstoff — heisse Kartoffel mit einer Bombe. Die Zündzeit blinkt kurz auf,
 // dann heisst es: merken und rechtzeitig weitergeben. Wer sie beim Knall hält,
@@ -567,7 +568,7 @@ export class BombPass extends MinigameScene {
       c.font = `900 ${overtime ? 70 : revealing ? 46 : 62}px ui-rounded, system-ui, sans-serif`;
       c.textAlign = "center";
       c.textBaseline = "middle";
-      c.fillText(overtime ? "!" : text, 64, 70);
+      fillBlockText(c, overtime ? "!" : text, 64, 70);
       this.timerTex.needsUpdate = true;
     }
     this.spark.material.emissiveIntensity = 0.7 + Math.abs(Math.sin(now / (150 - tension * 100))) * (0.8 + tension * 1.4);

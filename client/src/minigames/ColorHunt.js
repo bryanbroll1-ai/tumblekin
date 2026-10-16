@@ -6,6 +6,7 @@ import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin215";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 import { bombCentre, forecastPaint, paintRules, parseCells } from "./Farbwalze.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Farbenjagd: jeder schiebt eine Farbwalze über eine grosse Leinwand. Was die
 // Walze überrollt, hat sofort seine Farbe, auch fremde. Auf der eigenen Farbe
@@ -918,12 +919,10 @@ function graffitiTextur() {
   [["PAINT", 60, 140, 0], ["WOW", 620, 120, 2], ["ZAP", 860, 170, 4]].forEach(([text, x, y, f]) => {
     ctx.lineWidth = 22;
     ctx.strokeStyle = "#1c1c24";
-    ctx.strokeText(text, x, y);
     ctx.fillStyle = farben[f];
-    ctx.fillText(text, x, y);
+    fillBlockText(ctx, text, x, y);
     ctx.lineWidth = 5;
     ctx.strokeStyle = "#ffffff";
-    ctx.strokeText(text, x, y);
   });
   for (let i = 0; i < 24; i += 1) {
     ctx.fillStyle = farben[i % farben.length];

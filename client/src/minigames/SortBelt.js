@@ -4,6 +4,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, schild } from "./Kulisse.js?v=tumblekin215";
 import { buildSortItem } from "./SortItems.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Sortierband: Dinge laufen auf dem Band heran — Obst, Müll, Spielzeug —,
 // wischen oder tippen wirft das vorderste in eine Rutsche. Jede Rutsche trägt
@@ -954,7 +955,7 @@ function paintSign(sprite, category, background, color) {
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.font = `${Math.floor(h * 0.5)}px ${EMOJI_FONT}`;
-  ctx.fillText(category.icon, 20, h / 2 + 3);
+  fillBlockText(ctx, category.icon, 20, h / 2 + 3);
   let size = Math.floor(h * 0.4);
   ctx.font = `900 ${size}px ui-rounded, system-ui, sans-serif`;
   while (size > 18 && ctx.measureText(category.name).width > w - 100) {
@@ -962,6 +963,6 @@ function paintSign(sprite, category, background, color) {
     ctx.font = `900 ${size}px ui-rounded, system-ui, sans-serif`;
   }
   ctx.fillStyle = color;
-  ctx.fillText(category.name, 78, h / 2 + 2);
+  fillBlockText(ctx, category.name, 78, h / 2 + 2);
   sprite.material.map.needsUpdate = true;
 }

@@ -211,7 +211,48 @@ export class CameraRig {
       }
     }
 
-    // Finale: auf den Sieger zufahren.
+    // Übersicht am Ende (MinigameScene.overviewWeight): Blickpunkt in die
+    // Mitte aller noch spielenden Figuren (samt dem Motiv des Spiels), und so
+    // weit zurück, dass jede Figur ganz im Band liegt — gerechnet in allen
+    // drei Richtungen der Kamera, auch in der Tiefe: Läufer am Start lagen
+    // sonst hinter der Kamera. Im Finale dreht die Kamera dabei leicht.
+    if (opts.overview?.objects?.length && opts.overview.weight > 0) {
+      const w = Math.min(1, opts.overview.weight);
+      if (minigame?.finaleAt && base.finale && !this.reduced) yaw += Math.sin(now / 2400) * base.finale.orbit * 0.5 * w;
+      const cosY = Math.cos(yaw);
+      const sinY = Math.sin(yaw);
+      const cosP = Math.cos(pitch);
+      const sinP = Math.sin(pitch);
+      const right = new THREE.Vector3(cosY, 0, -sinY);
+      const upward = new THREE.Vector3(-sinP * sinY, cosP, -sinP * cosY);
+      const forward = new THREE.Vector3(-sinY * cosP, -sinP, -cosY * cosP);
+      const points = opts.overview.objects.map((object) => object.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.55, 0)));
+      const box = new THREE.Box3().setFromPoints([...points, lookGoal]);
+      const center = box.getCenter(new THREE.Vector3());
+      const look = lookGoal.clone().lerp(center, w);
+      const tanVo = Math.tan(THREE.MathUtils.degToRad(base.fov) / 2);
+      const tanHo = tanVo * (bandW / bandH);
+      const margin = base.keepMargin;
+      let need = 0;
+      const rel = new THREE.Vector3();
+      points.forEach((point) => {
+        rel.copy(point).sub(look);
+        const across = Math.abs(rel.dot(right)) + 0.7;
+        const vertical = Math.abs(rel.dot(upward)) + 0.9;
+        need = Math.max(need, Math.max(across / (tanHo * margin), vertical / (tanVo * margin)) - rel.dot(forward));
+      });
+      const fill = base.fill;
+      const current = Math.max(frameH / (2 * tanVo * fill), frameW / (2 * tanHo * fill));
+      if (need > current) {
+        const distance = current + (need - current) * w;
+        frameH = 2 * tanVo * fill * distance;
+        frameW = 2 * tanHo * fill * distance;
+      }
+      lookGoal.copy(look);
+    }
+
+    // Finale: auf den Sieger zufahren (nur noch, wenn eine Szene es
+    // ausdrücklich verlangt — der Standard ist die Übersicht oben).
     if (minigame?.finaleAt && opts.winner && base.finale) {
       const winnerPos = opts.winner.getWorldPosition(new THREE.Vector3());
       winnerPos.y += base.finale.lift;

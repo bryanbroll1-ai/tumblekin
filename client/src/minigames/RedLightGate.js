@@ -4,6 +4,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin215";
 import { bindHoldInput } from "./HoldInput.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Lichtwächter — "Ochs am Berg": halten heisst laufen. Solange der Riese am
 // Ende der Wiese wegschaut und summt, ist Grün. Bevor er sich umdreht, sieht
@@ -322,7 +323,7 @@ export class RedLightGate extends MinigameScene {
     pen.font = "900 36px ui-rounded, system-ui, sans-serif";
     pen.textAlign = "center";
     pen.textBaseline = "middle";
-    pen.fillText(text, 64, 35);
+    fillBlockText(pen, text, 64, 35);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const board = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.4), new THREE.MeshLambertMaterial({ map: texture }));

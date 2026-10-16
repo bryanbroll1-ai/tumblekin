@@ -3,6 +3,7 @@ import { createNameLabel } from "./VoxelKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Grimassen: oben hängt ein Gesicht im Goldrahmen, das ein Gefühl zeigt —
 // darüber steht, welches: WÜTEND, ÜBERRASCHT, VERSCHMITZT … Davor steht die
@@ -437,7 +438,7 @@ export class FaceLift extends MinigameScene {
     ctx.fillStyle = "#ffe36b";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, 256, 66);
+    fillBlockText(ctx, text, 256, 66);
     tafel.texture.needsUpdate = true;
   }
 

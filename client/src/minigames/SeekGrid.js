@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Spürsinn: irgendwo unter den Feldern liegt ein Schatz. Jedes angetippte
 // Feld sagt, wie viele Schritte er entfernt ist. Wer mit wenigen Tipps findet,
@@ -49,7 +50,7 @@ function buildDigitMaterials() {
     ctx.font = "900 74px ui-rounded, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(value), 48, 52);
+    fillBlockText(ctx, String(value), 48, 52);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     // Über allem gezeichnet: die eigene Figur hüpft auf das getippte Feld

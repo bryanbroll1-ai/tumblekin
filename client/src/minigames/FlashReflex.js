@@ -3,6 +3,7 @@ import { noise } from "./VoxelKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, himmel, zaun } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Blitzreflex — Showdown bei Sonnenuntergang.
 //
@@ -753,7 +754,7 @@ export class FlashReflex extends MinigameScene {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = tone === "best" ? "#4a3000" : tone === "bad" ? "#ffd0d6" : "#fff4e0";
-    ctx.fillText(text, w / 2, h / 2 + 3);
+    fillBlockText(ctx, text, w / 2, h / 2 + 3);
     lane.tagTexture.needsUpdate = true;
   }
 
@@ -872,9 +873,8 @@ function signTexture(kind, title = "", sub = "") {
     ctx.textBaseline = "middle";
     ctx.lineWidth = 18;
     ctx.strokeStyle = "#3a0d0d";
-    ctx.strokeText("!", w / 2, h / 2 + 10);
     ctx.fillStyle = "#e8243a";
-    ctx.fillText("!", w / 2, h / 2 + 10);
+    fillBlockText(ctx, "!", w / 2, h / 2 + 10);
   } else {
     ctx.fillStyle = "#7a4a28";
     ctx.fillRect(0, 0, w, h);
@@ -891,14 +891,14 @@ function signTexture(kind, title = "", sub = "") {
       });
       ctx.font = "800 40px system-ui, sans-serif";
       ctx.fillStyle = "#e8c49a";
-      ctx.fillText("RUHIG BLEIBEN", w / 2, h - 52);
+      fillBlockText(ctx, "RUHIG BLEIBEN", w / 2, h - 52);
     } else {
       ctx.font = "900 96px system-ui, sans-serif";
-      ctx.fillText(title, w / 2, sub ? h / 2 - 20 : h / 2);
+      fillBlockText(ctx, title, w / 2, sub ? h / 2 - 20 : h / 2);
       if (sub) {
         ctx.font = "800 42px system-ui, sans-serif";
         ctx.fillStyle = "#e8c49a";
-        ctx.fillText(sub, w / 2, h / 2 + 62);
+        fillBlockText(ctx, sub, w / 2, h / 2 + 62);
       }
     }
     ctx.lineWidth = 12;
@@ -924,7 +924,7 @@ function holzschild(text) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#6a2a1a";
-  ctx.fillText(text, 192, 52);
+  fillBlockText(ctx, text, 192, 52);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

@@ -6,6 +6,7 @@ import { createNameLabel } from "./VoxelKit.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 import { blockform } from "./Blockform.js?v=tumblekin215";
 import { forecastHockey, hockeyRules, limits } from "./Puckbahn.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Luftpuck — Glow-Hockey in einer Neon-Spielhalle. Jeder Spieler IST ein
 // Airhockey-Schläger: runder Fuss in der eigenen Farbe, ein Neonring in der
@@ -1508,9 +1509,10 @@ function neonTextur(text) {
   ctx.shadowColor = "#ff3b8d";
   ctx.shadowBlur = 24;
   ctx.fillStyle = "#ffd0ea";
-  ctx.fillText(text, 256, 58);
+  // Neon: kein dunkler Rand, das Leuchten kommt vom Schatten.
+  fillBlockText(ctx, text, 256, 58, 480, { outline: null });
   ctx.shadowBlur = 8;
-  ctx.fillText(text, 256, 58);
+  fillBlockText(ctx, text, 256, 58, 480, { outline: null });
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

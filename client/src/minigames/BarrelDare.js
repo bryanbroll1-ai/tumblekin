@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { reachArm, standOn } from "./VoxelKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { eventChance, frameLerp } from "./Quality.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Fassmut — über jedem hängt ein Fass am Seil, das Seil läuft über eine Rolle
 // am Galgen und hinunter in die eigenen Hände. Das Fass wird losgelassen und
@@ -791,7 +792,7 @@ function makeSign(text) {
   ctx.font = "900 38px ui-rounded, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, 128, 35);
+  fillBlockText(ctx, text, 128, 35);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sign = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 0.05), [
@@ -844,7 +845,7 @@ function paintPlate(sprite, text, background, color) {
   }
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+  fillBlockText(ctx, text, canvas.width / 2, canvas.height / 2 + 2);
   sprite.material.map.needsUpdate = true;
 }
 

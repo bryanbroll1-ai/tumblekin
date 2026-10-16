@@ -3,6 +3,7 @@ import { createKin, KinAnimator, reachArm, KIN_SOLE } from "./VoxelKit.js?v=tumb
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, wolken, himmel } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Flaggen hoch — auf dem Deck eines Segelschiffs. Oben auf der Brücke steht
 // der Käpt'n mit einer roten und einer blauen Signalflagge. Steht oben
@@ -888,7 +889,7 @@ function namensTextur(text) {
   ctx.font = "900 52px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, 256, 52);
+  fillBlockText(ctx, text, 256, 52);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

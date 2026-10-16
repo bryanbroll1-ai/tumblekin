@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { fxScale, prefersReducedMotion } from "./Quality.js?v=tumblekin215";
+import { blockTextCanvas, blockTextCols, drawBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Shared voxel building blocks for the 3D minigame dioramas.
 //
@@ -89,8 +90,8 @@ export function createCloud(seed = 0) {
 // darüber und lag in steilen Kameras weit neben der Figur).
 export function createNameLabel(text, accent, { own = false } = {}) {
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 88;
+  canvas.width = LABEL_W;
+  canvas.height = LABEL_H;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
@@ -101,45 +102,50 @@ export function createNameLabel(text, accent, { own = false } = {}) {
 }
 
 const OWN_LABEL_SCALE = 1.14;
+// Doppelte Auflösung gegenüber früher (256 × 88): die Blockschrift braucht
+// ganze Würfel, damit die Kanten sauber stehen.
+const LABEL_W = 384;
+const LABEL_H = 132;
 
 // Ein Schild zum eigenen machen oder zurück. Zeichnet nur neu, wenn sich
-// etwas ändert.
+// etwas ändert. Der Name steht in Blockschrift (wie die Platzzahlen am
+// Podest) — vorher eine dünne Systemschrift, die neben den Klötzchen
+// eingedrückt wirkte.
 export function setNameLabelOwn(sprite, own) {
   const data = sprite?.userData?.nameLabel;
   if (!data || data.own === Boolean(own)) return;
   const first = data.own === null;
   data.own = Boolean(own);
   const ctx = data.canvas.getContext("2d");
-  ctx.clearRect(0, 0, 256, 88);
+  const k = LABEL_W / 256;
+  ctx.clearRect(0, 0, LABEL_W, LABEL_H);
   if (own) {
     ctx.fillStyle = "rgba(21, 33, 38, 0.94)";
-    roundRect(ctx, 8, 9, 240, 70, 33);
+    roundRect(ctx, 8 * k, 9 * k, 240 * k, 70 * k, 33 * k);
     ctx.fill();
-    ctx.lineWidth = 12;
+    ctx.lineWidth = 12 * k;
     ctx.strokeStyle = "#ffd21f";
     ctx.stroke();
   } else {
     ctx.fillStyle = "rgba(21, 33, 38, 0.88)";
-    roundRect(ctx, 10, 12, 236, 64, 30);
+    roundRect(ctx, 10 * k, 12 * k, 236 * k, 64 * k, 30 * k);
     ctx.fill();
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 6 * k;
     ctx.strokeStyle = data.accent;
     ctx.stroke();
   }
-  // Lange Namen werden schmaler gesetzt, statt über den Rand zu laufen.
-  let size = own ? 44 : 40;
-  const weight = own ? 900 : 800;
-  ctx.font = `${weight} ${size}px ui-rounded, system-ui, sans-serif`;
-  const room = own ? 196 : 206;
-  const width = ctx.measureText(data.text).width;
-  if (width > room) {
-    size = Math.max(24, Math.floor(size * room / width));
-    ctx.font = `${weight} ${size}px ui-rounded, system-ui, sans-serif`;
-  }
-  ctx.fillStyle = own ? "#ffe45c" : "#ffffff";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(data.text, 128, 46);
+  // Lange Namen werden kleiner gesetzt, statt über den Rand zu laufen.
+  const room = (own ? 196 : 206) * k;
+  const cols = Math.max(1, blockTextCols(data.text));
+  const cell = Math.max(2.5, Math.min((own ? 6.6 : 6) * k, room / (cols + 0.4)));
+  const width = cols * cell;
+  const height = 7 * cell;
+  drawBlockText(ctx, data.text, (LABEL_W - width) / 2, 46 * k - height / 2, {
+    cell,
+    color: own ? "#ffe45c" : "#ffffff",
+    outline: null,
+    depth: 0.28
+  });
   sprite.material.map.needsUpdate = true;
   if (!first || own) sprite.scale.multiplyScalar(own ? OWN_LABEL_SCALE : 1 / OWN_LABEL_SCALE);
 }
@@ -315,32 +321,15 @@ export class FloatingText {
     this.items = [];
   }
 
-  pop(position, text, { color = "#ffffff", size = 0.5, life = 0.95, rise = 0.9, stroke = "rgba(18,38,48,0.6)" } = {}) {
-    const FONT_PX = 82;
-    const PAD = 26;                 // room for the outline stroke on both sides
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const font = `900 ${FONT_PX}px ui-rounded, system-ui, sans-serif`;
-
-    // Size the canvas to the text instead of clipping it: a fixed 256px canvas
-    // cut off anything past ~5 characters ("PERFEKT!" rendered as "ERFEK").
-    ctx.font = font;
-    const width = Math.ceil(ctx.measureText(text).width) + PAD * 2;
-    const height = FONT_PX + PAD * 2;
-    canvas.width = width;
-    canvas.height = height;
-
-    // Resizing the canvas resets the 2D context, so restyle after sizing.
-    ctx.font = font;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 18;
-    ctx.strokeStyle = stroke;
-    ctx.strokeText(text, width / 2, height / 2 + 2);
-    ctx.fillStyle = color;
-    ctx.fillText(text, width / 2, height / 2);
-
+  // Pop-Texte stehen in Blockschrift (BlockFont.js): Würfelbuchstaben mit
+  // Tiefe und dunklem Rand, wie die Platzzahlen am Podest. Vorher war es eine
+  // dünne, umrandete Systemschrift, die neben den Klötzchen flach wirkte.
+  pop(position, text, { color = "#ffffff", size = 0.5, life = 0.95, rise = 0.9, stroke = "rgba(18,38,48,0.9)" } = {}) {
+    // Kräftige Würfel: mehr Tiefe und ein breiterer dunkler Rand als bei
+    // Schildern, damit der Text auch klein über dem Spielfeld trägt.
+    const { canvas } = blockTextCanvas(text, { cell: 14, color, outline: stroke, depth: 0.45, rim: 0.32 });
+    const width = canvas.width;
+    const height = canvas.height;
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
@@ -349,7 +338,9 @@ export class FloatingText {
     this.scene.add(sprite);
     // Keep the sprite's on-screen aspect equal to the canvas so wide labels
     // stay legible instead of being squeezed into a fixed 2:1 box.
-    this.items.push({ sprite, age: 0, life, rise, baseY: position.y, size, aspect: width / height });
+    // Die Würfelschrift füllt ihre Leinwand fast ganz aus; 0.82 ergibt
+    // Buchstaben, die ein gutes Stück grösser sind als die alte Schrift.
+    this.items.push({ sprite, age: 0, life, rise, baseY: position.y, size: size * 0.82, aspect: width / height });
   }
 
   // `camera` ist freiwillig, aber ohne sie kann der Text nicht im Bild gehalten

@@ -3,6 +3,7 @@ import { MinigameScene } from './MinigameScene.js?v=tumblekin215';
 import { standOn } from './VoxelKit.js?v=tumblekin215';
 import { kiste, lambert, viele } from './Kulisse.js?v=tumblekin215';
 import { frameLerp } from './Quality.js?v=tumblekin215';
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 import './SprintPhysics.js?v=tumblekin215';
 
 const P = globalThis.TumblekinSprintPhysics;
@@ -88,7 +89,7 @@ export class RunnerDerby extends MinigameScene {
     kiste(this.scene, width + 0.7, 0.38, 0.22, '#ffc95e', [0, 2.8, -length - 1.4]);
     const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 96;
     const ctx = canvas.getContext('2d'); ctx.fillStyle = '#ffc95e'; ctx.fillRect(0, 0, 512, 96);
-    ctx.fillStyle = '#253743'; ctx.font = 'bold 54px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${P.C.LENGTH} m · ZIEL`, 256, 68);
+    ctx.fillStyle = '#253743'; ctx.font = 'bold 54px sans-serif'; ctx.textAlign = 'center'; fillBlockText(ctx, `${P.C.LENGTH} m · ZIEL`, 256, 68);
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(width + 0.5, 0.34), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas) }));
     sign.position.set(0, 2.8, -length - 1.27); this.scene.add(sign);
 

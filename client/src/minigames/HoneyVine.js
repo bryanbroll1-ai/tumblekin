@@ -3,6 +3,7 @@ import { dressMeadow } from "./SceneKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, zaun, sonnenblumen, himmel, wolken } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Honigwabe — Mutprobe am Bienenbaum. Vom Ast hängt eine Ranke voller
 // geschlossener Knospen, alle stehen gemeinsam darunter, und vor jedem Griff
@@ -155,7 +156,7 @@ export class HoneyVine extends MinigameScene {
     ctx.font = "1000 78px ui-rounded, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, 64, 70);
+    fillBlockText(ctx, text, 64, 70);
     bubble.texture.needsUpdate = true;
   }
 

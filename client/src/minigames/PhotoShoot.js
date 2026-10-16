@@ -5,6 +5,7 @@ import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, himmel } from "./Kulisse.js?v=tumblekin215";
 import { forecastPhoto, photoRules, canShove } from "./Fotobuehne.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Schnappschuss — Premierenabend auf dem roten Teppich. Ein Fotograf vorn
 // am Bühnenrand zeigt einen Bildausschnitt, zählt herunter und blitzt. Wer im
@@ -759,11 +760,11 @@ function fotowandTextur() {
       const y = row * 64 + 36;
       ctx.fillStyle = (row + col) % 2 ? "#e9b949" : "#ff5d73";
       ctx.font = "900 26px system-ui, sans-serif";
-      ctx.fillText("★", x, y);
+      fillBlockText(ctx, "★", x, y);
       ctx.fillStyle = "#d8dcf0";
       ctx.font = "800 13px system-ui, sans-serif";
-      ctx.fillText("TUMBLEKIN", x + 26, y - 4);
-      ctx.fillText("PREMIERE", x + 26, y + 10);
+      fillBlockText(ctx, "TUMBLEKIN", x + 26, y - 4);
+      fillBlockText(ctx, "PREMIERE", x + 26, y + 10);
     }
   }
   const texture = new THREE.CanvasTexture(canvas);

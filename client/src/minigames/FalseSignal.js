@@ -4,6 +4,7 @@ import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp, fxScale } from "./Quality.js?v=tumblekin215";
 import { createKin, KinAnimator, standOn } from "./Kin.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer, himmel, laternen } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Falschsignal — Hau den Lukas auf dem nächtlichen Jahrmarkt.
 //
@@ -711,7 +712,7 @@ function textTexture(text, { w, h, bg, fg, size }) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = fg;
-  ctx.fillText(text, w / 2, h / 2 + 3);
+  fillBlockText(ctx, text, w / 2, h / 2 + 3);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

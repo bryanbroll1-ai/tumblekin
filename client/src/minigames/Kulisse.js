@@ -1,4 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Bausteine für Kulissen.
 //
@@ -283,7 +284,8 @@ export function schild(text, { breite = 512, hoehe = 128, grund = "#2f6fb0", sch
     ctx.shadowBlur = 18;
   }
   ctx.fillStyle = schrift;
-  ctx.fillText(text, breite / 2, hoehe / 2 + 4);
+  // Blockschrift (BlockFont.js); leuchtende Schilder ohne dunklen Rand.
+  fillBlockText(ctx, text, breite / 2, hoehe / 2 + 4, breite - 36, glow ? { outline: null } : {});
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

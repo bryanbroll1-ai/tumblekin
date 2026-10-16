@@ -4,6 +4,7 @@ import { dressMeadow } from "./SceneKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, zaun, wimpel, heuballen, scheune, sonnenblumen, wolken, himmel, viele, streuer } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Tauziehen auf dem Dorffest: zwei Teams am Seil, dazwischen die Schlammgrube.
 // Wer zuerst mit dem Fuss im Schlamm steht, hat verloren: das Seil läuft so
@@ -575,7 +576,7 @@ function schildTextur(text) {
   ctx.font = "900 40px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, 128, 50);
+  fillBlockText(ctx, text, 128, 50);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

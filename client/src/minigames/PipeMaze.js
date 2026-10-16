@@ -3,6 +3,7 @@ import { disposeScene } from "./VoxelKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Rohrsalat — im Kesselhaus hängt ein Gewirr aus Kupferrohren an der
 // Ziegelwand. Oben die Ventile, unten die Ausgänge; nur einer führt in die
@@ -30,7 +31,7 @@ function valveLabel(letter, color) {
   ctx.fillStyle = '#fff8df'; ctx.fillRect(4, 4, 120, 120);
   ctx.strokeStyle = color; ctx.lineWidth = 12; ctx.strokeRect(10, 10, 108, 108);
   ctx.fillStyle = '#17242b'; ctx.font = '900 82px sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(letter, 64, 68);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; fillBlockText(ctx, letter, 64, 68);
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false }));
@@ -640,7 +641,7 @@ function schildTextur(text) {
   ctx.font = "900 42px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, 128, 50);
+  fillBlockText(ctx, text, 128, 50);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

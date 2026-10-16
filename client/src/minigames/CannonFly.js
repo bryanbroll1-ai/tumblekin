@@ -4,6 +4,7 @@ import { dressMeadow } from "./SceneKit.js?v=tumblekin215";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameChance, frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Kanonenflug: erster Tipp legt die Kraft fest, der zweite den Winkel — dann
 // fliegt die Figur. Drei Schuss; Ziel ist die FLAGGE, die jede Runde woanders
@@ -276,7 +277,7 @@ export class CannonFly extends MinigameScene {
     pen.font = "900 40px ui-rounded, system-ui, sans-serif";
     pen.textAlign = "center";
     pen.textBaseline = "middle";
-    pen.fillText(`${text}m`, 64, 35);
+    fillBlockText(pen, `${text}m`, 64, 35);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const board = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.36, 0.05), [

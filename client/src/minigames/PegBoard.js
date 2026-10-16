@@ -4,6 +4,7 @@ import { frameLerp, fxScale } from "./Quality.js?v=tumblekin215";
 import { himmel, kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 import { Nachlauf } from "./Nachlauf.js?v=tumblekin215";
 import { landingX } from "./Nagelbahn.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Eine Kugel-Form für alle Kugeln: vorher bekam jede Kugel eigene Geometrie,
 // und beim Landen wurde sie nur aus der Szene genommen, nie freigegeben.
@@ -45,9 +46,8 @@ function makeLabel(text, { color = "#ffffff", size = 0.36, stroke = "rgba(20, 28
   ctx.textBaseline = "middle";
   ctx.lineWidth = 14;
   ctx.strokeStyle = stroke;
-  ctx.strokeText(text, 128, 68);
   ctx.fillStyle = color;
-  ctx.fillText(text, 128, 64);
+  fillBlockText(ctx, text, 128, 64);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const mesh = new THREE.Mesh(

@@ -14,12 +14,14 @@ import {
 } from "./VoxelKit.js?v=tumblekin215";
 import { MINIGAME_METRICS } from "./presentation.js?v=tumblekin215";
 import { mountStage, mountHud, addStageLights, teardownStage, entflechteSchilder } from "./SceneKit.js?v=tumblekin215";
-import { CameraRig, finaleWinner } from "./CameraRig.js?v=tumblekin215";
+import { CameraRig } from "./CameraRig.js?v=tumblekin215";
 import { frameChance } from "./Quality.js?v=tumblekin215";
 import { verblocke } from "./Blockform.js?v=tumblekin215";
 import { cssZoom } from "../ui/cssZoom.js?v=tumblekin215";
 
 const COLORS = ["#ff5d73", "#28c7d9", "#ffd15c", "#71d97b"];
+const OVERVIEW_LEAD_MS = 3200;
+const OVERVIEW_BLEND_MS = 1400;
 
 // Die Farbe bestimmt das Accessoire (Spross, Heiligenschein, Fühler, Krone),
 // damit dieselbe Person in jedem Spiel und auf der Menübühne gleich aussieht.
@@ -290,16 +292,19 @@ export class MinigameScene {
     this.updateHudBasics(f);
 
     const own = this.kins.get(f.controlledId) || null;
-    // Im Finale fährt die Kamera auf den Sieger zu. Hielte sie dabei weiter
-    // alle im Bild, höbe die Sicherung das Heranfahren wieder auf.
-    // Spiele, deren Figuren weit auseinander liegen (Bergsteiger), bleiben
-    // mit `finaleFocus = false` bei der eigenen Figur.
-    const winner = this.finaleFocus === false ? null : finaleWinner(minigame, this.kins);
+    // Gegen Ende fährt die Kamera heraus, bis alle sehen, wo die anderen
+    // gerade noch sind: in den letzten Sekunden der Runde und im Finale wird
+    // das Bild um alle noch spielenden Figuren erweitert — das Motiv des
+    // Spiels bleibt dabei im Bild. Vorher fuhr das Finale auf den Sieger zu,
+    // und wer der eigenen Figur folgte, sah die anderen bis zum Schluss nicht.
+    const overview = this.overviewCamera === false ? 0 : this.overviewWeight(f);
+    const players = overview > 0 ? this.overviewKins() : [];
+    const keep = this.keepInView?.(f) ?? [...this.kins.values()];
     this.rig.update(dt, now, {
       minigame,
-      keep: winner ? [winner] : (this.keepInView?.(f) ?? [...this.kins.values()]),
-      own: winner || this.ownInView === false ? null : own,
-      winner,
+      keep: players.length ? [...keep, ...players] : keep,
+      own: overview > 0.5 || this.ownInView === false ? null : own,
+      overview: players.length ? { objects: players, weight: overview } : null,
       ...(this.rigOptions?.(f) || {})
     });
     // Die eigene Figur trägt das gelbe Schild — auch wenn die Steuerung
@@ -313,6 +318,21 @@ export class MinigameScene {
     // Spiel erst während der Runde anlegt.
     verblocke(this.scene);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // Wie weit die Übersicht am Ende schon greift: ab gut drei Sekunden vor
+  // Schluss wächst sie an, im Finale ganz.
+  overviewWeight(f) {
+    if (f.finale) return 1;
+    const minigame = f.minigame;
+    if (!f.started || !minigame?.duration) return 0;
+    const left = minigame.startedAt + minigame.duration - f.now;
+    return Math.max(0, Math.min(1, (OVERVIEW_LEAD_MS - left) / OVERVIEW_BLEND_MS));
+  }
+
+  // Die Figuren, die die Übersicht zeigt: sichtbar und noch im Spiel.
+  overviewKins() {
+    return [...this.kins.values()].filter((kin) => kin.visible !== false && !kin.userData.outOfPlay);
   }
 
   updateHudBasics(f) {

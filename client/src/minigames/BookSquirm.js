@@ -5,6 +5,7 @@ import { VirtualJoystick } from "./VirtualJoystick.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert, viele, streuer } from "./Kulisse.js?v=tumblekin215";
 import { forecastBook, inHole, bookRules } from "./Buchseite.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Bücherwurm — alle stehen auf der aufgeschlagenen Seite eines Riesenbuchs,
 // das auf einem Schreibtisch liegt. Hinten richtet sich die nächste Seite
@@ -728,7 +729,7 @@ function seitenTextur(nummer) {
   const zufall = streuer(nummer + 3);
   ctx.fillStyle = "#3b2f2a";
   ctx.font = "900 26px Georgia, serif";
-  ctx.fillText(["Kapitel 7", "Der Bücherwurm", "Die Riesenseite"][nummer % 3], 34, 60);
+  fillBlockText(ctx, ["Kapitel 7", "Der Bücherwurm", "Die Riesenseite"][nummer % 3], 34, 60);
   ctx.fillStyle = "rgba(59, 47, 42, 0.55)";
   for (let y = 90; y < 440; y += 16) {
     if (y > 190 && y < 300 && nummer % 2 === 0) continue;
@@ -746,7 +747,7 @@ function seitenTextur(nummer) {
   }
   ctx.fillStyle = "#3b2f2a";
   ctx.font = "700 18px Georgia, serif";
-  ctx.fillText(String(40 + nummer * 2), 180, 470);
+  fillBlockText(ctx, String(40 + nummer * 2), 180, 470);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

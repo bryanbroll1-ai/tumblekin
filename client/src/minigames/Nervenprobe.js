@@ -2,6 +2,7 @@ import * as THREE from "/vendor/three/three.module.js";
 import { MinigameScene } from "./MinigameScene.js?v=tumblekin215";
 import { frameLerp } from "./Quality.js?v=tumblekin215";
 import { kiste, lambert } from "./Kulisse.js?v=tumblekin215";
+import { fillBlockText } from "./BlockFont.js?v=tumblekin215";
 
 // Nervenprobe: die Uhr läuft sichtbar an, dann verschwindet sie — man zählt im
 // Kopf weiter und drückt, wenn man glaubt, das Ziel sei erreicht.
@@ -53,7 +54,7 @@ function paintDial(canvas, targetMs) {
     ctx.font = "800 46px ui-rounded, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(s), c + Math.cos(a) * (c - 84), c + Math.sin(a) * (c - 84));
+    fillBlockText(ctx, String(s), c + Math.cos(a) * (c - 84), c + Math.sin(a) * (c - 84));
   }
 }
 
@@ -126,11 +127,11 @@ function paintDisplay(panel, text, accent = "#33cf4d", sub = "", ink = INK) {
   ctx.font = `900 ${sub ? 50 : 62}px ui-rounded, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + (sub ? -14 : 3));
+  fillBlockText(ctx, text, canvas.width / 2, canvas.height / 2 + (sub ? -14 : 3));
   if (sub) {
     ctx.font = "800 28px ui-rounded, system-ui, sans-serif";
     ctx.fillStyle = "#5a6478";
-    ctx.fillText(sub, canvas.width / 2, canvas.height / 2 + 33);
+    fillBlockText(ctx, sub, canvas.width / 2, canvas.height / 2 + 33);
   }
   texture.needsUpdate = true;
 }
@@ -152,7 +153,7 @@ function paintSign(panel, targetMs, accent) {
   ctx.font = "900 72px ui-rounded, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 4);
+  fillBlockText(ctx, text, canvas.width / 2, canvas.height / 2 + 4);
   texture.needsUpdate = true;
 }
 
@@ -256,7 +257,7 @@ export class Nervenprobe extends MinigameScene {
     pen.font = "900 150px ui-rounded, system-ui, sans-serif";
     pen.textAlign = "center";
     pen.textBaseline = "middle";
-    pen.fillText("?", 128, 138);
+    fillBlockText(pen, "?", 128, 138);
     const coverTex = new THREE.CanvasTexture(coverCanvas);
     coverTex.colorSpace = THREE.SRGBColorSpace;
     this.cover = new THREE.Mesh(new THREE.CircleGeometry(DIAL_R + 0.02, 48), new THREE.MeshBasicMaterial({ map: coverTex, transparent: true, opacity: 0 }));
