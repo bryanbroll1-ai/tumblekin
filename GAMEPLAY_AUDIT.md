@@ -242,3 +242,14 @@ Rückmeldung vom Honor MagicPad 4: Die Kamera im Hub sei viel zu weit weg und se
 | Start im Querformat | Die Startkarte steht auf breiten Geräten rechts, die Bühne bekam trotzdem nur den Streifen zwischen Schriftzug und Karten-Oberkante — auf dem MagicPad quer 95 px hoch über die volle Breite. Die Kamera rechnete daraus 116–153 Grad Sichtfeld (Handy quer, Tablet, iPad, Laptop, Full HD): die Insel winzig, verzerrt, schräg unter der Karte. | Eigene Bühnenfläche links unter dem Schriftzug; ausgeblendete Flächen zählen nicht; nach dem Einschweben der Karte wird neu gemessen; in der Bühne ein Sicherheitsnetz gegen zu schmale Bänder. Der Schriftzug richtet sich nach seiner Spalte (lief auf dem Handy quer unter die Karte). |
 | Spiele mit Stick | Seit die Spielknöpfe auf Touch-Geräten aus sind, erscheint der Stick erst unter dem Finger und ist sonst durchsichtig. Die Kamera hielt ihm trotzdem das untere Viertel frei — Farbenjagd, Tiefenrausch und Bücherwurm standen auf dem Tablet quer in den oberen zwei Dritteln, Münzregen, Eisstock, Blitzreflex, Ballonfahrt etwas zu klein. | Die Kamera reserviert nur noch Platz für Bedienung, die man sieht: Knöpfe, Felder, Text, Flächen mit Farbe oder Rand. |
 | Lobby und Podest | Auf allen zehn Formen sauber gerahmt. | — |
+
+## Nachtrag 16. Oktober 2026: Spielauswahl und Oberfläche
+
+Rückmeldung: Spielauswahl und Oberfläche sollen ansprechender werden. Angesehen auf Handy, Handy quer, Fold (zu, zu quer) und MagicPad.
+
+| Bereich | Befund | Änderung |
+| --- | --- | --- |
+| Spielauswahl | Schmale Karte mit dicken schwarzen Rahmen; Namen brachen mitten im Wort um („Lichtwächt-er“, „Seilspringe-n“); ob ein Spiel gewählt war, sah man nur am Rahmen; drei Werkzeug-Pillen, Suche und Reiter nahmen auf dem Tablet zwei Drittel der Höhe. | Bildkarten in Kategoriefarben, Häkchen und farbiger Rahmen für gewählte, ausgegraute abgewählte Spiele; Abschnitte mit „3/7“ und „Alle an/ab“; Zähler „29 von 39“; Umbruch nur zwischen Wörtern; feste Höhe, auf Tablets bis 1080 px breit. Handys: Reiter als Symbol (der gewählte mit Namen); flaches Querformat: Suche, Reiter, „Alle/Keine“ in einer Zeile, „Übernehmen“ oben. |
+| Lobby | Spielarten als graue Reiter, Spiele-Knopf nur mit Text. | Farbige Spielarten-Kacheln, Beschreibung in der Farbe der Art, Vorschaubilder der gewählten Spiele im Knopf. |
+| Startkarte | Kategorie nicht zu sehen; auf dem Tablet quer schob das Bild „Tipp & Regeln“ hinter die Knöpfe. | Kategoriefarbe als Kopfband und Etikett, grösseres Bild; auf breiten Bildschirmen zweispaltig. |
+| Menü | „An/Aus“ als einfache Pillen. | Echte Schalter mit Knopf. |

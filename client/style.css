@@ -1924,6 +1924,28 @@ body.has-invite .start-sheet .field:first-child {
   }
 }
 
+/* Tablets und Bildschirme quer: Die Startkarte nutzt die Breite — links das
+   Spiel mit grossem Bild, rechts Üben und Bereit. Einspaltig schob das
+   Vorschaubild „Tipp & Regeln“ hinter die klebenden Knöpfe. */
+@media (orientation: landscape) and (min-width: 900px) and (min-height: 521px) {
+  .minigame-intro:not(.counting) .intro-card {
+    width: min(100%, 820px);
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.62fr);
+    column-gap: 24px;
+    align-items: center;
+  }
+  .minigame-intro:not(.counting) .intro-card > * { grid-column: 1; }
+  .minigame-intro:not(.counting) .intro-card > .intro-actions {
+    grid-column: 2;
+    grid-row: 1 / span 7;
+    position: static;
+    padding-top: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .minigame-intro:not(.counting) .intro-preview { max-height: 220px; }
+}
+
 @media (orientation: landscape) and (max-height: 360px) {
   .intro-preview { height: 56px; aspect-ratio: auto; }
   .intro-card h2 { font-size: 1.4rem; }
